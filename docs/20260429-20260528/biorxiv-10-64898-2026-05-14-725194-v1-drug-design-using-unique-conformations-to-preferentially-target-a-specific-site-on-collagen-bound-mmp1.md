@@ -1,0 +1,27 @@
+---
+title: Drug design using unique conformations to preferentially target a specific site on collagen-bound MMP1
+title_zh: 利用独特构象进行药物设计以优先靶向胶原结合态MMP1的特定部位
+authors: "SARKAR, S. K., Nash, A., Harms, C."
+date: 2026-05-17
+pdf: "https://www.biorxiv.org/content/10.64898/2026.05.14.725194v1.full.pdf"
+tags: ["query:pocket-lig"]
+score: 8.0
+evidence: 靶向独特蛋白口袋构象的位点特异性药物设计
+tldr: 传统基于静态结构的药物设计忽略蛋白质动态和底物依赖性，难以实现位点特异性靶向。本研究以胶原结合MMP1为模型，提出整合分子动力学模拟、构象聚类、机器学习配体生成和表面全位点筛选的底物特异性别构药物设计框架。通过聚焦胶原结合诱导的独特构象，生成了约15万候选化合物，并筛选出优先结合别构位点R405的配体。该策略为动态蛋白质系统的精准别构治疗提供了通用方法。
+source: biorxiv
+selection_source: fresh_fetch
+motivation: 静态结构基药物设计忽略底物结合诱导的蛋白质动态变化及别构位点，需利用底物特异性构象实现选择性靶向。
+method: 结合全原子分子动力学模拟、构象聚类识别胶原结合MMP1特有构象，用机器学习围绕R405生成配体，并筛选表面所有口袋。
+result: 发现多个化合物对R405区域有至少0.3 kcal/mol的结合优先性，实现底物特异性位点的选择性靶向。
+conclusion: 建立利用底物特异性别构位点的通用药物设计框架，为基于功能状态的精准治疗开辟新途径。
+---
+
+## 摘要
+在基于结构的药物发现中，精确的位点特异性药物设计仍然是一个挑战。现有方法大多基于X射线、核磁共振、冷冻电镜和AlphaFold等技术获得的静态结构，筛选配体以靶向蛋白质表面的结合口袋。然而，结构-功能范式实际上是一种结构-动力学-功能关系，它决定了蛋白质的结合和活性。因此，如果不在整个蛋白质表面评估结合竞争，或不考虑受体的动态、底物依赖的构象状态，药物筛选或设计就是不完整的。底物特异性的独特蛋白构象尚未被充分探索，并为选择性治疗靶向提供了新机遇，尽管识别和利用这些位点的系统工作流程仍然有限。此前，我们表明胶原改变了基质金属蛋白酶-1（MMP1）的动力学，并且R405是MMP1表面上的一个别构残基，与其活性位点表现出强烈的动力学相关性。在此，我们提出了一个底物特异性的别构药物设计框架，以胶原结合态MMP1为模型系统，靶向蛋白质上的特定位点。我们使用全原子分子动力学（MD）模拟确定了游离态和胶原结合态MMP1的构象动力学，并将构象归类为相似构象的簇。然后，我们比较并识别了仅在胶原结合态MMP1中出现的独特构象，并使用机器学习方法针对这些构象设计药物。利用前三个独特簇生成了大约150,000个候选化合物，然后针对以R405为中心的区域和MMP1表面上所有可检测的结合口袋进行了筛选。我们发现了几种化合物，它们优先结合在R405周围，相对于表面上的竞争位点至少低0.3 kcal/mol。该策略建立了一个可推广的框架，用于设计优先靶向底物特异性别构位点的配体，为调节生物相关功能状态下的蛋白质的精准治疗提供了新机遇。
+
+简单摘要：在本论文中，我们以胶原结合态MMP1为模型系统，建立了一种整合全原子分子动力学模拟、构象聚类、基于机器学习的配体设计和表面范围结合选择性筛选的底物特异性别构药物设计策略。我们发现胶原结合重塑了MMP1的构象系综，创造了在游离酶中不存在或无法接近的独特构象状态。通过识别这些底物特异性构象，基于围绕胶原特异性别构残基R405的相应动态指纹生成配体，并在MMP1表面上所有结合口袋中筛选化合物，我们证明了相对于竞争口袋，胶原特异性位点被优先靶向。这些结果建立了一个可推广的框架，用于设计选择性识别生物相关底物结合态构象的配体，而不仅仅是静态蛋白质结构。底物特异性别构靶向可能能够选择性地调节单个蛋白质功能，同时最小化脱靶相互作用，为针对动态蛋白质系统的精准治疗提供了新机遇。
+
+## Abstract
+Precise site-specific drug design remains a challenge in structure-based drug discovery. Most existing approaches screen for ligands to target binding pockets on a protein surface based on static structures obtained from techniques such as X-ray, NMR, cryo-EM, and AlphaFold. However, the structure-function paradigm is, in reality, a structure-dynamics-function relationship that determines a proteins binding and activity. As such, drug screening or design without evaluating binding competition across the protein surface or considering the receptors dynamic, substrate-dependent conformational states is incomplete. Substrate-specific unique protein conformations are underexplored and offer novel opportunities for selective therapeutic targeting, though systematic workflows for identifying and exploiting such sites remain limited. Previously, we showed that collagen alters matrix metalloprotease-1 (MMP1) dynamics and that R405 is an allosteric residue on the MMP1 surface that exhibits strong dynamic correlations with its active site. Here, we present a substrate-specific allosteric drug-design framework that targets specific sites on a protein, using collagen-bound MMP1 as a model system. We determined the conformational dynamics of free and collagen-bound MMP1 using all-atom molecular dynamics (MD) simulations and categorized conformations into clusters of similar conformations. We then compared and identified unique conformations that occur only in collagen-bound MMP1 to design drugs against them using a machine-learning approach. The top three unique clusters were used to generate approximately 150,000 candidate compounds that were then screened against both the R405-centered region and all detectable binding pockets across the MMP1 surface. We have found several compounds that bind preferentially around R405 by at least 0.3 kcal/mol relative to competing sites across the surface. This strategy establishes a generalizable framework for designing ligands that preferentially target substrate-specific allosteric sites, providing new opportunities for precision therapeutics that modulate proteins in their biologically relevant functional states.
+
+Simple SummaryIn this paper, we establish a substrate-specific allosteric drug-design strategy that integrates all-atom molecular dynamics simulations, conformational clustering, machine-learning-based ligand design, and surface-wide binding-selectivity screening, using collagen-bound MMP1 as a model system. We show that collagen binding reshapes the conformational ensemble of MMP1, creating unique conformational states that are absent or inaccessible in the free enzyme. By identifying these substrate-specific conformations, generating ligands based on the corresponding dynamic fingerprints around the collagen-specific allosteric residue R405, and screening compounds across all binding pockets on the MMP1 surface, we demonstrate preferential targeting of the collagen-specific site relative to competing pockets. These results establish a generalizable framework for designing ligands that selectively recognize biologically relevant substrate-bound conformations rather than static protein structures alone. Substrate-specific allosteric targeting may enable selective modulation of individual protein functions while minimizing off-target interactions, providing new opportunities for precision therapeutics against dynamic protein systems.

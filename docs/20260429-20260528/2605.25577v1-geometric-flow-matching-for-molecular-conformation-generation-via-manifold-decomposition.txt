@@ -1,0 +1,1415 @@
+Title: Geometric Flow Matching for Molecular Conformation Generation via Manifold Decomposition
+
+URL Source: https://arxiv.org/pdf/2605.25577v1
+
+Published Time: Tue, 26 May 2026 01:58:36 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# Geometric Flow Matching for Molecular Conformation Generation via Manifold Decomposition 
+
+# Yunqing Liu 
+
+The Hong Kong Polytechnic University Hong Kong, China yunqing617.liu@connect.polyu.hk 
+
+# Yi Zhou 
+
+The Hong Kong Polytechnic University Hong Kong, China echo-yi.zhou@connect.polyu.hk 
+
+# Wenqi Fan 
+
+The Hong Kong Polytechnic University Hong Kong, China wenqifan03@gmail.com 
+
+## Abstract 
+
+The generation of accurate 3D molecular conformations is a pivotal challenge in computational chemistry and drug discovery. Recently, diffusion and flow matching models have achieved remarkable success. However, there is a critical misalignment between their mathematical formulation and the physical reality of molecules. Existing approaches predominantly treat molecules as unstructured point clouds in Cartesian space, overlooking the intrinsic hierarchi-cal mechanics where bond lengths and bond angles are relatively stiff, whereas torsion angles constitute the dominant flexible de-grees of freedom. This lack of manifold awareness forces models to relearn fundamental geometric constraints from scratch, often leading to physically implausible intermediate structures. To ad-dress this, we propose GO-Flow that aligns generative modeling with molecular geometry via manifold decomposition. Instead of forcing motion through Euclidean space, GO-Flow decomposes the generation process into three physically motivated subspaces: translation space with linear optimal transport, rotation space with geodesic flows on 𝑆𝑂 (3), and conformation space with entropic optimal transport. This decomposition injects geometric inductive biases and makes the generative paths better aligned with molecu-lar degrees of freedom. When combined with equivariant neural architectures, it encourages rotation-consistent generation and im-proves geometric validity. Extensive experiments on GEOM-Drugs and GEOM-QM9 demonstrate that GO-Flow achieves state-of-the-art generation quality. Notably, by learning naturally straighter probability paths on the correct manifolds, our method enables high-fidelity sampling with as few as 50 steps, effectively bridging the gap between structural precision and computational efficiency. 
+
+## CCS Concepts 
+
+• Applied computing → Molecular structural biology ; • Com-puting methodologies → Neural networks .
+
+## Keywords 
+
+Molecular Conformation Generation, Flow Matching, Manifold Decomposition, AI for Chemistry, Diffusion Model.  
+
+> Permission to make digital or hard copies of all or part of this work for personal or classroom use is granted without fee provided that copies are not made or distributed for profit or commercial advantage and that copies bear this notice and the full citation on the first page. Copyrights for components of this work owned by others than the author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or republish, to post on servers or to redistribute to lists, requires prior specific permission and/or a fee. Request permissions from permissions@acm.org.
+> XXX, June 03–05, 2018, Woodstock, NY
+> ©2018 Copyright held by the owner/author(s). Publication rights licensed to ACM. ACM ISBN 978-1-4503-XXXX-X/18/06 https://doi.org/XXXXXXX.XXXXXXX
+
+ACM Reference Format: 
+
+Yunqing Liu, Yi Zhou, and Wenqi Fan. 2018. Geometric Flow Matching for Molecular Conformation Generation via Manifold Decomposition. In 
+
+Proceedings of XXX. ACM, New York, NY, USA, 15 pages. https://doi.org/ XXXXXXX.XXXXXXX 
+
+## 1 Introduction 
+
+Predicting valid spatial coordinates from a 2D molecular graph to 3D molecular conformation is a pivotal challenge in computational chemistry and drug discovery [ 19 , 20 , 22 , 26 ]. Accurate 3D struc-tures determine physicochemical properties and drug-target interac-tions, acting as the prerequisite for virtual screening and docking [ 5,27 , 38 ]. While traditional sampling methods, such as molecular dy-namics, are computationally expensive [ 14 , 21 , 34 ], deep generative models have recently emerged as a powerful paradigm [ 15 , 42 ]. In particular, diffusion probabilistic models (DPMs) [ 11 , 13 , 24 , 25 ] and flow matching frameworks [ 23 ] have achieved remarkable success by modeling the generation process as a progressive transformation from a prior noise distribution to the data distribution, effectively capturing the multimodal nature of molecular geometries [ 4, 31 , 36 ]. However, a critical misalignment exists between the mathemat-ical formulation of current generative models and the physical reality of molecules. Prevailing approaches predominantly treat molecules as unstructured point clouds in Cartesian Euclidean space ( R3𝑁 ) [ 28 , 32 ]. While mathematically convenient, this as-sumption ignores the intrinsic hierarchical nature of molecular me-chanics [ 27 ]: molecules are not amorphous clouds but structured entities governed by rigid bond lengths and flexible torsion angles. Operating blindly in Euclidean space introduces severe geometric inconsistencies [ 8 ]. For instance, treating rotational orientation as linear displacement in R3 violates the geometry of the rotation group 𝑆𝑂 (3), leading to distortions that must be corrected during training. Similarly, applying uniform Gaussian noise to all atoms forces the model to relearn fundamental chemical constraints, such as bond rigidity, from scratch, as shown in Figure 1. This lack of manifold awareness limits the model’s ability to capture the true underlying Boltzmann distribution effectively, often resulting in chemically invalid intermediate structures or mode collapse. To tackle the aforementioned challenges, we propose GO-Flow, a manifold-aware molecular conformation generation framework via 
+
+Geodesic and Optimal transport Flow s. Instead of forcing molec-ular motion into a monolithic Cartesian coordinate system, we decompose the generation into three physically motivated sub-spaces, each modeled with a flow matching objective tailored to its specific geometry. Specifically, we model the center of mass move-ment using linear optimal transport, handle global orientation via   
+
+> arXiv:2605.25577v1 [cs.LG] 25 May 2026 XXX, June 03–05, 2018, Woodstock, NY Liu et al.
+> Figure 1: Illustration of the geometric inconsistency in Cartesian-based molecular generation. Existing methods typically treat molecules as unstructured point clouds in Euclidean space ( R3𝑁 ), applying Gaussian noise uniformly to all atomic coordinates.
+
+geodesic flows on the 𝑆𝑂 (3) manifold (using quaternion represen-tation and spherical linear interpolation), and navigate the internal conformation space using entropic optimal transport. By explicitly modeling these geometric degrees of freedom, GO-Flow provides a manifold-aware parameterization that is compatible with rotation-equivariant architectures and biases the generation process toward chemically plausible conformations. This decomposition allows us to inject physical inductive biases directly into the generative process, bridging the gap between physical interpretability and efficiency. In summary, our main contributions are highlighted as follows: 
+
+• We propose GO-Flow, a novel paradigm that departs from un-structured Cartesian denoising by decomposing molecular gen-eration into three physically motivated manifolds: translation (M𝑇 ), rotation ( M𝑅 ), and conformation ( M𝐶 ). This decomposi-tion allows us to inject physical inductive biases directly into the generative process, effectively bridging the gap between struc-tural precision and physical interpretability. 
+
+• We introduce tailored flow matching objectives that strictly ad-here to the geometry of each subspace. Specifically, we employ geodesic interpolation on the rotation manifold to avoid singular parameterizations and to maintain consistency with rotation-equivariant modeling, and entropic optimal transport for internal coordinates to navigate the complex multimodal energy land-scape of bond lengths and torsion angles. This rigorous treatment eliminates the need for the model to relearn basic geometric con-straints from scratch. 
+
+• Extensive experiments on the GEOM-Drugs and GEOM-QM9 benchmarks demonstrate that GO-Flow achieves state-of-the-art performance. By modeling motion on the correct manifolds, our method produces high-fidelity structures with superior geometric validity and diversity compared to Cartesian-based diffusion and flow matching baselines. 
+
+## 2 Related Work 
+
+Molecular conformer generation has long been a fundamental task in computational chemistry, aiming to generate the set of low-energy 3D structures, i.e., conformers, conditioned on the molecular graph [ 6]. Traditionally, cheminformatics methods are implemented in software such as RDKit [ 18 ] and OMEGA [ 10 ]. In recent years, a number of machine learning methods have been developed and are highly regarded for their advantages in accuracy. Early machine learning methods struggle to address the roto-translation equivariance of conformers [ 29 ]. Therefore, a series of VAE or diffusion models is developed based on the distance geometry, learning the distance between atoms rather than the atomic coordinates, representatively the GraphDG [ 33 ], CGCF [ 39 ], ConfVAE [ 40 ], and ConfGF [ 32 ]. However, the back-and-forth con-version between the Cartesian coordinate system and the interme-diate distance geometric elements resulted in accumulated errors. Models might learn from invalid distance matrices and produce incorrect structures. Subsequently, GeoDiff [ 41 ] makes a big step by theoretically demonstrating that Markov chains evolving with equivariant Markov kernels can induce an invariant distribution by design, therefore enabling direct end-to-end acts on the atomic Cartesian coordinate system. The diffusion/flow matching methods in Euclidean space have gradually become mainstream. EBD [ 30 ]designs two hierarchical stages to generate atomic details from fragment-level coarse-grained structures. MCF [ 37 ] shows that sim-ply scaling up model capacity yields large gains in generalization performance. AvgFlow [ 3] is built upon flow-matching and pro-poses SO(3)-averaged flow and reflow/distillation strategies for accelerated training and inference. Nevertheless, another branch of studies claims that leveraging appropriate geometric prior knowledge (in addition to distance ge-ometry) offers advantages for learning geometric consistency and improving sampling efficiency. GeoMol [ 7] directly predicts a mini-mal set of geometric quantities (torsion angles, local bond distance, and local bond angles) sufficient for deterministic reconstruction of the 3D conformer, in a highly efficient single forward manner. TorDiff [ 16 ] operates on the space of torsion angles via a diffusion process, using two orders of magnitude fewer denoising steps than GeoDiff, the representative Euclidean diffusion approaches. ET-Flow [9] is a well-designed flow-matching approach that operates directly on all-atom molecular coordinates with minimal equivari-ance and harmonic prior, requiring significantly fewer parameters and sampling steps. They demonstrate the promising potential of generative molecular modeling with manifold awareness in addi-tion to the Cartesian-centric manner. 
+
+## 3 Methodology 
+
+As shown in Figure 2, we present GO-Flow, a geometric flow match-ing framework that addresses the challenge of 3D molecular gen-eration by decomposing the generative process into three physi-cally motivated manifolds: translation ( M𝑇 = R3), rotation ( M𝑅 =
+
+𝑆𝑂 (3)), and internal conformation ( M𝐶 = R𝑛 𝑟  
+
+> +
+
+× ( 0, 𝜋 )𝑛 𝜃 × T𝑛 𝜙 ), where bond lengths, bond angles, and torsion angles are modeled with their corresponding domains. Unlike Cartesian-based diffusion, which treats molecules as point clouds, GO-Flow learns velocity fields on these specific manifolds to ensure geometric consistency and sampling efficiency. 
+
+## 3.1 Problem Formulation 
+
+Given a molecular graph G = (V , E) with atoms V and bonds 
+
+E, our goal is to generate 3D conformations X ∈ R𝑁 ×3 that are chemically valid and energetically favorable. Existing diffusion models predominantly treat molecules as point clouds in Euclidean space, applying noise uniformly to all Cartesian coordinates. This assumption is physically flawed: it overlooks the intrinsic hierarchy of molecular mechanics, where bond lengths are chemically rigid while torsion angles are flexible. Consequently, Cartesian-based methods must "re-learn" basic geometric constraints (e.g., bond Geometric Flow Matching for Molecular Conformation Generation via Manifold Decomposition XXX, June 03–05, 2018, Woodstock, NY        
+
+> Figure 2: An illustration of the proposed GO-Flow framework. The framework is divided into Training (top) and Sampling (bottom) phases.
+> Training : The model decomposes molecular generation into three physically motivated subspaces to learn distinct velocity fields: Translation Space, Rotation Space and Conformation Space. Sampling : During inference, the model starts from a Gaussian noise distribution 𝑥 0∼ N ( 0, 𝐼 )
+> and employs an ODE Solver to integrate the learned vector fields 𝑓 𝜃 , generating the final physically valid 3D molecular conformation 𝑥 1.
+
+lengths) from scratch, resulting in slow convergence and physically invalid intermediate structures. To bridge the gap between geomet-ric generation and physical interpretability, GO-Flow decomposes the molecular state space into three physically motivated manifolds, as illustrated in Figure 2: 
+
+X = 𝑓 (c, q, z), (1) where 𝑐 ∈ R3 is the center of mass, 𝑞 ∈ 𝑆 3/{± 1} represents a ro-tation in 𝑆𝑂 (3), and 𝑧 = (𝑟, 𝜃, 𝜙 ) ∈ R𝑛 𝑟  
+
+> +
+
+× ( 0, 𝜋 )𝑛 𝜃 × T𝑛 𝜙 denotes internal coordinates consisting of bond lengths. bond angles, and periodic torsion angles. We define the generative process not as a single diffusion trajectory, but as three coupled flows on dis-tinct manifolds: translation ( M𝑇 ), rotation ( M𝑅 ), and conformation (M𝐶 ). 
+
+## 3.2 Manifold-Aware Flow Matching 
+
+We construct probability paths maximizing the likelihood of data by learning velocity fields 𝑣 𝑡 that transport a prior distribution (noise) to the data distribution. 
+
+3.2.1 Translation Space. Global position is chemically irrelevant but statistically confounding if mixed with internal structure. By explicitly isolating the center of mass, we reduce the complexity of the learning task for the remaining subspaces. We model the center of mass 𝑐 ∈ R3 using linear optimal trans-port. The interpolation path between the noise distribution 𝑐 0 and target 𝑐 1 is linear, yielding a constant velocity field that simplifies to a regression objective: 
+
+𝑣 𝑡𝑟𝑎𝑛𝑠 (𝑐 𝑡 , 𝑡 ) = 𝑐 1 − 𝑐 0, (2) 
+
+𝑐 𝑡 = (1 − 𝑡 )𝑐 0 + 𝑡𝑐 1. (3) This ensures the simplest possible transport path for global dis-placement. 
+
+3.2.2 Rotation Space. Treating molecular orientation as linear dis-placements in R3 ignores the intrinsic curvature of the rotation manifold. Linear interpolation of rotation matrices or Euler angles introduces singularities (gimbal lock) and geometric distortions (shrinking norms) [ 12 ]. To guarantee strictly rotation-equivariant generation, the generative flow must evolve along the geodesics of the special orthogonal group 𝑆𝑂 (3).We represent rotations by unit quaternions 𝑞 ∈ S3, with the an-tipodal identification 𝑞 ∼ − 𝑞 , since unit quaternions form a double cover of 𝑆𝑂 (3). The optimal path between a random orientation 𝑞 0
+
+and the target 𝑞 1 is the shortest arc on the hypersphere, computed via spherical linear interpolation (SLERP) [2]: 
+
+𝑞 𝑡 = SLERP (𝑞 0, 𝑞 1, 𝑡 ) = sin (( 1 − 𝑡 )Ω)
+
+sin Ω 𝑞 0 + sin (𝑡 Ω)
+
+sin Ω 𝑞 1, (4) where Ω = arccos (| 𝑞 0 · 𝑞 1 |) .To train the flow matching model, we must derive the tangent space velocity (angular velocity 𝜔 ) rather than the quaternion deriv-ative. Differentiating the SLERP path (see Appendix A), the target XXX, June 03–05, 2018, Woodstock, NY Liu et al. 
+
+rotational velocity field is: 
+
+𝑣 𝑟𝑜𝑡 (𝑞 𝑡 , 𝑡 ) = 12 𝜔𝑞 𝑡 , (5) 
+
+𝜔 = 2 · Im (log (𝑞 1𝑞 ∗
+
+> 0
+
+)) . (6) Here, log (·) maps the relative rotation to the Lie algebra 𝑆𝑂 (3),represented as an angular velocity vector, ensuring the velocity physically corresponds to a valid 3D rotation axis and magnitude. 
+
+3.2.3 Conformation Space. This manifold encapsulates the "chem-istry" of the molecule. The space of internal coordinates 𝑧 (bond lengths, angles, torsions) is highly multimodal with a complex en-ergy landscape. Standard Gaussian paths often cross high-energy barriers or generate sterically clashing structures. We require a transport plan that respects the distribution’s geometry, necessitat-ing entropic optimal transport rather than simple linear interpola-tion. We formulate the transport as finding the optimal coupling 𝜋 ∗
+
+that minimizes the regularized transport cost: 
+
+min     
+
+> 𝜋 ∈Π(𝜇 0,𝜇 1)
+
+⟨𝐶 (𝑧 0, 𝑧 1), 𝜋 ⟩ + 𝜖𝐻 (𝜋 ), (7) where 𝐶 (𝑧 0, 𝑧 1) = ∥𝑧 0 − 𝑧 1 ∥22 and 𝐻 (𝜋 ) is the entropy. By using the Sinkhorn algorithm, we compute 𝜋 ∗ efficiently. The target velocity field 𝑣 𝑐𝑜𝑛𝑓 is defined by the barycentric projection of this optimal plan: 
+
+𝑣 𝑐𝑜𝑛𝑓 (𝑧 𝑡 , 𝑡 ) = E𝜋 ∗ [𝑧 1 − 𝑧 0 |𝑧 𝑡 ]. (8) This entropic regularization effectively smooths the vector field, pre-venting overfitting to specific conformers and allowing the model to capture the diversity of the Boltzmann distribution. 
+
+## 3.3 Geometric Composition via Jacobians 
+
+While we learn flows on decomposed manifolds, the final output must be Cartesian coordinates for downstream applications. A naive combination would violate the geometric constraints we worked hard to preserve. We therefore employ a mathematically rigorous Jacobian-based projection to map internal velocities back to Carte-sian updates. The total atomic velocity 𝑣 𝑡𝑜𝑡𝑎𝑙 is the composition of the three subspaces: 
+
+𝑣 𝑡𝑜𝑡𝑎𝑙 = 𝑣 𝑐𝑎𝑟𝑡 𝑡𝑟𝑎𝑛𝑠 + 𝜔 × ( 𝑟 − 𝑐 𝑚 )
+
+| {z }
+
+> 𝑣 𝑐𝑎𝑟𝑡 𝑟𝑜𝑡
+
++ 𝐽 (𝑧 )𝑣 𝑐𝑜𝑛𝑓 
+
+| {z }
+
+> 𝑣 𝑐𝑎𝑟𝑡 𝑐𝑜𝑛𝑓
+
+, (9) where 𝐽 (𝑧 ) ∈ R3𝑁 ×𝑚 is Jacobian matrix, including bond length Jacobian, bond angle Jacobian and dihedral angle Jacobian. We explicitly derive its components to ensure stable backpropagation (Appendix C). 
+
+## 3.4 Training Strategy 
+
+The training objective combines flow matching losses from all three coordinate spaces. We derive each loss component from the corresponding optimal transport formulation. For linear optimal transport in translation space, the flow matching loss is 
+
+Ltrans = E𝑡, c0,c1
+
+∥𝑣 trans (c𝑡 , 𝑡 ) − ( c1 − c0)∥ 2  , (10) where c𝑡 = (1 − 𝑡 )c0 + 𝑡 c1 and the target velocity is the constant vector c1 − c0. For the rotation component, we construct the target path using geodesics on 𝑆𝑂 (3), and train the network by matching 
+
+Algorithm 1: GO-Flow Three-Stage Training  
+
+> 1
+
+Stage 1: Disentangled Manifold Learning (𝐸 1 epochs)  
+
+> 2
+
+for 𝑠 ∈ { trans , rot , conf } do  
+
+> 3
+
+for 𝑒 = 1 to 𝐸 1 do  
+
+> 4
+
+for batch x1 ∼ D do  
+
+> 5
+
+Decompose (c1, q1, z1) = decompose (x1) 
+
+> 6
+
+Sample (c0, q0, z0) ∼ 𝑝 0 and 𝑡 ∼ 𝑈 (0, 1) 
+
+> 7
+
+c𝑡 = (1 − 𝑡 )c0 + 𝑡 c1 
+
+> 8
+
+eq1 = q1 if q⊤ 
+
+> 0
+
+q1 ≥ 0; otherwise eq1 = −q1 
+
+> 9
+
+q𝑡 = SLERP (q0, eq1, 𝑡 ) 
+
+> 10
+
+Compute entropic OT coupling 𝜋 ∗ for internal coordinates  
+
+> 11
+
+Pair (z0, z1) ∼ 𝜋 ∗ and construct 
+
+z𝑡 = Interp M𝐶 (z0, z1, 𝑡 ) 
+
+> 12
+
+Compute the space-specific target velocity 𝑢 ∗ 
+
+> 𝑠
+> 13
+
+L𝑠 = ∥𝑣 𝑠 (· 𝑡 , 𝑡 ) − 𝑢 ∗ 
+
+> 𝑠
+
+∥22 
+
+> 14
+
+𝜃 𝑠 ← 𝜃 𝑠 − 𝛼 𝑠 ∇𝜃 𝑠 L𝑠  
+
+> 15
+
+end  
+
+> 16
+
+end  
+
+> 17
+
+end  
+
+> 18
+
+Stage 2: Cross-Space Coupling (𝐸 2 epochs)  
+
+> 19
+
+Initialize 𝜃 = {𝜃 (𝐸 1 ) 
+
+> 𝑇
+
+, 𝜃 (𝐸 1 ) 
+
+> 𝑅
+
+, 𝜃 (𝐸 1 ) 
+
+> 𝐶
+
+} 
+
+> 20
+
+for 𝑒 = 1 to 𝐸 2 do  
+
+> 21
+
+for batch x1 ∼ D do  
+
+> 22
+
+Construct c𝑡 , q𝑡 , z𝑡 as in Stage 1  
+
+> 23
+
+Compose x𝑡 = 𝑔 (c𝑡 , q𝑡 , z𝑡 ) 
+
+> 24
+
+Compute decomposed velocities 𝑣 𝑇 , 𝑣 𝑅 , 𝑣 𝐶  
+
+> 25
+
+Compose Cartesian velocity: 
+
+𝑣 total = 𝑣 cart  
+
+> 𝑇
+
++ 𝝎 𝜃 × ( r𝑡 − c𝑡 ) + 𝐽 (z𝑡 )𝑣 𝐶 
+
+Compute target Cartesian velocity ¤x∗ 
+
+> 𝑡
+
+from the manifold path  
+
+> 26
+
+Lflow = ∥𝑣 total (x𝑡 , 𝑡 ) − ¤ x∗ 
+
+> 𝑡
+
+∥22 
+
+> 27
+
+𝜆 𝑠 ← 12𝜎 2 
+
+> 𝑠
+> 28
+
+Ltotal = Í𝑠 ∈ { 𝑇 ,𝑅,𝐶 } 𝜆 𝑠 L𝑠 + 𝜆 𝐹 Lflow  
+
+> 29
+
+𝜃 ← 𝜃 − 𝛼 ∇𝜃 Ltotal  
+
+> 30
+
+end  
+
+> 31
+
+end  
+
+> 32
+
+Stage 3: ODE Fine-tuning (𝐸 3 epochs)  
+
+> 33
+
+for 𝑒 = 1 to 𝐸 3 do  
+
+> 34
+
+for batch x1 ∼ D do  
+
+> 35
+
+Integrate the CNF ODE backward: 
+
+𝑑 x𝑡 
+
+𝑑𝑡 = 𝑣 𝜃 (x𝑡 , 𝑡 ), 𝑑 log 𝑝 𝑡 (x𝑡 )
+
+𝑑𝑡 = −Tr 
+
+ 𝜕𝑣 𝜃 
+
+𝜕 x𝑡 
+
+
+
+Estimate the trace by Hutchinson estimator  
+
+> 36
+
+Compute log 𝑝 1 (x1) and update: 
+
+𝜃 ← 𝜃 − 𝛼 ∇𝜃 [− log 𝑝 1 (x1)]  
+
+> 37
+
+end  
+
+> 38
+
+end Geometric Flow Matching for Molecular Conformation Generation via Manifold Decomposition XXX, June 03–05, 2018, Woodstock, NY 
+
+Table 1: Geometric evaluation on GEOM-Drugs ( 𝛿 = 1.25 Å). 
+
+COV-R ( %) ↑ MAT-R(Å) ↓ COV-P ( %) ↑ MAT-P (Å) ↓
+
+Models Steps Mean Med Mean Med Mean Med Mean Med RDKit - 45.74 31.75 1.5376 1.4004 54.78 59.48 1.3341 1.1996 GraphDG - 8.27 0.00 1.9722 1.9845 2.08 0.00 2.4340 2.4100 CGCF - 53.96 57.06 1.2487 1.2247 21.68 13.72 1.8571 1.8066 ConfVAE - 55.20 59.43 1.2380 1.1417 22.96 14.05 1.8287 1.8159 GeoMol - 67.16 71.71 1.0875 1.0586 - - - -ConfGF - 62.15 70.93 1.1629 1.1596 23.42 15.52 1.7219 1.6863 GeoDiff 5,000 89.40 96.86 0.8571 0.8495 61.28 65.00 1.1642 1.1272 MCF 50 76.47 79.21 1.0709 0.9952 56.96 61.40 1.5937 1.4629 EBD 50 89.37 93.21 0.8216 0.8279 66.24 68.39 1.1237 1.0916 AvgFlow 50 91.72 95.70 0.8044 0.7978 68.56 70.10 1.1294 1.1131 ET-Flow 50 93.12 99.03 0.8049 0.8004 69.41 69.90 1.1244 1.1037 
+
+GO-Flow 50 94.82 99.26 0.7971 0.7924 70.13 72.49 1.1068 1.0001 
+
+the corresponding angular velocity in the Lie algebra. Since angular velocities lie in Lie algebra, we use an Euclidean loss in 𝑆𝑂 (3)Lrot = E𝑡, q0,q1
+
+|| ˆ𝝎 𝜃 (q𝑡 , 𝑡 ) − 𝝎 𝑡𝑎𝑟𝑔𝑒𝑡 || 22
+
+ . (11) For optimal transport in internal coordinate space, we use the Wasserstein distance 
+
+Lconf = E𝑡, z0,z1
+
+𝑊 22 (𝑣 conf (z𝑡 , 𝑡 ), 𝑣 OT (z𝑡 , 𝑡 ))  , (12) where 𝑣 OT (z𝑡 , 𝑡 ) is the velocity field induced by the optimal trans-port plan 𝜋 ∗. The velocity field is computed as 
+
+𝑣 OT (z𝑡 , 𝑡 ) =
+
+∫
+
+> R𝑚
+
+(z1 − z0) 𝑑𝜋 ∗ (z0, z1 |z𝑡 ). (13) For discrete distributions, this formula becomes 
+
+𝑣 OT (z𝑡 , 𝑡 ) =∑︁ 
+
+> 𝑖,𝑗
+
+𝜋 ∗ 
+
+> 𝑖 𝑗
+
+(z1 
+
+> 𝑗
+
+− z0 
+
+> 𝑖
+
+)𝛿 (z𝑡 − z𝑡,𝑖 𝑗 ), (14) where z𝑡,𝑖 𝑗 = (1 − 𝑡 )z0 
+
+> 𝑖
+
++ 𝑡 z1 
+
+> 𝑗
+
+.Optimizing three coupled manifolds simultaneously is unstable due to varying gradient scales. For example, small torsion changes can cause large Cartesian displacements. To ensure robust conver-gence, we introduce a three-stage curriculum training strategy, as shown in Appendix Algorithm 1. At the first stage, we first train independent flow matching ob-jectives for each subspace to learn their specific optimal transport structures: 
+
+L𝑠𝑒𝑝 = L𝑡𝑟𝑎𝑛𝑠 (𝜃 𝑇 ) + L 𝑟𝑜𝑡 (𝜃 𝑅 ) + L 𝑐𝑜𝑛𝑓 (𝜃 𝐶 ). (15) Here, L𝑟𝑜𝑡 minimizes the geodesic distance on 𝑆𝑂 (3) , and L𝑐𝑜𝑛𝑓 
+
+minimizes the Wasserstein distance for internal coordinates. We then jointly train the parameters 𝜃 with a flow consistency loss 
+
+L𝑓 𝑙𝑜𝑤 to ensure global coherence at the second stage: 
+
+L𝑡𝑜𝑡𝑎𝑙 =∑︁   
+
+> 𝑘 ∈ { 𝑇 ,𝑅,𝐶 }
+
+𝜆 𝑘 L𝑘 + 𝜆 𝐹 L𝑓 𝑙𝑜𝑤 , (16) 
+
+L𝑓 𝑙𝑜𝑤 = E[|| 𝑣 𝑡𝑜𝑡𝑎𝑙 (𝑋 𝑡 , 𝑡 ) − ¤ 𝑋 𝑡𝑎𝑟𝑔𝑒𝑡 𝑡 || 2], (17) where ¤𝑋 𝑡𝑎𝑟𝑔𝑒𝑡 𝑡 is obtained by differentialing the composed manifold path 𝑋 𝑡 = 𝑓 (𝑐 𝑡 , 𝑞 𝑡 , 𝑧 𝑡 ) : ¤𝑋 𝑡𝑎𝑟𝑔𝑒𝑡 = 𝜕𝑓 𝜕𝑐 ¤𝑐 𝑡 + 𝜕𝑓 𝜕𝑞 ¤𝑞 𝑡 + 𝜕𝑓 𝜕𝑧 ¤𝑧 𝑡 . The adaptive weighting 𝜆 𝑘 = 1/2𝜎 2 
+
+> 𝑘
+
+based on homoscedastic uncertainty is em-ployed to balance the loss components. Finally, if likelihood-based fine-tuning is used, we treat the learned vector field as a continu-ous normalizing flow and optimize the data likelihood through the instantaneous change-of-variables formula. 
+
+𝑑 X
+
+𝑑𝑡 = 𝑣 𝜃 (X𝑡 , 𝑡 ), 𝑑 log 𝑝 𝑡 (𝑋 𝑡 )
+
+𝑑𝑡 = −Tr ( 𝜕𝑣 𝜃 (𝑋 𝑡 , 𝑡 )
+
+𝜕𝑋 𝑡 
+
+). (18) The trace term can be estimated using the Hutchinson estima-tor: Tr ( 𝜕𝑣 𝜃  
+
+> 𝜕𝑋 𝑡
+
+) ≈ E𝜖 ∼N ( 0,𝐼 ) [𝜖 ⊤ 𝜕𝑣 𝜃  
+
+> 𝜕𝑋 𝑡
+
+𝜖 ]. This term is used only for log-density evaluation, not for modifying the sample trajectory. 
+
+## 3.5 Inference 
+
+During inference, we sample 𝑥 0 ∼ N ( 0, 𝐼 ) and integrate the learned combined velocity field using an adaptive ODE solver. 
+
+𝑑 x
+
+𝑑𝑡 = 𝑣 𝜃 (x𝑡 , 𝑡 ), x0 ∼ N ( 0, 𝐼 ). (19) By leveraging the linearity of the optimal transport paths in our de-composed spaces, GO-Flow achieves high-fidelity generation with as few as 50 solver steps, significantly outperforming traditional diffusion methods that require thousands of steps. 
+
+## 4 Experiments 
+
+In this section, we present a series of comprehensive experiments designed to illustrate the efficacy of GO-Flow. These experiments include performance comparisons across standard molecular confor-mation generation benchmarks and an analysis of computational ef-ficiency. To assess the impact of our manifold-aware framework, we conducted comparative analyses against state-of-the-art baselines, including both diffusion-based models and flow matching models such as CVGAE [ 29 ], GraphDG [ 33 ], CGCF [ 39 ], ConfVAE [ 40 ], GeoMol [ 7], ConfGF [ 32 ], GeoDiff [ 41 ], EBD [ 30 ], MCF [ 37 ], ET-Flow [9] and AvgFlow [3]. XXX, June 03–05, 2018, Woodstock, NY Liu et al. 
+
+## 4.1 Experimental Setup 
+
+Following previous generative modeling benchmarks, GO-Flow is evaluated on the GEOM-Drugs and GEOM-QM9 datasets [ 1 ]. GEOM-Drugs contains larger, drug-like molecules with complex geometries, while GEOM-QM9 consists of smaller molecules with quantum chemical properties. The datasets are processed to extract ground truth centre-of-mass, orientation quaternions, and internal coordinates (bond lengths, angles, and torsions) to supervise the manifold-aware training objectives. We provide implementation details in Appendix D. 
+
+## 4.2 Performance on Molecular Conformation Generation 
+
+We evaluated the generative performance of GO-Flow on two stan-dard benchmark datasets: GEOM-Drugs and GEOM-QM9 [ 1]. Fol-lowing established protocols [ 30 , 32 , 41 ], we assessed the quality of the generated ensembles using Coverage (COV) and Matching (MAT) scores for both Recall (R) and Precision (P). These metrics collectively measure the diversity of the generated conformers and their geometric fidelity to the ground truth distributions. 
+
+4.2.1 Evaluation on GEOM-Drugs . The GEOM-Drugs dataset, characterized by large, drug-like molecules with complex topolo-gies, serves as a rigorous testbed for modeling high-dimensional conformational spaces. Based on the experimental results shown in Table 1, GO-Flow achieves state-of-the-art performance across all evaluation metrics, demonstrating a superior balance between diversity (Recall) and geometric quality (Precision). Specifically, GO-Flow attains a mean COV-R of 94.82% and a median COV-R of 99.26%. These results surpass the strong diffusion baseline GeoD-iff (mean COV-R 89.40%) and the flow-matching baseline ET-Flow (mean COV-R 93.12%). The high coverage scores indicate that our manifold-aware framework effectively captures the multimodal na-ture of the probability distribution, successfully generating diverse conformational modes that cover the ground truth distribution more comprehensively than existing methods. A common challenge for generative models is maintaining structural validity while ensuring diversity. Standard Cartesian-based methods often struggle with invalid local structures due to unconstrained noise. In contrast, GO-Flow exhibits exceptional fidelity, recording the highest mean COV-P of 70.13% and median COV-P of 72.49%. This represents a significant margin over GeoDiff (mean COV-P 61.28%) and AvgFlow (mean COV-P 68.56%). Furthermore, our method achieves the low-est mean MAT-R score of 0.7971 Å, indicating that the generated conformers are geometrically closer to the reference structures than those produced by any other baseline. This high precision validates the effectiveness of our manifold decomposition strategy, which strictly constrains generation to physically valid subspaces (e.g., 𝑆𝑂 (3) for rotation and optimal transport for conformation), thereby minimizing the production of physically implausible out-liers. Remarkably, GO-Flow achieves these superior results with significantly improved sampling efficiency. While diffusion-based models like GeoDiff require 5,000 steps to generate high-quality samples, GO-Flow converges to better performance with only 50 ODE solver steps. 
+
+4.2.2 Evaluation on GEOM-QM9 . We further assessed the model on the GEOM-QM9 dataset to evaluate its precision in modeling smaller molecules where subtle geometric variations significantly impact quantum chemical properties. As shown in Table 2, GO-Flow demonstrates exceptional geometric accuracy. It achieves the lowest mean MAT-R score of 0.2086 Å among all compared methods, improving upon the 0.2116 Å of GeoDiff and substantially outper-forming classical methods like RDKit (0.2974 Å). A lower matching score implies that for any given ground truth conformer, GO-Flow can generate a sample that is geometrically nearly identical, which is crucial for tasks requiring high structural precision. Despite the high precision requirements, GO-Flow maintains competitive di-versity. It achieves a mean COV-R of 90.08% and a median COV-R of 94.57%, outperforming AvgFlow (mean COV-R 88.77%). Notably, this comprehensive coverage is achieved with only 50 sampling steps, whereas GeoDiff requires 5,000 steps to reach a lower mean COV-R of 88.02%. This demonstrates that GO-Flow is not only more accurate but also significantly more efficient in exploring the conformational space of quantum chemical systems. 
+
+## 4.3 Performance on Molecular Property Prediction 
+
+Beyond geometric metrics, we further assessed the physical validity of the generated conformers by evaluating their thermodynamic and electronic properties. We use PSI4 [ 35 ] to calculate proper-ties of each conformer. Figure 3 reports the mean absolute errors (MAE) between the properties of the generated ensembles and the ground truth, measured in electron-volts (eV). The evaluated properties include the total energy ( 𝐸 ) and the HOMO-LUMO gap (Δ𝜖 ), along with their minimum and maximum values within the generated ensembles ( 𝐸 min , Δ𝜖 min , Δ𝜖 max ). As shown in Figure 3, GO-Flow achieves the lowest MAE across all five reported metrics, significantly outperforming both classical methods (e.g., RDKit) and advanced generative baselines including diffusion (GeoDiff) and other flow matching models (e.g., ET-Flow, AvgFlow). Specifi-cally, for the mean total energy prediction ( ¯𝐸 ), GO-Flow attains an MAE of 0.1642 eV, which corresponds to a 36.8% error reduction compared to GeoDiff (0.2597 eV) and also surpasses the best flow matching baseline (AvgFlow, 0.1723 eV). Furthermore, GO-Flow demonstrates superior precision in predicting electronic properties, achieving an MAE of 0.1166 eV for the HOMO-LUMO gap ( Δ𝜖 ), strictly outperforming EBD (0.1253 eV) and ET-Flow (0.1314 eV). Since molecular potential energy is highly sensitive to subtle varia-tions in bond lengths and angles, these results strongly evidence that our manifold decomposition strategy, particularly the precise modeling of internal coordinates via entropic optimal transport, yields chemically plausible structures that reside in low-energy regions of the potential energy surface. The reduced errors in ex-tremal values, such as the 𝐸 min MAE of 0.1174 eV and Δ𝜖 min MAE of 0.4589 eV, indicate that GO-Flow generates diverse ensembles that are consistently valid, rather than merely producing a few high-quality samples amidst noisy ones. 
+
+## 4.4 Ablation Study 
+
+To verify the efficacy of each component in our manifold decompo-sition framework, we conducted a comprehensive ablation study Geometric Flow Matching for Molecular Conformation Generation via Manifold Decomposition XXX, June 03–05, 2018, Woodstock, NY 
+
+Table 2: Geometric evaluation on GEOM-QM9 ( 𝛿 = 0.5Å). 
+
+COV-R ( %) ↑ MAT-R(Å) ↓ COV-P ( %) ↑ MAT-P (Å) ↓
+
+Models steps Mean Med Mean Med Mean Med Mean Med RDKit - 88.34 95.08 0.3544 0.2974 83.42 88.17 0.3747 0.3692 CVGAE - 0.09 0.00 1.6713 1.6088 - - - -GraphDG - 73.33 84.21 0.4245 0.3973 43.90 35.33 0.5809 0.5823 CGCF - 78.05 82.48 0.4219 0.3900 36.49 33.57 0.6615 0.6427 ConfVAE - 77.84 88.20 0.4154 0.3739 38.02 34.67 0.6215 0.6091 GeoMol - 71.26 72.00 0.3731 0.3731 - - - -ConfGF - 88.49 94.31 0.2673 0.2685 46.43 43.41 0.5224 0.5124 GeoDiff 5000 88.02 92.33 0.2199 0.2116 53.72 52.36 0.4362 0.4259 MCF 50 66.18 70.85 0.7826 0.6493 40.95 46.19 0.5730 0.5514 AvgFlow 50 88.77 91.42 0.2217 0.2049 68.56 69.47 0.3775 0.3688 EBD 50 89.37 93.21 0.2374 0.1903 61.31 60.46 0.3622 0.3517 ET-Flow 50 89.51 94.26 0.2130 0.1892 67.36 69.54 0.3701 0.3649 
+
+GO-Flow 50 90.08 94.57 0.2086 0.1845 69.42 70.91 0.3587 0.3462 RDKit 
+
+> GeoDiff
+> MCF
+> ET-Flow
+> EBD
+> AvgFlow
+> GO-Flow
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> Mean Absolute Errors (eV)
+> 0.9233
+> 0.2597
+> 0.5078
+> 0.1757
+> 0.1812
+> 0.1723
+> 0.1642
+
+E
+
+> RDKit
+> GeoDiff
+> MCF
+> ET-Flow
+> EBD
+> AvgFlow
+> GO-Flow
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 0.6585
+> 0.1551
+> 0.1326
+> 0.1481
+> 0.1214
+> 0.1208
+> 0.1174
+
+Emin 
+
+> RDKit
+> GeoDiff
+> MCF
+> ET-Flow
+> EBD
+> AvgFlow
+> GO-Flow
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.3698
+> 0.3091
+> 0.2293
+> 0.1314
+> 0.1253
+> 0.1349
+> 0.1166
+> RDKit
+> GeoDiff
+> MCF
+> ET-Flow
+> EBD
+> AvgFlow
+> GO-Flow
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 0.8021
+> 0.7033
+> 0.5749
+> 0.5871
+> 0.5306
+> 0.4793
+> 0.4589
+> min
+> RDKit
+> GeoDiff
+> MCF
+> ET-Flow
+> EBD
+> AvgFlow
+> GO-Flow
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> 0.2359
+> 0.1909
+> 0.1812
+> 0.1838
+> 0.2153
+> 0.1974
+> 0.1762
+> max
+
+Figure 3: Mean absolute errors (MAE) between generated and ground truth ensemble properties in eV. Table 3: Ablation results on GEOM-Drugs and GEOM-QM9 with mean value of metrics. 
+
+GEOM-Drugs GEOM-QM9 #Components COV-R ( %) ↑ MAT-R(Å) ↓ COV-P ( %) ↑ MAT-P(Å) ↓ COV-R ( %) ↑ MAT-R(Å) ↓ COV-P ( %) ↑ MAT-P(Å) ↓
+
+w/o T 94.05 0.8146 69.91 1.1092 90.46 0.2095 69.11 0.3688 
+
+w/o R 91.41 0.8367 65.57 1.1401 89.14 0.2159 61.04 0.4001 
+
+w/o C 90.26 0.8512 62.47 1.1531 88.06 0.2149 53.86 0.4367 GO-Flow 94.82 0.7971 70.13 1.1068 90.08 0.2086 69.42 0.3587 
+
+on the GEOM-Drugs and GEOM-QM9 datasets. We evaluated three variants of GO-Flow by selectively removing the flow matching objectives associated with specific manifolds: translation ( M𝑇 ), ro-tation ( M𝑅 ), and conformation ( M𝐶 ). We report the mean value of metrics. The results are summarized in Table 3. 
+
+4.4.1 Impact of Conformation Manifold (w/o C) . The removal of the conformation manifold decomposition yields the most signif-icant performance degradation, particularly on the complex GEOM-Drugs dataset. As shown in Table 3, the w/o C variant achieves a COV-R of only 90.26% and a MAT-R of 0.8512 Å, which is sub-stantially inferior to the full GO-Flow model (94.82% and 0.7971 Å, respectively). This variant essentially degrades to a Cartesian-based diffusion model similar to GeoDiff [ 41 ], failing to explicitly cap-ture the internal geometric constraints. These results underscore that modeling internal coordinates (bond lengths, angles, and tor-sions) via entropic optimal transport is the most critical factor for generating high-fidelity molecular structures. 
+
+4.4.2 Impact of Rotation Manifold (w/o R) . Excluding the ro-tation manifold also leads to a noticeable drop in generation quality. The w/o R variant, which treats orientation in Euclidean space rather than on the 𝑆𝑂 (3) manifold, results in a COV-R decrease to 91.41% on GEOM-Drugs. While it outperforms the conformation-agnostic baseline ( w/o C), it still lags behind the full model. This suggests that respecting the Lie group structure of rotations is essential for XXX, June 03–05, 2018, Woodstock, NY Liu et al. 12 5 10 25 35 50                 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> COV mean (%)
+> Recall
+> GO-Flow
+> 12510 25 35 50
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100 Precision
+> GO-Flow
+> 12510 25 35 50
+> ODE steps
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> MAT (Å)
+> GO-Flow
+> 12510 25 35 50
+> ODE steps
+> 1.5
+> 2.0
+> 2.5
+> GO-Flow
+
+Figure 4: Effect of the number of ODE steps on model’s per-formance on GEOM-Drugs. 
+
+maintaining global structural coherence and equivariance, which linear approximations cannot fully capture. 
+
+4.4.3 Impact of Translation Manifold (w/o T) . The w/o T vari-ant, which removes the specific modeling of the center-of-mass translation, exhibits the smallest performance gap compared to the full model (e.g., 94.05% COV-R on GEOM-Drugs). This outcome is expected, as translation represents the simplest degree of freedom in molecular generation. However, the full GO-Flow model still con-sistently achieves the best metrics across all tasks, indicating that a unified framework treating all geometric aspects, including trans-lation, as flow matching problems on their respective manifolds contributes to optimal stability and convergence. 
+
+4.4.4 Effect of the number of ODE steps . To investigate the convergence behavior and inference efficiency of GO-Flow, we evaluated the generation quality on the GEOM-Drugs dataset across varying numbers of ODE solver steps 𝑇 ∈ { 1, 2, 5, 10 , 25 , 35 , 50 }. As illustrated in Figure 4, GO-Flow exhibits a rapid convergence rate, demonstrating the effectiveness of our manifold-aware trajectory design. Even with an extremely limited computational budget, GO-Flow produces chemically plausible structures. Notably, at just 𝑇 = 10 
+
+steps, the model achieves a COV-R of 88.5%, which is already com-parable to the performance of the diffusion-based baseline GeoDiff at 5000 steps ( 89 .40% ). As the number of steps increases to 25, the performance further improves to a COV-R of 93.4% and a MAT-R of 0.82 Å, effectively surpassing the performance of recent flow matching baselines like AvgFlow ( 91 .72% COV-R at 𝑇 = 50 ). The performance metrics largely plateau after 35 steps, indicating that the model successfully identifies the high-density regions of the Boltzmann distribution without requiring excessive integration steps. While standard diffusion models often require thousands of steps to resolve geometric dependencies, GO-Flow reaches state-of-the-art performance (COV-R 94.82%, MAT-R 0.7971 Å) at 𝑇 = 50 .
+
+## 4.5 Qualitative Visualization of Generated Conformers 
+
+We provide a visual inspection of the generated samples to qualita-tively assess their chemical validity and structural diversity. Figure 5 illustrates generated samples from the more challeng-ing GEOM-Drugs dataset. These molecules are characterized by larger sizes and higher degrees of torsional flexibility. Despite this complexity, GO-Flow generates globally coherent structures. The figure demonstrates the model’s capability to navigate the high-dimensional conformational space, producing diverse and physi-cally plausible arrangements of flexible side chains and rigid scaf-folds. This aligns with the high precision scores (COV-P) reported in Table 1, confirming that our manifold decomposition strategy effectively scales to large, drug-like systems without sacrificing geo-metric consistency. We also provide visualisation on small molecule (GEOM-QM9) in Appendix E. 
+
+## 5 Conclusion 
+
+In this paper, we presented GO-Flow, a manifold-aware flow match-ing framework that fundamentally rethinks 3D molecular genera-tion. By departing from the prevailing Cartesian-centric paradigm and decomposing molecular motion into physically distinct mani-folds, including translation, rotation, and conformation, GO-Flow effectively integrates geometric inductive biases directly into the generative process. We designed rigorous flow matching objectives, including geodesic flows on 𝑆𝑂 (3) and Entropic Optimal Transport for internal coordinates, to strictly enforce equivariance and handle the complex energy landscape of molecular conformations. Our empirical results on standard benchmarks demonstrate that GO-Flow not only matches or outperforms state-of-the-art baselines in generation quality but also exhibits superior geometric consis-tency. Crucially, the significant efficiency gain, requiring only 50 solver steps, is not merely an engineering optimization, but a the-oretical consequence of modeling probability paths that respect the underlying geometry of the data. We believe GO-Flow offers a promising direction for AI-driven drug discovery, suggesting that respecting physical manifolds is a prerequisite for building scalable and interpretable generative models for scientific data. 
+
+## 6 Limitations and Ethical Considerations 
+
+As a conformation generation model, GO-Flow operates on a prede-fined 2D molecular graph. It generates 3D structures for a known chemical formula but does not currently support de novo design tasks, such as generating atoms and bonds from scratch or modify-ing the molecular topology. Integrating our manifold-aware flow matching with graph generative models to strictly couple chem-ical and conformational space exploration remains a promising direction for future research. This work focuses on 3D molecular conformation generation, a fundamental task in drug discovery and materials science. The primary societal impact is the potential to expedite the development of new therapeutics, benefiting public health. However, as with any generative technology in chemistry, there is a theoretical risk of misuse for designing harmful substances. We believe this risk is mitigated by the fact that our model requires a known molecular graph input and does not autonomously propose toxic compounds. Geometric Flow Matching for Molecular Conformation Generation via Manifold Decomposition XXX, June 03–05, 2018, Woodstock, NY 
+
+Figure 5: Representative samples generated by our model on GEOM-Drugs. It shows that GO-Flow produces globally coherent structures that maintain rigid scaffolds while generating diverse and physically plausible side-chain arrangements. 
+
+All data used in this work (GEOM-Drugs, GEOM-QM9) are publicly available and contain no personally identifiable information. 
+
+## GenAI Disclosure 
+
+The authors utilized a GenAI solely as a tool to assist with the polishing and refinement of the writing in this paper. The model was used exclusively for improving grammatical fluency, sentence structure, and overall clarity of the manuscript. All ideation, theo-retical development, empirical research, and technical conclusions remain entirely the work of the authors. The authors take full re-sponsibility for all content generated by the GenAI and presented in this work. 
+
+## References 
+
+[1] Simon Axelrod and Rafael Gomez-Bombarelli. 2022. GEOM, energy-annotated molecular conformations for property prediction and molecular generation. Sci-entific Data 9, 1 (2022), 185. [2] Samuel R Buss and Jay P Fillmore. 2001. Spherical averages and applications to spherical splines and interpolation. ACM Transactions on Graphics (TOG) 20, 2 (2001), 95–126. [3] Zhonglin Cao, Mario Geiger, Allan Dos Santos Costa, Danny Reidenbach, Karsten Kreis, Tomas Geffner, Franco Pellegrini, Guoqing Zhou, and Emine Kucukbenli. 2025. Efficient molecular conformer generation with so (3)-averaged flow match-ing and reflow. arXiv preprint arXiv:2507.09785 (2025). [4] Suresh Dara, Swetha Dhamercherla, Surender Singh Jadav, CH Madhu Babu, and Mohamed Jawed Ahsan. 2022. Machine learning in drug discovery: a review. 
+
+Artificial intelligence review 55, 3 (2022), 1947–1999. [5] Bo Ding, Yue Weng, Yunqing Liu, Chunlan Song, Le Yin, Jiafan Yuan, Yanrui Ren, Aiwen Lei, and Chien-Wei Chiang. 2019. Selective photoredox trifluoromethyla-tion of tryptophan-containing peptides. European Journal of Organic Chemistry 
+
+2019, 46 (2019), 7596–7605. [6] Wenqi Fan, Yi Zhou, Shijie Wang, Yuyao Yan, Hui Liu, Qian Zhao, Le Song, and Qing Li. 2025. Computational protein science in the era of large language models (llms). arXiv preprint arXiv:2501.10282 (2025). [7] Octavian Ganea, Lagnajit Pattanaik, Connor Coley, Regina Barzilay, Klavs Jensen, William Green, and Tommi Jaakkola. 2021. Geomol: Torsional geometric gen-eration of molecular 3d conformer ensembles. Advances in Neural Information Processing Systems 34 (2021), 13757–13769. [8] Andreas René Geist, Jonas Frey, Mikel Zhobro, Anna Levina, and Georg Martius. 2024. Learning with 3D rotations, a hitchhiker’s guide to SO(3). In Proceedings of the 41st International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 235) , Ruslan Salakhutdinov, Zico Kolter, Katherine Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and Felix Berkenkamp (Eds.). PMLR, 15331–15350. https://proceedings.mlr.press/v235/geist24a.html [9] Majdi Hassan, Nikhil Shenoy, Jungyoon Lee, Hannes Stärk, Stephan Thaler, and Dominique Beaini. 2024. Et-flow: Equivariant flow-matching for molecular conformer generation. Advances in Neural Information Processing Systems 37 (2024), 128798–128824. [10] Paul CD Hawkins, A Geoffrey Skillman, Gregory L Warren, Benjamin A Ellingson, and Matthew T Stahl. 2010. Conformer generation with OMEGA: algorithm and validation using high quality structures from the Protein Databank and Cambridge Structural Database. Journal of chemical information and modeling 
+
+50, 4 (2010), 572–584. [11] Xin He, Wenqi Fan, Yili Wang, Chengyi Liu, Rui Miao, Xin Juan, and Xin Wang. 2025. Graph Defense Diffusion Model. arXiv preprint arXiv:2501.11568 (2025). [12] Evan G Hemingway and Oliver M O’Reilly. 2018. Perspectives on Euler angle singularities, gimbal lock, and the orthogonality of applied forces and applied moments. Multibody system dynamics 44, 1 (2018), 31–56. [13] Jonathan Ho, Ajay Jain, and Pieter Abbeel. 2020. Denoising diffusion probabilistic models. Advances in neural information processing systems 33 (2020), 6840–6851. [14] Scott A Hollingsworth and Ron O Dror. 2018. Molecular dynamics simulation for all. Neuron 99, 6 (2018), 1129–1143. [15] Hanxu Hu, Yunqing Liu, Zhongyi Yu, and Laura Perez-Beltrachini. 2023. Im-proving user controlled table-to-text generation robustness. In Findings of the Association for Computational Linguistics: EACL 2023 . 2317–2324. [16] Bowen Jing, Gabriele Corso, Jeffrey Chang, Regina Barzilay, and Tommi Jaakkola. 2022. Torsional diffusion for molecular conformer generation. Advances in neural information processing systems 35 (2022), 24240–24253. [17] Wolfgang Kabsch. 1976. A solution for the best rotation to relate two sets of vectors. Foundations of Crystallography 32, 5 (1976), 922–923. [18] Greg Landrum et al . 2013. RDKit: A software suite for cheminformatics, com-putational chemistry, and predictive modeling. Greg Landrum 8, 31.10 (2013), 5281. [19] Jiatong Li, Junxian Li, Yunqing Liu, Dongzhan Zhou, and Qing Li. [n. d.]. Tomg-bench: Evaluating llms on text-based open molecule generation. ([n. d.]). [20] Jiatong Li, Junxian Li, Weida Wang, Yunqing Liu, Changmeng Zheng, Dongzhan Zhou, Xiao-yong Wei, and Qing Li. 2024. Speak-to-Structure: Evaluating LLMs in Open-domain Natural Language-Driven Molecule Generation. arXiv preprint arXiv:2412.14642 (2024). [21] Jiatong Li, Yunqing Liu, Wenqi Fan, Xiao-Yong Wei, Hui Liu, Jiliang Tang, and Qing Li. 2024. Empowering molecule discovery for molecule-caption transla-tion with large language models: A chatgpt perspective. IEEE transactions on knowledge and data engineering 36, 11 (2024), 6071–6083. [22] Jiatong Li, Yunqing Liu, Wei Liu, Jingdi Lei, Di Zhang, Wenqi Fan, Dongzhan Zhou, Yuqiang Li, and Qing Li. 2026. Molreflect: Towards in-context fine-grained alignments between molecules and texts. IEEE Transactions on Knowledge and Data Engineering (2026). [23] Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matthew Le. 2023. Flow Matching for Generative Modeling. In The Eleventh International Conference on Learning Representations . https://openreview.net/ forum?id=PqvMRDCJT9t [24] Chengyi Liu, Wenqi Fan, Yunqing Liu, Jiatong Li, Hang Li, Hui Liu, Jiliang Tang, and Qing Li. 2023. Generative diffusion models on graphs: Methods and applications. arXiv preprint arXiv:2302.02591 (2023). [25] Chengyi Liu, Jiahao Zhang, Shijie Wang, Wenqi Fan, and Qing Li. 2025. Score-based generative diffusion models for social recommendations. IEEE Transactions on Knowledge and Data Engineering (2025). [26] Yunqing Liu, Wenqi Fan, Xiaoyong Wei, and Li Qing. 2025. GLProtein: Global-and-Local Structure Aware Protein Representation Learning. In Findings of the Association for Computational Linguistics: EMNLP 2025 . Association for Computa-tional Linguistics, Suzhou, China. [27] Yunqing Liu, Yi Zhou, and Wenqi Fan. 2026. Enhancing Molecular Property Predictions by Learning from Bond Modelling and Interactions. In The Fourteenth International Conference on Learning Representations . https://openreview.net/ forum?id=S4bJQ4p9hx [28] Shitong Luo, Chence Shi, Minkai Xu, and Jian Tang. 2021. Predicting molecular conformation via dynamic graph score matching. Advances in neural information processing systems 34 (2021), 19784–19795. [29] Elman Mansimov, Omar Mahmood, Seokho Kang, and Kyunghyun Cho. 2019. Molecular geometry prediction using a deep generative graph neural network. 
+
+Scientific reports 9, 1 (2019), 20381. [30] Jiwoong Park and Yang Shen. 2024. Equivariant blurring diffusion for hierarchical molecular conformer generation. Advances in Neural Information Processing Systems 37 (2024), 131645–131675. XXX, June 03–05, 2018, Woodstock, NY Liu et al. 
+
+[31] Anastasiia V Sadybekov and Vsevolod Katritch. 2023. Computational approaches streamlining drug discovery. Nature 616, 7958 (2023), 673–685. [32] Chence Shi, Shitong Luo, Minkai Xu, and Jian Tang. 2021. Learning gradient fields for molecular conformation generation. In International conference on machine learning . PMLR, 9558–9568. [33] Gregor Simm and Jose Miguel Hernandez-Lobato. 2020. A Generative Model for Molecular Distance Geometry. In Proceedings of the 37th International Confer-ence on Machine Learning (Proceedings of Machine Learning Research, Vol. 119) ,Hal Daumé III and Aarti Singh (Eds.). PMLR, 8949–8958. https://proceedings. mlr.press/v119/simm20a.html [34] Sakshi Singh, Qanita Bani Baker, and Dev Bukhsh Singh. 2022. Molecular docking and molecular dynamics simulation. In Bioinformatics . Elsevier, 291–304. [35] Daniel GA Smith, Lori A Burns, Andrew C Simmonett, Robert M Parrish, Matthew C Schieber, Raimondas Galvelis, Peter Kraus, Holger Kruse, Roberto Di Remigio, Asem Alenaizan, et al . 2020. PSI4 1.4: Open-source software for high-throughput quantum chemistry. The Journal of chemical physics 152, 18 (2020). [36] Fabien Vincent, Arsenio Nueda, Jonathan Lee, Monica Schenone, Marco Prunotto, and Mark Mercola. 2022. Phenotypic drug discovery: recent successes, lessons learned and new directions. Nature Reviews Drug Discovery 21, 12 (2022), 899–914. [37] Yuyang Wang, Ahmed A. Elhag, Navdeep Jaitly, Joshua M. Susskind, and Miguel Ángel Bautista. 2024. Swallowing the Bitter Pill: Simplified Scalable Conformer Generation. In Forty-first International Conference on Machine Learn-ing .[38] Yue Weng, Bo Ding, Yunqing Liu, Chunlan Song, Lo-Ying Chan, and Chien-Wei Chiang. 2021. Late-stage photoredox C–H amidation of N-unprotected indole derivatives: Access to n-(indol-2-yl) amides. Organic Letters 23, 7 (2021), 2710– 2714. [39] Minkai Xu, Shitong Luo, Yoshua Bengio, Jian Peng, and Jian Tang. 2021. Learn-ing Neural Generative Dynamics for Molecular Conformation Generation. In 
+
+International Conference on Learning Representations . https://openreview.net/ forum?id=pAbm1qfheGk [40] Minkai Xu, Wujie Wang, Shitong Luo, Chence Shi, Yoshua Bengio, Rafael Gomez-Bombarelli, and Jian Tang. 2021. An end-to-end framework for molecular con-formation generation via bilevel programming. In International conference on machine learning . PMLR, 11537–11547. [41] Minkai Xu, Lantao Yu, Yang Song, Chence Shi, Stefano Ermon, and Jian Tang. 2022. GeoDiff: A Geometric Diffusion Model for Molecular Conformation Generation. In International Conference on Learning Representations . https://openreview.net/ forum?id=PzcvxEMzvQC [42] Zihuai Zhao, Wenqi Fan, Jiatong Li, Yunqing Liu, Xiaowei Mei, Yiqi Wang, Zhen Wen, Fei Wang, Xiangyu Zhao, Jiliang Tang, et al . 2024. Recommender systems in the era of large language models (llms). IEEE Transactions on Knowledge and Data Engineering 36, 11 (2024), 6889–6907. Geometric Flow Matching for Molecular Conformation Generation via Manifold Decomposition XXX, June 03–05, 2018, Woodstock, NY 
+
+Table of Appendix: 
+
+• A. Coordinate Space Decomposition 
+
+– A.1. Translation Space 
+
+– A.2. Rotation Space 
+
+– A.3. Conformation Space 
+
+– A.4. Velocity Field Composition 
+
+• B. Loss Function and Flow Matching Objective 
+
+– B.1. Translation Flow Matching Loss 
+
+– B.2. Rotation Flow Matching Loss 
+
+– B.3. Conformation Flow Matching Loss 
+
+– B.4. Combined Loss with Adaptive Weighting 
+
+– B.5. Three-Stage Training Strategy with Convergence Anal-ysis 
+
+• C. Mathematical Derivations 
+
+– C.1. Quaternion SLERP Analysis 
+
+– C.2. Internal Coordinate Jacobian 
+
+– C.3. Optimal Transport for Molucular Conformations 
+
+– C.4. Flow Matching 
+
+• D. Implementation Details 
+
+– D.1. Datasets 
+
+– D.2. Input Featurization 
+
+– D.3. Evaluation Metrics 
+
+– D.4. Hyperparameters 
+
+• E. Visualization on Small Molecules (GEOM-QM9) 
+
+## A Coordinate Space Decomposition A.1 Translation Space 
+
+We use linear optimal transport in R3. For the center of mass trans-lation, the optimal transport problem is 
+
+min    
+
+> 𝛾 ∈Π(𝜇 0,𝜇 1)
+
+∫ 
+
+> R3×R3
+
+∥c0 − c1 ∥22 𝑑𝛾 (c0, c1), (20) where Π(𝜇 0, 𝜇 1) is the set of couplings between source distribution 
+
+𝜇 0 and target distribution 𝜇 1. For Gaussian distributions, the optimal transport map is linear 
+
+𝑇 ∗ (c0) = c0 + 𝝁 1 − 𝝁 0. (21) This leads to the interpolation path 
+
+c𝑡 = (1 − 𝑡 )c0 + 𝑡 c1, 𝑡 ∈ [ 0, 1], (22) where c0 ∼ N ( 𝝁 0, 𝜎 2𝐼 ) and c1 is the target center of mass. The velocity field is constant 
+
+𝑣 trans (c𝑡 , 𝑡 ) = c1 − c0 = 𝝁 1 − 𝝁 0. (23) 
+
+## A.2 Rotation Space 
+
+We use geodesic flow on SO(3) manifold. Molecular orientations form the Special Orthogonal group SO(3). We parameterize rota-tions using unit quaternions q ∈ S3 ⊂ R4 to avoid singularities. The geodesic distance on SO(3) between two rotations R0, R1 is 
+
+𝑑 geo (R0, R1) = ∥ log (R1R𝑇  
+
+> 0
+
+)∥ 𝐹 , (24) where log is the matrix logarithm and ∥ · ∥ 𝐹 is the Frobenius norm. For quaternions, the geodesic path is computed via Spherical Linear Interpolation (SLERP) 
+
+q𝑡 = SLERP (q0, q1, 𝑡 ) = sin (( 1 − 𝑡 )𝜃 )
+
+sin 𝜃 q0 + sin (𝑡𝜃 )
+
+sin 𝜃 q1, (25) where cos 𝜃 = |q0 · q1 | (we take absolute value to ensure shortest path). 
+
+A.2.1 Derivation of Angular Velocity. The angular velocity in the 
+
+𝔰𝔬 (3) Lie algebra is obtained from the relative quaternion 
+
+qrel = q1q−10 = q1q∗
+
+> 0
+
+, (26) 
+
+𝝎 = 2 · Im (log (qrel )) (27) 
+
+= 2 · Im (qrel )∥Im (qrel )∥ arccos (Re (qrel )) , (28) where Im (q) and Re (q) are the imaginary and real parts of quater-nion q. The velocity field for rotation is 
+
+𝑣 rot (q𝑡 , 𝑡 ) = 𝑑 q𝑡 
+
+𝑑𝑡 = 12 𝝎 q𝑡 . (29) 
+
+## A.3 Conformation Space 
+
+We use entropic optimal transport. Internal coordinates z = {𝑟 𝑖 𝑗 , 𝜃 𝑖 𝑗𝑘 , 𝜙 𝑖 𝑗𝑘𝑙 }
+
+represent bond lengths, angles, and dihedrals. The conformational space is constrained by chemical validity. We formulate the entropic optimal transport problem 
+
+min     
+
+> 𝜋 ∈Π(𝜇 0,𝜇 1)
+
+⟨𝐶 (z0, z1), 𝜋 ⟩ + 𝜖𝐻 (𝜋 ), (30) where 𝐶 (𝑧 0, 𝑧 1) = 𝛼 𝑟 ∥𝑟 0 −𝑟 1 ∥22 +𝛼 𝜃 ∥𝜃 0 −𝜃 1 ∥22 +𝛼 𝜙 ∥ wrap (𝜙 0 −𝜙 1)∥ 22,
+
+is the cost matrix, wrap (Δ𝜙 ) = atan2 (sin Δ𝜙, cos Δ𝜙 ), 𝐻 (𝜋 ) =
+
+− Í𝑖,𝑗 𝜋 𝑖 𝑗 log 𝜋 𝑖 𝑗 is the entropy regularization and 𝜖 > 0 controls the trade-off between cost and entropy. 
+
+A.3.1 Sinkhorn Algorithm. The entropic optimal transport is solved iteratively 
+
+u(𝑘 +1) = aKv (𝑘 ) , (31) 
+
+v(𝑘 +1) = bK𝑇 u(𝑘 +1) , (32) where K𝑖 𝑗 = exp (− 𝐶 𝑖 𝑗 /𝜖 ), a, b are marginal distributions, and u, v
+
+are dual variables. The optimal transport plan is 
+
+𝜋 ∗ = diag (u)Kdiag (v). (33) The velocity field is derived from the Wasserstein gradient flow 
+
+𝑣 conf (z𝑡 , 𝑡 ) = −∇ z𝑊 22 (𝜇 𝑡 , 𝜇 1), (34) where 𝑊 2 is the 2-Wasserstein distance. 
+
+## A.4 Velocity Field Composition 
+
+For translation space, translation velocity contribution is 
+
+𝑣 cart trans = 𝑣 trans 1𝑁 , (35) where 1𝑁 replicates the center-of-mass velocity to all atoms. For each molecule 𝑚 with atoms A𝑚 , the rotational velocity contribu-tion is 
+
+𝑣 cart rot (x𝑖 ) = 𝝎 𝑚 × ( x𝑖 − c𝑚 ), 𝑖 ∈ A 𝑚 , (36) where c𝑚 is the center of mass of molecule 𝑚 . As for conforma-tion space, the transformation from internal coordinate velocity to Cartesian requires the Jacobian 
+
+𝑣 cart conf = 𝐽 (z)𝑣 conf , (37) XXX, June 03–05, 2018, Woodstock, NY Liu et al. 
+
+where 𝐽 (z) = 𝜕 X 
+
+> 𝜕 z
+
+∈ R3𝑁 ×𝑚 is the Jacobian matrix. For a bond length 
+
+𝑟 𝑖 𝑗 
+
+𝜕 x𝑖 
+
+𝜕𝑟 𝑖 𝑗 
+
+= x𝑖 − x𝑗 
+
+∥x𝑖 − x𝑗 ∥ , 𝜕 x𝑗 
+
+𝜕𝑟 𝑖 𝑗 
+
+= − x𝑖 − x𝑗 
+
+∥x𝑖 − x𝑗 ∥ . (38) For a bond angle 𝜃 𝑖 𝑗𝑘 (atom 𝑗 is the center) 
+
+𝜕 x𝑖 
+
+𝜕𝜃 𝑖 𝑗𝑘 
+
+= (u𝑗𝑖 × u𝑗𝑘 ) × u𝑗𝑖 
+
+∥u𝑗𝑖 ∥ sin 𝜃 𝑖 𝑗𝑘 
+
+, (39) 
+
+𝜕 x𝑘 
+
+𝜕𝜃 𝑖 𝑗𝑘 
+
+= (u𝑗𝑘 × u𝑗𝑖 ) × u𝑗𝑘 
+
+∥u𝑗𝑘 ∥ sin 𝜃 𝑖 𝑗𝑘 
+
+, (40) where u𝑎𝑏 = x𝑎 − x𝑏 . The total Cartesian velocity field is 
+
+𝑣 total (X, 𝑡 ) = 𝑣 cart trans + 𝑣 cart rot + 𝑣 cart conf . (41) For each coordinate space, we learn a velocity field 𝑣 𝜃 R𝑑 × [ 0, 1] → 
+
+R𝑑 
+
+𝑣 trans (c𝑡 , 𝑡 )R3 × [ 0, 1] → R3, (42) 
+
+𝑣 rot (q𝑡 , 𝑡 )S3 × [ 0, 1] → 𝑆𝑂 (3), (43) 
+
+𝑣 conf (z𝑡 , 𝑡 )R𝑚 × [ 0, 1] → R𝑚 . (44) The combined velocity in Cartesian space is 
+
+𝑣 total = 𝑣 trans + 𝝎 × r + 𝐽 (z)𝑣 conf , (45) where r is the centered atomic position and 𝐽 (z) is the Jacobian from internal to Cartesian coordinates. 
+
+## B Loss Function and Flow Matching Objective 
+
+The training objective combines flow matching losses from all three coordinate spaces. We derive each loss component from the corresponding optimal transport formulation. 
+
+## B.1 Translation Flow Matching Loss 
+
+For linear optimal transport in translation space, the flow matching loss is 
+
+Ltrans = E𝑡, c0,c1
+
+∥𝑣 trans (c𝑡 , 𝑡 ) − ( c1 − c0)∥ 2  , (46) where c𝑡 = (1 − 𝑡 )c0 + 𝑡 c1 and the target velocity is the constant vector c1 − c0.
+
+## B.2 Rotation Flow Matching Loss 
+
+For geodesic flow on SO(3), we use the geodesic distance between predicted and target angular velocities 
+
+Lrot = E𝑡, q0,q1
+
+𝑑 2 
+
+> geo
+
+(𝑣 rot (q𝑡 , 𝑡 ), 𝝎 target ) , (47) where 
+
+q𝑡 = SLERP (q0, q1, 𝑡 ), (48) 
+
+𝝎 target = 2 · Im (log (q1q∗
+
+> 0
+
+)) . (49) The geodesic distance for velocities in 𝑆𝑂 (3) is 
+
+𝑑 geo (𝝎 1, 𝝎 2) = ∥𝝎 1 − 𝝎 2 ∥2. (50) 
+
+## B.3 Conformation Flow Matching Loss 
+
+For optimal transport in internal coordinate space, we use the Wasserstein distance 
+
+Lconf = E𝑡, z0,z1
+
+𝑊 22 (𝑣 conf (z𝑡 , 𝑡 ), 𝑣 OT (z𝑡 , 𝑡 ))  . (51) where 𝑣 OT (z𝑡 , 𝑡 ) is the velocity field induced by the optimal trans-port plan 𝜋 ∗. The velocity field is computed as 
+
+𝑣 OT (z𝑡 , 𝑡 ) =
+
+∫
+
+> R𝑚
+
+(z1 − z0) 𝑑𝜋 ∗ (z0, z1 |z𝑡 ). (52) For discrete distributions, this formula becomes 
+
+𝑣 OT (z𝑡 , 𝑡 ) =∑︁ 
+
+> 𝑖,𝑗
+
+𝜋 ∗ 
+
+> 𝑖 𝑗
+
+(z1 
+
+> 𝑗
+
+− z0 
+
+> 𝑖
+
+)𝛿 (z𝑡 − z𝑡,𝑖 𝑗 ), (53) where z𝑡,𝑖 𝑗 = (1 − 𝑡 )z0 
+
+> 𝑖
+
++ 𝑡 z1 
+
+> 𝑗
+
+.
+
+## B.4 Combined Loss with Adaptive Weighting 
+
+The total loss combines all three components 
+
+Ltotal = 𝜆 𝑇 Ltrans + 𝜆 𝑅 Lrot + 𝜆 𝐶 Lconf + 𝜆 𝐹 Lflow . (54) We include an additional flow consistency loss 
+
+Lflow = E ∥𝑣 total (X𝑡 , 𝑡 ) − 𝑣 target (X𝑡 , 𝑡 )∥ 2  , (55) where 𝑣 target = X1 − X0 is the target Cartesian velocity. We use uncertainty-based weighting 
+
+𝜆 𝑘 = 12𝜎 2
+
+> 𝑘
+
+, Luncertainty =∑︁ 
+
+> 𝑘
+
+log 𝜎 2 
+
+> 𝑘
+
+, (56) where 𝜎 2 
+
+> 𝑘
+
+are learnable parameters representing task-specific un-certainty. 
+
+## B.5 Three-Stage Training Strategy with Convergence Analysis 
+
+Our training strategy progressively builds complexity while ensur-ing stable optimization, as shown in Algorithm 1. 
+
+B.5.1 Stage 1. Each coordinate space is trained independently to learn its optimal transport structure. For translation training, 
+
+𝜃 (𝑘 +1) 
+
+> 𝑇
+
+= 𝜃 (𝑘 ) 
+
+> 𝑇
+
+− 𝛼 𝑇 ∇𝜃 𝑇 Ltrans (𝜃 (𝑘 ) 
+
+> 𝑇
+
+), (57) 
+
+Ltrans (𝜃 𝑇 ) = E𝑡, c0,c1
+
+∥𝑣 trans (c𝑡 , 𝑡 ; 𝜃 𝑇 ) − ( c1 − c0)∥ 2  . (58) For rotation training, 
+
+𝜃 (𝑘 +1) 
+
+> 𝑅
+
+= 𝜃 (𝑘 ) 
+
+> 𝑅
+
+− 𝛼 𝑅 ∇𝜃 𝑅 Lrot (𝜃 (𝑘 ) 
+
+> 𝑅
+
+), (59) 
+
+Lrot (𝜃 𝑅 ) = E𝑡, q0,q1
+
+𝑑 2 
+
+> geo
+
+(𝑣 rot (q𝑡 , 𝑡 ; 𝜃 𝑅 ), 𝝎 target ) . (60) As for conformation training, 
+
+𝜃 (𝑘 +1) 
+
+> 𝐶
+
+= 𝜃 (𝑘 ) 
+
+> 𝐶
+
+− 𝛼 𝐶 ∇𝜃 𝐶 Lconf (𝜃 (𝑘 ) 
+
+> 𝐶
+
+), (61) 
+
+Lconf (𝜃 𝐶 ) = E𝑡, z0,z1
+
+∥𝑣 conf (z𝑡 , 𝑡 ; 𝜃 𝐶 ) − 𝑣 OT (z𝑡 , 𝑡 )∥ 2  . (62) Each coordinate space has a unique global minimum due to the convex nature of optimal transport objectives. 
+
+B.5.2 Stage 2. Initialize with Stage 1 weights and train jointly 
+
+𝜃 (𝑘 +1) = 𝜃 (𝑘 ) − 𝛼 ∇𝜃 Ltotal (𝜃 (𝑘 ) ), (63) 
+
+Ltotal (𝜃 ) = 𝜆 𝑇 Ltrans (𝜃 𝑇 ) + 𝜆 𝑅 Lrot (𝜃 𝑅 ) + 𝜆 𝐶 Lconf (𝜃 𝐶 ) + 𝜆 𝐹 Lflow (𝜃 ),
+
+(64) where 𝜃 = {𝜃 𝑇 , 𝜃 𝑅 , 𝜃 𝐶 } are the joint parameters. The flow consis-tency loss Lflow couples the coordinate spaces 
+
+𝜕 Lflow 
+
+𝜕𝜃 𝑖 
+
+= E
+
+
+
+2(𝑣 total − 𝑣 target ) · 𝜕𝑣 total 
+
+𝜕𝜃 𝑖 
+
+
+
+. (65) This creates gradient coupling between coordinate spaces, enabling coordinated learning. Geometric Flow Matching for Molecular Conformation Generation via Manifold Decomposition XXX, June 03–05, 2018, Woodstock, NY 
+
+B.5.3 Stage 3. Fine-tune with the probability flow ODE 
+
+𝑑 X
+
+𝑑𝑡 = 𝑣 𝜃 (X𝑡 , 𝑡 ) − 12 ∇ · 𝑣 𝜃 (X𝑡 , 𝑡 ). (66) The divergence term ∇ · 𝑣 𝜃 is computed using the Hutchinson trace estimator 
+
+∇ · 𝑣 𝜃 (X, 𝑡 ) ≈ E𝝐 ∼N ( 0,𝐼 )
+
+𝝐 𝑇 ∇𝑣 𝜃 (X, 𝑡 )𝝐  . (67) 
+
+B.5.4 Sampling. At inference time, we solve the ODE 
+
+𝑑 x
+
+𝑑𝑡 = 𝑣 𝜃 (x𝑡 , 𝑡 ), x0 ∼ N ( 0, 𝐼 ), (68) using adaptive ODE solvers (e.g., Dormand-Prince) with only 10-50 steps instead of 1000+ steps required by diffusion models. 
+
+## C Mathematical Derivations C.1 Quaternion SLERP Analysis 
+
+Given two unit quaternions q0, q1 ∈ S3, the shortest geodesic path is 
+
+q(𝑡 ) = q0
+
+ q−10 q1
+
+𝑡 , (69) where q𝑡 denotes quaternion exponentiation. For the interpolation parameter 𝑡 ∈ [ 0, 1], this becomes SLERP (q0, q1, 𝑡 ) = sin (( 1 − 𝑡 )Ω)
+
+sin Ω q0 + sin (𝑡 Ω)
+
+sin Ω q1, (70) where cos Ω = q0 · q1. The angular velocity is obtained by differen-tiating the SLERP 
+
+𝝎 (𝑡 ) = 2 · Im 
+
+ 𝑑 q
+
+𝑑𝑡 q−1
+
+
+
+(71) 
+
+= 2 · Im 
+
+ Ω
+
+sin Ω [− cos (( 1 − 𝑡 )Ω)q0 + cos (𝑡 Ω)q1] q(𝑡 )−1
+
+
+
+.
+
+(72) For constant angular velocity (which occurs in our optimal trans-port formulation) 
+
+𝝎 const = 2 · Im  log  q1q−10
+
+ . (73) 
+
+## C.2 Internal Coordinate Jacobian 
+
+C.2.1 Bond Length Jacobian. For a bond length 𝑟 𝑖 𝑗 = ∥x𝑖 − x𝑗 ∥
+
+𝜕𝑟 𝑖 𝑗 
+
+𝜕 x𝑖 
+
+= x𝑖 − x𝑗 
+
+∥x𝑖 − x𝑗 ∥ , (74) 
+
+𝜕𝑟 𝑖 𝑗 
+
+𝜕 x𝑗 
+
+= − x𝑖 − x𝑗 
+
+∥x𝑖 − x𝑗 ∥ , (75) 
+
+𝜕𝑟 𝑖 𝑗 
+
+𝜕 x𝑘 
+
+= 0, for 𝑘 ≠ 𝑖, 𝑗 . (76) 
+
+C.2.2 Bond Angle Jacobian. For a bond angle 𝜃 𝑖 𝑗𝑘 with vertex at atom 𝑗 
+
+cos 𝜃 𝑖 𝑗𝑘 = (x𝑖 − x𝑗 ) · ( x𝑘 − x𝑗 )∥x𝑖 − x𝑗 ∥∥ x𝑘 − x𝑗 ∥ . (77) Define u = x𝑖 −x𝑗    
+
+> ∥x𝑖 −x𝑗 ∥
+
+and v = x𝑘 −x𝑗    
+
+> ∥x𝑘 −x𝑗 ∥
+
+. Then 
+
+𝜕𝜃 𝑖 𝑗𝑘 
+
+𝜕 x𝑖 
+
+= 1sin 𝜃 𝑖 𝑗𝑘 
+
+· 1
+
+∥x𝑖 − x𝑗 ∥ (v − u(u · v)) , (78) 
+
+𝜕𝜃 𝑖 𝑗𝑘 
+
+𝜕 x𝑘 
+
+= 1sin 𝜃 𝑖 𝑗𝑘 
+
+· 1
+
+∥x𝑘 − x𝑗 ∥ (u − v(u · v)) , (79) 
+
+𝜕𝜃 𝑖 𝑗𝑘 
+
+𝜕 x𝑗 
+
+= − 𝜕𝜃 𝑖 𝑗𝑘 
+
+𝜕 x𝑖 
+
+− 𝜕𝜃 𝑖 𝑗𝑘 
+
+𝜕 x𝑘 
+
+. (80) 
+
+C.2.3 Dihedral Angle Jacobian. For a dihedral angle 𝜙 𝑖 𝑗𝑘𝑙 defined by four atoms 
+
+cos 𝜙 𝑖 𝑗𝑘𝑙 = n1 · n2
+
+∥n1 ∥∥ n2 ∥ , (81) 
+
+sin 𝜙 𝑖 𝑗𝑘𝑙 = (n1 × n2) · b
+
+∥n1 ∥∥ n2 ∥∥ b∥ , (82) where 
+
+b = x𝑘 − x𝑗 , (83) 
+
+n1 = (x𝑖 − x𝑗 ) × b, (84) 
+
+n2 = b × ( x𝑙 − x𝑘 ). (85) The Jacobian elements are 
+
+𝜕𝜙 𝑖 𝑗𝑘𝑙 
+
+𝜕 x𝑖 
+
+= ∥b∥∥n1 ∥2 n1, (86) 
+
+𝜕𝜙 𝑖 𝑗𝑘𝑙 
+
+𝜕 x𝑙 
+
+= − ∥b∥∥n2 ∥2 n2, (87) 
+
+𝜕𝜙 𝑖 𝑗𝑘𝑙 
+
+𝜕 x𝑗 
+
+=
+
+ ∥x𝑘 − x𝑗 ∥ − ∥ x𝑖 − x𝑗 ∥ cos 𝜃 𝑖 𝑗𝑘 
+
+∥x𝑘 − x𝑗 ∥ sin 2 𝜃 𝑖 𝑗𝑘 
+
+ 𝜕𝜙 𝑖 𝑗𝑘𝑙 
+
+𝜕 x𝑖 
+
+(88) 
+
+−
+
+ ∥b∥∥n2 ∥2
+
+
+
+n2, (89) 
+
+𝜕𝜙 𝑖 𝑗𝑘𝑙 
+
+𝜕 x𝑘 
+
+= − 𝜕𝜙 𝑖 𝑗𝑘𝑙 
+
+𝜕 x𝑖 
+
+− 𝜕𝜙 𝑖 𝑗𝑘𝑙 
+
+𝜕 x𝑗 
+
+− 𝜕𝜙 𝑖 𝑗𝑘𝑙 
+
+𝜕 x𝑙 
+
+. (90) 
+
+## C.3 Optimal Transport for Molecular Conformations 
+
+The 2-Wasserstein distance between two probability measures 𝜇 0, 𝜇 1
+
+on R𝑚 is 
+
+𝑊 22 (𝜇 0, 𝜇 1) = inf    
+
+> 𝜋 ∈Π(𝜇 0,𝜇 1)
+
+∫ 
+
+> R𝑚 ×R𝑚
+
+∥z0 − z1 ∥2 𝑑𝜋 (z0, z1). (91) The Sinkhorn algorithm converges exponentially to the optimal transport plan 
+
+∥𝜋 (𝑘 ) − 𝜋 ∗ ∥1 ≤ 𝐶𝑒 −𝜌𝑘 , (92) where 𝜌 = min 
+
+ 𝜖   
+
+> max 𝑖,𝑗 𝐶 𝑖 𝑗
+
+, 1log (𝑛 )
+
+
+
+and 𝐶 is a problem-dependent constant. The entropic regularization parameter 𝜖 controls the trade-off between optimization accuracy and computational speed 
+
+• 𝜖 → 0 Recovers exact optimal transport (slow convergence), 
+
+• 𝜖 → ∞ Converges to product measure 𝜇 0 ⊗ 𝜇 1 (fast but inaccurate), 
+
+• Optimal choice 𝜖 ≈ 𝜎 2 where 𝜎 is the typical distance scale in the data. XXX, June 03–05, 2018, Woodstock, NY Liu et al. 
+
+Table 4: Atomic features included in GO-flow.                                                
+
+> Name Description Range
+> chirality Chirality Tag {unspecified, tetrahedral CW & CCW, other}
+> degree Number of bonded neighbors {𝑥 : 0 ≤𝑥 ≤10 , 𝑥 ∈Z}
+> charge Formal charge of atom {𝑥 :−5≤𝑥 ≤5, 𝑥 ∈Z}
+> num_H Total Number of Hydrogens {𝑥 : 0 ≤𝑥 ≤8, 𝑥 ∈Z}
+> number_radical_e Number of Radical Electrons {𝑥 : 0 ≤𝑥 ≤4, 𝑥 ∈Z}
+> hybrization Hybrization type {sp, sp 2, sp 3, sp 3d, sp 3d2, other}
+> aromatic Whether on a aromatic ring {True, False}
+> in_ring Whether in a ring {True, False}
+
+## C.4 Flow Matching 
+
+The relationship between our velocity field and the probability density evolution is given by the continuity equation 
+
+𝜕𝑝 𝑡 
+
+𝜕𝑡 + ∇ · ( 𝑝 𝑡 𝑣 𝑡 ) = 0. (93) The probability flow ODE that generates samples following 𝑝 𝑡 is 
+
+𝑑 X
+
+𝑑𝑡 = 𝑣 𝑡 (X) − 12
+
+∇𝑝 𝑡 (X)
+
+𝑝 𝑡 (X) . (94) The flow matching objective 
+
+L𝐹 𝑀 = E𝑡, x0,x1
+
+∥𝑣 𝜃 (x𝑡 , 𝑡 ) − ( x1 − x0)∥ 2  , (95) has the unique global minimum at 𝑣 ∗ 
+
+> 𝜃
+
+(x𝑡 , 𝑡 ) = E[x1 − x0 |x𝑡 ], which coincides with the optimal transport velocity field. 
+
+## D Implementation Details D.1 Datasets 
+
+We used GEOM-QM9 (QM9) and GEOM-Drugs (Drugs) [ 1] for analysis and comparison between molecular conformer generation models. We obtained the raw data, the pre-processed data, and the data split at https://github.com/DeepGraphLearning/ConfGF. Each dataset comprises 40,000 molecules for the training set and 5,000 molecules for the validation set, with each molecule containing 5 conformers following the protocol of [ 32 ]. For the test set, we selected 200 molecules for each dataset, resulting in 22,408 and 14,324 conformers existing in QM9 and Drugs, respectively. 
+
+## D.2 Input Featurization 
+
+Atomic features (or Node Features) are computed using RDKit [ 18 ]features as described in Table 4. For computing edge features and edge index, we use a combination of global (radius based edges) and local (molecular graph edges) similar to [16]. 
+
+## D.3 Evaluation Metrics 
+
+To measure the accuracy and diversity of the generated conformer set C, we adopted metrics proposed by [ 7]. The metrics are based on root-mean-square deviation (RMSD), which is a normalized Frobenius norm between two atomic coordinate matrices aligned using the Kabsch algorithm [ 17 ]. Given the ground truth conformer set C∗ and the generated sample set C, four metrics that follow precision and recall are defined as: COV-R (Recall ) = 1
+
+|C ∗ | |{ 𝐶 ∗ ∈ C ∗ |RMSD (𝐶 ∗, 𝐶 ) ≤ 𝛿, 𝐶 ∈ C}| ,
+
+(96) MAT-R (Recall ) = 1
+
+|C ∗ |∑︁ 𝐶 ∗ ∈ C ∗
+
+min   
+
+> 𝐶 ∈ C
+
+RMSD (𝐶 ∗, 𝐶 ), (97) COV-P (Precision ) = 1
+
+|C| |{ 𝐶 ∈ C| RMSD (𝐶, 𝐶 ∗) ≤ 𝛿, 𝐶 ∗ ∈ C ∗ }| ,
+
+(98) MAT-P (Precision ) = 1
+
+|C| ∑︁ 𝐶 ∈ C 
+
+min   
+
+> 𝐶 ∗∈ C ∗
+
+RMSD (𝐶, 𝐶 ∗), (99) where COV and MAT are coverage metric and matching metric [39 ], respectively. COV quantifies the proportion of one set covered by another, with “covered” indicating RMSD values are within a threshold 𝛿 . MAT measures the average of RMSD values of one conformer set with its closest conformer in another set. If C and 
+
+C∗ are exchanged in Eqs. (96, 97), then metrics become COV-P (Precision) and MAT-P (Precision). The recall metric is focused on the diversity, while the precision metric measures the quality. The threshold 𝛿 is set to 0.5Å for QM9 and 1.25 Å for Drugs. For each molecule, we generated conformers 𝐶 that are twice the size of the ground truth conformers 𝐶 ∗.
+
+Table 5: Hyperparameters of GO-Flow. 
+
+Hyperparameter Value Hidden dimension 128 Number of layers 8Batch size 64 Learning rate (Stage 1) 10 −3
+
+Learning rate (Stage 2) 10 −4
+
+Learning rate (Stage 3) 10 −5
+
+Noise scale (translation) 0.5 Noise scale (rotation) 0.3 Noise scale (conformation) 0.1 Sinkhorn iterations 100 Entropy regularization 𝜖 0.1 Training iter. 700k 
+
+## D.4 Hyperparameters 
+
+We used eight NVIDIA A6000 (48G) GPUs for the training and generation tasks. We reported hyperparameters of GO-Flow in Table 5. Geometric Flow Matching for Molecular Conformation Generation via Manifold Decomposition XXX, June 03–05, 2018, Woodstock, NY 
+
+Figure 6: Representative samples generated by our model on GEOM-QM9. GO-Flow successfully reconstructs precise local geometries required for quantum chemical calculations. 
+
+## E Visualization on Small Molecules (GEOM-QM9) 
+
+Appendix Figure 6 displays representative 3D conformations gen-erated by GO-Flow on the GEOM-QM9 dataset. As observed in the samples, our model successfully reconstructs the precise local geometries required for quantum chemical calculations. The gener-ated molecules exhibit valid bond lengths and angles, devoid of the disconnected components or distorted rings often seen in baseline methods. This visual evidence supports our quantitative findings (Table 2) that GO-Flow achieves sub-Angstrom matching accuracy by respecting the intrinsic constraints of the molecular manifold.

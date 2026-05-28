@@ -1,0 +1,857 @@
+Title: From Holo Pockets to Electron Density: GPT-style Drug Design with Density
+
+URL Source: https://arxiv.org/pdf/2605.08767v1
+
+Published Time: Tue, 12 May 2026 00:43:34 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# From Holo Pockets to Electron Density: GPT-style Drug Design with Density 
+
+Jiahao Chen * 1 2 3 4 Letian Gao * 5 6 Yanhao Zhu * 4 Wenbiao Zhou * 5 6 Bing Su 1 2 3 Zhi John Lu 5 6 
+
+Bo Huang 7 4 
+
+## Abstract 
+
+Recent advances in generative modeling have en-abled significant progress in structure-based drug design (SBDD). Existing methods typically condi-tion molecule generation on empty binding pock-ets from holo complexes, overlooking informative components such as the filler (ligands and sol-vent). Here, we leverage low-resolution electron density (ED) derived from the filler as a physi-cally grounded condition for de novo drug design. We consider two types of ED—calculated and cryo-EM/X-ray—obtainable from computational or experimental sources, supporting unified pre-training and experimental integration. Compared with rigid pocket representations, experimental ED naturally captures conformational flexibility and provides a more faithful description of the binding environment. Based on this, we intro-duce EDMolGPT, a decoder-only autoregressive framework that generates molecules from low-resolution ED point clouds. By grounding genera-tion in physically meaningful density signals, ED-MolGPT mitigates structural bias and produces molecules with 3D conformations. Evaluations on 101 biological targets verify the effectiveness. Our project page: https://jiahaochen1. github.io/EDMolGPT_Page/ .
+
+> *
+
+Equal contribution 1Gaoling School of Artificial Intelligence, Renmin University of China, Beijing, China. 2Beijing Key Labo-ratory of Research on Large Models and Intelligent Governance, Beijing, China. 3Engineering Research Center of Next Generation Intelligent Search and Recommendation, MOE, Beijing, China. 
+
+> 4
+
+NeoPrimeTech Biology, Beijing, China 5MOE Key Laboratory of Bioinformatics, Center for Synthetic and Systems Biology, School of Life Sciences, Tsinghua University, Beijing, China. 
+
+> 6
+
+Institute for Precision Medicine, Tsinghua University, Beijing, China. 7College of Pharmaceutical Sciences, Capital Medical University, Beijing, China.. Correspondence to: Bing Su <subin-gats@gmail.com >, Zhi John Lu <zhilu@tsinghua.edu.cn >, Bo Huang <bohuang 011@163.com >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). Holo complex Empty pocket  
+
+> Filler ED
+> Drug design
+> Drug design
+
+Figure 1. Comparison between pocket-based drug design (blue-circled region) and our electron density (ED)-based drug design framework (green-circled region). The red dots denote the solvent. Filler is defined as all elements within a 4.5 ˚A radius of the ligand, excluding the binding pocket. 
+
+## 1. Introduction 
+
+AI-driven drug design has emerged as a powerful paradigm for generating molecules that selectively bind biological tar-gets. Among various strategies, structure-based drug design (SBDD) has attracted significant attention, as it conditions molecular generation on the three-dimensional geometry of a binding site. As shown in Fig. 1, most existing SBDD pipelines begin from a holo protein–ligand complex and remove the filler (e.g., ligands and solvent molecules) to construct an explicit binding pocket, which is then treated as a fixed scaffold for ligand generation or optimization. This formulation implicitly assumes that the binding pocket can be accurately delineated and represented by a single static conformation, an assumption that suppresses intrin-sic protein flexibility and fails to capture conformational adaptations associated with ligand binding. To address this limitation, many approaches in related fields have sought to account for protein flexibility. For example, pocket ensemble-based methods (Szab ´o et al., 2021) par-tially address this limitation for molecular docking, but they are difficult to integrate into molecular generation frame-works, which typically require a unified and fixed condi-tioning representation rather than a collection of discrete conformations. Experimental electron density (ED) offers a promising alternative, providing a continuous, physics-grounded representation that encodes ensemble-averaged spatial distributions, physicochemical environments, and 1 
+
+> arXiv:2605.08767v1 [cs.AI] 9 May 2026 From Holo Pockets to Electron Density: GPT-style Drug Design with Density
+> Figure 2. Experimental ED reflects conformational dynamics of a filler in a protein pocket (PDB ID: 6KMP). The experimental ED map is shown as blue mesh, representing the ensemble-averaged electron density derived from X-ray diffraction. Protein atoms are shown as green sticks. The ligand is shown in yellow and purple sticks, with colors corresponding to alternative conformations resolved in the density, indicative of conformational dynamics in the bound state. Water molecules are shown as red spheres. The electron density profile of the filler, including the ligand and proximal solvent molecules, is indicated by the orange dashed line.
+
+interaction patterns (Ding et al., 2022b; Ma et al., 2023), thereby avoiding reliance on rigid geometric abstractions. While recent studies (Wang et al., 2022) have explored molecular generation using experimental ED of binding pockets, in practice pocket ED is frequently weak or poorly resolved in highly flexible regions, precisely where confor-mational variability is most pronounced, leading to unsta-ble or ambiguous conditioning signals for learning-based models. In contrast, filler ED is typically well-defined, ex-perimentally validated, and spatially localized, providing a more reliable and informative conditioning signal for gener-ative modeling. As an experimentally grounded, continuous representation, filler ED encodes ensemble-averaged spatial distributions and interaction patterns, enabling conforma-tional variability to be captured without reliance on rigid geometric assumptions or hand-crafted abstractions, distin-guishing it from heuristic soft representations such as 3D pharmacophores or interaction fields. These considerations motivate an underexplored question: can filler ED serve as a flexible and experimentally grounded conditioning repre-sentation for molecular generation in drug discovery? While ED provides physically grounded input for drug de-sign, extracting ED from the filler and constructing model-friendly representations remains underexplored. Unlike pre-vious methods (Li et al., 2025; Zhang et al., 2024) that rely on ED from rigid, empty pockets, a holo complex inherently contains filler components (ligands and solvent) that en-code the conformational flexibility and interaction patterns of the binding site. We directly derive ED representations from the filler, bypassing the intermediate step of modeling the pocket. Specifically, we consider two types of ED: (1) 
+
+calculated electron density (CalED) , derived analytically from atomic coordinates using physical scattering models for efficient pre-training, and (2) cryo-EM/X-ray derived density (ExpED) , obtained from experimental reconstruc-tions. As shown in Fig. 2, ExpED captures measurement noise, conformational flexibility, and all filler interactions, providing a comprehensive view of the binding environ-ment. Leveraging ExpED enables the model to generate ligands compatible with the dynamic pocket, yielding realis-tic conformations and diverse scaffolds. ED point clouds are sampled from the density maps and annotated with pharma-cophore features, offering chemically meaningful guidance. By combining CalED and ExpED, we can unifies scalable pre-training with experimental signals, capturing flexibility and all-pocket interactions for accurate ligand generation. For the algorithm, we propose EDMolGPT, a decoder-only autoregressive framework for 3D drug design conditioned on low-resolution ED represented as a point cloud. To ac-count for the importance of input order in GPT-style models, we reorder the point cloud by spatial coordinates. Gener-ated molecules are represented using FSMILES (Feng et al., 2024), which captures rational molecular conformations. Unlike most existing ligand generation frameworks that rely on encoder–decoder architectures or diffusion models, EDMolGPT is the first decoder-only approach, combining simplicity, flexibility, and high efficiency while fully leverag-ing model capacity to produce accurate 3D structures. The model is pre-trained on large-scale calculated electron den-sity from public datasets and fine-tuned on cryo-EM/X-ray ligand densities from experimental measurements, which are more realistic but limited in quantity. At test time, molecules are generated conditioned on the ED of filler components, as shown in Fig. 4. Experiments on the DUD-E dataset verify that EDMolGPT produces molecules with conformations compatible with the binding pocket and bioactivity. Our contributions can be summarized as follows: (1) Instead of conditioning on empty pockets, we generate molecules directly from the ED derived from the filler. We consider both CalED and ExpED, enabling unified large-scale pre-training and experimental integration. To the best of our knowledge, this is the first work to incorporate the filler’s cryo-EM/X-ray derived density into generative modeling for structure-based drug design. 
+
+(2) We introduce EDMolGPT, a decoder-only autoregres-sive model for 3D drug design that is conditioned on low-resolution ED representing the binding environment. This approach addresses the limitations of rigid pocket represen-tations, allowing for the generation of molecules compatible with the dynamic nature of protein binding sites. (3) Through extensive experiments on up to 101 targets from DUD-E dataset, EDMolGPT consistently generates molecules with both favorable 3D conformations compatible with the target binding pocket and demonstrated bioactivity, validating its potential for de novo drug discovery. 2From Holo Pockets to Electron Density: GPT-style Drug Design with Density 
+
+## 2. Related work 
+
+Structure-based drug design SBDD generates ligands by exploiting the 3D structure of a target receptor. Classi-cal SBDD workflows, such as molecular docking (Morris et al., 2009), scoring functions (Breda et al., 2008), and molecular dynamics (MD) simulations (Hollingsworth & Dror, 2018), are computationally expensive, particularly for large-scale virtual screening. To address these limitations, recent advances integrate AI-based generative modeling, with progress in both autoregressive (Gao et al., 2022) and diffusion-based approaches (Xu et al., 2022). Among au-toregressive methods, Pocket2Mol (Peng et al., 2022) intro-duced an E(3)-equivariant generative framework that sam-ples valid molecules from pocket geometry, improving affin-ity and diversity. Lingo3DMol (Feng et al., 2024) further incorporated fragment-based SMILES with 3D geometric features to enable language-model-driven molecule gener-ation. In diffusion-based methods, TargetDiff (Guan et al., 2023a) conditions on protein pocket information to generate ligands with high binding affinity, while MolCRAFT (Qu et al., 2024) performs noise-controlled sampling for stable conformations and superior docking scores. Different from them, our EDMolGPT generates full 3D ligand conforma-tions conditioned on point clouds extracted from the filler’s low-resolution electron density, enabling the generation of novel valid molecules with accurate structural geometry. 
+
+Electron density-guided molecule generation Recent advances have incorporated electron density (ED) into AI-driven molecule generation, yet existing methods struggle to balance scaffold novelty, 3D conformation fidelity, and drug-likeness under binding constraints. Wang et al. (Wang et al., 2022) introduced the first ED-guided generative frame-work using a two-stage pipeline that predicts ligand densi-ties and subsequently assembles molecules via fragments, which may propagate errors and limit scaffold diversity. ED2Mol (Li et al., 2025) treats ED as an auxiliary con-straint for fragment-based assembly, improving chemical plausibility but still restricting scaffold exploration. ECloud-Gen (Zhang et al., 2024) conditions sequence generation on ED for de novo design, yet lacks explicit 3D reasoning, potentially compromising binding conformations. In con-trast, our method directly exploits low-resolution ED as a continuous 3D field to guide end-to-end atomic placement, enabling novel scaffold generation with accurate geometry, strong binding compatibility, and favorable drug-likeness. 
+
+## 3. Method 
+
+In Sec. 3.1, we formulate the problem of electron density-based drug design. Building upon this, Sec. 3.2 describes the extraction of point clouds from electron density. In Sec. 3.3, we present the representation of molecular struc-tures, including FSMILES and relative distances. Finally, Sec. 3.4 details the overall EDMolGPT architecture and the procedures for training and inference, specifically how to generate a molecule conditioned on a given point cloud. 
+
+3.1. Problem formulation 
+
+The goal of drug design is to generate a molecule M =
+
+{(aim, vim)}Nm
+
+> i=1
+
+, consisting of Nm atoms, where aim ∈ R1
+
+denotes the atom type and vim ∈ R3 represents its position in 3D space, with three components corresponding to the 
+
+x, y, and z coordinates. Our method conditions on point clouds extracted from the filler F of complexes. Specif-ically, we construct a compact point cloud representation 
+
+Pf = {(cip, vip)}Np 
+
+> i=1
+
+from F, where cip, vip, and Np denote the point types, coordinates, and number of points, respec-tively. This geometric representation provides a rich yet compact conditioning signal, enabling the model to capture the binding context sufficiently. The specific procedures for obtaining the filler F, as well as the differences between training and inference, are detailed in Sec. 3.4. 
+
+3.2. Generating point cloud 
+
+The primary distinction between CalED and ExpED lies in their data sources: CalED is derived from solved structures in real space, whereas ExpED is obtained directly from raw experimental observations in reciprocal space. Accordingly, CalED is generated by first transforming the solved struc-tures into reciprocal space via Fast Fourier Transform (FFT), while ExpED requires no such transformation step. For CalED, given a filler structure, we apply the FFT to compute its electron diffraction pattern. Let {vif }Nf 
+
+> i=1
+
+de-note the atomic coordinates of filler F. The corresponding structure factors in reciprocal space are computed as 
+
+F (h) = 
+
+> Nf
+
+X
+
+> i=1
+
+fi(h) e2πi h·vif , (1) where h is the reciprocal-lattice vector and fi(h) denotes the atomic scattering factor of atom i. In contrast, these computational steps are unnecessary for ExpED, since it can be directly derived from experimental measurements. To further control the spatial resolution of ED, we apply a high-frequency cutoff based on the minimum interplanar spacing dmin , such that only spatial frequencies correspond-ing to features larger than dmin are retained. The filtered diffraction data are subsequently transformed back into real space to reconstruct a smooth electron density map, from which 3D point clouds are sampled (Fig. 3). The ED is obtained via truncated inverse Fourier transformation: 
+
+ρ(vf ) = 1
+
+V
+
+X
+
+> |h|≤ 1/d min
+
+F (h) e−2πi h·vf . (2) 3From Holo Pockets to Electron Density: GPT-style Drug Design with Density FFT 
+
+> Cut off
+> Inverse FFT
+> Sample
+> Point cloud token
+
+EDMolGPT   
+
+> label
+> Previous molecule token
+> Autoregressive (token by token)
+> HBA
+> HBD
+> Other
+> HBA /HBD
+> Figure 3. The overall pipeline of our method. The components shown with a green background correspond to the generation of 3D point clouds from the input ligand. The blue-highlighted components represent the molecule generation process, where each molecular token is predicted sequentially based on the point cloud tokens and the previously generated molecular tokens. Finally, the steps highlighted in yellow illustrate how the predicted molecular structure progressively occupies and fills the sampled point clouds, providing an interpretable view of the generation process.
+
+We then randomly sample Np points from ρ(vf ) to generate a set of low-resolution ED point clouds {vip}Np
+
+> i=1
+
+.While these point clouds capture the overall filler struc-ture of the ligand, they contain limited pharmacophore information, posing challenges for the generation of bioactive molecules. To enrich the chemical features, for each point in the cloud, we compute its minimal distance to all atoms in the filler F and assign a phar-macophore type based on the closest atom. Specifically, each point is assigned a type indicator cip, whose value is selected from {hydrogen bond donor (HBD) ,hydrogen bond acceptor (HBA) , hydrogen bond donor/acceptor (HBD / HBA) , Other }. Finally, we obtain a set of labeled point clouds Pf = {(cip, vip)}Np
+
+> i=1
+
+.Since autoregressive models are sensitive to input ordering, we sort the points in Pf in ascending order of their x, y,and z coordinates, thereby providing consistent input. 
+
+3.3. Input format of molecule 
+
+Determining the ordering of the molecular structure M
+
+is crucial for autoregressive modeling. A straightfor-ward approach is to use SMILES (Weininger, 1988) to represent the molecule together with its absolute spatial positions. While this representation is sufficient to de-scribe molecular structures, its application in autoregres-sive generation often results in unrealistic or physically inconsistent conformations (Feng et al., 2024; Qu et al., 2024). To overcome this limitation, we adopt a modified Lingo3DMol representation (Feng et al., 2024) for M, yield-ing cM = {(baim, bvim, blim, bθim, bϕim)}, where baim, bvim, blim, bθim,and bϕim denote the Fragment SMILES (FSMILES) token, discretized 3D coordinates, bond length, bond angle, and dihedral angle, respectively. In the following section, we detail the procedure for converting a given molecule M into its representation cM.
+
+FSMILES FSMILES (Feng et al., 2024) is a novel 2D molecular representation derived from SMILES, which de-composes molecules into fragments while retaining the stan-dard SMILES syntax for each fragment. Compared with SMILES, FSMILES improves the learning of 2D molecu-lar patterns by representing fragments and local structures with dedicated symbols and by prioritizing ring closures, which facilitates the generation of molecules with correct ring structures and bond angles. However, in the original FSMILES, edges connecting atoms within a ring were often cut, which could lead to overly fragmented molecular rep-resentations. Therefore, we improve FSMILES, avoiding splitting small fragments that link rings, thereby reducing ex-cessive fragmentation and preserving more of the molecule’s structural integrity. More details are in Appendix Sec. C.1. 
+
+Discretized 3D coordinates The coordinates of amolecule M are originally continuous in three-dimensional space. To make them compatible with autoregressive mod-eling, we discretize the spatial coordinates following the input format of Lingo3DMol. Specifically, we first com-pute the geometric center of M, denoted as μm ∈ R3, and obtain the initial discretized coordinates evim =
+
+j vim−μm
+
+> σ
+
+k
+
+,where σ and ⌊·⌋ denote a scaling factor and rounding opera-tion, respectively. Since the spatial extent of most drug-like 4From Holo Pockets to Electron Density: GPT-style Drug Design with Density 
+
+molecules lies within 5–30 ˚A , we set σ = 0 .1, mapping the coordinates into a bounded integer grid of moderate reso-lution (within [−150 , 150] along each axis). To facilitate autoregressive prediction, we shift all discretized coordi-nates by a constant offset so they become positive integers. The final coordinates, denoted as bvim, preserve geometric de-tail while keeping the vocabulary size manageable, thereby improving tractability and training stability. Point clouds are also transformed into this shifted space, denoted as {bvip}.More details are in Appendix Sec. C.2. 
+
+Relative Distance Although the discretized coordinates 
+
+vim capture the absolute spatial positions of atoms, we fur-ther incorporate relative geometric information to explicitly model local structural dependencies, which is beneficial for autoregressive inference. Specifically, for each atom vim,we consider its three preceding atoms vi−1 
+
+> m
+
+, vi−2 
+
+> m
+
+, and vi−3 
+
+> m
+
+,and compute the the bond length lim, bond angle θim, and dihedral angle ϕim as follows: 
+
+lim = vim − vi−1  
+
+> m2
+
+, (3) 
+
+θim = arccos 
+
+ vi−1 
+
+> m
+
+− vi−2
+
+> m
+
+ ·  vim − vi−1
+
+> m
+
+
+
+vi−1 
+
+> m
+
+− vi−2  
+
+> m2
+
+vim − vi−1 
+
+> m2
+
+!
+
+, (4) 
+
+ϕim = arctan 
+
+ (b1 × b2) × (b2 × b3)
+
+· b2
+
+∥b2∥2
+
+, (b1 × b2) · (b2 × b3)
+
+
+
+,
+
+(5) where b1 = vi−2 
+
+> m
+
+− vi−3 
+
+> m
+
+, b2 = vi−1 
+
+> m
+
+− vi−2 
+
+> m
+
+, and b3 =
+
+vim − vi−1 
+
+> m
+
+. We similarly convert lim, θim, and ϕim into discrete representations for autoregressive modeling: 
+
+blim =
+
+ lim
+
+σ
+
+
+
+, bθim =
+
+ θim
+
+10 
+
+
+
+, bϕim =
+
+ ϕim
+
+10 
+
+
+
+(6) As shown in Eq. 6, we discretize bond lengths using the same rule as coordinates. For bond angles and dihedral angles, we apply a coarser discretization, dividing the 180-degree range into 10-degree intervals. This design ensures that relative geometric information contributes effectively while preserving the learnability of the task. More details are in the Appendix Sec. C.3 
+
+3.4. EDMolGPT Training The overall architecture of EDMolGPT follows GPT-2 (Radford et al., 2019), a decoder-only framework and adopt the default Transformer positional embeddings as used in GPT. Positional embeddings provide ordering and global spatial context, improving spatial awareness during molecular decoding. We remove all components in the filler except the ligand, and use the resulting ED as the condi-tioning signal. As a distinction, we denote the ED used Filler ED 
+
+Figure 4. Difference between training (blue) and inference (green): ED during training is derived from the ligand, while ED during inference incorporates solvent(red dots). 
+
+for training as bPm. During training, we concatenate the point cloud and molecule sequences and feed them into ED-MolGPT to predict the molecule token-by-token. Formally, after acquiring the discretized point cloud bPm and the corre-sponding molecule cM, the input features for the point cloud and molecule are defined as: 
+
+hip = gx(bvip,x ) + gy (bvip,y ) + gz (bvip,z ) + gc(cip),
+
+him = gx(bvim,x ) + gy (bvim,y ) + gz (bvim,z ) + ga(baim), (7) where gx, gy , gz , gc, and ga denote the embedding func-tions for X-, Y-, and Z-coordinates, point cloud type, and FSMILES token, respectively. Note that the coordinate em-bedding functions are shared between the point cloud and molecule, as they reside in the same spatial space. Since all variables are discretized into categorical spaces, the model predicts batm, bvtm, bltm, bθtm, and bϕtm using linear classification heads followed by softmax normalization, and is optimized with the CE loss. The overall training objective is defined as: 
+
+LEDMolGPT = − 1
+
+NmNmX
+
+> t=1
+
+log p
+
+
+
+(batm, bvtm, bltm, bθtm, bϕtm)
+
+h1
+
+> p
+
+, . . . , hNp
+
+> p
+
+| {z }
+
+> point cloud features
+
+, h1
+
+> m
+
+, . . . , ht−1
+
+> m
+
+| {z }
+
+> previous molecule features
+
+
+
+.
+
+(8) 
+
+Inference During inference, we feed the filler’s ED (It contains the information of solvent) into EDMolGPT and generate the molecular sequence M in an autoregressive, token-by-token manner. For FSMILES tokens baim and rel-ative geometric tokens blim, bθim, bϕim, we apply temperature sampling (Radford et al., 2019) to draw predictions from the model’s output distribution. Instead of directly sampling discretized 3D coordinates, we exploit the predicted relative geometric features to restrict the sampling space for vim.Specifically, given the three previously generated atom po-sitions vi−1 
+
+> m
+
+, vi−2 
+
+> m
+
+, vi−3 
+
+> m
+
+, and predicted (lim, θ im, ϕ im), we recover the continuous bond length, bond angle, and di-hedral angle from their discretized representations. These quantities uniquely define a local reference frame, within 5From Holo Pockets to Electron Density: GPT-style Drug Design with Density 
+
+which the feasible set of vim lies on a spherical surface pa-rameterized by (lim, θ im, ϕ im). The model then samples vim
+
+from this constrained space, ensuring geometric consistency with the previously generated atoms while reducing the search space and improving the stability of autoregressive inference. More details about how to apply relative distance during inference are in Appendix Sec. D 
+
+## 4. Experiment 
+
+4.1. Settings Datasets Our EDMolGPT model is pre-trained on pub-licly available datasets 1, which include approximately eight million molecules. To improve data quality, we further filter the dataset using the Quantitative Estimate of Drug-likeness (QED) and the Synthetic Accessibility Score (SAS), result-ing in a curated set of approximately two million molecules. We leverage a large-scale molecular dataset to generate CalED for pre-training. For fine-tuning, we collect com-plex data from 40k binding experiments in PDBbind and construct ExpED accordingly. For point cloud generation, we set dmin = 3 .5 ˚A for each molecule. All point clouds are standardized to contain Np = 199 points, which we find to offer a favorable trade-off between performance and computational efficiency. For evaluation, we adopt DUD-E (Mysinger et al., 2012) dataset, which contains 101 recep-tors and their corresponding binding molecules. 2 We make the CalED from the ligand, and for ExpED, we construct the filler density by including the ligand itself together with all solvent and water within a radius of 4.5 ˚A centered at the ligand. Due to the limited availability of experimental cryo-EM/X-ray density maps, only 92 structures in DUD-E were matched with corresponding experimental densities, and all evaluations on ExpED are therefore conducted on this subset. For each receptor, we generate 1000 molecules for inference. More details about distributions between the training data and inference data in Appendix Sec. F.1. 
+
+Training/Evaluation Details EDMolGPT is trained fol-lowing the general setup of GPT-medium with a 24-layer Transformer backbone. We optimize the model using the AdamW (Loshchilov & Hutter, 2017) optimizer with a learn-ing rate of 1 × 10 −5 and apply a warm-up schedule for the first 1000 steps before decaying according to a cosine sched-ule . The training is conducted with a batch size of 96 for 
+
+100 epochs. All experiments are performed on two NVIDIA A40 GPUs. For inference, we set the temperature T = 0 .7   
+
+> 1Data available at: http://data.aicnic.cn/ dms-html/dataset_detail.html?id=848
+> 2Traditional DUD-E contains 102 targets. But following previ-ous works (Feng et al., 2024), the target with the PDB ID 2H7L in the DUD-E dataset was excluded as it is listed as an obsolete entry in the PDB.
+
+to scale the sampling distribution and make token predic-tion. We evaluate the pre-trained model on CalED and the fine-tuned model on ExpED, respectively. More details are in Appendix Sec. E.2. 
+
+Evaluation Metrics We compare EDMolGPT with previ-ous methods utilizing ED: ECloudGen (Zhang et al., 2024) and ED2Mol (Li et al., 2025). For a fair comparison, we use the CalED derived from pre-existing binder to conduct experiments on ECloudGen, denoted as ECloudGen †. For reference, we report results on experimentally validated bioactive ligands, denoted as Reference. We also compare our method with SBDD methods: Pocket2Mol (Peng et al., 2022), TargetDiff (Guan et al., 2023b), Lingo3DMol (Feng et al., 2024), and MolCRAFT (Qu et al., 2024). We evaluate all methods from four complementary perspectives: 
+
+(1) Bioactive Molecule Recovery: The percentage of tar-gets for which the generated compounds are similar to known active compounds, as measured by the Tanimoto sim-ilarity (Bajusz et al., 2015) of ECFP4 fingerprints (Rogers & Hahn, 2010). If at least one molecule generated by the method satisfies ECFP TS > 0.5, we consider the corre-sponding active compound for that receptor as recovered. We report the overall recovery rate across all pockets. 
+
+(2) Binding Affinity: We evaluate the binding affinity of generated ligands using GlideSP (Friesner et al., 2004) un-der two protocols. In min-in-place , the generated conforma-tion is minimized within the original binding pocket while preserving its pose, whereas redocking allows fully flexible docking and ligand repositioning. Lower scores indicate stronger predicted binding. To assess pose alignment, we additionally report the fraction of cases where min-in-place 
+
+outperforms redocking , suggesting that the generated con-formations are already close to favorable binding modes. Glide is adopted due to its wide use, strong enrichment capa-bility, and its role as a standard baseline in scoring function evaluations (Su et al., 2018; Shen et al., 2021). 
+
+(3) Conformational Stability: Assessed using the strain energy distribution of generated conformers. We evaluate via the commonly used Posecheck (Harris et al., 2023). We report the 25%, 50%, and 75% quantiles to reflect geometric reliability of the molecules. 
+
+(4) Molecular Properties: Evaluated using multiple criteria: QED ↑, SAS ↓, and average molecular weight. These met-rics together capture the practicality and overall quality of the generated molecules. Considering that observing one indicator alone is not very meaningful, we analyze the three indicators together in the following experiments. 6From Holo Pockets to Electron Density: GPT-style Drug Design with Density 
+
+4.2. Results on CalED Results on Bioactive Molecule Recovery DUD-E, the dataset used for model evaluation, critically includes over 200 experimentally validated active ligands with measured affinities per target. This feature enables a direct comparison of AI-generated molecules against known active compounds, thereby mitigating the limitations of relying solely on purely computational assessments. Consequently, the Bioactive Molecule Recovery metric becomes an important metric for evaluating molecule generation models (Liu et al., 2024). On this crucial metric (Tab. 1), EDMolGPT achieves the highest recovery ratio among other methods, successfully reproducing bioactive molecules for 41% of the targets. This result implies that nearly half of the targets can be matched with generated compounds that are structurally similar (ECFP4 TS > 0.5) to known actives, highlighting the practical relevance of our method. The high recovery rate indicates that molecules generated by EDMolGPT are not only computationally favorable but also exhibit real biological activity. 
+
+Results on Binding Affinity As shown in Tab. 1, ED-MolGPT achieves the lowest average Glide score in the min-in-place setting ( −6.92 ), indicating that EDMolGPT-generated molecules adopt more favorable conformations for pocket-binding than those produced by other models. Beyond this absolute measure of binding quality, we also employed the widely adopted relative metric, the Min. < Re. ratio, to assess the quality of the generated binding confor-mations. This metric compares the pocket-binding quality of the generated conformation against the conformation ob-tained through classical force-field sampling. EDMolGPT demonstrated that 37% of its generated molecules exhib-ited binding modes superior to their force-field sampled counterparts, a performance that surpassed other models. Collectively, these results demonstrate that EDMolGPT gen-erates ligands with notably better pocket-binding modes compared to baseline models. 
+
+Results on Conformational Stability As shown in Tab. 1, we evaluate the conformational stability through strain en-ergy analysis. While ED2Mol employs Qscore-guided (Ter-williger et al., 2006) fragment placement, which penalizes deviations from ideal bond geometries and applies force-field refinement (smina (Ding et al., 2022a)) during genera-tion, EDMolGPT does not employ any post-processing, yet still achieves comparable quality. Specifically, the strain energies of EDMolGPT-generated molecules are 33, 69, and 194 kcal/mol at the 25%, 50%, and 75% quantiles, which are on par with those of Pocket2Mol and Lingo3dMol. These results indicate that EDMolGPT encodes 3D structural con-straints during generation, producing conformations with competitive stability. 
+
+Results on Properties As shown in Tab. 1, we compare QED, SAS, and molecular weight across different meth-ods. EDMolGPT achieves a strong balance across all three metrics, generating molecules with competitive QED and SAS values while maintaining molecular weights close to the Reference ligands—the ground-truth holo binders. This suggests that EDMolGPT produces chemically plau-sible molecules that reflect the size and complexity of real bioactive compounds. In contrast, some baselines, such as ED2Mol and ECloudGen, achieve favorable QED/SAS scores by generating smaller, simpler molecules or produc-ing heavier but less chemically favorable structures. We also present a more detailed comparison between ED2Mol and EDMolGPT in Fig. 5. While ED2Mol attains higher QED and lower SAS, its molecules are generally much smaller, indicating that its apparent advantages stem from producing simpler structures rather than diverse, drug-like candidates, which limits its coverage of the chemical space relevant for realistic drug design. Furthermore, we conduct a detailed comparison between our method, EDMolGPT, and ED2Mol by binning generated molecules according to molecular weight and evaluating drug-like properties within each bin. As shown in Tab. 2, the binned analysis shows that while Ed2Mol achieves higher QED in certain ranges, its SAS increases significantly with molecular weight, indicating reduced synthetic accessibil-ity for larger molecules. In contrast, EdMolGPT maintains more stable and favorable SAS across all weight bins. More-over, considering metrics such as recovery rate and binding affinity, EdMolGPT demonstrates stronger overall perfor-mance in generating biologically relevant structures. We acknowledge that Ed2Mol has strengths in optimizing spe-cific drug-likeness properties, and view it as a valuable benchmark. In future work, we plan to incorporate these advantages to further improve the chemical quality of our generated molecules. 
+
+4.3. Results on ExpED 
+
+As shown in Tab. 3, we report the performance under the ExpED setting. Although the docking score (Min-in-place) appears relatively modest, this metric does not fully capture the binding potential in scenarios involving flexible protein conformations. Unlike pocket-based methods that assume a rigid binding site, EDMolGPT naturally accounts for con-formational variability. Therefore, EDMolGPT under the ExpED setting can generate bioactive ligands that lie out-side the reachable chemical space of generative models or virtual screening pipelines operating on rigid-pocket repre-sentations, as such ligands would be rejected a priori due to steric clashes. As shown in Fig. 6, the region highlighted in purple indicates a steric clash under a rigid pocket as-sumption, whereas experimental observations suggest this region is flexible and can accommodate the generated lig-7From Holo Pockets to Electron Density: GPT-style Drug Design with Density 
+
+Table 1. The results with Binding Affinity, Conformation Stability (Conf. Stability), and Bioactive Molecule Recovery (Bio. Mol. Recov. ) on CalED, comparison across different methods. ↓ and ↑ indicate larger/smaller is better. Note: Min. < Re. denotes Min-in-place <
+
+Redocking. * ED2Mol explicitly applies refinement utilizing external force fields before outputting molecules, a strategy not adopted by other models. This approach directly mitigates strain energy within the generated molecules. 
+
+Bio. Mol. Recov. Binding Affinity Conf. Stability Drug-like Properties 
+
+Methods ECFP4 TS > 0.5 ↑ Min-in-place ↓ Redocking ↓ Min. < Re. ↑ Strain Energy ↓ QED ↑ SAS ↓ Weight Ratio Average Average Ratio 25% 50% 75% Average Average Average Pocket2Mol 8% -6.7 -7.5 17.9% 69 126 230 0.56 3.5 386 TargetDiff 3% -6.2 -7.0 15.2% 139 313 643 0.60 4.0 299 Lingo3DMol 33% -6.8 -7.8 12.0% 13 40 177 0.59 3.1 348 MolCRAFT 17% -6.1 -6.9 20.1% 20 47 102 0.51 3.81 285 ED2Mol 3% -5.22 -6.15 7.4% 7∗ 24 ∗ 57 ∗ 0.73 3.9 234 ECloudGen 6% - - - - - - 0.66 2.9 213 ECloudGen † 33% - -6.68 - - - - 0.73 2.9 326 EDMolGPT 41% -6.92 -7.18 37% 33 69 194 0.57 3.79 385 Reference - -7.93 -7.93 - - - - 0.46 3.6 438 ED2Mol EDMolGPT 
+
+(a) Percentage of Samples by QED and SAS Bins ED2Mol EDMolGPT (b) Average Mol. Weight by QED and SAS Bins 
+
+Figure 5. The comparison between ED2Mol and EDMolGPT on QED, SAS, and Molecule Weight. We split QED and SAS into several bins and report the (a) Percentage of Samples by QED and SAS Bins and (b) Average Molecule Weight by QED and SAS Bins. 
+
+Figure 6. Generation from ED. Left: reproduction of the original ligand from ED. Right: a newly generated molecule that overlaps with the rigid pocket yet remains active. 
+
+and. The resulting molecule exhibits confirmed bioactivity, underscoring the limitations of rigid docking evaluations. More analyses are provided in Appendix Sec. B. 
+
+4.4. Ablation studies Ablations studies on resolution dmin To robustly enable our model to explore a broader chemical space and generate diverse scaffolds, differing from the reference ligand while still being guided by the binding environment, we utilize 
+
+Table 2. Comparison between ED2Mol and EDMolGPT across different molecular weight bins. Mol. Weight SAS (ED2Mol / Ours) QED (ED2Mol / Ours) 
+
+< 180 3.18 / 3.29 0.66 / 0.52 
+
+180 –300 3.93 / 3.80 0.75 / 0.63 
+
+300 –420 4.68 / 3.73 0.74 / 0.63 
+
+> 420 5.27 / 3.88 0.52 / 0.46 
+
+Table 3. The results on ExpED. Min-in-place Recov. QED SAS Mol. Weight EDMolGPT -5.4 20% 0.50 3.69 372 
+
+low-resolution ED point clouds of reference binders. In our implementation, these low-resolution ED point clouds are achieved through two controls: the diffraction resolution (dmin ), which determines the coarseness of the electron den-sity, and the ED grid resolution, governed by the number of sampling points ( Np), which dictates the sparsity of the point cloud. Crucially, our ablation studies on diffraction resolutions (Tab. 4) indicate that Np plays a more signifi-cant role in constructing this low-resolution representation. Specifically, setting Np = 199 consistently generates ED point cloud representations that mitigate bias associated 8From Holo Pockets to Electron Density: GPT-style Drug Design with Density                                
+
+> Table 4. Ablation studies on temperature and resolution. Div de-notes the average score of ECFP TS similarity between generated molecules and reference ligands, reflecting the structural diversity of the generated scaffolds.
+> dmin TMin-in-place Redock Min. <Re. Recov. Div 1.5 ˚ A0.7-6.94 -7.12 33% 46% 0.186
+> 1.2-6.90 -7.21 36% 44% 0.178 3.5 ˚ A0.7-6.92 -7.18 37% 41% 0.184
+> 1.2-6.91 -7.17 37% 41% 0.176
+
+with the reference binders from which the low-resolution ED point clouds are derived, irrespective of the chosen diffraction resolution. This is supported by the consistently low Tanimoto similarity (typically < 0.2) between the gener-ated molecules and the initial reference binders, as shown in Tab. 4 Div metric. Furthermore, varying the resolution does not introduce notable changes to the evaluation metrics. 
+
+Ablation studies on temperature Another key hyper-parameter in EDMolGPT is the sampling temperature T ,which controls the randomness of the autoregressive gen-eration process. Lower temperatures tend to produce more deterministic outputs, while higher temperatures encourage greater diversity but can introduce noisier conformations. As shown in Tab. 4, increasing T from 0.7 to 1.2 has a more noticeable impact on the Div score, which decreases slightly, indicating a modest reduction in scaffold diversity. Other metrics change only marginally: redocking scores improve slightly and the fraction of cases where the redocking score is lower than the minimum-in-place score increases, suggest-ing better pocket alignment, while the recovery rate drops modestly. These results show that sampling temperature significantly influences the balance between diversity and structural consistency in generation. 
+
+## 5. Conclusion 
+
+In this work, we present EDMolGPT, a novel decoder-only autoregressive framework for 3D drug design that lever-ages electron-density–derived point clouds as condition-ing signals. By sampling low-resolution electron density from an existing binder instead of relying on rigid pocket representations, our approach flexibly describes the bind-ing environment, enabling the generation of ligands with chemically plausible conformations. Experiments on over 100 DUD-E targets show EDMolGPT outperforms exist-ing structure-based generative methods in both 3D and 2D chemical spaces, with improved binding modes and higher recovery rates of bioactive molecules. EDMolGPT offers a paradigm to advance current technologies in drug design. 
+
+## Impact Statement 
+
+This paper presents work whose goal is to advance the field of Machine Learning. There are many potential societal consequences of our work, none which we feel must be specifically highlighted here. 
+
+## Acknowledgements 
+
+This work was supported in part by the National Natural Science Foundation of China No. 62376277, Public Com-puting Cloud, Renmin University of China, and fund for building world-class universities (disciplines) of Renmin University of China. This work was also supported by the Beijing Munic-ipal Science and Technology Commission (grant no. Z241100007724005 received by B.H.). 
+
+## References 
+
+Bajusz, D., R ´acz, A., and H ´eberger, K. Why is tanimoto in-dex an appropriate choice for fingerprint-based similarity calculations? Journal of cheminformatics , 7(1):20, 2015. Breda, A., Basso, L. A., Santos, D. S., De Azevedo, J., and Walter, F. Virtual screening of drugs: score functions, docking, and drug design. Current Computer-Aided Drug Design , 4(4):265–272, 2008. Degen, J., Wegscheid-Gerlach, C., Zaliani, A., and Rarey, M. On the art of compiling and using’drug-like’chemical fragment spaces. ChemMedChem , 3(10):1503, 2008. Ding, K., Yin, S., Li, Z., Jiang, S., Yang, Y., Zhou, W., Zhang, Y., and Huang, B. Observing noncovalent inter-actions in experimental electron density for macromolec-ular systems: A novel perspective for protein–ligand interaction research. Journal of Chemical Information and Modeling , 62(7):1734–1743, 2022a. ISSN 1549-9596. doi: 10.1021/acs.jcim.1c01406. URL https: //doi.org/10.1021/acs.jcim.1c01406 . doi: 10.1021/acs.jcim.1c01406. Ding, K., Yin, S., Li, Z., Jiang, S., Yang, Y., Zhou, W., Zhang, Y., and Huang, B. Observing noncovalent interac-tions in experimental electron density for macromolecular systems: a novel perspective for protein–ligand interac-tion research. Journal of Chemical Information and Mod-eling , 62(7):1734–1743, 2022b. Feng, W., Wang, L., Lin, Z., Zhu, Y., Wang, H., Dong, J., Bai, R., Wang, H., Zhou, J., Peng, W., et al. Generation of 3d molecules in pockets via a language model. Nature Machine Intelligence , 6(1):62–73, 2024. Friesner, R. A., Banks, J. L., Murphy, R. B., Halgren, T. A., Klicic, J. J., Mainz, D. T., Repasky, M. P., Knoll, E. H., Shelley, M., Perry, J. K., et al. Glide: a new approach for rapid, accurate docking and scoring. 1. method and 9From Holo Pockets to Electron Density: GPT-style Drug Design with Density 
+
+assessment of docking accuracy. Journal of medicinal chemistry , 47(7):1739–1749, 2004. Gao, W., Fu, T., Sun, J., and Coley, C. Sample efficiency matters: a benchmark for practical molecular optimiza-tion. Advances in neural information processing systems ,35:21342–21357, 2022. Gu, S., Smith, M. S., Yang, Y., Irwin, J. J., and Shoichet, B. K. Ligand strain energy in large library docking. Jour-nal of chemical information and modeling , 61(9):4331– 4341, 2021. Guan, J., Qian, W. W., Peng, X., Su, Y., Peng, J., and Ma, J. 3d equivariant diffusion for target-aware molecule generation and affinity prediction. arXiv preprint arXiv:2303.03543 , 2023a. Guan, J., Qian, W. W., Peng, X., Su, Y., Peng, J., and Ma, J. 3d equivariant diffusion for target-aware molecule gener-ation and affinity prediction. In International Conference on Learning Representations , 2023b. Harris, C., Didi, K., Jamasb, A. R., Joshi, C. K., Mathis, S. V., Lio, P., and Blundell, T. Benchmarking generated poses: How rational is structure-based drug design with generative models? arXiv preprint arXiv:2308.07413 ,2023. Hendrycks, D. and Gimpel, K. Gaussian error linear units (gelus). arXiv preprint arXiv:1606.08415 , 2016. Hollingsworth, S. A. and Dror, R. O. Molecular dynamics simulation for all. Neuron , 99(6):1129–1143, 2018. Li, M., Song, K., He, J., Zhao, M., You, G., Zhong, J., Zhao, M., Li, A., Chen, Y., Li, G., et al. Electron-density-informed effective and reliable de novo molecular design and optimization with ed2mol. Nature Machine Intelli-gence , 7(8):1355–1368, 2025. Liu, H., Qin, Y., Niu, Z., Xu, M., Wu, J., Xiao, X., Lei, J., Ran, T., and Chen, H. How good are current pocket-based 3d generative models?: The benchmark set and evaluation of protein pocket-based 3d molecular generative models. 
+
+Journal of Chemical Information and Modeling , 64(24): 9260–9275, 2024. Loshchilov, I. and Hutter, F. Decoupled weight decay regu-larization. arXiv preprint arXiv:1711.05101 , 2017. Lu, W., Zhang, J., Huang, W., Zhang, Z., Jia, X., Wang, Z., Shi, L., Li, C., Wolynes, P. G., and Zheng, S. Dynam-icbind: predicting ligand-specific protein-ligand complex structure with a deep equivariant generative model. Na-ture Communications , 15(1):1071, 2024. Ma, W., Zhang, W., Le, Y., Shi, X., Xu, Q., Xiao, Y., Dou, Y., Wang, X., Zhou, W., Peng, W., et al. Using macro-molecular electron densities to improve the enrichment of active compounds in virtual screening. Communications Chemistry , 6(1):173, 2023. Morris, G. M., Huey, R., Lindstrom, W., Sanner, M. F., Belew, R. K., Goodsell, D. S., and Olson, A. J. Autodock4 and autodocktools4: Automated docking with selective receptor flexibility. Journal of computational chemistry ,30(16):2785–2791, 2009. Mysinger, M. M., Carchia, M., Irwin, J. J., and Shoichet, B. K. Directory of useful decoys, enhanced (dud-e): bet-ter ligands and decoys for better benchmarking. Journal of medicinal chemistry , 55(14):6582–6594, 2012. Peng, X., Luo, S., Guan, J., Xie, Q., Peng, J., and Ma, J. Pocket2mol: Efficient molecular sampling based on 3d protein pockets. In International conference on machine learning , pp. 17644–17655. PMLR, 2022. Qu, Y., Qiu, K., Song, Y., Gong, J., Han, J., Zheng, M., Zhou, H., and Ma, W.-Y. Molcraft: structure-based drug design in continuous parameter space. arXiv preprint arXiv:2404.12141 , 2024. Radford, A., Wu, J., Child, R., Luan, D., Amodei, D., Sutskever, I., et al. Language models are unsupervised multitask learners. OpenAI blog , 1(8):9, 2019. Rogers, D. and Hahn, M. Extended-connectivity finger-prints. Journal of chemical information and modeling , 50 (5):742–754, 2010. Shen, C., Hu, Y., Wang, Z., Zhang, X., Pang, J., Wang, G., Zhong, H., Xu, L., Cao, D., and Hou, T. Beware of the generic machine learning-based scoring functions in structure-based virtual screening. Briefings in Bioinfor-matics , 22(3):bbaa070, 2021. Su, M., Yang, Q., Du, Y., Feng, G., Liu, Z., Li, Y., and Wang, R. Comparative assessment of scoring functions: the casf-2016 update. Journal of chemical information and modeling , 59(2):895–913, 2018. Szab ´o, P. B., Saban ´es Zariquiey, F., and Nogueira, J. J. Cosolvent and dynamic effects in binding pocket search by docking simulations. Journal of Chemical Information and Modeling , 61(11):5508–5523, 2021. Terwilliger, T. C., Klei, H., Adams, P. D., Moriarty, N. W., and Cohn, J. D. Automated ligand fitting by core-fragment fitting and extension into density. Acta crys-tallographica. Section D, Biological crystallography ,62(Pt 8):915—922, August 2006. ISSN 0907-4449. doi: 10.1107/s0907444906017161. URL https:// europepmc.org/articles/PMC2745883 .10 From Holo Pockets to Electron Density: GPT-style Drug Design with Density 
+
+Tong, J. and Zhao, S. Large-scale analysis of bioactive lig-and conformational strain energy by ab initio calculation. 
+
+Journal of Chemical Information and Modeling , 61(3): 1180–1192, 2021. Vasan, K., Gysi, D. M., and Barab ´asi, A.-L. The clinical trials puzzle: How network effects limit drug discovery. 
+
+Iscience , 26(12), 2023. Wang, L., Bai, R., Shi, X., Zhang, W., Cui, Y., Wang, X., Wang, C., Chang, H., Zhang, Y., Zhou, J., et al. A pocket-based 3d molecule generative model fueled by experi-mental electron density. Scientific reports , 12(1):15100, 2022. Weininger, D. Smiles, a chemical language and information system. 1. introduction to methodology and encoding rules. Journal of chemical information and computer sciences , 28(1):31–36, 1988. Xu, M., Yu, L., Song, Y., Shi, C., Ermon, S., and Tang, J. Geodiff: A geometric diffusion model for molecular con-formation generation. arXiv preprint arXiv:2203.02923 ,2022. Zhang, O., Jin, J., Lin, H., Zhang, J., Hua, C., Huang, Y., Zhao, H., Hsieh, C.-Y., and Hou, T. Ecloudgen: access to broader chemical space for structure-based molecule generation. bioRxiv , 2024. 11 From Holo Pockets to Electron Density: GPT-style Drug Design with Density 
+
+## Supplementary material Overview 
+
+This appendix presents comprehensive experimental details, evaluation details, and more visualization results. The content is organized into five main sections: • Sec. A discusses the practical significance of electron density–based generation and contrasts it with pocket-based generation. • Sec. B discusses the differences and meaning of applying ED for drug design. • Sec. C.1, Sec. C.2, and Sec. C.3 provide further details on FSMILES, discretized 3D coordinates, and relative distances, supplementing the main text with specifications of the molecular input format. • Sec. E.1, Sec. E.2 and Sec. E.3 provide additional details on the DUD-E dataset, the hyper-parameters of EDMolGPT, and more explanation for Bioactive Molecule Recovery metric. • Sec. D explains how relative distance is employed to constrain the prediction of discretized 3D coordinates. • Sec. F.1 examines the differences in data distributions between the public dataset used to train EDMolGPT and the DUD-E dataset, while Sec. F.2 presents additional visualization results. Sec. F.3 presents the computational efficieny between different methods. Sec. F.4 presents the ablation studies on Np and cp. Sec. F.5 presents an analysis of binding flexibility beyond rigid docking assumptions. 
+
+## A. Discussion 
+
+Unlike previous structure-based generative approaches that explicitly rely on the precise 3D geometry of the protein pocket and often operate under a rigid pocket assumption, EDMolGPT leverages low-resolution electron density, derived from pre-existing binders within the pocket, to guide molecular generation. The broad applicability of our method in practical drug discovery scenarios is evident from two key perspectives. Firstly, it is highly applicable whenever a protein structure has been solved with a binder in the pocket, a common occurrence in the early stages of drug discovery. Observing a binder within a potential binding site is frequently a prerequisite for confirming its designation as a ’pocket’ and for establishing its holo-state for subsequent drug screening or design. This holds true regardless of whether the binder is a natural cofactor (e.g., NADPH or ADP) or a reference tool compound, all of which our model can utilize. Secondly, our method’s versatility extends to scenarios where the binding pocket structure itself has not been experimentally solved. In such instances, if an active compound is known, its major conformations in aqueous solution can be determined through molecular dynamics simulations. These computationally derived conformations can then be utilized for the construction of low-resolution electron density, which subsequently fuels our method. This approach is supported by prior research indicating that highly active compounds tend to exhibit minimal differences between their dominant solution-phase conformations and their bound conformations, thereby incurring low strain energy upon binding (Tong & Zhao, 2021; Gu et al., 2021). While our method, to some extent, shares conceptual similarities with Ligand-Based Drug Design (LBDD), it offers broader applicability and distinct advantages. Current LBDD techniques typically require a series of ligands with a wide range of activities to establish Structure-Activity Relationships (SAR) and primarily focus on 2D molecular generation based on molecular fingerprints. In contrast, EDMolGPT offers a much simplified input requirement and provides unique strengths in the 3D generation space. Considering that over 96% of clinical trials in practical drug discovery pipelines focus on previously studied targets with either known ligand or target information (Vasan et al., 2023), EDMolGPT is well-positioned to address the majority of real-world drug discovery cases, offering a complementary paradigm to conventional pocket-structure-based design methods. 
+
+## B. More discussions about ExpED and CalED 
+
+B.1. Flexibility 
+
+Most current AI molecule generation models for SBDD overlook the dynamic nature of binding sites by assuming a static pocket representation (Feng et al., 2024; Qu et al., 2024). As shown in Fig. 7, modeling the pocket as a rigid 12 From Holo Pockets to Electron Density: GPT-style Drug Design with Density Point cloud Point cloud -Ligand 
+
+Pocket Pocket -Ligand 
+
+✔
+
+✔
+
+> (a) Generation under rigid structure
+
+## Point cloud Point cloud -Ligand 
+
+## Pocket Pocket -Ligand 
+
+✔
+
+## ✗ (b) Generation under flexible structure  
+
+> Figure 7. The generation pipeline leverages two distinct inputs: the static crystallographic pocket (PDB ID: 3L1N) and low-resolution electron density. (a) A ligand recovered by both structure- and density-guided approaches. (b) A ligand exclusively generated through electron density guidance. The region highlighted in purple illustrates an apparent steric clash between the generated phenyl moiety and the rigid conformation of the pocket.
+
+structure fails to capture the intrinsic flexibility of proteins and their conformational changes upon ligand binding (Lu et al., 2024). Among various candidate representations, ED emerges as a highly informative descriptor, inherently encoding the binding site’s spatial distribution, its physicochemical environment, critical intermolecular interactions, and crucial pocket flexibility. Leveraging electron density as a conditional input allows models to capture subtle steric, electrostatic, and non-covalent interaction features across multiple conformational states, enabling the generation of molecules that are not only geometrically compatible but also chemically and biologically meaningful (Ding et al., 2022b; Ma et al., 2023). As shown in Fig. 7, biochemical assays confirm the activity of ligands bearing bulky substituents at this site, indicating that the binding site is conformationally flexible and not comprehensively represented by the static structure. Accordingly, generation constrained by the static pocket fails to produce these active compounds. In contrast, our low-resolution ED–guided approach accommodates local conformational plasticity, enabling the successful generation of bulky, yet active, substituents. 
+
+B.2. Difference between Exped and CalED 
+
+As shown in Fig. 8, the intensity distributions of ExpED and CalED differ noticeably. ExpED generally exhibits lower and more variable densities compared with CalED, reflecting experimental noise and structural flexibility. These distributional discrepancies motivate our two-stage training strategy: the model is first pre-trained on large-scale CalED, benefiting from stable and abundant computed densities, and then fine-tuned on ExpED to adapt to the characteristics of experimental measurements. 
+
+## C. Representation of Molecule 
+
+C.1. FSMILES 
+
+The original FSMILES was developed for the autoregressive task in Lingo3DMol. The pre-defined token vocabulary is shown as follows: 
+
+fsmiles_list = ["pad_0", "start_0", "end_0", "sep_0", "C_0", "C_5", "C_6", "C_10", "C_11", "C_12", 
+
+13 From Holo Pockets to Electron Density: GPT-style Drug Design with Density  
+
+> Figure 8. Comparison of ED intensity distributions across different calculation methods. From left to right: (a) ExpED (b) CalED
+
+"c_0", "c_5", "c_6", "c_10", "c_11", "c_12", "N_0", "N_5", "N_6", "N_10", "N_11", "N_12", "n_0", "n_5", "n_6", "n_10", "n_11", "n_12", "S_0", "s_0", "s_5", "s_6", "s_10", "s_11", "s_12", "O_0", "O_5", "O_6", "O_10", "O_11", "O_12", "o_0", "o_5", "o_6", "+_0", "o_11", "o_12", "F_0", "Cl_0", "[nH]_0", "[nH]_5", "[nH]_6", "[nH]_10", "[nH]_11", "[nH]_12", "Br_0", "/_0", "\\_0", "@_0", "@@_0", "H_0", "1_0", "2_0", "3_0", "4_0", "5_0", "6_0", "#_0", "=_0", "-_0", "(_0", ")_0", "[_0", "]_0", "[*]_0","([*])_0" ]. 
+
+In FSMILES, the tokens pad 0, start 0, end 0, and sep 0 denote the padding token, the start-of-molecule marker, the end-of-molecule marker, and the fragment separator, respectively. However, the current FSMILES implementation, which is based on BRICS (Degen et al., 2008), often produces an excessive number of small, highly fragmented substructures. To address this limitation, we refine the FSMILES decomposition process by introducing a fragment-consolidation strategy. Specifically, we preserve any bond whose cleavage would generate fragments containing fewer than three atoms, thereby mitigating over-fragmentation. As illustrated in Fig. 9, our method prevents unnecessary segmentation. For example, in the left panel, the hydroxyl group (-OH) is cleaved in the original FSMILES decomposition, whereas our approach preserves it, resulting in a more chemically meaningful fragment. For the better understanding of FSMILS, we also visualize the density of fragment atom count and the density of fragment molecular weight. As shown in Fig. 10, the majority of fragments contain a moderate number of atoms, and the molecular weights are concentrated within a reasonable range, indicating that the fragment decomposition produces chemically meaningful substructures. These distributions suggest that our fragmentation strategy successfully balances the granularity of molecular breakdown with the preservation of structurally relevant motifs, avoiding excessive over-fragmentation while maintaining fragments suitable for downstream modeling. 
+
+C.2. Discretized 3D coordinates 
+
+We provide further clarifications regarding the discretization scheme described in the main text. 14 From Holo Pockets to Electron Density: GPT-style Drug Design with Density start_0O_0c_61_0c_6c_6c_6c_6([*]) 
+
+> _0c_61_0sep_0c_61_0c_6n_6c_6c_
+> 6([*])_0c_61_0sep_0c_61_0c_6c_6c
+> _6c_6(_0O_0)_0c_61_0sep_0end_0
+> start_0O_0=_0S_0([*])_0(_0=_0O_0)
+> _0N_0[*]_0sep_0c_61_0c_6c_112_0
+> c_11(_0c_6c_61_0[*]_0)_0O_5C_5O
+> _52_0sep_0c_51_0n_5c_5c_5o_51_
+> 0sep_0c_61_0c_6c_6c_6c_6(_0Cl_0
+> )_0c_61_0sep_0end_0
+> start_0C_0C_0([*])_0C_0sep_0c_61
+> _0c_6c_6([*])_0n_6c_122_0c_6c_6c
+> _6c_6c_121_02_0sep_0N_0N_0C_0
+> (_0=_0O_0)_0N_0[*]_0sep_0c_61_0
+> c_6c_6(_0Cl_0)_0c_6c_6(_0Cl_0)_0
+> c_61_0sep_0end_0
+
+(a) FSMILES start_0O_0[*]_0sep_0c_61_0c_6c_6 
+
+> c_6c_6([*])_0c_61_0sep_0c_61_0c_
+> 6n_6c_6c_6([*])_0c_61_0sep_0c_61
+> _0c_6c_6c_6c_6([*])_0c_61_0sep_0
+> O_0sep_0end_0
+> start_0O_0=_0S_0([*])_0(_0=_0O_0)
+> _0N_0[*]_0sep_0c_61_0c_6c_112_0
+> c_11(_0c_6c_61_0[*]_0)_0O_5C_5O
+> _52_0sep_0c_51_0n_5c_5c_5o_51_
+> 0sep_0c_61_0c_6c_6c_6c_6([*])_0c
+> _61_0sep_0Cl_0sep_0end_0
+> start_0C_0C_0([*])_0C_0sep_0c_61
+> _0c_6c_6([*])_0n_6c_122_0c_6c_6c
+> _6c_6c_121_02_0sep_0N_0N_0C_0
+> (_0=_0O_0)_0N_0[*]_0sep_0c_61_0
+> c_6c_6([*])_0c_6c_6([*])_0c_61_0se
+> p_0Cl_0sep_0Cl_0sep_0end_0
+
+(b) Ours 
+
+Figure 9. The comparison between (a) FSMILES and (b) Ours. We highlight the cut bonds in red, and the tokenized result is marked below. 
+
+First, the choice of resolution σ = 0 .1 ˚A reflects a trade-off between geometric fidelity and vocabulary size. With this setting, the maximum quantization error per coordinate dimension is 0.05 ˚A , which is negligible compared to the typical bond length in organic molecules ( ∼ 1.2–1.5 ˚A ). Thus, the discretized representation is sufficiently accurate to preserve chemically meaningful structures. Second, the positive shift applied after discretization ensures that all coordinates bvim lie within the range of non-negative integers. This design is important because it allows us to directly map each integer triplet to a unique token in the model vocabulary without introducing negative indices, thereby simplifying both tokenization and embedding lookups. Third, although discretization maps continuous space into a bounded integer lattice, the autoregressive model does not rely solely on absolute coordinate tokens. Instead, the generation process is conditioned on relative geometric features (bond length l, bond angle θ, and dihedral angle ϕ), which act as local structural constraints during inference. This hybrid formulation mitigates the potential artifacts of quantization by guiding the coordinate recovery step toward chemically valid regions. Finally, both molecular coordinates and auxiliary point clouds are discretized into the same shifted lattice space. This alignment enables us to encode heterogeneous geometric information (e.g., atomic positions and electron-density-derived point clouds) within a unified tokenization framework, which greatly facilitates multimodal training. 15 From Holo Pockets to Electron Density: GPT-style Drug Design with Density 10 20 30 40 
+
+> Number of atoms
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> Count
+> Fragment Atom Count Distribution
+
+(a) The density of fragment atom count 100 200 300 400 500 600  
+
+> Molecular weight
+> 0.000
+> 0.002
+> 0.004
+> 0.006
+> 0.008
+> Count
+> Fragment Molecular Weight Distribution
+
+(b) The density of fragment molecular weight 
+
+Figure 10. The visualization results on (a) Fragment Atom Count Distribution and (b) Fragment Molecular Weight Distribution. 
+
+C.3. Relative distance 
+
+To determine the reference atoms required for autoregressive coordinate generation, we design a procedure to trace the ancestral nodes of each token in the molecular sequence M = {a1
+
+> m
+
+, a 2
+
+> m
+
+, . . . , a nm}. For a given step i, we define three levels of ancestor indices: 
+
+r1(i), r2(i) = r1(r1(i)) , r3(i) = r1(r2(i)) , (9) where r1(i) denotes the first-order ancestor , r2(i) the second-order ancestor , and r3(i) the third-order ancestor of token 
+
+aim.The search for r1(i) is performed by traversing the sequence backward from step i: (1) if aim is an atom token, r1(i)
+
+is assigned to the nearest preceding atom token; (2) if aim is a non-element symbol (e.g., branch markers “(” and “)”), we recursively skip bracketed fragments while ensuring valid pairing of parentheses, thus locating the chemically valid attachment point of the current substructure; (3) if a separator token sep 0 is encountered, the search crosses fragment boundaries and jumps to the most recent star marker [·] that denotes a fragment connection point. Once r1(i) is determined, higher-order ancestors are obtained recursively as 
+
+r2(i) = r1(r1(i)) , r3(i) = r1(r2(i)) . (10) These indices provide the hierarchical reference atoms for step i, which correspond to the spatial coordinates 
+
+vi−1 
+
+> m
+
+= vr1(i), vi−2 
+
+> m
+
+= vr2(i), vi−3 
+
+> m
+
+= vr3(i). (11) In this way, the algorithm ensures that each new atom position vim is generated with respect to three previously defined reference atoms, enabling consistent computation of bond length, bond angle, and dihedral angle during molecular construction. 
+
+## D. Details about inference 
+
+During inference, we feed the conditioned point cloud into EDMolGPT and generate the molecular sequence M in an autoregressive, token-by-token manner. For FSMILES tokens baim and relative geometric tokens blim, bθim, bϕim, we apply temperature sampling (Radford et al., 2019) to draw predictions from the model’s output distribution. However, directly sampling discretized 3D coordinates bvim from the entire spatial domain often results in unrealistic or geometrically distorted molecular structures. To address this issue, we exploit the predicted relative geometric features to restrict the sampling space for vim.Specifically, given the three previously generated atom positions vi−1 
+
+> m
+
+, vi−2 
+
+> m
+
+, vi−3 
+
+> m
+
+, and the predicted discretized features 
+
+(blim, bθim, bϕim), we first recover the corresponding continuous values according to the discretization rule (cf. Eq. 6): 
+
+lim = blim · σ, θim = bθim · 10 ◦, ϕim = bϕim · 10 ◦. (12) 16 From Holo Pockets to Electron Density: GPT-style Drug Design with Density                  
+
+> Table 5. Hyperparameter settings for our EDMolGPT based model.
+> Hyperparameter Value
+> input vocab size 300 input dist size 300 num bond ang 200 num bond leng 200 num dih ang 200 n layer 24 n embd 1024 n ctx (= n positions) 1024 n head 16 activation function gelu new resid pdrop 0.1 embd pdrop 0.1 attn pdrop 0.1 layer norm epsilon 1e-5 initializer range 0.02
+
+Instead of enforcing these values deterministically, we introduce tolerance intervals: 
+
+lim ∈ [lim − δl, l im + δl, ], θ im ∈ [θim − δθ , θ im + δθ ], ϕ im ∈ [ϕim − δϕ, ϕ im + δϕ], (13) where δl, δθ , and δϕ control the flexibility of bond length, bond angle, and dihedral angle, respectively (empirically, 
+
+δl ≈ 0.1 ˚A, δθ ≈ 10 ◦, δϕ ≈ 10 ◦). Accordingly, the feasible region of the next atom coordinate vim is constrained as 
+
+vim ∈
+
+n
+
+v ∈ R3 |v−vi−1 
+
+> m
+
+| ∈ [lim − δl, l im + δl],θ(v) ∈ [θim − δθ , θ im + δθ ],ϕ(v) ∈ [ϕim − δϕ, ϕ im + δϕ]
+
+o
+
+.
+
+(14) This procedure constrains vim to a narrow spherical patch determined by the predicted local structure, thereby ensuring geometric consistency with the previously generated atoms while allowing moderate flexibility to account for discretization errors and model uncertainty. 
+
+## E. Experimental setting 
+
+E.1. DUD-E dataset 
+
+The DUD-E (Directory of Useful Decoys: Enhanced) dataset is a large-scale benchmark designed for the development and evaluation of virtual screening algorithms. It is an enhanced version of the original DUD dataset, constructed by the Shoichet Laboratory at the University of California, San Francisco (UCSF). DUD-E comprises 102 protein targets, spanning diverse families such as kinases, proteases, GPCRs, nuclear receptors, and ion channels, thereby covering a broad spectrum of pharmacologically relevant classes. For each target, the dataset provides a curated set of experimentally validated active ligands together with approximately 50 property-matched decoys per active compound. These decoys are selected to mimic the actives in terms of simple physicochemical descriptors (e.g., molecular weight, hydrogen bond donors/acceptors, logP), but are topologically distinct, making them unlikely to bind the target. This careful design allows DUD-E to reduce dataset bias and to more reliably evaluate the discriminative power of computational screening methods. Consequently, DUD-E has become a standard benchmark for assessing the performance of molecular docking, machine learning–based virtual screening, and structure-based drug design approaches. 
+
+E.2. Hyper-parameters of EDMolGPT 
+
+As shown in Tab. 5, we summarize the hyperparameter settings of our EDMolGPT model. The vocabulary size for FSMILES tokens and coordinate tokens are specified by input vocab size and input dist size, both set to 300, which we found 17 From Holo Pockets to Electron Density: GPT-style Drug Design with Density 
+
+sufficiently large to accommodate current requirements while leaving room for future extensions. Similarly, the numbers of tokens representing bond lengths, bond angles, and dihedral angles (num bond leng, num bond ang, and num dih ang) are each set to 200, ensuring adequate coverage of structural variations with flexibility for expansion. For the general architecture, we extend the GPT-2 backbone with n layer = 24 transformer blocks, hidden dimension n embd = 1024, context length n ctx = 1024, and n head = 16 attention heads, which provide higher model capacity suitable for molecular generation. The activation function is set to gelu new (Hendrycks & Gimpel, 2016), while dropout is consistently applied at multiple levels (resid pdrop, embd pdrop, attn pdrop, all 0.1) to mitigate overfitting. Other parameters, including the layer normalization epsilon (1e-5) and weight initialization range (0.02), follow the standard GPT-2 configuration to ensure stable optimization. Overall, our design largely inherits the strengths of GPT-2 while incorporating domain-specific vocabulary extensions and scaling adjustments to better capture molecular structural information. 
+
+E.3. Metrics for Bioactive Molecule Recovery 
+
+We use several metrics to evaluate the biological relevance and structural quality of our generated molecules. Among these, the ECFP4 Tanimoto Similarity (TS) is employed to specifically measure the ability of the model to generate molecules that exhibit high putative biological activity, which we detail here. ECFP4 (Extended Connectivity Fingerprints, diameter 4) is a widely accepted circular fingerprint in chemoinformatics that encodes the local chemical environment around each atom, capturing essential pharmacophoric features strongly correlated with bioactivity. We evaluate this metric by comparing our generated molecules against a set of already-validated active molecules corresponding to the target pockets, which are sourced from the established DUDE (Database of Useful Decoys: Enhanced) benchmark. A high ECFP4 TS score between a generated molecule and a known active molecule indicates that the generated compound successfully recapitulates or is structurally analogous to a proven active scaffold. This measure serves as a crucial chemoinformatics-based validation and effectively complements purely physical metrics like docking scores, allowing us to holistically assess that the generated output is not only stable in the pocket but also chemically plausible as a bioactive compound. 
+
+## F. More experimental results 
+
+F.1. Distribution analysis 
+
+To ensure that our method truly generates novel molecules rather than memorizing those from the training set, we conducted a distributional overlap analysis between the training and test data. The training set consists of approximately two million molecules curated from public databases with additional drug-likeness filtering. In contrast, the DUD-E dataset, used for evaluation, was independently processed into point cloud representations of active ligands. Since it is unclear whether any structural overlap exists between the DUD-E molecules and the training set, it is necessary to explicitly verify the degree of intersection. If a significant overlap were present, one could not rule out the possibility that our model merely recalls known molecules instead of generating meaningful new candidates. To address this, we performed a nearest-neighbor retrieval experiment: for each active ligand point cloud from DUD-E, we searched the training set for the most similar point cloud according to the DICE coefficient, and recorded the corresponding similarity scores. Visualization of the results (Fig. 11) shows that the maximum DICE similarity never exceeds 60%. This low overlap confirms that the test set structures are not contained in the training data, thereby validating that our model’s outputs represent genuine generation rather than memorization. 
+
+F.2. Visualization of generation results 
+
+To further evaluate the effectiveness of our framework, we conducted visualization analyses on three representative protein–ligand complexes (1sj0, 3lan, and 2etr), as shown in Fig. 12. For each target, the electron density–derived point cloud was used as the conditioning input, and we compared the generated ligands against the experimentally determined ground truth. The visualizations demonstrate that our method produces ligands that align well with the spatial distribution of the point cloud, indicating that the generative process effectively captures the underlying geometric constraints of the binding pocket. In addition, the generated ligands consistently achieve favorable docking scores, often lower than those of the reference structures, suggesting strong binding compatibility and chemical plausibility. Importantly, across all three systems, our framework is able to generate multiple diverse ligand candidates while maintaining close agreement with 18 From Holo Pockets to Electron Density: GPT-style Drug Design with Density 2v3f 
+
+> 1bcd
+> 2am9
+> 1c8k
+> 1li4
+> 1l2s
+> 2ojg
+> 2azr
+> 3cqw
+> 3bwm
+> 1vso
+> 1qw6
+> 1zw5
+> 1r9o
+> 1uyg
+> 2oi0
+> 2zdt
+> 2b8t
+> 2zec
+> 1sqt
+> 1b9v
+> 3kgc
+> 2etr
+> 1lru
+> 3nf7
+> 3f9m
+> 2vt4
+> 3g0e
+> 2hzi
+> 2of2
+> 3eqh
+> 3ny8
+> 3nxo
+> 3chp
+> 830c
+> 3max
+> 3l5d
+> 2i78
+> 3bgs
+> 1q4x
+> 3lan
+> 2nnq
+> 3m2w
+> 1mv9
+> 3ln1
+> 3el8
+> 3l3m
+> 3pbl
+> 1d3g
+> 2i0e
+> 2aa2
+> 2h7l
+> 3hmm
+> 3frj
+> 3c4f
+> 2oj9
+> 3kl6
+> 3odu
+> 2ica
+> 1e66
+> 2e1w
+> 3hl5
+> 3f07
+> 3bz3
+> 1j4h
+> 3eml
+> 2fsz
+> 3cjo
+> 3krj
+> 3kba
+> 3biz
+> 1kvo
+> 2hv5
+> 1ype
+> 3ccw
+> 3bqd
+> 3d4q
+> 3d0e
+> 2rgp
+> 3lpb
+> 2ayw
+> 1sj0
+> 1h00
+> 2p2i
+> 1udt
+> 1xl2
+> 2gtk
+> 1w7x
+> 3lq8
+> 2p54
+> 3g6z
+> 2oyu
+> 1syn
+> 2qd9
+> 1njs
+> 2znp
+> 2owb
+> 3e37
+> 2cnk
+> 3nxu
+> 3bkl
+> 1s3b
+
+PDB ID 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+> DICE
+
+DICE Score Sorted by Value (High to Low) 
+
+Figure 11. DICE similarity scores between DUD-E active ligands and their closest counterparts in the training dataset, sorted from high to low. Each point corresponds to a DUD-E ligand, with the horizontal axis indicating the PDB ID and the vertical axis showing the maximum DICE score identified in the training set. The results indicate that all maximum DICE scores remain below 60%. 
+
+the pocket environment. This combination of low docking scores and structural diversity highlights the rationality of our design and suggests that the method can reliably explore alternative binding modes without sacrificing physical or chemical feasibility. 
+
+F.3. Computational efficiency 
+
+As shown in Tab. 6, EDMolGPT utilizes an autoregressive GPT architecture conditioned by the electron density map, and achieves a competitive average generation speed of approximately 1.5 seconds per molecule. For comparison, we have compiled the reported or estimated generation speeds for several prominent SBDD models. Pocket2Mol, another autoregressive model, reports a highly optimized generation speed of approximately 0.45 seconds per molecule. For diffusion-based models like TargetDiff, the speed depends heavily on the number of sampling steps (TargetDiff uses 1000 steps); the multi-step nature of the diffusion process typically makes them significantly slower than highly optimized autoregressive models. 
+
+Table 6. Comparison of molecular generation speed across different models. 
+
+Model Architecture Avg. Generation Time (s/molecule) 
+
+ED-GPT Autoregressive ≈ 1.5
+
+Pocket2Mol Autoregressive ≈ 0.45 
+
+TargetDiff Diffusion ≈ 7
+
+F.4. Ablation studies on Np and pharmacophore labels cp
+
+As shown in Tab. 7, we perform ablation studies on Np and the use of pharmacophore labels cp, which are key hyperparame-ters for modeling the electron density. Increasing Np provides a more detailed description of the positive electron-density 
+
+Table 7. Ablation results on Np and pharmacophore labels. Min-in-place Div 
+
+Np = 100 -6.46 0.15 
+
+Np = 300 -7.22 0.20 w/o cp -6.15 0.09 
+
+19 From Holo Pockets to Electron Density: GPT-style Drug Design with Density Point Cloud Ground truth Case1 
+
+-8.41 1sj0 
+
+Case2 
+
+-8.16 
+
+Case3 
+
+-8.11 
+
+3lan -8.40 -12.70 -9.83 
+
+2etr -10.00 -9.15 -9.96 
+
+Figure 12. Visualization of three protein–ligand complexes with PDB IDs 1sj0, 3lan, and 2etr. The first column shows the point cloud extracted from the electron density map. The second column presents the ground-truth ligand conformations within the corresponding protein pockets. The following three columns (Case 1–3) display ligands generated by our method, with the associated minimum in-place docking scores indicated below each case. 
+
+20 From Holo Pockets to Electron Density: GPT-style Drug Design with Density        
+
+> Table 8. Number of targets for which recovered bioactive molecules obtain unfavorable Glide scores ( >−5). Method Targets with Glide Score >−5
+> ED2Mol 0EDMolGPT 2
+
+patterns, improving the Min-in-place score while slightly reducing diversity. Conversely, removing pharmacophore labels cp
+
+relaxes geometric constraints, increasing diversity but lowering Min-in-place scores. These results illustrate the expected trade-offs and confirm that both Np and pharmacophore guidance play important roles in ensuring the quality and structural fidelity of the generated molecules. 
+
+F.5. More evaluation metrics for rigid pocket assumption 
+
+To further evaluate the ability to capture binding flexibility beyond rigid docking assumptions, we analyze Bioactive Molecule Recovery rather than relying solely on GlideSP scores. Specifically, for both EDMolGPT and ED2Mol, we identify generated molecules with Tanimoto similarity greater than 0.5 to known bioactive compounds for each target. We then perform Glide docking and count the number of targets whose recovered bioactive molecules obtain Glide scores higher than −5, which are generally considered unfavorable under rigid-pocket assumptions. As shown in Tab. 8, EDMolGPT recovers bioactive molecules for two targets that still receive poor Glide scores, whereas ED2Mol recovers none. Since these molecules are experimentally known actives despite unfavorable rigid docking evaluations, the results suggest that EDMolGPT is capable of exploring binding patterns and conformational flexibility that are not adequately captured by rigid docking protocols. This provides additional evidence that our method can partially overcome the limitations imposed by rigid-pocket assumptions. 21

@@ -1,42 +1,29 @@
 # 日报 · 2026-04-29 ~ 2026-05-28
 
-- 生成时间：2026-05-28 13:38:22 UTC
-- 当次推荐总数：24
-- 精读区：13
-- 速读区：11
+- 生成时间：2026-05-28 15:52:03 UTC
+- 当次推荐总数：13
+- 精读区：6
+- 速读区：7
 
 ## 今日简报（AI）
-本期精读24篇前沿研究，聚焦3D生成与重建，从稀疏观测合成完整多物体场景的生成式方法令人瞩目。
-最值得关注的是“用生成做重建”的范式突破和姿态感知扩散对可控3D生成的新思路。
-建议读者重点关注扩散模型在3D视觉、场景合成中的落地进展，这些技术正快速走向实用。
+口袋感知扩散模型用RL微调打出满分，AI药物设计正从“看图识字”跃向“电子密度”驱动。速读中全原子生成模型与构象靶向设计同样亮眼。想跟进科学计算的读者，不妨从《Denoising Policy Optimization》和GPT式密度生成这两篇入手，感受生成式AI在分子世界的落地方向。
 
 ## 精读区
-1. [Reconstruction by Generation: 3D Multi-Object Scene Reconstruction from Sparse Observations](/20260429-20260528/2604.27106v1-reconstruction-by-generation-3d-multi-object-scene-reconstruction-from-sparse-observations) （9.0/10）
-2. [Pose-Aware Diffusion for 3D Generation](/20260429-20260528/2605.00345v1-pose-aware-diffusion-for-3d-generation) （9.0/10）
-3. [VQ-SAD: Vector Quantized Structure Aware Diffusion For Molecule Generation](/20260429-20260528/2605.00354v1-vq-sad-vector-quantized-structure-aware-diffusion-for-molecule-generation) （9.0/10）
-4. [MOC-3D: Manifold-Order Consistency for Text-to-3D Generation](/20260429-20260528/2605.01743v1-moc-3d-manifold-order-consistency-for-text-to-3d-generation) （9.0/10）
-5. [Structured 3D Latents Are Surprisingly Powerful: Unleashing Generalizable Style with 2D Diffusion](/20260429-20260528/2605.04412v1-structured-3d-latents-are-surprisingly-powerful-unleashing-generalizable-style-with-2d-diffusion) （9.0/10）
-6. [FlashMol: High-Quality Molecule Generation in as Few as Four Steps](/20260429-20260528/2605.07020v1-flashmol-high-quality-molecule-generation-in-as-few-as-four-steps) （9.0/10）
-7. [DiffST: Spatiotemporal-Aware Diffusion for Real-World Space-Time Video Super-Resolution](/20260429-20260528/2605.13182v1-diffst-spatiotemporal-aware-diffusion-for-real-world-space-time-video-super-resolution) （9.0/10）
-8. [DreamEdit3D: Personalization of Multi-View Diffusion Models for 3D Editing](/20260429-20260528/2605.16990v1-dreamedit3d-personalization-of-multi-view-diffusion-models-for-3d-editing) （9.0/10）
-9. [Efficient 3D Content Reconstruction and Generation](/20260429-20260528/2605.18052v1-efficient-3d-content-reconstruction-and-generation) （9.0/10）
-10. [Generative Pseudo-Force Fields for Molecular Generation](/20260429-20260528/2605.19050v1-generative-pseudo-force-fields-for-molecular-generation) （9.0/10）
-11. [Programming Biomolecular Interactions with All-Atom Generative Model](/20260429-20260528/biorxiv-10-64898-2026-03-12-711044-v2-programming-biomolecular-interactions-with-all-atom-generative-model) （9.0/10）
-12. [Bayesian-Steered Structure Prediction of Mechanical Biomolecules Using Twisted Diffusion](/20260429-20260528/biorxiv-10-64898-2026-05-11-724187-v1-bayesian-steered-structure-prediction-of-mechanical-biomolecules-using-twisted-diffusion) （9.0/10）
-13. [MuseDrift: Navigating Protein Evolutionary Manifolds with Conditional Discrete Diffusion](/20260429-20260528/biorxiv-10-64898-2026-05-11-724439-v1-musedrift-navigating-protein-evolutionary-manifolds-with-conditional-discrete-diffusion) （9.0/10）
+1. [Fine-tuning Pocket-Aware Diffusion Models via Denoising Policy Optimization](/20260429-20260528/2605.17693v1-fine-tuning-pocket-aware-diffusion-models-via-denoising-policy-optimization) （10.0/10）
+2. [From Holo Pockets to Electron Density: GPT-style Drug Design with Density](/20260429-20260528/2605.08767v1-from-holo-pockets-to-electron-density-gpt-style-drug-design-with-density) （9.0/10）
+3. [TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation](/20260429-20260528/2605.09810v1-td3b-transition-directed-discrete-diffusion-for-allosteric-binder-generation) （9.0/10）
+4. [Integrating Diffusion and Liquid AI Models for Predicting Peptide Affinity from mRNA Display Selections](/20260429-20260528/biorxiv-10-64898-2026-05-05-723033-v1-integrating-diffusion-and-liquid-ai-models-for-predicting-peptide-affinity-from-mrna-display-selections) （9.0/10）
+5. [FlashMol: High-Quality Molecule Generation in as Few as Four Steps](/20260429-20260528/2605.07020v1-flashmol-high-quality-molecule-generation-in-as-few-as-four-steps) （8.0/10）
+6. [Controllable Molecular Generative Foundation Models](/20260429-20260528/2605.15354v1-controllable-molecular-generative-foundation-models) （8.0/10）
 
 ## 速读区
-1. [Stochastic Transition-Map Distillation for Fast Probabilistic Inference](/20260429-20260528/2605.07661v1-stochastic-transition-map-distillation-for-fast-probabilistic-inference) （8.0/10）
-2. [HetScene: Heterogeneity-Aware Diffusion for Dense Indoor Scene Generation](/20260429-20260528/2605.13586v1-hetscene-heterogeneity-aware-diffusion-for-dense-indoor-scene-generation) （8.0/10）
-3. [Drift Flow Matching](/20260429-20260528/2605.17244v1-drift-flow-matching) （8.0/10）
-4. [Forward-Learned Discrete Diffusion: Learning how to noise to denoise faster](/20260429-20260528/2605.18204v1-forward-learned-discrete-diffusion-learning-how-to-noise-to-denoise-faster) （8.0/10）
-5. [3D-ReGen: A Unified 3D Geometry Regeneration Framework](/20260429-20260528/2604.28134v1-3d-regen-a-unified-3d-geometry-regeneration-framework) （7.0/10）
-6. [When Do Diffusion Models learn to Generate Multiple Objects?](/20260429-20260528/2605.00273v1-when-do-diffusion-models-learn-to-generate-multiple-objects) （7.0/10）
-7. [Mix3R: Mixing Feed-forward Reconstruction and Generative 3D Priors for Joint Multi-view Aligned 3D Reconstruction and Pose Estimation](/20260429-20260528/2605.03359v1-mix3r-mixing-feed-forward-reconstruction-and-generative-3d-priors-for-joint-multi-view-aligned-3d-reconstruction-and-pose-estimation) （7.0/10）
-8. [Test-Time Compositional Generalization in Diffusion Models via Concept Discovery](/20260429-20260528/2605.07078v1-test-time-compositional-generalization-in-diffusion-models-via-concept-discovery) （7.0/10）
-9. [Molecules Meet Language: Confound-Aware Representation Learning and Chemical Property Steering in Transformer-VAE Latent Spaces](/20260429-20260528/2605.06303v1-molecules-meet-language-confound-aware-representation-learning-and-chemical-property-steering-in-transformer-vae-latent-spaces) （6.0/10）
-10. [Statistical Convergence of Spherical First Hitting Diffusion Models](/20260429-20260528/2605.07625v1-statistical-convergence-of-spherical-first-hitting-diffusion-models) （6.0/10）
-11. [Towards Controllable Image Generation through Representation-Conditioned Diffusion Models](/20260429-20260528/2605.27343v1-towards-controllable-image-generation-through-representation-conditioned-diffusion-models) （6.0/10）
+1. [Programming Biomolecular Interactions with All-Atom Generative Model](/20260429-20260528/biorxiv-10-64898-2026-03-12-711044-v2-programming-biomolecular-interactions-with-all-atom-generative-model) （8.0/10）
+2. [Drug design using unique conformations to preferentially target a specific site on collagen-bound MMP1](/20260429-20260528/biorxiv-10-64898-2026-05-14-725194-v1-drug-design-using-unique-conformations-to-preferentially-target-a-specific-site-on-collagen-bound-mmp1) （8.0/10）
+3. [Geometric Flow Matching for Molecular Conformation Generation via Manifold Decomposition](/20260429-20260528/2605.25577v1-geometric-flow-matching-for-molecular-conformation-generation-via-manifold-decomposition) （7.0/10）
+4. [FragDockRL: A Reinforcement Learning Method for Fragment-Based Ligand Design via Building Block Assembly and Tethered Docking](/20260429-20260528/biorxiv-10-1101-2025-08-12-670002-v2-fragdockrl-a-reinforcement-learning-method-for-fragment-based-ligand-design-via-building-block-assembly-and-tethered-docking) （7.0/10）
+5. [Learning the All-Atom Equilibrium Distribution of Biomolecular Interactions at Scale](/20260429-20260528/biorxiv-10-64898-2026-03-10-710952-v2-learning-the-all-atom-equilibrium-distribution-of-biomolecular-interactions-at-scale) （7.0/10）
+6. [Assessing State-Specific Accuracy of Cofolding Models for Kinases and GPCRs](/20260429-20260528/biorxiv-10-64898-2026-05-06-723350-v1-assessing-state-specific-accuracy-of-cofolding-models-for-kinases-and-gpcrs) （7.0/10）
+7. [Generative structure search for efficient and diverse discovery of molecular and crystal structures](/20260429-20260528/2604.27636v1-generative-structure-search-for-efficient-and-diverse-discovery-of-molecular-and-crystal-structures) （6.0/10）
 
 ---
 使用键盘方向键可在日报/论文之间快速切换。

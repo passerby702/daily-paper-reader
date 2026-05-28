@@ -1,0 +1,988 @@
+Title: TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation
+
+URL Source: https://arxiv.org/pdf/2605.09810v1
+
+Published Time: Tue, 12 May 2026 03:18:35 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+Hanqun Cao * 1 Aastha Pal * 2 Sophia Tang 3 Yinuo Zhang 3 4 Jingjie Zhang 1 Pheng Ann Heng 1
+
+Pranam Chatterjee 2 3 
+
+## Abstract 
+
+Protein function is often controlled by ligands that bias the direction of state transitions, such as ag-onists and antagonists, rather than stabilizing a single conformation. This is especially important for clinically relevant G protein-coupled receptors (GPCRs), where therapeutic efficacy depends on functional directionality. Structure-based design methods optimize binding to static conformations and cannot represent non-reversible, directional effects or systematically distinguish agonist from antagonist behavior. To address this gap, we in-troduce Transition-Directed Discrete Diffusion for allosteric Binder design ( TD3B ), a sequence-based generative framework that designs binders with specified agonist or antagonist behavior via a directional transition control objective. TD3B combines a target-aware Direction Oracle, a soft binding-affinity gate, and amortized fine-tuning of a pre-trained discrete diffusion model, en-abling targeted agonist and antagonist genera-tion decoupled from binding affinity and unattain-able by equilibrium-based or inference-only guid-ance baselines. The code and checkpoints are available at https://huggingface.co/ ChatterjeeLab/TD3B .
+
+## 1 Introduction 
+
+Protein allostery governs regulation and control across sig-naling, transport, and transcriptional systems, yet its func-tional effects are fundamentally dynamic (Motlagh et al., 
+
+> 1
+
+Department of Computer Science and Engineering, The Chi-nese University of Hong Kong 2Department of Bioengineering, University of Pennsylvania 3Department of Computer and Infor-mation Science, University of Pennsylvania 4Centre for Computa-tional Biology, Duke-NUS Medical School. Correspondence to: Pranam Chatterjee <pranam@seas.upenn.edu>. 
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). Agonist binding 
+
+> Active State
+> (A)
+> Inactive State
+> Antagonist binding
+> (B)
+
+Figure 1. Structural mechanisms of agonist and antagonist peptide binding. (A) Agonist binding (red) triggers conformational shifts in the target protein (blue) to its Active State, initiating downstream signaling. (B) Antagonist binding (yellow) stabilizes the Inactive State by occupying the binding pocket without inducing structural changes, effectively blocking signal activation. 
+
+2014; Weikl & Paul, 2014). In many biologically relevant settings, most notably for agonists and antagonists, func-tion depends not on stabilizing a single conformation, but on biasing the direction of transitions between macrostates such as activation and deactivation (Henzler-Wildman & Kern, 2007; Cao et al., 2021). Despite this, most contempo-rary binder design algorithms, such as RFdiffusion (Watson et al., 2023), BindCraft (Pacesa et al., 2025), BoltzGen (Stark et al., 2025), and GPCR-specialized extensions like RareFoldGPCR (Li et al., 2025), treat proteins as fixed ob-jects and frame design around stabilizing a target structure or interface. While these methods can generate binders or even active agonists, they remain intrinsically tied to equi-librium structural priors and lack a mechanism to represent or control transition asymmetry. As a result, they cannot dis-tinguish or systematically design agonist versus antagonist behavior, since static structures alone do not encode non-reversible, directional effects. Consequently, binders whose function arises from reshaping kinetic pathways rather than stabilizing endpoints lie outside the representational scope of structure-centric design approaches. 1
+
+> arXiv:2605.09810v1 [q-bio.BM] 10 May 2026 TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation
+
+Recent advances in discrete generative modeling have pro-duced high-capacity peptide language models that capture the structure of peptide sequence space independent of downstream objectives (Tang et al., 2025a;c; Chen et al., 2025b;a; Vincoff et al., 2025; Tang et al., 2025b). In partic-ular, masked discrete diffusion language models (MDLMs) such as PepTune learn strong unconditional priors over valid peptide sequences, decoupling sequence syntax and diver-sity from task-specific optimization (Tang et al., 2025a;c). Building on this foundation, guidance strategies such as PepTune and TR2-D2 introduce lightweight fine-tuning and objective-guided sampling mechanisms that bias genera-tion toward desired properties without retraining the base model from scratch (Tang et al., 2025a;c). Our approach leverages this separation by treating directional allosteric control as a guidance objective layered on top of an existing discrete diffusion backbone, rather than as a new generative architecture. The central question we address is: 
+
+What form should such a guidance objective take when the desired effect is directional modulation of protein states rather than equilibrium binding? 
+
+In this work, we introduce Transition-Directed Discrete 
+
+Diffusion for allosteric Binder design ( TD3B ), a discrete generative framework that treats directional allostery as a key design objective. We model binder action through 
+
+sequence-conditioned transition operators over protein macrostates, explicitly accommodating non-reversible, an-tisymmetric state changes. Our approach leverages direc-tional supervision to bias generation toward binders that promote or suppress specific state transitions. This reframes binder design as a non-equilibrium transport problem, en-abling the generation of binders that control protein function by reshaping transition directionality rather than stabilizing conformations. Our contributions are threefold: 1. A transition-operator formulation of directional allosteric control. We formalize binder-mediated allostery as a sequence-conditioned transition oper-ator over protein macrostates, with binary ±1 su-pervision capturing the sign of transition asymme-try. This makes directionality and non-reversibility explicit modeling targets beyond static or equilibrium-based representations, while remaining honest about the granularity of supervision: we do not regress con-tinuous kinetic rates, but rather use the operator for-malism to motivate a coarse, learnable design objec-tive. 2. A directionally guided generative framework for binder design. We co-design three components for direction-controlled generation: (i) a target-aware Di-rection Oracle that classifies agonist vs. antagonist effect for arbitrary target proteins; (ii) a gated re-ward in which a pre-trained affinity predictor acts as a soft binding gate (rather than as a Pareto objective traded off against direction), and the oracle supplies the directional signal; and (iii) tree-search amortized fine-tuning of a pre-trained MDLM via importance-weighted denoising and a contrastive loss enforcing directional separation in representation space. 3. Empirical directional selectivity beyond static base-lines. We demonstrate that contrastive, direction-based fine-tuning produces binders that selectively bias agonistic transitions while minimally affecting reverse transitions, capturing functional behaviors that structure-based and inference-only baselines cannot achieve through post-hoc filtering. 
+
+## 2 Related Works 
+
+2.1 Allosteric Binder Design 
+
+Classical allosteric theory originated from the MWC con-certed transition (Monod et al., 1965) and KNF sequential induced-fit (Koshland Jr et al., 1966) models, while early discovery relied on serendipitous screening hits (Lu et al., 2019). With the expansion of structural databases (Shen et al., 2016), computational methods emerged to predict allosteric sites (Huang et al., 2013; Akbar & Helms, 2018), hotspots (Clarke et al., 2016), and communication pathways (Tan et al., 2019; Halabi et al., 2009) from static structures. However, static approaches miss cryptic sites that remain occluded in certain conformations. Dynamics-based meth-ods using MD simulations and Markov state models (Shukla et al., 2014; Bowman et al., 2015) address this limitation but incur high computational costs. 
+
+De novo allosteric design has evolved from early Rosetta-based side-chain networks (Churchfield et al., 2016; Pirro et al., 2020) to recent modular rigid-body coupling strategies leveraging RFDiffusion (Watson et al., 2023) and Protein-MPNN (Dauparas et al., 2022), enabling peptide-responsive ring architectures and effector-induced cage disassembly (Pillai et al., 2024). Complementary approaches include structure-based design for GPCRs (Li et al., 2025) and Chemical Language Model (CLM)-based generation (Bal-larotto et al., 2023). In contrast, TD3B reframes directional design as a non-equilibrium transport problem, introduc-ing directional supervision such that binding agents act as one-way valves controlling state transition directionality. 
+
+2.2 Conditional Generation for Discrete Diffusion 
+
+Diffusion models have emerged as powerful unsupervised generative frameworks capable of capturing distributions over discrete spaces, with conditional generation enabling efficient sample exploration (Austin et al., 2021; Lou et al., 2TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+2024; Sahoo et al., 2024; Shi et al., 2024). To steer gen-eration toward desired properties, guided generation ap-proaches incorporate classifier gradients into the sampling process. These include training-free methods such as Clas-sifier Guidance (CG) and Sequential Monte Carlo (SMC) (Dhariwal & Nichol, 2021; Nisonoff et al., 2024; Chung et al., 2022; Wu et al., 2023; Dou & Song, 2024; Phillips et al., 2024), as well as Classifier-Free Guidance (CFG) (Ho & Salimans, 2022). While computationally efficient, these approaches struggle to provide complex guidance in dis-crete domains, where gradient-based steering is inherently limited by non-differentiable operations. Reinforcement learning-based methods address this limi-tation by enabling discrete diffusion models to learn more sophisticated conditional distributions through environment interaction. Policy gradient approaches such as DRAKES and GLID 2E (Wang et al., 2025; Cao et al., 2025) update model policies via reward signals, while tree-search meth-ods including PepTune and TR2-D2 (Tang et al., 2025a;c) of-fer greater flexibility for multi-condition and multi-objective sampling by explicitly exploring the combinatorial space. 
+
+## 3 Preliminaries 
+
+This section reviews the generative modeling primitives underlying our approach. We describe masked discrete dif-fusion language models (MDLMs) as a general-purpose backbone for sequence generation (Sahoo et al., 2024; Austin et al., 2021; Shi et al., 2024) and introduce amor-tized objective-guided fine-tuning as a mechanism for in-corporating external objectives (Tang et al., 2025c). These components are standard or well-established; we defer the dynamical formulation underlying our method (macrostates, transition operators, and directional asymmetry) and the specifics of our proposed framework to Section 4. 
+
+3.1 Discrete Sequence Spaces 
+
+Let A denote a finite alphabet and AL the space of length-L
+
+sequences. In this work, sequences correspond to binders, and the formulation applies to arbitrary sequence-based binders, with peptides serving as a concrete instantiation. We write y ∈ A L for a clean sequence and use x to denote target protein sequences. 
+
+3.2 Masked Discrete Diffusion Language Models 
+
+Masked discrete diffusion language models (MDLMs) de-fine generative processes over discrete sequences by pro-gressively denoising corrupted inputs. A forward noising process qt(yt | y) maps a clean sequence x to a partially corrupted version yt at time t ∈ [0 , 1] , typically by masking tokens according to a time-dependent schedule. The reverse process is parameterized by a neural network that predicts the distribution of masked tokens conditioned on the un-masked context and time. Training proceeds by minimizing a denoising cross-entropy objective: 
+
+LDCE (θ, y ) = Et∼U (0 ,1) 
+
+"
+
+1
+
+t Eqt(˜ yt|y)
+
+X 
+
+> ℓ:yℓt=M
+
+− log pθ
+
+ yℓ | yUM  
+
+> t
+
+, t 
+
+> yℓ
+
+#
+
+,
+
+(1) where M denotes the special mask token, yUM  
+
+> t
+
+repre-sents the set of unmasked tokens at diffusion time t, the index ℓ ranges over all masked sequence positions, and 
+
+pθ (yℓ | yUM  
+
+> t
+
+, t ) is the model’s predicted distribution over the alphabet A at position ℓ. Once trained, an MDLM defines an unconditional distribution over valid sequences and can be sampled by iteratively denoising from a fully masked input. Importantly, the MDLM captures the combi-natorial structure of sequence space independently of any downstream task. 
+
+3.3 Amortized Objective-Guided Fine-Tuning of MDLMs 
+
+Let pθ0 (y) denote a pre-trained MDLM defining an un-conditional distribution over sequences. Objective-guided sequence design seeks to bias this distribution toward se-quences that score highly under an external objective S(y),while preserving the structural prior learned by pθ0 .Amortized fine-tuning methods, such as TR2-D2 (Tang et al., 2025c), achieve this by learning a new parameterization 
+
+pθ (y) that approximates a reward-tilted target distribution: 
+
+p⋆(x) ∝ pθ0 (x) exp 
+
+ S(y)
+
+α
+
+
+
+, (2) where α > 0 is a regularization coefficient controlling the strength of deviation from the pre-trained prior pθ0 ,and S(y) is the external scalar objective determining high-scoring sequences that we want the fine-tuned model to up-weight.This tilted distribution is the optimal solution to the KL-regularized objective max p Ep[S(y)] − αKL( p∥pθ0 ):sequences with higher scores are exponentially favored, while α governs the trade-off between staying close to pθ0
+
+(large α) and aggressively concentrating mass on top scorers (small α). This formulation defines an implicit energy-based reweighting of the base model without modifying the cor-ruption process or denoising schedule. Since direct sampling from p⋆ is intractable, amortized fine-tuning optimizes θ via a weighted denoising cross-entropy (WDCE) objective. Let y0:1 denote a denoising trajectory 3TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation Protein Target (x) (=O) <M> <M> ... <M> c       
+
+> <M> <M> <M> ... <M> <M>
+> ...
+> (=O) CC Nc1 ... c1 c
+> Antagonist Agonist
+
+/
+
+> Direction (d*)
+> Trajectory-aware
+> tree search
+
+(A) (B) (C)     
+
+> binder (y)
+> Gated Reward = g ψ(y, x) Sigmoid(d* f ϕ(y,x) / α)
+> Affinity
+> predictor ( gψ)
+> Direction
+> oracle ( fϕ)
+> LWDCE + λ ctr Lctr + λ reg Lreg
+> Update Policy
+> Weighted Sampling
+> Training Buffer
+
+... 
+
+Figure 2. Overview of the TD3B framework. (A) TD3B enables flexible peptide binder design with specified directionality for diverse protein targets; the 3D rendering illustrates the biological setting (active vs. inactive macrostates) — TD3B itself operates on sequence 
+
+representations of both the target protein x and the binder y, not on 3D structures. (B) Sampling phase: TD3B performs trajectory-aware tree search over masked discrete diffusion trajectories, conditioned on the target sequence and desired direction d⋆, and produces binder candidates via weighted sampling. (C) Fine-tuning phase: the policy model is updated on samples drawn from a replay buffer, guided by the gated reward (Eq. 21), with combined WDCE, contrastive, and KL terms. 
+
+with final sequence y = y1. The fine-tuning objective is: 
+
+LWDCE (θ) = Ep⋆(y)[LDCE (θ; y)] (3) 
+
+= Ey0:1 ∼P⋆ [LDCE (θ; y1)] (4) 
+
+= Ey0:1 ∼Pv
+
+ dP⋆
+
+dPv (y0:1 )
+
+| {z }
+
+> w(y0:1 )
+
+LDCE (θ; y1)
+
+
+
+, (5) where P⋆ is the path distribution induced by the target p⋆,
+
+Pv is a path distribution generated by the current policy from which we can sample from, and w(y0:1 ) is the importance weight that corrects the mismatch between the two. Under the assumption that the trajectory distribution factorizes and the reward depends only on the final sequence, the trajectory-level importance weight decomposes as: 
+
+w(y0:1 ) ∝ exp 
+
+ S(y1)
+
+α
+
+
+
+·
+
+> T
+
+Y
+
+> n=1
+
+pθ0 (ytn−1 | ytn )
+
+p¯θ (ytn−1 | ytn ) , (6) where the trajectory is discretized as 0 = t0 < t 1 < · · · <tT = 1 , the first factor is the reward tilt evaluated at the clean sample y1, and the product is an importance ratio correcting for sampling under the proposal p¯θ rather than the pre-trained reverse process pθ0 .This procedure internalizes objective S into the model’s sampling distribution, minimizing the need for extensive inference-time search. While lightweight methods like best-of-K selection can still refine quality, this amortized ini-tialization is notably more efficient than guidance-only ap-proaches. Fine-tuning updates only the denoising condition-als, leaving the diffusion and corruption schedules intact. 
+
+## 4 Problem Formulation 
+
+We formalize directional allosteric binder design as an amor-tized objective-guided sequence generation problem, where a pre-trained MDLM is fine-tuned to generate sequences biasing protein state transitions in a specified direction. At a high level, TD3B proceeds in three stages: (1) a target-aware Direction Oracle (Section 4.5) is trained to predict whether a candidate binder promotes activation (agonist) or stabilizes the inactive state (antagonist) given a target protein. (2) 
+
+This oracle is combined with a pre-trained binding-affinity predictor into a gated reward (Section 4.7): the affinity model acts as a soft gate that filters non-binders, while the oracle provides the directional signal. (3) The gated re-ward is used to fine-tune a pre-trained discrete diffusion generator via importance-weighted denoising (Section 4.8), with a contrastive loss (Section 4.6) maintaining separation between agonist and antagonist representations and a KL term keeping the fine-tuned policy close to the pre-trained prior (Figure 2). To set up the design objective, we first introduce a coarse-grained dynamical view of protein state transitions (Sections 4.1–4.3), then describe directional su-pervision and the components of our generative framework (Sections 4.4–4.9). 
+
+4.1 Protein Macrostates and Coarse-Grained State Shifts 
+
+To reason about allosteric function, we adopt a coarse-grained description of protein state shifts grounded in the macrostate / Markov state model literature (Shukla et al., 4TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+2014; Bowman et al., 2015; Noé et al., 2009). Let 
+
+S = {s1, . . . , s K } (7) denote a finite set of macrostates corresponding to func-tionally distinct configurations, such as inactive/active or closed/open. In the absence of a binder, protein state shifts are modeled as a continuous-time Markov chain (CTMC) with generator: 
+
+Q0 : S × S → R, Q0(si, s i) = − X 
+
+> j̸=i
+
+Q0(si, s j ). (8) This abstraction captures state-to-state transition behavior without committing to atomistic trajectories or detailed ki-netic models. 
+
+4.2 Sequence-Conditioned Transition Operators 
+
+A binder sequence y ∈ A L may alter the transition structure of proteins, consistent with the ligand-induced dynamics view of allostery (Cao et al., 2021; Motlagh et al., 2014). We represent this effect by a sequence-conditioned generator: 
+
+Q(y) = Q0 + ∆ Q(y), (9) where ∆Q(y) denotes a sequence-dependent perturbation of transition rates. No symmetry or reversibility is assumed. In general, the binder-conditioned generator is asymmetric, 
+
+Q(y)(si, s j )̸ = Q(y)(sj , s i), (10) and the resulting dynamics need not satisfy detailed balance: 
+
+π(y)(si)Q(y)(si, s j )̸ = π(y)(sj )Q(y)(sj , s i), (11) While the stationary distribution π(y) exists for finite irre-ducible CTMCs, it does not imply reversibility; thus, these generators lack a scalar energy gradient representation. 
+
+4.3 Directional Asymmetry 
+
+For any ordered state pair (si, s j ), we define the directional asymmetry induced by a sequence y as: 
+
+∆ij (y) := Q(y)(si, s j ) − Q(y)(sj , s i). (12) This quantity captures the net bias of transitions between macrostates. Directional allosteric effects correspond to consistent signs of ∆ij (y) for selected transitions. We em-phasize that neither the absolute magnitude of ∆ij (y) nor the full generator Q(y) is assumed to be observable; only coarse directional information may be available in practice. The transition-operator formalism above provides motiva-tion and theoretical grounding for our design objective: it explains why directionality is fundamentally distinct from static binding (because agonist/antagonist effects arise from asymmetric, non-reversible perturbations of transition rates), but the operator Q(y) itself is not parameterized or regressed during training. Our supervision instead captures only the 
+
+sign of ∆ij (y), as detailed next. 
+
+4.4 Data and Directional Supervision 
+
+We assume access to a dataset: 
+
+D = {(x(n), y (n), a (n))}Nn=1 , (13) where x(n) is the target protein sequence, y(n) ∈ A L is a binder sequence, and 
+
+a(n) ∈ { full agonist , partial agonist , antagonist , negative }
+
+is a categorical functional action label. Negative labels indicate lack of binding and are excluded from directional supervision. For each target protein, we adopt a two-macrostate abstrac-tion: 
+
+S = {sinactive , s active }. (14) A binder sequence y induces a sequence-conditioned gener-ator Q(y) on S, but neither Q(y) nor its transition rates are observed. Instead, functional labels specify the sign of the induced transition asymmetry: 
+
+∆( y) := Q(y)(sinactive , s active ) − Q(y)(sactive , s inactive ).
+
+We encode supervision using a direction label d(y) ∈{+1 , −1} and a confidence weight κ(y) ∈ [0 , 1] :
+
+d(y) = 
+
+(
+
++1 , a(y) ∈ { full agonist, partial agonist },
+
+−1, a(y) = antagonist ,κ(y) = 
+
+
+
+1, a(y) = full agonist ,κpart , a(y) = partial agonist ,
+
+1, a(y) = antagonist ,
+
+0, a(y) = negative ,
+
+where κpart ∈ (0 , 1) is a hyperparameter reflecting lower confidence in partial agonism. 
+
+4.5 Direction Oracle 
+
+We introduce a Direction Oracle fϕ : AL × X → [−1, 1] ,parameterized by ϕ, that predicts the direction of transition bias. The predicted direction is defined as: 
+
+ˆd(y) = sign( fϕ(y, x )) . (15) Given a target protein sequence x and a peptide binder y, the representations are obtained through pre-trained encoders: 
+
+hx = Pool (Ex(x)) , hy = Pool (Ey (y)) , (16) where hx ∈ Rd and hy ∈ Rd denote the pooled embed-dings for the target and binder. The fused representation is computed via a gated mechanism followed by an MLP: 
+
+z = g ⊙ hx + (1 − g) ⊙ hy , fϕ(y, x ) = MLP (z), (17) 5TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+where g = σ(Wg [hx; hy ] + bg ) is a learned gating vector and ⊙ denotes element-wise multiplication. The oracle minimizes a weighted binary classification loss: 
+
+Ldir (ϕ) = E(x,y,d )∼D [κ(y) log(1 + exp( −d · fϕ(y, x )))] ,
+
+where d ∈ {− 1, +1 } denotes the ground-truth direction and 
+
+κ(y) is a sample-dependent weight. 
+
+4.6 Contrastive Directional Representation 
+
+Let hθ (y) ∈ Rm denote a sequence representation extracted from the MDLM by mean-pooling the final-layer hidden states across all sequence positions. To enforce separation between directional classes in representation space, we de-fine positive and negative index sets: 
+
+P = {(i, j ) : d(yi) = d(yj ), κ (yi)κ(yj ) > 0}, (18) 
+
+N = {(i, j ) : d(yi)̸ = d(yj ), κ (yi)κ(yj ) > 0}. (19) A margin-based contrastive loss is defined as: 
+
+Lctr (θ) = X
+
+> (i,j )∈P
+
+∥hθ (yi) − hθ (yj )∥22
+
++ X
+
+> (i,j )∈N
+
+max(0 , m − ∥ hθ (yi) − hθ (yj )∥2)2 ,
+
+(20) where m > 0 is a margin hyperparameter. Negative (non-binding) samples are excluded from this loss. 
+
+4.7 Incorporating Target Binding Affinity via Gating 
+
+Directional allosteric control is only meaningful for se-quences that actually bind to the target protein. To ensure that directional supervision is applied to plausible binders, we incorporate a pre-trained peptide-protein affinity predic-tor as a soft gate within the reward function. Let gψ (y, x ) ∈ [0 , 1] denote a pre-trained affinity model that predicts the probability that peptide y binds target protein 
+
+x. Given a desired direction d⋆ ∈ { +1 , −1}, we define the gated reward as: 
+
+R(y; d⋆, x ) = gψ (y, x ) · σ
+
+ d⋆ · fϕ(y, x )
+
+τ
+
+
+
+, (21) where σ denotes the sigmoid function and τ > 0 is a temper-ature coefficient. Intuitively, the gated reward assigns high scores only to sequences that both bind the target protein (high gψ ) and bias state transitions in the desired direction (high d⋆ · fϕ, i.e., sign( fϕ) matches the requested d⋆). This formulation ensures that sequences predicted not to bind contribute negligible reward regardless of their directional score, while sequences predicted to bind are ranked accord-ing to their directional effect. Crucially, binding affinity acts as a gate to filter implausible candidates rather than as a quantity to be maximized: stronger binders do not neces-sarily induce desired state changes, so directional control must be decoupled from raw affinity rather than traded off against it on a Pareto frontier. The resulting reward-tilted target distribution becomes: 
+
+p⋆(y | d⋆, x ) ∝ pθ0 (y) exp 
+
+ R(y; d⋆, x )
+
+α
+
+
+
+, (22) where α > 0 is the regularization coefficient controlling the strength of deviation from the pre-trained prior. Following the trajectory-level importance weighting frame-work from Section 3.3, the unnormalized log importance weight for a trajectory y0:1 with final sequence y = y1 is: 
+
+log ˜ w(y0:1 ) = R(y; d⋆, x )
+
+α
+
++
+
+> T
+
+X
+
+> n=1
+
+X 
+
+> ℓ:yℓtn−1̸=yℓtn
+
+log pθ0 (yℓtn−1 | yUM  
+
+> tn
+
+)
+
+p¯θ (yℓtn−1 | yUM  
+
+> tn
+
+) , (23) where pθ0 and p¯θ denote the pre-trained model and pro-posal policy. At inference, a target protein x and direction 
+
+d⋆ ∈ { +1 , −1} (agonist/antagonist) are provided. These inputs condition the reward function alone, keeping the gen-erative backbone target-agnostic at the architectural level. We emphasize that this does not mean the backbone is unaf-fected by the target or direction: information about x and 
+
+d⋆ enters the policy through the reward signal during fine-tuning (Eq. 5), which reweights the WDCE loss and thus updates θ, analogous to how preference signals in RLHF shape a language-model policy without being supplied as architectural inputs at inference time. 
+
+4.8 Amortized Fine-Tuning Objective 
+
+Direct sampling from p⋆ is intractable. We therefore learn a new parameterization pθ (y) via amortized fine-tuning. Let B denote a replay buffer of sequences approximately sampled from p⋆ via tree search. The WDCE objective is: 
+
+LWDCE (θ) = Ey∼B Et,y t∼qt(·| y)
+
+h
+
+w(y)
+
+X 
+
+> ℓ:yℓt=M
+
+− log pθ (yℓ | yUM  
+
+> t
+
+, t )
+
+i
+
+, (24) where B is the replay buffer of candidate sequences popu-lated by trajectory-aware tree search, qt(· | y) is the forward masking process applied to sample a partially corrupted yt
+
+at time t, yUM  
+
+> t
+
+is the unmasked context, and w(y) is a per-sequence importance weight defined in Eq. 23. Intuitively, this objective performs standard masked-token denoising on buffer samples, but reweights each sample by w(y) so that high-reward sequences (good binders that match the desired direction) contribute more gradient signal than low-reward ones, internalizing the gated reward into the model’s 6TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+distribution. This softmax normalization over the buffer converts unnormalized log-weights into valid importance weights. Samples with κ(y) = 0 (non-binders) contribute no gradient. To prevent collapse and preserve the pre-trained prior, we include a regularization term: 
+
+Lreg (θ) = KL( pθ ∥ pθ0 ) . (25) The full fine-tuning objective is: 
+
+min 
+
+> θ
+
+LWDCE (θ) + λctr Lctr (θ) + λreg Lreg (θ) , (26) where λctr , λ reg ≥ 0 are hyperparameters. At generation time, users specify a target protein x and a desired direc-tion d⋆ ∈ { +1 , −1} corresponding to agonist or antagonist behavior. 
+
+4.9 Design Task 
+
+The directional allosteric design task is formally defined as: 
+
+Design Task: Given a desired direction d⋆, generate binder sequences whose induced transition asymmetry biases function toward the specified direction, without regressing kinetic rates or stabilizing endpoint states. This formulation treats directionality of state transitions as the primary generative objective and defines a fully amor-tized procedure for incorporating coarse functional supervi-sion into discrete sequence generation. 
+
+## 5 Results 
+
+We designed experiments to test whether modeling binder action as a sequence-conditioned transition operator cap-tures forms of allosteric control that are inaccessible to equilibrium- and structure-centric design methods. Our eval-uation addresses three questions: (1) whether directionally fine-tuned generators induce non-reversible transition behav-ior; (2) whether directional control can be achieved indepen-dently of binding affinity; and (3) whether the framework supports targeted control over specific transition directions rather than global perturbations. 
+
+5.1 Experimental Settings Dataset. We curated data from the IUPHAR/BPS Guide to Pharmacology database (Harding et al., 2026), classi-fying entries as agonist or antagonist based on bioactivity. Interacting residues on ligands were extracted using Pep-tiDerive (Sedan et al., 2016) and converted to canonical SMILES for downstream processing. To balance agonist and antagonist samples, we generated synthetic antagonist ligands via RFDiffusion (Watson et al., 2023) for targets with known agonists. After redundancy removal using MM-seqs2 (Steinegger & Söding, 2017), the final dataset com-prises 1,446 training and 336 held-out test samples. The data split for TD3B training, validation, and test sets follows that of the Direction Oracle. Within the Direction Oracle training set, we further partitioned the data into train-ing and validation subsets at an 8:1 ratio based on clustering. We filtered out binder sequences with residue counts outside the range of [16, 128], as well as targets containing only a single direction type (agonist or antagonist), to prevent direction bias toward specific targets. This preprocessing yields 130, 34, and 88 bidirectional target-binder pairs for the training, validation, and test sets, respectively. 
+
+Evaluation Metrics. For the Direction Oracle perfor-mance, we report Accuracy, Precision, Recall, and F1 Score to evaluate discriminative capability. To assess directional accuracy, inter-direction transitions, and designed binder affinity, we introduce direction-specific metrics for both agonist and antagonist modes: Affinity ( d∗ = 1 ), Affinity (d∗ = −1), Direction Accuracy ( d∗ = 1 ), and Direction Accuracy ( d∗ = −1). Additionally, we report the gated reward to evaluate overall model training effectiveness 
+
+Setup. We adopt the pre-trained MDLM weights from PepTune (Tang et al., 2025a) as our base model. During finetuning, we employ tree search for buffer generation fol-lowing TR2-D2 (Tang et al., 2025c), regenerating binder data for multiple targets every k iterations with a first-in-first-out buffer to mitigate catastrophic forgetting. Binding affinity is estimated via a pre-trained predictor (Tang et al., 2025a; Zhang et al., 2026), trained on the PepLand dataset (Zhang et al., 2025) to produce a continuous, normalized affinity score (combining K d, K i, and IC 50 ), where higher values indicate stronger binding and a one-unit increase corresponds to an approximate tenfold change in binding strength. We note that RFDiffusion is used in this paper only as an external baseline (Sec. 5.3) and for synthetic-antagonist data augmentation; it is not part of the TD3B in-ference pipeline, and TD3B applies no docking or structural filtering to its generated sequences. Additional details on ground-truth affinity sources and the structural inputs used for the RFDiffusion baseline are provided in Appendix B.3. For the Direction Oracle, protein target sequences are en-coded using ESM2 (Lin et al., 2023), and binder sequences are tokenized using the SPE tokenizer (Tang et al., 2025c). During generation, we apply Algorithm 2 for weighted sam-pling, generating 8 samples per direction for each target. 
+
+5.2 Direction Oracle for Protein-Peptide Binding 
+
+To ensure sufficient exploration space for both tree search and model training, we first demonstrate that the Direction 7TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+Figure 3. Direction and affinity distribution of TD3B. (A) Binding affinity comparison vs. RFDiffusion. (B) Direction comparison vs. pre-trained PepTune. 
+
+Oracle can accurately identify the directionality of binders across diverse targets and varying sequence lengths, thereby providing reliable guidance during training. As shown in Table 1, the Direction Oracle achieves strong classification performance across all metrics. 
+
+Table 1. Binary classification performance of the Direction Oracle. 
+
+Accuracy Precision Recall F1 Dir. Oracle 0.93 0.90 0.91 0.90 
+
+5.3 Assessing Directional Asymmetry of Learned Transition Operators 
+
+Binding affinity is a prerequisite for characterizing ago-nists and antagonists (bru, 1980). To validate TD3B, we compared the predicted binding affinity of TD3B-generated samples against those designed by structure-based RFDiffu-sion (Watson et al., 2023). Figure 3A shows TD3B achieves higher predicted normalized affinity, demonstrating the ef-fectiveness of gated reward fine-tuning. We evaluated the directional behavior of peptides gener-ated under agonist- versus antagonist-directed finetuning by measuring samples from the pre-trained (unconditioned) generator and TD3B using the Direction Oracle. As shown in Figure 3B, the pre-trained model generates predominantly agonist-biased binders with low confidence and lacks direc-tional control. In contrast, TD3B produces distributions with higher confidence across both directions and enables explicit control over transition directionality, though we note asymmetry remains (see Table 2). 
+
+5.4 Comparison to Static and Predictive Baselines 
+
+We test whether TD3B can break the directional symmetry between activation and inhibition. Since pre-trained discrete diffusion models lack direction conditioning, we compare training-free guided diffusion against tree-search-based fine-tuning. Table 2 shows TD3B achieves the highest gated reward, confirming its effectiveness for direction-specific generation. Direction accuracy is asymmetric across ago-nist and antagonist modes, reflecting the stronger antagonist signal in training data and the pre-trained model’s inher-ent agonist bias. Finetuning-based methods achieve higher affinity and better directional balance than guidance-only approaches. Compared to TR2-D2, TD3B adds weighted sampling to exploit high-potential samples and a contrastive loss to separate distributions in latent space, enabling di-rectional understanding beyond iterative optimization. Ab-lations on loss components and weighted sampling are in Appendix C.3. As shown in Table 2, both Lctr and Lreg are necessary. Without Lctr , agonist and antagonist accuracies collapse to nearly identical values, indicating that the latent space no longer separates the two directions. Without Lreg , the model drifts toward the agonist-biased pre-trained prior (Fig-ure 3B): agonist accuracy rises while antagonist accuracy becomes unstable across seeds. The KL term thus preserves the distributional capacity needed to reach the antagonist mode, which lies further from the prior. Per-target analy-sis (Appendix C.2) further shows that remaining agonist failures cluster on a small number of targets with limited training signal, suggesting asymmetric loss weighting as a natural future direction. 
+
+Table 2. Comparison of model performance across various metrics. Best results are in bold. CG: Classifier Guidance; SMC: Sequential Monte Carlo; TDS: Twisted Diffusion Sampler (Wu et al., 2023).                                                         
+
+> Method Aff( d∗= + 1 )Aff( d∗=−1)DA( d∗= + 1 )DA( d∗=−1)Gated Pre-trained 4.80 ±0.01 4.82 ±0.01 0.822 ±0.010 0.174 ±0.010 2.06 ±0.32
+> CG 4.80 ±0.00 4.81 ±0.01 0.816 ±0.005 0.176 ±0.014 2.38 ±0.02
+> SMC 4.83 ±0.01 4.78 ±0.01 0.879 ±0.011 0.470 ±0.011 3.18 ±0.31
+> TDS 4.82 ±0.02 4.79 ±0.02 0.841 ±0.032 0.235 ±0.028 2.42 ±0.07
+> PepTune 5.02 ±0.09 5.00 ±0.08 0.618 ±0.230 0.437 ±0.142 2.61 ±0.28
+> TR2-D2 5.89 ±0.15 5.89 ±0.19 0.178 ±0.127 0.875 ±0.053 3.36 ±0.24
+> TD3B w/o Lctr 5.33 ±0.48 5.35 ±0.61 0.788 ±0.190 0.788 ±0.196 4.01 ±0.10
+> TD3B w/o Lreg 5.28 ±0.47 5.16 ±0.26 0.938 ±0.010 0.471 ±0.168 3.84 ±0.14
+> TD3B (Ours) 6.00 ±0.02 6.32 ±0.02 0.795 ±0.017 1.000 ±0.000 5.33 ±0.03
+
+5.5 Targeted Control of Transition Asymmetry 
+
+We next assessed TD3B’s targeted control over specific tran-sitions without global dynamic perturbation. Conditioning on d⋆ ∈ { +1 , −1}, we verified that generated binders selec-tively bias transitions while maintaining high affinity. Table 3 shows de novo TD3B binders outperform length-matched wild-type references in affinity across all directions. Suc-cess rate, defined as the fraction of binders achieving both (i) superior predicted affinity to wild-type and (ii) correct Direction Oracle classification, reaches 61% and 100% for forward and backward transitions, respectively. This con-firms directionality as a controllable objective rather than an incidental outcome of binding optimization. 
+
+5.6 Case Studies 
+
+We fine-tuned TD3B on two key GPCR targets (GLP1R and TAAR1) and selected top-ranked candidates for each. Complex structures were predicted using AlphaFold3, fol-8TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation            
+
+> Table 3. Targeted control: Evaluation of functional specificity across transition objectives.
+> Design Objective ( d∗)Affinity (WT) Affinity (Transition) Success Rate
+> Forward Transition ( d∗= 1 )4.66 5.81 0.61 Reverse Transition ( d∗=−1)4.99 6.06 1.00
+
+lowed by binding-site detection and scoring with an external classifier. We first focused on GLP-1R, a clinically impor-tant metabolic receptor revolutionary for obesity, weight loss, and type 2 diabetes treatment where agonist activity is the primary therapeutic mechanism (Moiz et al., 2025). As reference, Figure 4A shows the AF3-predicted structure of GLP-1R with all 37 interacting residues at the binding inter-face of the endogenous GLP-1 hormone. TD3B-designed agonists engage key activation residues including Tyr148, Tyr152, Arg190, Lys197, Tyr205, Gln234, Trp297, Thr298, Arg299, and Asn300 (Liao & Tzen, 2022), with Arg299 and Asn300 being essential for full agonist activity (Lei et al., 2018) (Figure 4B). In contrast, TD3B-designed antagonists (Figure 4C) lack interactions with Arg299 and Asn300, con-sistent with their inability to activate the receptor. These results demonstrate that TD3B can design agonist and an-tagonist binders that selectively engage or avoid critical activation residues on the same receptor.        
+
+> Figure 4. Evaluation of TD3B on GLP-1R. (A) Existing GLP-1 peptide hormone bound to GLP-1R. (B) TD3B-designed agonist bound GLP-1R. (C) TD3B-designed antagonist bound GLP-1R.
+
+We next applied TD3B to the Orexin 1 Receptor (OX1R), a regulatory GPCR where antagonists treat insomnia and ag-onists show promise for narcolepsy (Scammell & Winrow, 2011; Nishino et al., 2000). Figure 5A shows the crys-tal structure of OX1R bound to the clinical antagonist su-vorexant (PDB: 4ZJ8), revealing 14 key orthosteric residues. TD3B-designed agonists engage 5 conserved residues, while antagonists engage 6 residues (Figures 5B and C). Both lig-ands contact GLN126, a molecular switch that controls activation through hydrogen bonding with TYR348 (Karhu et al., 2019). The TD3B-designed antagonist engages 6 conserved residues, including GLN126, a contact pattern consistent with inactive-state stabilization by suvorexant (PDB: 4ZJ8) (Yin et al., 2016). The TD3B-designed ag-onist engages 5 residues with a distinct pattern that does 
+
+not reinforce this inactive-state geometry, potentially per-mitting the conformational flexibility required for activa-tion. We acknowledge that this interpretation is based on static AlphaFold3-predicted complex structures; definitive mechanistic conclusions about activation will require molec-ular dynamics simulations and experimental mutagenesis, which we identify as a priority for future work. The sub-stantial conservation with suvorexant’s validated binding site nonetheless confirms orthosteric targeting and demon-strates TD3B’s ability to design functionally distinct ligands for the same receptor pocket. Together, these results indi-cate that TD3B can generate functionally divergent binders for the same target by modulating transition directionality rather than binding affinity alone. More cases are shown in Appendix C.1.        
+
+> Figure 5. Evaluation of TD3B on OX1R. (A) Suvorexant bound to OX1R (PDB: 4ZJ8). (B) TD3B-designed agonist. (C) TD3B-designed antagonist.
+
+## 6 Discussion 
+
+We introduce TD3B , a generative framework that formu-lates allosteric binder design through control over sequence-conditioned transition operators instead of optimization to-ward static states or equilibrium energies. By making direc-tional asymmetry and non-reversibility explicit modeling tar-gets, TD3B captures functional effects that structure-centric design algorithms and predictive dynamics models fail to address. Specifically, the transition-operator formalism in Sections 4.1-4.3 supplies a theoretical foundation without adding a parameterized component. TD3B never regresses the operator Q(y) and uses supervision that captures only the binary sign of ∆( y), which sidesteps the need for high-resolution kinetic measurements that remain difficult to ob-tain at scale. This perspective generalizes across modalities, supporting generative design wherever function arises from non-equilibrium state shifts. Our natural next steps include richer continuous-rate supervision from Markov state mod-els, multi-state generalizations that capture biased agonism, and wet-lab validation on representative GPCR targets such as GLP-1R and OX1R through functional assays like cAMP and β-arrestin recruitment. Together, these directions point toward generative models that learn to shape, instead of merely sample from, the functional dynamics of biomolecu-lar systems. 9TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+## Acknowledgments 
+
+This research was supported by a grant from the High-throughput Institute for Discovery (HIT-ID) at the Univer-sity of Pennsylvania to the lab of Pranam Chatterjee. The work described in this paper was also partially supported by the Research Grants Council of the Hong Kong Special Administrative Region, China, under Project T45-401/22-N. 
+
+## Impact Statement 
+
+This work develops a computational framework for gener-ating protein-binding peptides with controlled agonist or antagonist behavior, which may support therapeutic discov-ery efforts where functional directionality is critical, such as receptor activation or inhibition. By separating binding from functional effect, the approach aims to reduce late-stage failures associated with ligands that bind but produce unintended signaling outcomes. At the same time, genera-tive models for bioactive molecules carry risks, including off-target interactions or unanticipated biological activity. The methods presented here are intended as hypothesis-generation tools and require careful experimental validation, target-specific safety assessment, and responsible use before any therapeutic application. 
+
+## References 
+
+The pharmacological basis of therapeutics. Macmillan Publishing Co., New York, 1980. ISBN 9780023447204. Akbar, R. and Helms, V. Allo: A tool to discriminate and prioritize allosteric pockets, 2018. Austin, J., Johnson, D. D., Ho, J., Tarlow, D., and Van Den Berg, R. Structured denoising diffusion models in discrete state-spaces. Advances in neural information processing systems , 34:17981–17993, 2021. Ballarotto, M., Willems, S., Stiller, T., Nawa, F., Marschner, J. A., Grisoni, F., and Merk, D. De novo design of nurr1 agonists via fragment-augmented generative deep learn-ing in low-data regime. Journal of Medicinal Chemistry ,66(12):8170–8177, 2023. Bowman, G. R., Bolin, E. R., Hart, K. M., Maguire, B. C., and Marqusee, S. Discovery of multiple hidden allosteric sites by combining markov state models and experiments. 
+
+Proceedings of the National Academy of Sciences , 112 (9):2734–2739, 2015. Cao, A.-M., Quast, R. B., Fatemi, F., Rondard, P., Pin, J.-P., and Margeat, E. Allosteric modulators enhance agonist efficacy by increasing the residence time of a gpcr in the active state. Nature Communications , 12(1):5426, 2021. Cao, H., Shi, H., Wang, C., Pan, S. J., and Heng, P.-A. GLID$^2$e: A gradient-free lightweight fine-tune approach for discrete biological sequence design. In 
+
+The Thirty-ninth Annual Conference on Neural Infor-mation Processing Systems , 2025. URL https:// openreview.net/forum?id=AHjspi4R22 .Chen, T., Zhang, Y., and Chatterjee, P. Areuredi: Annealed rectified updates for refining discrete flows with multi-objective guidance. arXiv preprint arXiv:2510.00352 ,2025a. Chen, T., Zhang, Y., Tang, S., and Chatterjee, P. Multi-objective-guided discrete flow matching for controllable biological sequence design. In ICML 2025 Generative AI and Biology (GenBio) Workshop , 2025b. URL https: //openreview.net/forum?id=8YIMLoHP9J .Chung, H., Kim, J., Mccann, M. T., Klasky, M. L., and Ye, J. C. Diffusion posterior sampling for general noisy in-verse problems. arXiv preprint arXiv:2209.14687 , 2022. Churchfield, L. A., Medina-Morales, A., Brodin, J. D., Perez, A., and Tezcan, F. A. De novo design of an al-losteric metalloprotein assembly with strained disulfide bonds. Journal of the American Chemical Society , 138 (40):13163–13166, 2016. Clarke, D., Sethi, A., Li, S., Kumar, S., Chang, R. W., Chen, J., and Gerstein, M. Identifying allosteric hotspots with dynamics: application to inter-and intra-species conser-vation. Structure , 24(5):826–837, 2016. Dauparas, J., Anishchenko, I., Bennett, N., Bai, H., Ragotte, R. J., Milles, L. F., Wicky, B. I., Courbet, A., de Haas, R. J., Bethel, N., et al. Robust deep learning–based pro-tein sequence design using proteinmpnn. Science , 378 (6615):49–56, 2022. Dedic, N., Dworak, H., Zeni, C., Rutigliano, G., and Howes, O. D. Therapeutic potential of taar1 agonists in schizophrenia: evidence from preclinical models and clinical studies. International Journal of Molecular Sci-ences , 22(24):13185, 2021. Dhariwal, P. and Nichol, A. Diffusion models beat gans on image synthesis. Advances in neural information processing systems , 34:8780–8794, 2021. Dou, Z. and Song, Y. Diffusion posterior sampling for linear inverse problem solving: A filtering perspective. In The Twelfth International Conference on Learning Representations , 2024. Halabi, N., Rivoire, O., Leibler, S., and Ranganathan, R. Protein sectors: evolutionary units of three-dimensional structure. Cell , 138(4):774–786, 2009. 10 TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+Harding, S. D., Armstrong, J. F., Faccenda, E., Southan, C., Alexander, S. P., Davenport, A. P., Spedding, M., and Davies, J. A. The iuphar/bps guide to pharmacology in 2026. Nucleic Acids Research , 54(D1):D1446–D1456, 2026. Henzler-Wildman, K. and Kern, D. Dynamic personalities of proteins. Nature , 450(7172):964–972, 2007. Ho, J. and Salimans, T. Classifier-free diffusion guidance. 
+
+arXiv preprint arXiv:2207.12598 , 2022. Huang, S., Liu, H., Wu, Y., Braz, J. M., Kranthi, D., Hall, B. W., Zhang, X., Radchenko, D. S., Moroz, Y. S., Irwin, J. J., et al. Structure based discovery of antipsychotic-like taar1 agonists. bioRxiv , pp. 2025–10, 2025. Huang, W., Lu, S., Huang, Z., Liu, X., Mou, L., Luo, Y., Zhao, Y., Liu, Y., Chen, Z., Hou, T., et al. Allosite: a method for predicting allosteric sites. Bioinformatics , 29 (18):2357–2359, 2013. Jankauskait ˙e, J., Jiménez-García, B., Dapk ¯unas, J., Fernández-Recio, J., and Moal, I. H. Skempi 2.0: an updated benchmark of changes in protein–protein bind-ing energy, kinetics and thermodynamics upon mutation. 
+
+Bioinformatics , 35(3):462–469, 2019. Jones, E. M., Lubock, N. B., Venkatakrishnan, A., Wang, J., Tseng, A. M., Paggi, J. M., Latorraca, N. R., Cancilla, D., Satyadi, M., Davis, J. E., et al. Structural and functional characterization of g protein–coupled receptors with deep mutational scanning. Elife , 9:e54895, 2020. Karhu, L., Magarkar, A., Bunker, A., and Xhaard, H. De-terminants of orexin receptor binding and activation—a molecular dynamics study. The Journal of Physical Chem-istry B , 123, 2019. Koshland Jr, D. E., Némethy, G., and Filmer, D. Comparison of experimental binding data and theoretical models in proteins containing subunits. Biochemistry , 5(1):365–385, 1966. Lei, S., Clydesdale, L., Dai, A., Cai, X., Feng, Y., Yang, D., Liang, Y.-L., Koole, C., Zhao, P., Coudrat, T., et al. Two distinct domains of the glucagon-like peptide-1 receptor control peptide-mediated biased agonism. Journal of Biological Chemistry , 293(24):9370–9387, 2018. Li, Q., Helleday, T., and Bryant, P. Rarefoldgpcr: Agonist design beyond natural amino acids. bioRxiv , pp. 2025–10, 2025. Liao, H.-J. and Tzen, J. T. C. Investigating potential glp-1 receptor agonists in cyclopeptides from pseudostellaria heterophylla, linum usitatissimum, and drymaria diandra, and peptides derived from heterophyllin b for the treat-ment of type 2 diabetes: An in silico study. Metabolites ,2022. Lin, Z., Akin, H., Rao, R., Hie, B., Zhu, Z., Lu, W., Smetanin, N., Verkuil, R., Kabeli, O., Shmueli, Y., et al. Evolutionary-scale prediction of atomic-level protein structure with a language model. Science , 379(6637): 1123–1130, 2023. Lou, A., Meng, C., and Ermon, S. Discrete diffusion mod-eling by estimating the ratios of the data distribution. In 
+
+Proceedings of the 41st International Conference on Ma-chine Learning , pp. 32819–32848, 2024. Lu, S., He, X., Ni, D., and Zhang, J. Allosteric modulator discovery: from serendipity to structure-based design. 
+
+Journal of medicinal chemistry , 62(14):6405–6421, 2019. Moiz, A., Filion, K. B., Tsoukas, M. A., Yu, O. H., Peters, T. M., and Eisenberg, M. J. The expanding role of glp-1 receptor agonists: a narrative review of current evidence and future directions. EClinicalMedicine , 86, 2025. Monod, J., Wyman, J., and Changeux, J.-P. On the nature of allosteric transitions: a plausible model. Journal of molecular biology , 12(1):88–118, 1965. Motlagh, H. N., Wrabl, J. O., Li, J., and Hilser, V. J. The ensemble nature of allostery. Nature , 508(7496):331–339, 2014. Nishino, S., Ripley, B., Overeem, S., Lammers, G. J., and Mignot, E. Hypocretin (orexin) deficiency in human narcolepsy. The Lancet , 355, 2000. Nisonoff, H., Xiong, J., Allenspach, S., and Listgarten, J. Unlocking guidance for discrete state-space diffusion and flow models. arXiv preprint arXiv:2406.01572 , 2024. Noé, F., Schütte, C., Vanden-Eijnden, E., Reich, L., and Weikl, T. R. Constructing the equilibrium ensemble of folding pathways from short off-equilibrium simulations. 
+
+Proceedings of the National Academy of Sciences , 106 (45):19011–19016, 2009. Pacesa, M., Nickel, L., Schellhaas, C., Schmidt, J., Pyatova, E., Kissling, L., Barendse, P., Choudhury, J., Kapoor, S., Alcaraz-Serna, A., et al. One-shot design of functional protein binders with bindcraft. Nature , pp. 1–10, 2025. Phillips, A., Dau, H.-D., Hutchinson, M. J., De Bortoli, V., Deligiannidis, G., and Doucet, A. Particle denoising dif-fusion sampler. In Salakhutdinov, R., Kolter, Z., Heller, K., Weller, A., Oliver, N., Scarlett, J., and Berkenkamp, F. (eds.), Proceedings of the 41st International Conference 
+
+11 TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+on Machine Learning , volume 235 of Proceedings of Ma-chine Learning Research , pp. 40688–40724. PMLR, 21– 27 Jul 2024. URL https://proceedings.mlr. press/v235/phillips24a.html .Pillai, A., Idris, A., Philomin, A., Weidle, C., Skotheim, R., Leung, P. J., Broerman, A., Demakis, C., Borst, A. J., Praetorius, F., et al. De novo design of allosterically switchable protein assemblies. Nature , 632(8026):911– 920, 2024. Pirro, F., Schmidt, N., Lincoff, J., Widel, Z. X., Polizzi, N. F., Liu, L., Therien, M. J., Grabe, M., Chino, M., Lombardi, A., et al. Allosteric cooperation in a de novo-designed two-domain protein. Proceedings of the Na-tional Academy of Sciences , 117(52):33246–33253, 2020. Sahoo, S., Arriola, M., Schiff, Y., Gokaslan, A., Marroquin, E., Chiu, J., Rush, A., and Kuleshov, V. Simple and effective masked diffusion language models. Advances in Neural Information Processing Systems , 37:130136– 130184, 2024. Scammell, T. E. and Winrow, C. J. Orexin receptors: phar-macology and therapeutic opportunities. Annual Review of Pharmacology and Toxicology , 51:243–266, 2011. Sedan, Y., Marcu, O., Lyskov, S., and Schueler-Furman, O. Peptiderive server: derive peptide inhibitors from protein–protein interactions. Nucleic acids research , 44 (W1):W536–W541, 2016. Shen, Q., Wang, G., Li, S., Liu, X., Lu, S., Chen, Z., Song, K., Yan, J., Geng, L., Huang, Z., Huang, W., Chen, G., and Zhang, J. Asd v3.0: unraveling allosteric reg-ulation with structural mechanisms and biological net-works. Nucleic Acids Research , 44(D1):D527–D535, 01 2016. ISSN 0305-1048. doi: 10.1093/nar/gkv902. URL 
+
+https://doi.org/10.1093/nar/gkv902 .Shi, J., Han, K., Wang, Z., Doucet, A., and Titsias, M. Simplified and generalized masked diffusion for discrete data. Advances in neural information processing systems ,37:103131–103167, 2024. Shukla, D., Meng, Y., Roux, B., and Pande, V. S. Activation pathway of src kinase reveals intermediate states as tar-gets for drug design. Nature communications , 5(1):3397, 2014. Stark, H., Faltings, F., Choi, M., Xie, Y., Hur, E., O’Donnell, T. J., Bushuiev, A., Uçar, T., Passaro, S., Mao, W., et al. Boltzgen: Toward universal binder design. bioRxiv , pp. 2025–11, 2025. Steinegger, M. and Söding, J. Mmseqs2 enables sensi-tive protein sequence searching for the analysis of mas-sive data sets. Nature biotechnology , 35(11):1026–1028, 2017. Tan, Z. W., Tee, W.-V., Guarnera, E., Booth, L., and Bere-zovsky, I. N. Allomaps: allosteric mutation analysis and polymorphism of signaling database. Nucleic acids research , 47(D1):D265–D270, 2019. Tang, S., Zhang, Y., and Chatterjee, P. Peptune: De novo generation of therapeutic peptides with multi-objective-guided discrete diffusion. In Forty-second International Conference on Machine Learning , 2025a. URL https: //openreview.net/forum?id=FQoy1Y1Hd8 .Tang, S., Zhang, Y., Tong, A., and Chatterjee, P. Gumbel-softmax score and flow matching for discrete biological sequence generation. In ICLR 2025 Workshop on AI for Nucleic Acids , 2025b. URL https://openreview. net/forum?id=ITpCmDhSfu .Tang, S., Zhu, Y., Tao, M., and Chatterjee, P. Tr2-d2: Tree search guided trajectory-aware fine-tuning for discrete diffusion. arXiv preprint arXiv:2509.25171 , 2025c. Vincoff, S., Davis, O., Ceylan, I. I., Tong, A., Bose, J., and Chatterjee, P. SOAPIA: Siamese-guided generation of off target-avoiding protein interactions with high target affinity. In ICML 2025 Workshop on Scaling Up Inter-vention Models , 2025. URL https://openreview. net/forum?id=j0OpIG7leX .Wang, C., Uehara, M., He, Y., Wang, A., Lal, A., Jaakkola, T., Levine, S., Regev, A., Hanchen, and Biancalani, T. Fine-tuning discrete diffusion models via reward opti-mization with applications to DNA and protein design. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview. net/forum?id=G328D1xt4W .Watson, J. L., Juergens, D., Bennett, N. R., Trippe, B. L., Yim, J., Eisenach, H. E., Ahern, W., Borst, A. J., Ragotte, R. J., Milles, L. F., et al. De novo design of protein struc-ture and function with rfdiffusion. Nature , 620(7976): 1089–1100, 2023. Weikl, T. R. and Paul, F. Conformational selection in protein binding and function. Protein Science , 23(11):1508–1518, 2014. Wu, L., Trippe, B., Naesseth, C., Blei, D., and Cunning-ham, J. P. Practical and asymptotically exact conditional sampling in diffusion models. Advances in Neural Infor-mation Processing Systems , 36:31372–31403, 2023. Xu, Z., Guo, L., Yu, J., Shen, S., Wu, C., Zhang, W., Zhao, C., Deng, Y., Tian, X., Feng, Y., et al. Ligand recogni-tion and g-protein coupling of trace amine receptor taar1. 
+
+Nature , 624(7992):672–681, 2023. 12 TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+Yin, J., Babaoglu, K., Brautigam, C. A., Clark, L., Shao, Z., Scheuermann, T. H., Harrell, C. M., Gotter, A. L., Roecker, A. J., Winrow, C. J., Renger, J. J., Coleman, P. J., and Rosenbaum, D. M. Structure and ligand-binding mechanism of the human ox1 and ox2 orexin receptors. 
+
+Nature Structural & Molecular Biology , 23(4):293–299, 2016. Zhang, R., Wu, H., Liu, C., Yang, Q., Xiu, Y., Li, K., Chen, N., Wang, Y., Wang, Y., Gao, X., et al. Pepland: a large-scale pre-trained peptide representation model for a comprehensive landscape of both canonical and non-canonical amino acids. Briefings in bioinformatics , 26(4): bbaf367, 2025. Zhang, Y., Tang, S., Chen, T., Mahood, E., Vincoff, S., and Chatterjee, P. Peptiverse: A unified platform for thera-peutic peptide property prediction. bioRxiv , pp. 2025–12, 2026. 13 TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+## Appendix A Theoretical Proofs 
+
+This appendix records basic guarantees for TD3B. We (i) justify exponential tilting as the unique solution of a KL-regularized improvement objective, (ii) characterize the population-optimal Direction Oracle under weighted logistic risk, (iii) relate weighted denoising cross-entropy to fitting a target (tilted) distribution, (iv) bound the effect of oracle approximation error on the induced tilted distribution, and (v) state a simple separability consequence of zero contrastive loss. 
+
+A.1 Notation and Setup 
+
+We adopt notation from the main text. • Y := AL denotes the finite sequence space. • p0(y) denotes a fixed base distribution on Y (e.g., the pre-trained MDLM distribution pθ0 ). • S : Y → R denotes a score (objective) and α > 0 a temperature. • The (reward-)tilted distribution is 
+
+p⋆(y) := p0(y) exp( S(y)/α )
+
+Z , Z := X
+
+> y′∈Y
+
+p0(y′) exp( S(y′)/α ) . (27) • For the direction task, we use labels d(y) ∈ { +1 , −1}, confidence weights κ(y) ∈ [0 , 1] , and an oracle fϕ : Y → R.The direction-only score used for design is S(y; d⋆) = d⋆fϕ(y) for d⋆ ∈ { +1 , −1}.• For distributions P, Q on Y we write ∥P − Q∥TV for total variation and KL( P ∥Q) for Kullback–Leibler divergence. 
+
+A.2 Exponential Tilting as KL-Regularized Improvement Theorem A.1 (Exponential tilting solves KL-regularized improvement) . Fix a base distribution p0 on Y and a score 
+
+S : Y → R. Consider the optimization problem over distributions q on Y:
+
+max  
+
+> q∈∆( Y)
+
+{EY ∼q [S(Y )] − α KL( q∥p0)} , α > 0. (28) 
+
+Then the unique maximizer is the tilted distribution p⋆ in (27) .
+
+Proof. Since Y is finite, (28) is a strictly concave optimization problem in q. Introduce a Lagrange multiplier λ for the constraint P 
+
+> y
+
+q(y) = 1 . The Lagrangian is 
+
+J (q, λ ) = X
+
+> y
+
+q(y)S(y) − α X
+
+> y
+
+q(y) log q(y)
+
+p0(y) + λ X
+
+> y
+
+q(y) − 1
+
+!
+
+. (29) Taking derivatives with respect to q(y) and setting to zero gives 
+
+S(y) − α (log q(y) − log p0(y) + 1) + λ = 0 , (30) so log q(y) = log p0(y) + S(y)/α + c for a constant c. Hence 
+
+q(y) ∝ p0(y) exp( S(y)/α ), (31) and normalization yields (27). Strict concavity implies uniqueness. 
+
+Corollary A.1 (Limiting cases) . Let p⋆ be defined by (27) . Then: 
+
+14 TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+1. As α → ∞ , p⋆ → p0 in total variation. 2. As α → 0+, p⋆ concentrates on arg max y∈Y S(y) (within the support of p0). Proof. Write p⋆(y) = p0(y) exp( S(y)/α )/Z . As α → ∞ , exp( S(y)/α ) → 1 uniformly, so Z → 1 and p⋆ → p0. As 
+
+α → 0+, the normalization is dominated by maximizers of S because exp( S(y)/α ) is a softmax with temperature α.
+
+Proposition A.1 (Relative odds under tilting) . For any y1, y 2 ∈ Y with p0(y1), p 0(y2) > 0,
+
+p⋆(y1)
+
+p⋆(y2) = p0(y1)
+
+p0(y2) exp 
+
+ S(y1) − S(y2)
+
+α
+
+
+
+. (32) 
+
+In particular, if p0(y1) = p0(y2) then the odds ratio depends only on S(y1) − S(y2).
+
+Proof. Immediate from the definition (27) since the normalizer Z cancels. 
+
+Binary direction specialization. For S(y; d⋆) = d⋆f (y) and d⋆ ∈ { +1 , −1},
+
+p⋆(y | +1) 
+
+p⋆(y | − 1) = Z−
+
+Z+
+
+exp 
+
+ 2f (y)
+
+α
+
+
+
+, Z± := X
+
+> y
+
+p0(y) exp( ±f (y)/α ). (33) Thus larger oracle score f (y) implies larger posterior odds of the +1 -tilt relative to the −1-tilt. 
+
+A.3 Population Optimality of the Direction Oracle 
+
+We formalize the direction oracle as a weighted logistic risk minimizer. 
+
+Theorem A.2 (Bayes-optimal oracle under weighted logistic loss) . Let (Y, D ) be a random pair where Y ∈ Y and 
+
+D ∈ { +1 , −1}. Let κ : Y × { +1 , −1} → [0 , ∞) be a measurable weight (in TD3B, κ encodes down-weighting of partial agonists and exclusion of non-binders). Consider minimizing 
+
+R(f ) := E[κ(Y, D ) log(1 + exp( −Df (Y )))] (34) 
+
+over all functions f : Y → R. Define 
+
+η+(y) := E[κ(Y, D )1{D = +1 } | Y = y], η−(y) := E[κ(Y, D )1{D = −1} | Y = y]. (35) 
+
+If η+(y) + η−(y) > 0, the pointwise minimizer satisfies 
+
+f ⋆(y) = log η+(y)
+
+η−(y) . (36) 
+
+Proof. Fix y ∈ Y and write the conditional risk (up to an additive constant independent of f (y)) as 
+
+ry (u) = η+(y) log(1 + exp( −u)) + η−(y) log(1 + exp( u)) , u := f (y). (37) This is strictly convex in u. Differentiate and set to zero: 
+
+r′ 
+
+> y
+
+(u) = −η+(y) 11 + exp( u) + η−(y) exp( u)1 + exp( u) = 0 . (38) Multiplying by 1 + exp( u) gives −η+(y) + η−(y) exp( u) = 0 , hence exp( u) = η+(y)/η −(y) and (36) follows. 15 TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+Remark. Theorem A.2 shows that, in the population limit, a weighted logistic oracle estimates a (weighted) log-odds function. This makes exponential tilting with S(y; d⋆) = d⋆f (y) a principled way to bias generation toward one directional class. 
+
+A.4 Weighted Denoising Cross-Entropy Fits a Target Distribution 
+
+We formalize the effect of WDCE as fitting an MDLM to a reweighted data distribution. 
+
+Lemma A.1 (Weighted risk equals unweighted risk under a reweighted distribution) . Let r be any distribution on Y and let w : Y → [0 , ∞) be a weight function with 0 < EY ∼r [w(Y )] < ∞. Define the normalized reweighted distribution 
+
+π(y) := r(y)w(y)
+
+EY ∼r [w(Y )] . (39) 
+
+Then for any nonnegative loss ℓ(y),
+
+EY ∼r [w(Y )ℓ(Y )] = EY ∼r [w(Y )] · EY ∼π [ℓ(Y )] . (40) 
+
+Proof. By definition, EY ∼π [ℓ(Y )] = P 
+
+> y
+
+π(y)ℓ(y) = 1 
+
+> Er[w]
+
+P 
+
+> y
+
+r(y)w(y)ℓ(y). Rearrange. 
+
+Theorem A.3 (Population optimality of WDCE denoisers) . Fix a corruption kernel family qt(yt | y) and a time sampling distribution over t ∈ [0 , 1] . Let π be a target distribution on Y and define the joint (y, y t) by y ∼ π and 
+
+yt ∼ qt(· | y). Consider the MDLM denoising objective 
+
+Lπ (θ) = Et,y,y t
+
+ X 
+
+> ℓ:yℓt=M
+
+− log pθ
+
+ yℓ | yUM  
+
+> t
+
+, t  
+
+. (41) 
+
+Then for each time t and each masked position ℓ, the minimizer satisfies 
+
+pθ⋆
+
+ yℓ = a | yUM  
+
+> t
+
+, t  = Pπ
+
+ yℓ = a | yUM  
+
+> t
+
+, t  ∀a ∈ A , (42) 
+
+that is, the optimal denoiser recovers the true conditional under π.
+
+Proof. Fix t and condition on the context C := ( yUM  
+
+> t
+
+, t ) and the event that position ℓ is masked. The inner term in (41) is the cross-entropy between the true conditional distribution of yℓ given C and the model distribution pθ (· | C). Cross-entropy is minimized uniquely by matching the true conditional. Taking expectation over contexts yields the result. 
+
+Connection to reward tilting. If the proposal distribution r is p0 and weights are 
+
+w(y) = exp 
+
+ S(y1)
+
+α
+
+
+
+·
+
+> T
+
+Y
+
+> n=1
+
+p0(ytn−1 | ytn )
+
+p¯θ (ytn−1 | ytn ) , (43) then the reweighted distribution π in Lemma A.1 equals the tilted distribution p⋆ in (27) . Thus WDCE is (in the population limit) standard MDLM training under the tilted target distribution. 16 TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+A.5 Stability of Tilting Under Oracle Approximation Error Theorem A.4 (Tilt robustness under bounded score error) . Let S⋆ : Y → R be an ideal score and let S : Y → R satisfy 
+
+sup 
+
+> y∈Y
+
+|S(y) − S⋆(y)| ≤ ε. (44) 
+
+Let p⋆ and ep be the corresponding tilted distributions built from (p0, S ⋆) and (p0, S ) with the same temperature α > 0.Then 
+
+KL( ep∥p⋆) ≤ 2εα , KL( p⋆∥ep) ≤ 2εα , (45) 
+
+and therefore, by Pinsker’s inequality, 
+
+∥ep − p⋆∥TV ≤
+
+r εα . (46) 
+
+Proof. Write S = S⋆ + δ with |δ(y)| ≤ ε. Then 
+
+ep(y) = p0(y) exp(( S⋆(y) + δ(y)) /α )
+
+eZ = p⋆(y) exp( δ(y)/α )
+
+EY ∼p⋆ [exp( δ(Y )/α )] . (47) Since exp( δ/α ) ∈ [exp( −ε/α ), exp( ε/α )] , the normalizer ratio satisfies 
+
+Ep⋆ [exp( δ/α )] ∈ [exp( −ε/α ), exp( ε/α )] . (48) Hence for all y,
+
+log ep(y)
+
+p⋆(y) = δ(y)
+
+α − log Ep⋆ [exp( δ/α )] ∈
+
+
+
+− 2εα , 2εα
+
+
+
+. (49) Taking expectation under ep yields KL( ep∥p⋆) ≤ 2ε/α . The reverse KL bound follows symmetrically by swapping roles of 
+
+(S, S ⋆). Pinsker’s inequality gives the TV bound. 
+
+A.6 A Separability Consequence of Zero Contrastive Loss Proposition A.2 (Zero margin-contrastive loss implies linear separability) . Let {(yi, d i)}Ni=1 be labeled samples with 
+
+di ∈ { +1 , −1} and embeddings h(yi) ∈ Rm. Consider the margin-contrastive loss 
+
+Lctr = X
+
+> (i,j ): di=dj
+
+∥h(yi) − h(yj )∥22 + X 
+
+> (i,j ): di̸=dj
+
+max(0 , m 0 − ∥ h(yi) − h(yj )∥2)2. (50) 
+
+If Lctr = 0 , then there exist u+, u − ∈ Rm such that h(yi) = udi for all i and ∥u+ − u−∥2 ≥ m0. In particular, the classes are linearly separable by a hyperplane with margin at least m0/2.
+
+Proof. If Lctr = 0 , then for any pair (i, j ) with di = dj we must have ∥h(yi) − h(yj )∥22 = 0 , hence all embeddings within a class are identical. Denote the two class prototypes by u+ and u−. For any pair with di̸ = dj , the hinge term being zero implies ∥u+ − u−∥2 ≥ m0.Define w := u+ − u− and b := − 12 ⟨w, u + + u−⟩. Then 
+
+⟨w, u +⟩ + b = 12 ∥u+ − u−∥22 ≥ 12 m20, ⟨w, u −⟩ + b = − 12 ∥u+ − u−∥22 ≤ − 12 m20, (51) so the hyperplane {z : ⟨w, z ⟩ + b = 0 } separates the two prototypes. The (geometric) margin is at least ∥u+ − u−∥2/2 ≥
+
+m0/2.17 TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+## B Implementation and Dataset Details 
+
+B.1 Direction Oracle Training 
+
+The Direction Oracle is trained for 20 epochs using AdamW optimization with a learning rate of 10 −5 and batch size of 16, minimizing cross-entropy loss. pre-trained encoders remain frozen throughout training; only projection layers, self-attention and cross-attention modules, and the two-layer MLP classifier head are optimized. Due to the limited size of available labeled data, we train on the full training split without validation and evaluate performance exclusively on an independent held-out test set. 
+
+B.2 TD3B Finetuning 
+
+For tree search-based sampling, we employ trajectory-aware tree search with 20 iterations and 24 children per node, sampling 4 targets per iteration with a buffer size of 32 candidates per target. A replay buffer of 2000 samples with FIFO replacement is maintained to mitigate catastrophic forgetting. Training uses a batch size of 4 with gradient accumulation over 4 steps, a learning rate of 5 × 10 −5, and 4 WDCE replicates per sample. The KL regularization coefficient λreg is set to 0.5, and tree search resampling is performed every 10 epochs. Training is conducted on 8 NVIDIA A100 GPUs using PyTorch DDP with synchronized buffer aggregation. 
+
+B.3 Affinity Sources and Structural Inputs for Baselines Ground-truth binding affinities. Ground-truth binding affinities used for evaluation in Section 5.5 are taken from the SKEMPI 2.0 database (Jankauskait ˙e et al., 2019), which compiles experimentally measured dissociation constants ( Kd) from surface plasmon resonance and spectroscopic techniques and converts them to binding free energy changes ( ∆∆ G). These measurements provide an independent, experimentally grounded reference, as opposed to the pre-trained PepLand-based affinity predictor used internally for fine-tuning rewards. 
+
+Structural inputs to the RFDiffusion baseline. For the RFDiffusion baseline reported in Section 5.3 and Figure 3A, all structural inputs are experimentally determined PDB-deposited structures with validated agonist or antagonist activity for the corresponding target. Using experimentally resolved rather than model-predicted structures avoids confounding the comparison with potential conformational biases from upstream prediction (e.g., a structure predictor’s preference for an agonist- or antagonist-bound state). RFDiffusion was used here strictly as an external baseline and, separately, for synthetic-antagonist data augmentation during dataset construction; it is not part of the TD3B pipeline at training or inference time, and TD3B applies no docking, structural filtering, or energy minimization to its outputs. 
+
+B.4 Data Leakage Analysis 
+
+A natural concern with using an externally pre-trained affinity predictor (trained on the PepLand dataset (Zhang et al., 2025)) is whether any pair-level overlap exists with our IUPHAR/BPS-derived training and test sets, which could artificially inflate apparent generalization. We performed three checks comparing our 130 training and 88 test bidirectional pairs against the 2,110 entries in PepLand: (i) exact peptide sequence match, (ii) exact UniProt-ID match for the target, and (iii) (target, peptide ) pair match. We additionally screened for approximate matches at ≥ 80% pairwise sequence identity. Results are summarized in Table 4.  
+
+> Table 4. Pair-level data leakage analysis between our IUPHAR/BPS-derived dataset and PepLand. No exact peptide–target pair appears in both datasets.
+
+Check Test set Train set Exact peptide match 0 0
+
+Exact target match 0 0
+
+Exact pair / UniProt-ID pair 0 0
+
+Approximate peptide ( ≥ 80% id.) 1 (diff. target) 3 (substring) The single approximate peptide match (P50984; 87 .5% identity, two-residue difference) is paired with entirely different targets in the two datasets (ours: P30532/P32297; PepLand: Q8WSF8). Since the affinity predictor is conditioned on both target and binder, no pair-level binding information transfers, and we conclude that the apparent generalization of TD3B is 18 TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+not attributable to leakage through the affinity predictor. 
+
+## C Extended Experimental Results 
+
+C.1 Case Studies on Additional Protein Targets 
+
+We further applied TD3B to TAAR1, a neuromodulatory GPCR implicated in dopaminergic and serotonergic signaling and strongly linked to schizophrenia, where both agonists and antagonists are of pharmacological interest (Dedic et al., 2021). As shown in Figure C1, TD3B-generated agonists and antagonists for TAAR1 exhibit distinct binding modes. Similar to the activatory contacts of T1AM (3-iodothyronamine), a small molecule TAAR1 agonist shown in PDB 8JLN (Figure C1A) (Xu et al., 2023), the designed agonist preferentially engages with a compact orthosteric pocket spanning TM3, TM5, TM6, and TM7, (Jones et al., 2020) including residues associated with receptor activation (Huang et al., 2025) (Figure C1B), and the designed antagonist occupies a broader binding region that partially overlaps the orthosteric site but selectively avoids key activation-associated transmembrane contacts (Figure C1C). 
+
+Figure C1. Evaluation of TD3B on TAAR1. (A) Existing TAAR1 agonist bound to TAAR1. (B) TD3B-designed agonist bound TAAR1. 
+
+(C) TD3B-designed antagonist bound TAAR1. 
+
+C.2 Per-Target Performance Breakdown 
+
+Table 5 reports per-target gated reward and direction accuracies for TD3B with 3-seed evaluation. Cross-seed variance is small ( ±0.03 on aggregated gated reward), confirming that training is stable; the residual per-target variance is concentrated on a small number of targets where agonist generation fails ( DA( d⋆= + 1) = 0 on 3/10 targets while DA( d⋆= − 1) = 1 .00 
+
+remains intact). This pattern is consistent with the agonist/antagonist asymmetry discussed in App. C.3: targets with limited agonist training signal are disproportionately affected, while antagonist generation is essentially saturated. Notably, on the unseen target P35368, TD3B reaches DA = 1 .00 in both directions, indicating that the asymmetry is target-specific rather than fundamental. 
+
+Table 5. Per-target gated reward and direction accuracies for TD3B (3-seed evaluation).                                                                       
+
+> Target (UniProt) nAff( d⋆= + 1 )Aff( d⋆=−1)DA( d⋆= + 1 )DA( d⋆=−1)Gated P30532 200 7.05 8.04 0.00 1.00 4.00
+> P32239 200 6.89 7.22 1.00 1.00 7.00
+> P32246 200 6.36 7.15 1.00 1.00 6.53
+> P32297 200 6.24 7.29 0.00 1.00 3.72
+> P35368 200 6.19 6.94 1.00 1.00 6.08
+> P41587 200 6.97 6.91 0.00 0.00 0.97
+> P51677 200 7.94 6.97 1.00 1.00 7.35
+> P54282 200 4.52 4.88 0.00 1.00 2.43
+> Q63447 100 5.20 –1.00 –5.16
+> Q6W5P4 200 5.03 6.67 1.00 1.00 5.32
+
+19 TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+C.3 Ablation Studies Weighted sampling. TD3B differs from TR2-D2 along two axes: (i) training-time innovations (gated reward + contrastive loss + KL-regularized fine-tuning), and (ii) inference-time weighted resampling (Algorithm 2, Eq. 23). To isolate the contribution of each, we apply the same resampling procedure to TR2-D2 (Table 6). Two findings emerge. First, even 
+
+without resampling, TD3B’s training-time changes alone deliver a 26 .5% improvement in gated reward over TR2-D2 ( 4.25 
+
+vs. 3.36 , p=0 .0078 , Welch’s t-test). Second, weighted resampling provides a complementary, additional gain on top of training-time gains ( +25 .4% on TD3B; both methods benefit). TD3B remains best under both conditions, indicating the components are complementary rather than redundant. 
+
+Table 6. Decomposing training-time vs. inference-time contributions. TR2-D2 evaluated with and without the same weighted resampling procedure used by TD3B (3-seed evaluation).                                          
+
+> Setting DA( d⋆= + 1 )DA( d⋆=−1)Gated TR2-D2 w/o resampling 0.178 ±0.127 0.875 ±0.053 3.36 ±0.24
+> TR2-D2 w/ resampling 0.508 ±0.011 1.000 ±0.000 4.64 ±0.07
+> TD3B w/o resampling 0.650 ±0.163 0.683 ±0.040 4.25 ±0.20
+> TD3B w/ resampling 0.795 ±0.017 1.000 ±0.000 5.33 ±0.03
+
+## D Algorithms 
+
+Algorithm 1 Direction-Only Amortized Fine-Tuning of an MDLM 
+
+1: Input: pre-trained MDLM pθ0 (y)
+
+2: directional dataset D = {(y(n), a (n))}Nn=1 
+
+3: direction oracle fϕ(y)
+
+4: replay buffer B ← ∅ 
+
+5: Hyperparameters: learning rate η, temperature α, contrastive weight λctr , KL weight λreg 
+
+6: while not converged do 
+
+7: Sample minibatch {(y, a )} from D
+
+8: Compute direction labels d(y) ∈ { +1 , −1} and weights κ(y)
+
+9: Update direction oracle parameters ϕ using Ldir 
+
+10: ▷ Populate replay buffer with direction-aligned samples 
+
+11: Sample candidate sequences {˜yk}Mk=1 from pθ (y)
+
+12: for each ˜yk do 
+
+13: Compute direction score S(˜ yk) = σ(d⋆ · fϕ(˜ yk)/τ )
+
+14: Set importance weight w(˜ yk) ∝ exp( S(˜ yk)/α )
+
+15: end for 
+
+16: Add weighted samples {(˜ yk, w (˜ yk)) } to replay buffer B
+
+17: ▷ Fine-tune MDLM using WDCE and contrastive objectives 
+
+18: Compute LWDCE (θ) using samples from B
+
+19: Compute Lctr (θ) on non-negative samples 
+
+20: Compute regularization Lreg (θ) = KL( pθ ∥pθ0 )
+
+21: Update θ ← θ − η∇θ
+
+ LWDCE + λctr Lctr + λreg Lreg 
+
+
+
+22: end while 
+
+23: return fine-tuned generator pθ⋆ (y) and oracle fϕ⋆
+
+20 TD3B: Transition-Directed Discrete Diffusion for Allosteric Binder Generation 
+
+Algorithm 2 Sampling Directional Allosteric Binders 
+
+1: Input: fine-tuned MDLM pθ⋆ (y)
+
+2: desired direction d⋆ ∈ { +1 , −1}
+
+3: direction oracle fϕ⋆ (y)
+
+4: number of candidates M
+
+5: Sample candidate binders {ym}Mm=1 i.i.d. from pθ⋆ (y)
+
+6: for m = 1 to M do 
+
+7: Compute direction score S(ym) = d⋆ · fϕ⋆ (ym)
+
+8: Set weight wm ∝ exp( S(ym)) 
+
+9: end for 
+
+10: Resample y ∼ Categorical( {wm}Mm=1 )
+
+11: return y ▷ directionally biased binder 
+
+21
