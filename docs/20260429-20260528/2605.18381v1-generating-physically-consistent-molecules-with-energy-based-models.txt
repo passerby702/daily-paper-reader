@@ -1,0 +1,1087 @@
+Title: Generating Physically Consistent Molecules with Energy-Based Models
+
+URL Source: https://arxiv.org/pdf/2605.18381v1
+
+Published Time: Tue, 19 May 2026 03:00:17 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# Generating Physically Consistent Molecules with Energy-Based Models 
+
+Christoph Griesbacher †
+
+Graz University of Technology 
+
+griesbacher@tugraz.at 
+
+Lea Bogensperger 
+
+University of Zurich 
+
+lea.bogensperger@uzh.ch 
+
+Andreas Habring 
+
+Graz University of Technology 
+
+andreas.habring@tugraz.at 
+
+Thomas Pock 
+
+Graz University of Technology 
+
+thomas.pock@tugraz.at 
+
+## Abstract 
+
+Molecules in equilibrium follow a Boltzmann distribution, making the underly-ing energy landscape a physically grounded modeling objective. However, such landscapes are difficult to learn from data and, once learned, hard to sample from. Diffusion and flow-matching models sidestep these difficulties by learning a time-conditional score or transport field between noise and data, losing the energy inductive bias in exchange for a more tractable training objective. We introduce EBMol, an energy-based model (EBM) that restores this inductive bias by learning an atom-additive scalar potential without explicit simulation during training. Our method employs a flow-inspired Restoring Field Matching objective to approxi-mate the energy landscape. We adopt the Mirror-Langevin algorithm for sampling, enabling unified updates of atomic positions and types, and incorporate parallel tempering for inference-time compute scaling. EBMol is the first EBM for 3D molecular generation to achieve state-of-the-art performance on QM9 and GEOM-Drugs. Moreover, we show that the learned energy landscape serves as a principled quality metric for ranking and filtering configurations, and demonstrate control-lable generation without retraining through shape-steered sampling via potential composition and zero-shot linker design. *
+
+## 1 Introduction 
+
+Molecular states at thermal equilibrium are governed by the Boltzmann distribution p(x) ∝
+
+exp( −E(x)/(kB T )) , in which the probability of a configuration is determined entirely by its po-tential energy. The standard datasets for molecular generation, QM9 [ 1] and GEOM [ 2], are not drawn from this distribution. Instead, they contain geometry-optimized structures, each relaxed to a local energy minimum by density functional theory or semi-empirical methods. What is physically meaningful in these datasets is where the energy minima lie. The relative frequencies at which different molecular structures appear reflect enumeration strategies and computational budgets, not thermodynamic weights [ 3]. A scalar energy landscape whose minima coincide with stable configu-rations is therefore the natural modeling target: it captures exactly the physical content of the data and takes the functional form of a Boltzmann distribution, pθ (x) ∝ exp( −Eθ (x)/τ ).Learning and sampling from such landscapes, however, have remained open problems. Training a physically-calibrated energy function requires Boltzmann-distributed data [ 4] such as SPICE [ 5 ] 
+
+> †Corresponding author.
+> *Code available at https://github.com/griesbchr/EBMol .Preprint.
+> arXiv:2605.18381v1 [cs.LG] 18 May 2026
+
+Figure 1: Overview of Restoring Field Matching. The RFM loss shapes a scalar energy landscape with data points x0 ∼ pdata as local minima by training the negative gradient −∇ Eθ to point toward data from both sides: from the prior (interpolation, t ∈ [0 , 1] ) and from beyond the data (extrapolation, 
+
+t ∈ [−1, 0] ). or MD17 [ 6 ], but datasets with this property target interatomic interactions and conformational sampling rather than chemical diversity and are unsuitable for generation. Sampling is equally difficult: generating molecules from an energy function typically relies on Markov Chain Monte Carlo (MCMC) methods, which must traverse the extremely rugged, unphysical regions between noise and valid structures [ 7 ]. Diffusion [ 8 , 9 ] and flow matching models [ 10 , 11 ] sidestep both barriers by directly learning noise-to-data transport maps through time-conditional vector fields, achieving state-of-the-art results. However, the resulting models provide no explicit energy function and no mechanism to evaluate, rank, or compose configurations at inference time. In this work, we introduce EBMol , an Energy-Based Model (EBM) for Molecules that addresses both barriers. For training, we propose Restoring Field Matching (RFM, Figure 1), a flow-matching-inspired objective that shapes the energy landscape with data points as local minima, without requiring simulation or Boltzmann-distributed data. For sampling, we adapt the Mirror Langevin Algorithm (MLA) [ 12 ] to molecular state spaces, applying Euclidean updates on coordinates and simplex-constrained updates on atom types jointly within each step. Given that the learned energy is an explicit, persistent scalar function rather than an implicit mapping from noise to data, capabilities that time-conditional models cannot naturally provide follow directly: energy-based ranking and filtering of generated samples, composable generation through potential composition, and zero-shot conditional generation by fixing molecular fragments. Our contributions are as follows: • We introduce Restoring Field Matching (RFM), a simulation-free training objective for tractable learning of per-atom additive energy landscapes, and establish theoretical guaran-tees for the resulting optimization problem. • We adapt the Mirror Langevin Algorithm to the mixed continuous-simplex state space of molecules, unifying coordinate and atom types updates in a single framework, combined with parallel tempering enabling inference-time compute scaling. • EBMol is the first EBM for 3D molecular generation to achieve state-of-the-art performance on QM9 and GEOM-Drugs. This demonstrates that the benefits of energy-based modeling, including physically meaningful scoring, inference-time ranking, composable shape steering, and zero-shot linker design, are attainable without sacrificing generation quality. 
+
+## 2 Related work 
+
+Energy-based modeling and related time-unconditional frameworks. Energy-based models [ 13 ]have traditionally been trained via MCMC-based maximum likelihood [ 14 ] or score matching [ 15 ], both of which sidestep the partition function but at substantial cost: MCMC is expensive and prone to mode collapse [ 16 ], while score matching either requires Hessian traces or re-introduces a time variable through noise conditioning [ 15 ]. Despite the recent popularity of time-conditional diffusion [ 8, 9] and flow matching methods [ 10 , 11 ], several recent works have revisited time-2unconditional EBMs. Energy Matching [ 17 ] learns an energy landscape in two stages, combining transport and contrastive-divergence. Equilibrium Matching [ 18 ] is conceptually closest to RFM, also enforcing stationarity at data by scaling the target field to zero, but learns an implicit non-conservative vector field rather than an explicit scalar energy. Also, neither method addresses discrete-continuous state spaces. Within the molecular domain specifically, time-unconditional EBM training has previously been attempted only on highly restricted settings by [ 19 ], who train an equivariant EBM via simulation-based contrastive divergence on a single-stoichiometry subset of QM9, thus neglecting variable molecule size, mixed discrete-continuous state, or modern benchmarks. 
+
+Generative modeling of 3D molecules. Various different generative modeling paradigms have been explored for 3D molecular generation. Besides autoregressive models [ 20 –22 ], field-based approaches [ 23 , 24 ], and, most prominently, diffusion and flow matching models. These methods differ primarily in their treatment of bonds: bond-explicit methods use dedicated supervision [ 25 – 30 ], while bond-implicit approaches, which include our work, rely on emergent geometric accuracy to recover connectivity post-hoc via OpenBabel [ 31 , 26 ] or predefined lookup tables [ 32 ]. The seminal EDM [ 32 ] introduced equivariant diffusion via the EGNN [ 33 ] backbone to molecular modeling. Subsequent work refined this line through latent-space variants [ 34 ], alternative architectures and training [ 35 ], flow matching [ 36 –38 ], and Bayesian flow networks [ 39 ]. Several works that incorpo-rate energy-inspired components into their generative pipeline are related to our approach. These include using Amber and MACE force fields [ 40 , 7], interpreting self-consistency residuals as en-ergies in iteratively refined flow models [ 41 ], or employing energy-driven objectives for conformer generation [ 42 ]. Crucially, however, none of these methods learn a persistent, scalar energy landscape that drives end-to-end sampling. 
+
+Mirror Langevin algorithm and constrained sampling. The Mirror Langevin Algorithm [ 12 ]extends mirror descent [ 43 , 44 ], originally developed for constrained optimization, to sampling on constrained domains. Theoretical analyses on convex domains have established convergence rates [ 45 , 46 ] and Metropolis-adjusted extensions [ 47 ]. While MLA has recently been adapted for generative modeling on homogeneous constrained domains [ 48 ], EBMol is, to the best of our knowledge, the first unified mixed-geometry Langevin framework for joint continuous-discrete deep generative modeling. 
+
+## 3 Method 
+
+We propose EBMol , a time-unconditional energy-based model that learns a scalar potential Eθ (x)
+
+over molecular configurations. EBMol combines two largely independent components: Restoring Field Matching (RFM) for tractable shaping of the energy landscape, and the Mirror Langevin Algorithm (MLA) [12] for sampling from it. 
+
+3.1 Problem formulation 
+
+A molecule with N atoms is represented as a joint state x = ( c, p), where c ∈ RN ×3 are atomic coordinates in Euclidean space and p = ( p0, . . . , pN −1) are per-atom categorical distributions with pi ∈ ∆K−1 = {pi ∈ RK | pi,k ≥ 0, P 
+
+> k
+
+pi,k = 1 } over K chemical elements. Bonds are not explicitly modeled; instead, connectivity and bond orders are inferred post-hoc from (c, p),placing the burden of chemical validity primarily on geometric consistency. We parameterize a time-unconditional energy Eθ (c, p) over this mixed state space. To handle variable-sized molecules, we impose a permutation-invariant additive decomposition over atoms Eθ (c, p) = PNi=1 E(i) 
+
+> θ
+
+(c, p).
+
+3.2 Learning with the Restoring Field Matching objective 
+
+Learning a meaningful energy landscape is challenging. Maximum-likelihood training relies on MCMC [ 14 ], and score matching either requires Hessian traces [ 49 ] or introduces a time variable [ 8, 9]. We instead construct the landscape geometrically : using flow-matching-style interpolation, we regress the energy gradient toward a field that points back to the data from both sides of the manifold, making data points local minima. 3Constructing the restoring field. Standard flow matching defines an interpolant xt between 
+
+x1 ∼ pprior at t = 1 and x0 ∼ pdata at t = 0 , with a target velocity that is nonzero everywhere on the interval. Data is thus a trajectory endpoint, not a stationary point of any field. We begin by extending the interpolation to t ∈ [−1, 1] , so the interpolant xt passes through the data rather than terminating at it. We construct this extended interpolant separately for the two components of 
+
+x = ( c, p). For continuous coordinates, we first align c1 to c0 using the equivariant optimal-transport coupling to reduce trajectory curvature. The aligned noise is denoted c1, and we define a linear trajectory ct = c0 + t(c1 − c0), t ∈ [−1, 1] . For categorical features, linear extrapolation leaves the simplex. We instead use a reflection, pt = p0 + |t|(p1 − p0), which remains in ∆K−1 and is symmetric around t = 0 .Along each interpolant, we define a target field that points toward the data x0. Building on the natural choice sign( t)( x0 − x1), we directly encode stationarity at the data by scaling the target with a smoothing function b : [0 , 1] → [0 , 1] satisfying b(0) = 0 and b(1) = 1 , so that the target vanishes at 
+
+t = 0 :
+
+uc = b(|t|) · sign( t) · (c0 − c1), up = b(|t|) · (p0 − p1). (1) The model is trained to match −∇ xEθ (xt) against this target, as described below. 
+
+Training objective. Denoting v := −∇ xEθ (xt) and u := ( uc, up), the RFM objective is given by 
+
+LRFM = Ex0,x1,t ∼U [−1,1] 
+
+h
+
+v − u 2i
+
+. (2) While the restoring target specifies the energy gradient , it leaves the energy value at the data unconstrained. Without regularization, different data points may sit at different absolute energies, biasing the sampler toward artificially deeper basins. We therefore add a per-atom regularization term that anchors clean-data energies toward zero: 
+
+Lreg = Ex0∼pdata 
+
+"
+
+1
+
+N
+
+> N
+
+X
+
+> i=1
+
+E(i) 
+
+> θ
+
+(x0)2
+
+#
+
+. (3) The full training loss is then given by 
+
+L = LRFM + λreg Lreg , (4) where λreg controls the regularization strength. Training is summarized in Algorithm 1. 
+
+3.3 Sampling with annealed Mirror-Langevin algorithm 
+
+We sample from pθ (x) ∝ exp( −Eθ (x)/τ ) via Langevin dynamics. While standard Langevin suffices for coordinates, it pushes atom types outside the simplex. The Mirror Langevin Algorithm (MLA) [ 12 ] resolves this by performing updates in an unconstrained dual space and projecting back through a mirror map. Let Φ : D → R be a strictly convex, twice-differentiable mirror potential on the constrained domain 
+
+D such that its gradient ∇Φ maps D to an unconstrained dual space, and the inverse map (∇Φ) −1
+
+projects back to D. The MLA update with step size η, temperature τ , and noise ξ ∼ N (0, I) reads 
+
+y(k+1) = ∇Φ( x(k)) − η ∇xEθ (x(k)) + p2ητ  ∇2Φ( x(k))1/2ξ, (5) 
+
+x(k+1) = ( ∇Φ) −1(y(k+1) ). (6) The factor (∇2Φ) 1/2 is the Riemannian metric correction induced by the mirror potential, ensuring the update is consistent with the underlying mirror Langevin SDE. 
+
+Continuous coordinates and categorical features. The choice of mirror potential Φ specializes MLA to each component of x = ( c, p). For c ∈ RN ×3, the Euclidean potential Φc(c) = 12 ∥c∥2
+
+reduces MLA to the Unadjusted Langevin Algorithm. For atom types p ∈ ∆K−1, the negative entropy 
+
+Φp(p) = P 
+
+> i
+
+pi log pi maps the simplex to logit space via ∇Φp = log p + 1, with (∇Φp)−1 =softmax projecting back exactly. Since the negative-entropy mirror map does not satisfy the self-concordance condition of [ 12 ] near the simplex boundary, we clamp p ≥ ϵ before each update (see Appendix E for details). The full update is given in Algorithm 2. 4Algorithm 1 RFM training step 
+
+Require: Energy Eθ , smoothing function b(t) 
+
+> 1:
+
+Sample x0 = ( c0, p0) ∼ pdata  
+
+> 2:
+
+Sample x1 = ( c1, p1) ∼ pprior  
+
+> 3:
+
+Sample t ∼ U (−1, 1)  
+
+> 4:
+
+TOT ← OTSolver( c1, c0) 
+
+> 5:
+
+ct ← c0 + t (TOT c1 − c0) 
+
+> 6:
+
+pt ← p0 + |t| (p1 − p0) 
+
+> 7:
+
+v ← −∇ xEθ (ct, pt) 
+
+> 8:
+
+uc ← b(|t|) sign( t) ( c0 − c1) 
+
+> 9:
+
+up ← b(|t|) ( p0 − p1) 
+
+> 10:
+
+Lreg ← λreg 
+
+> N
+
+PNi=1 E(i) 
+
+> θ
+
+(x0)2 
+
+> 11:
+
+L ← ∥ v − u∥2 + Lreg  
+
+> 12:
+
+Update θ ← θ − η ∇θ L
+
+Algorithm 2 Mirror-Langevin sampling step 
+
+Require: State (c, p), Eθ , step size η, tempera-ture τ , noise scales σc, σ p, clipping ϵ 
+
+> 1:
+
+gc ← ∇ cEθ (c, p), gp ← ∇ pEθ (c, p)
+
+Continuous update:  
+
+> 2:
+
+ξc ∼ N (0, σ 2 
+
+> c
+
+I) 
+
+> 3:
+
+c′ ← c − η gc + √2ητ ξc 
+
+> 4:
+
+c′ ← c′ − 1
+
+> N
+
+P 
+
+> i
+
+c′
+
+> i
+
+Categorical update:  
+
+> 5:
+
+˜p ← max( p, ϵ ) 
+
+> 6:
+
+ξp ∼ N (0, σ 2
+
+> p
+
+I) 
+
+> 7:
+
+y ← log ˜ p − η gp + √2ητ ˜p−1/2 ⊙ ξp 
+
+> 8:
+
+p′ ← Softmax( y) 
+
+> 9:
+
+return (c′, p′)
+
+3.4 Parallel tempering 
+
+We run M parallel chains at a fixed ladder of temperatures τ1 > τ 2 > · · · > τ M , with periodic Metropolis-Hastings swaps between adjacent levels according to energies E with acceptance proba-bility 
+
+min 
+
+
+
+1, exp 
+
+h E(xj ) − E(xi)  1 
+
+> τi
+
+− 1
+
+> τj
+
+i 
+
+. (7) Hot chains explore broadly, cold chains refine, and swaps propagate discoveries down the ladder. Periodically, we harvest samples from the coldest chain and replace them with prior samples at the same coldest level, which are swapped upward by the energy-based exchange mechanism. Subsequently, harvested samples undergo a short τ = 0 relaxation. Parallel tempering offers a built-in mechanism for inference-time compute scaling by increasing the number of tempering rounds between harvests. Additional swaps and exploration before samples are extracted yields progressively higher-quality molecules at the cost of longer sampling. 
+
+3.5 Analysis 
+
+We establish two theoretical properties of the RFM objective that characterize the minimization problem defined by (4) . The analysis considers E as a general element of a function space rather than a specific network architecture. For sufficiently expressive networks, these properties are expected to hold approximately in practice, which our experiments in Section 4 support. Formal assumptions and complete proofs for both properties are given in Appendix A. The first result ensures that the training problem is well-posed. 
+
+Proposition 1 (Existence of solutions, informal) . Under appropriate assumptions on pprior and pdata ,for every λreg the following problem admits a unique solution: 
+
+min  
+
+> E
+
+L(E).
+
+Given existence, we characterize the solution’s behavior at the two extremes of the regularization parameter. 
+
+Proposition 2 (Convergence for small and large regularization parameters, informal) . Let E∗(x, λ )
+
+be the minimizer of L for λreg = λ. The following holds true: (i) λ = ∞: For every sequence λn → ∞, there exists a subsequence (λnk )k such that 
+
+E∗(·, λ nk ) → 0 p0-a.e.; figuratively: E∗(x0, λ ) ≈ 0 for λ ≫ 0 and x0 ∼ pdata .(ii) λ = 0 : For every sequence λn → 0, there exists a subsequence (λnk )k such that 
+
+∇E∗(·, λ nk ) converges to the projection of the prescribed restoring field u onto the space of all conservative vector fields. That is, ∇E∗(·, λ nk ) converges to the minimizer of the functional 
+
+E 7 → Ex0,x1,t ∼U [−1,1] [ −∇ E(xt) − u 2] (8) 5Moreover, if x 7 → E[u|xt = x] is conservative 
+
+lim  
+
+> k→∞
+
+∇E∗(x, λ nk ) = −E[u|xt = x] px-a.e. . (9) The above results confirm our modeling approach theoretically: strong regularization anchors the energy to zero at the data, while the gradient matching term leads to the L2 projection of the target restoring field onto the space of conservative vector fields. At any finite λreg , the minimizer interpolates between these two extremes. However, the central modeling claim, that data points are local minima of Eθ , is not established by the propositions above. It rests on the target construction (b(0) = 0 encodes zero gradient at t = 0 ) and is verified empirically in Appendix B. 
+
+## 4 Experiments 
+
+4.1 Setup Datasets. We evaluate EBMol on the two standard benchmarks for unconditional 3D molecular generation, QM9 [ 1] and GEOM-Drugs [ 2]. QM9 contains 134k small organic molecules with up to nine heavy atoms across five element types (H, C, N, O, F), exhaustively enumerating all stable molecules within this space at DFT level. GEOM-Drugs poses a more challenging benchmark, comprising roughly 430k drug-like molecules with an average size of 44 atoms (up to 181) across 15 element types. This dataset is substantially more diverse than QM9. 
+
+Implementation. To ensure SE(3) invariance of the energy, we employ a standard EGNN [ 33 ]network, propagating equivariant messages across a fully connected atomic graph. We compute the per-atom energies by applying a two-layer MLP to the invariant node features of the final layer, omitting the final equivariant feature update. The total molecule energy is calculated by summing over the node energies, preserving SE(3) invariance of Eθ . During training, we use a diagonal anisotropic Gaussian position prior whose per-molecule covariance is set to the principal-component eigenvalues of a training molecule with the same atom count, introducing a mild data-dependent shape bias that improves training stability and performance. For atom types, we use a Dirichlet distribution with concentration 1/K , where K is the number of atom types. We employ tanh( ·) as smoothing function. Pseudocode for the training and sampling algorithms is presented in Algorithms 1 and 2. During generation, we sample the atom count N from the empirical training distribution and base the parallel tempering swaps on the largest per-atom energy max i E(i) 
+
+> θ
+
+(x). A full list of hyperparameters, more experiment details and ablations on design choices can be found in Appendices D and E. 
+
+Baselines and evaluation. We compare against a variety of established bond-implicit baselines for molecular generation [ 32 , 40 , 36 , 50 , 34 , 38 , 39 , 35 ]. All baselines share the same EGNN network architecture [ 33 ], with the exception of SLDM, employing a modified EGNN variant based on UniGEM [ 51 ] with more parameters (2.2M vs 4.2M for GEOM-Drugs). On GEOM-Drugs, we restrict baselines to methods with publicly available checkpoints to ensure consistent re-evaluation under our revised evaluation protocol. On QM9 we follow the standard protocol of [ 32 ], reporting atom and molecule stability, validity, uniqueness, and novelty. On GEOM-Drugs, recent models have begun to saturate this protocol: its QM9-calibrated bond and valency lookup tables yield a data baseline of only 86.5% atom stability, a ceiling already exceeded by SLDM [ 35 ]. To restore this benchmark’s discriminative power, we adopt a revised protocol. We perform bond inference via OpenBabel [ 31 ], which additionally infers formal charges and aromaticity. This additional information unlocks the usage of the valency tables proposed by [ 52 ], which are specifically calibrated for the element and bond-type diversity encountered in GEOM-Drugs. Furthermore, we use the OpenBabel-inferred molecules for RDKit sanitization with stereochemistry assignment for more expressive validity, uniqueness, and novelty metrics. Under this revised protocol, the data baseline rises to 99.6% atom stability (from 86.5%) and 88.2% molecule stability (previously ~0%), indicating a much more faithful assessment of chemical validity. We additionally report the Vendi score [ 53 ] for molecular diversity and the physical metric suite of [ 52 ], which assesses differences in bond lengths, bond angles and torsion angles between generated molecules and their GFN2-xTB-optimized [ 54 ] counterparts, alongside the associated mean and median relaxation energies. 64.2 Unconditional generation 
+
+Table 1: Standard molecular generation metrics on QM9, computed on 10k generated samples per model. Results marked with * are from our own experiments. Unless otherwise noted in the subscript, models use 1000 NFEs.                                                                                             
+
+> Method Atom ↑Molecule ↑Validity ↑Uniqueness ↑Valid & Novelty ↑
+> Stability Stability Unique ↑
+> Data 99.40 95.30 97.70 99.97 97.60 –EDM 98.70 82.00 91.90 –90.70 65.70 EDM-Bridge 98.80 84.60 92.00 –90.70 –EquiFM 210 98.90 88.30 94.70 –93.50 –END 98.90 89.10 94.80 –92.60 –GEOLDM 98.90 89.40 93.80 –92.70 57.00* GOAT 99.20 –92.90 99.00 –78.60
+> GeoBFN 2000 99.31 93.32 96.88 –92.41 65.30 SLDM 99.43 95.42 97.07 –90.42 –SLDM* 99.07 92.32 95.53 95.28 91.02 42.46 EBMol 930 99.35 92.34 96.88 86.61 83.91 45.68 EBMol 1370 99.65 95.58 98.32 82.78 81.39 43.37 EBMol 1810 99.76 97.09 98.93 82.30 81.42 42.08
+
+The results for unconditional generation on QM9 are summarized in Table 1. We benchmark EBMol for three different compute-settings, where the lowest setting of 930 network function evaluations (NFEs) matches the baseline models. The results show that EBMol 930 is competitive with the currently best bond-implicit model SLDM, while using approximately half the parameters. When scaling compute to 1810 NFEs, EBMol exceeds all baselines in stability and validity. This includes the strong baseline GeoBFN that also achieves high quality samples through inference-time compute adaptation. Uniqueness and novelty are lower, at 82% and 42%, respectively. This is expected on QM9 because the dataset exhaustively enumerates its composition space [3], so higher-quality molecules are more likely to already appear in the training set and novel compositions tend to violate stability constraints [ 32 , 40 ]. The quality–diversity tradeoff observed in Tables 1 and 2 is a direct consequence of the parallel tempering sampler concentrating probability mass on the lowest-energy modes. While this ensures high chemical validity, it naturally limits diversity. Shifting towards the more challenging GEOM-Drugs benchmark, we report the revised metrics in Table 2. At a compute-matched setting, EBMol already surpasses the SLDM baseline, a performance gap that widens substantially as compute scales. While we observe a slight decrease in uniqueness as stability improves, this shift is consistent with the expected quality–diversity tradeoff. The model still produces 96.4% unique samples among 10k generations, suggesting a slow decay in diversity rather than a catastrophic mode collapse. Randomly selected samples are visualized in Appendix F. The physical metrics presented in Table 3 clearly demonstrate the impact of the energy inductive bias. In the medium-compute configuration, EBMol 1960 already outperforms bond-implicit baselines and is the first such model to surpass the MMFF [ 55 ] force field. When compute is scaled, EBMol 7240 
+
+achieves a median energy decrease of 1.78 kcal/mol, an order of magnitude lower than previous bond-implicit models. Notably, EBMol remains competitive with the bond-explicit Megalodon (3.19 kcal/mol, 40.6M parameters), despite having 18 × fewer parameters and no explicit bond supervision. This trend extends to bond length and angle distributions, where EBMol 7240 matches or exceeds Megalodon’s performance. 
+
+4.3 Composable and conditional generation Shape-steered generation. We compose the learned potential Eθ with a differentiable potential U
+
+representing molecular shapes. This potential is defined via PCA eigenvalues of atom positions and targets either linear ( Ulin = λ2 + λ3), planar ( Udisk = λ3 + λ1 − λ2) or spherical ( Usphere = λ1 − λ3)shapes during generation. Here λ1 ≥ λ2 ≥ λ3 are the PCA eigenvalues of the covariance matrix of c,7Table 2: Revised stability, validity, uniqueness, novelty, and diversity metrics on GEOM-Drugs, computed on 10k generated samples per model. Compute budgets (NFEs) are indicated in each method’s subscript. 
+
+Method Atom ↑ Molecule ↑ Validity ↑ Uniqueness ↑ Novelty ↑ Diversity ↑
+
+Stability Stability 
+
+Data 99.60 88.62 97.91 97.89 – 901.7 Noise 37.27 00.00 71.89 100.00 100.00 1873.8 EDM 1000 87.07 1.03 84.43 99.99 99.94 1621.6 
+
+GEOLDM 1000 91.61 6.08 86.93 99.96 99.88 1582.5 SLDM 1000 95.27 20.59 86.98 99.95 99.93 1474.0 EBMol 1080 95.86 24.68 95.36 99.67 99.69 1096.8 EBMol 1960 97.17 37.40 97.02 99.39 99.50 927.0 EBMol 3720 98.15 52.31 98.61 98.47 99.42 783.0 EBMol 7240 98.68 61.42 99.03 96.42 99.34 645.0 
+
+Table 3: Structural and energy metrics on GEOM-Drugs, computed on valid and connected molecules only. Bond lengths (Å), angles (degrees), energies (kcal/mol). The best bond-explicit models from GEOM-Drugs Revisited [52] are included for reference. 
+
+Method Bond Lengths ↓ Bond Angles ↓ Torsions ↓ Avg Energy ↓ Med Energy ↓
+
+(×10 −2) Diff. Diff. 
+
+Data 0.00 ±0.00 0.00 ±0.00 0.00 ±0.01 0.00 ±0.01 0.00 ±0.00 
+
+MMFF → GFN2-xTB 1.12 ±0.01 1.22 ±0.00 4.89 ±0.10 11 .40 ±0.20 9.84 ±0.06 
+
+FlowMol2 100 (4.3M) 1.30 ±0.04 1.62 ±0.02 15 .00 ±0.30 24 .30 ±0.80 17 .90 ±0.50 
+
+Megalodon 500 (40.6M) 0.66 ±0.02 0.71 ±0.01 5.58 ±0.11 5.76 ±0.27 3.19 ±0.12 
+
+EDM 1000 (2.2M) 5.26 ±0.03 5.73 ±0.05 30 .82 ±0.18 175 .34 ±2.44 155 .58 ±1.87 
+
+GEOLDM 1000 (2.2M) 3.20 ±0.11 3.90 ±0.06 24 .51 ±0.19 99 .25 ±4.49 80 .13 ±2.13 
+
+SLDM 1000 (4.2M) 1.66 ±0.03 1.34 ±0.02 10 .07 ±0.08 23 .77 ±0.87 17 .90 ±0.30 
+
+EBMol 1080 (2.2M) 1.77 ±0.02 1.67 ±0.03 8.46 ±0.13 40 .77 ±9.16 6.67 ±0.30 
+
+EBMol 1960 (2.2M) 1.22 ±0.04 1.19 ±0.04 6.53 ±0.19 26 .13 ±7.87 4.12 ±0.07 
+
+EBMol 3720 (2.2M) 0.83 ±0.01 0.81 ±0.01 4.56 ±0.07 10 .36 ±1.55 2.35 ±0.05 
+
+EBMol 7240 (2.2M) 0.65 ±0.01 0.62 ±0.01 3.65 ±0.06 5.27 ±0.39 1.78 ±0.04 
+
+measuring the stretch along each principal axis. For example, minimizing Ulin = λ2 + λ3 suppresses the two minor axes, thus collapsing the molecule onto a single axis. Steered molecules successfully shift toward the target shape (Figure 2) while maintaining reasonable stability and validity (Table 4), confirming that the learned energy landscape contains valid basins even for shapes underrepresented in the training data. 
+
+Case study on linker design. The additive energy composition naturally enables conditioning on arbitrary inputs, without any retraining. To test this, we conduct a linker design case study where Linear Planar Spherical    
+
+> Unsteered Samples
+> Linear Planar Spherical
+> Linear Samples
+> Linear Planar Spherical
+> Spherical Samples
+> Linear Planar Spherical
+> Planar Samples
+
+Figure 2: Shape distribution of 5000 generated molecules. Left: unsteered generation. Right: generation with composable shape potentials targeting linear, planar, and spherical geometries. Steering successfully redirects sampling toward underrepresented shapes. 8Table 4: Zero-shot conditional generation results. Left: Linker design across six problems of varying complexity, each evaluated over 100 attempts. Success requires a single connected component passing RDKit sanitization. Right: Shape-steered generation across three target shape classes alongside unsteered generation, each over 5000 samples. No task-specific training is required. 
+
+Linker design                          
+
+> Problem Free Succ. ↑Uniq. ↑
+> Atoms
+> P1 (easy) 595.2 16.4 P2 (medium) 777.9 48.1 P3 (medium) 12 88.5 84.5 P4 (hard, 3 frags) 10 55.8 51.5 P5 (hard, 2 locs) 5 + 5 75.0 83.3 P6 (hard, 2 locs) 8 + 6 51.0 93.3 Average 73.9 62.85
+
+Shape-steered generation 
+
+Target Mol. Bond Validity ↑
+
+Stab. ↑ Stab. ↑
+
+Linear 20.76 95.57 88.28 Planar 8.96 92.90 88.80 Spherical 31.66 96.59 96.70 Unsteered 37.52 97.09 96.68 
+
+we fix a subset of atoms and sample the remaining ones. We evaluate this zero-shot linker design by removing linking fragments between stable parts of molecules like ring structures and replacing the removed atoms with Gaussian noise matched to the removed atoms spatial statistics. We subsequently run a modified parallel tempering sampler for 2000 iterations. Following the evaluation protocol of [ 56 ], EBMol achieves an average success rate of 73.9% across six conditioning tasks of varying complexity (Table 4), all without task-specific training. 
+
+4.4 Physical meaningfulness of the learned energy 
+
+The energy inductive bias not only improves generation quality but produces a physically meaningful scoring function. We evaluate the correlation between EBMol energy and the energy decrease upon GFN2-xTB [54] relaxation for molecules generated by the independently trained EDM (Figure 6 in Appendix C). The correlation ( r = 0 .65 , p < 0.0001 ) emerges despite EBMol never receiving any energy-related supervision: the model is trained solely on atomic positions and atom types, yet learns to assign high energy to physically strained geometries. As a result, Eθ can serve as a lightweight first-pass filter for screening generated molecules by physical quality, providing order-of-magnitude speedups over GFN2-xTB optimization when screening large molecular batches. 
+
+## 5 Conclusion and limitations 
+
+Contributions. EBMol demonstrates the potential of energy-based models to serve as a versatile and practical framework for 3D molecular generation, achieving state-of-the-art results on QM9 and GEOM-Drugs while providing critical capabilities that standard distribution-matching frameworks lack: energy-based ranking, steering via potential composition, and conditional generation from a single model. The core components are Restoring Field Matching, which shapes a scalar energy land-scape without simulation, and Mirror-Langevin sampling, unifying continuous and discrete updates within a principled framework. Perhaps most notably, EBMol generates structures surprisingly close to physical local minima: its median relaxation energy of 1.78 kcal/mol is an order of magnitude below previous bond-implicit methods. This performance is competitive with bond-explicit models at 18 × the parameter count, despite EBMol requiring no bond or energy supervision. 
+
+Limitations. While we establish the design space for learning an energy landscape combined with Mirror-Langevin sampling, we do not systematically explore advanced sampler designs beyond the three algorithms in our sampler ablation (Table 7). Currently, achieving the best results requires a significant number of NFEs, and the employed sampling algorithms are sensitive to hyperparameter choices. On the theoretical side, our analysis establishes well-posedness of the training problem and characterizes the solution at the regularization extremes, but the claim that data points correspond to local minima in the learned landscape is motivated by the target construction and verified only empirically. 9Outlook. A natural extension to EBMol is integrating energy calibration by replacing the zero-anchor objective with a loss that aligns Eθ (x0) to a physical quantity such as DFT or GFN2-xTB energy values. A calibrated energy would also enable coupled generative-simulation workflows in which the same Eθ both generates candidate molecules and serves as an approximate molecular dynamics potential. On the sampling side, we expect significant improvements from more sophisti-cated samplers such as accelerated Langevin methods [ 57 , 58 ] for faster sampling or from repulsive interaction potentials [17] for improved sample diversity. 
+
+## References 
+
+[1] Raghunathan Ramakrishnan, Pavlo O. Dral, Matthias Rupp, and O. Anatole von Lilienfeld. Quantum chemistry structures and properties of 134 kilo molecules. Scientific Data , 1(1):140022, August 2014. [2] Simon Axelrod and Rafael Gómez-Bombarelli. GEOM, energy-annotated molecular conformations for property prediction and molecular generation. Scientific Data , 9(1):185, April 2022. [3] Jean-Louis Reymond, Lars Ruddigkeit, Lorenz Blum, and Ruud van Deursen. The enumeration of chemical space. WIREs Computational Molecular Science , 2(5):717–733, 2012. [4] Oliver T. Unke, Stefan Chmiela, Huziel E. Sauceda, Michael Gastegger, Igor Poltavsky, Kristof T. Schütt, Alexandre Tkatchenko, and Klaus-Robert Müller. Machine Learning Force Fields. Chemical Reviews ,121(16):10142–10186, August 2021. [5] Peter Eastman, Pavan Kumar Behara, David L. Dotson, Raimondas Galvelis, John E. Herr, Josh T. Horton, Yuezhi Mao, John D. Chodera, Benjamin P. Pritchard, Yuanqing Wang, Gianni De Fabritiis, and Thomas E. Markland. SPICE, A Dataset of Drug-like Molecules and Peptides for Training Machine Learning Potentials. Scientific Data , 10(1):11, January 2023. [6] Stefan Chmiela, Alexandre Tkatchenko, Huziel E. Sauceda, Igor Poltavsky, Kristof T. Schütt, and Klaus-Robert Müller. Machine learning of accurate energy-conserving molecular force fields. Science Advances ,3(5):e1603015, May 2017. [7] Rokas Elijošius, Fabian Zills, Ilyes Batatia, Sam Walton Norwood, Dávid Péter Kovács, Christian Holm, and Gábor Csányi. Zero shot molecular generation via similarity kernels. Nature Communications ,16(1):5991, July 2025. [8] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In Conference on Neural Information Processing Systems , 2020. [9] Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. In International Conference on Learning Representations , 2021. [10] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matthew Le. Flow matching for generative modeling. In International Conference on Learning Representations , 2023. [11] Xingchao Liu, Chengyue Gong, et al. Flow straight and fast: Learning to generate and transfer data with rectified flow. In International Conference on Learning Representations , 2023. [12] Kelvin Shuangjian Zhang, Gabriel Peyré, Jalal Fadili, and Marcelo Pereyra. Wasserstein control of mirror langevin monte carlo. In Conference on learning theory , pages 3814–3841. PMLR, 2020. [13] Yann LeCun, Sumit Chopra, Raia Hadsell, Marc’Aurelio Ranzato, and Fu Jie Huang. A Tutorial on Energy-Based Learning. Predicting structured data , 2006. [14] Geoffrey E Hinton. Training products of experts by minimizing contrastive divergence. Neural computation ,14(8):1771–1800, 2002. [15] Yang Song and Stefano Ermon. Generative modeling by estimating gradients of the data distribution. In 
+
+Conference on Neural Information Processing Systems , 2019. [16] Yilun Du, Shuang Li, Joshua Tenenbaum, and Igor Mordatch. Improved contrastive divergence training of energy-based models. In Marina Meila and Tong Zhang, editors, Proceedings of the 38th International Conference on Machine Learning , volume 139 of Proceedings of Machine Learning Research , pages 2837–2848. PMLR, 18–24 Jul 2021. 
+
+10 [17] Michal Balcerak, Tamaz Amiranashvili, Antonio Terpin, Suprosanna Shit, Lea Bogensperger, Sebastian Kaltenbach, Petros Koumoutsakos, and Bjoern Menze. Energy Matching: Unifying Flow Matching and Energy-Based Models for Generative Modeling. In Conference on Neural Information Processing Systems ,October 2025. [18] Runqian Wang and Yilun Du. Equilibrium Matching: Generative Modeling with Implicit Energy-Based Models, October 2025. [19] Priyank Jaini, Lars Holdijk, and Max Welling. Learning Equivariant Energy Based Models with Equivariant Stein Variational Gradient Descent. In Conference on Neural Information Processing Systems , November 2021. [20] Ameya Daigavane, Song Eun Kim, Mario Geiger, and Tess Smidt. Symphony: Symmetry-Equivariant Point-Centered Spherical Harmonics for 3D Molecule Generation. In International Conference on Representation Learning , October 2024. [21] Austin H. Cheng, Chong Sun, and Alán Aspuru-Guzik. Scalable Autoregressive 3D Molecule Generation, May 2025. [22] Niklas W. A. Gebauer, Michael Gastegger, Stefaan S. P. Hessmann, Klaus-Robert Müller, and Kristof T. Schütt. Inverse design of 3d molecular structures with conditional generative neural networks. Nature Communications , 13(1):973, February 2022. [23] Matthieu Kirchmeyer, Pedro O. Pinheiro, and Saeed Saremi. Score-based 3D molecule generation with neural fields. In Conference on Neural Information Processing Systems , November 2024. [24] Matthieu Kirchmeyer, Pedro O. Pinheiro, Emma Willett, Karolis Martinkus, Joseph Kleinhenz, Emily K. Makowski, Andrew Martin Watkins, Vladimir Gligorijevic, Richard Bonneau, and Saeed Saremi. Unified all-atom molecule generation with neural fields. In Conference on Neural Information Processing Systems ,October 2025. [25] Xingang Peng, Jiaqi Guan, Qiang Liu, and Jianzhu Ma. MolDiff: Addressing the Atom-Bond Inconsistency Problem in 3D Molecule Diffusion Generation. In International Conference on Machine Learning , pages 27611–27629. PMLR, July 2023. [26] Clement Vignac, Nagham Osman, Laura Toni, and Pascal Frossard. MiDi: Mixed Graph and 3D Denoising Diffusion for Molecule Generation. In Joint European Conference on Machine Learning and Knowledge Discovery in Databases , May 2023. [27] Han Huang, Leilei Sun, Bowen Du, and Weifeng Lv. Learning Joint 2D & 3D Diffusion Models for Complete Molecule Generation, June 2023. [28] Ross Irwin, Alessandro Tibo, Jon Paul Janet, and Simon Olsson. SemlaFlow – Efficient 3D Molecular Generation with Latent Attention and Equivariant Flow Matching. In International Conference on Artificial Intelligence and Statistics . arXiv, 2025. [29] Ian Dunn and David Ryan Koes. Mixed Continuous and Categorical Flow Matching for 3D De Novo Molecule Generation, April 2024. [30] Danny Reidenbach, Filipp Nikitin, Olexandr Isayev, and Saee Paliwal. Applications of Modular Co-Design for De Novo 3D Molecule Generation, 2025. Version Number: 1. [31] Noel M. O’Boyle, Michael Banck, Craig A. James, Chris Morley, Tim Vandermeersch, and Geoffrey R. Hutchison. Open Babel: An open chemical toolbox. Journal of Cheminformatics , 3(1):33, October 2011. [32] Emiel Hoogeboom, Victor Garcia Satorras, Clément Vignac, and Max Welling. Equivariant Diffusion for Molecule Generation in 3D. In Conference on Neural Information Processing Systems . arXiv, June 2022. [33] Vıctor Garcia Satorras, Emiel Hoogeboom, and Max Welling. E (n) equivariant graph neural networks. In 
+
+International Conference on Machine Learning , pages 9323–9332. PMLR, 2021. [34] Minkai Xu, Alexander S. Powers, Ron O. Dror, Stefano Ermon, and Jure Leskovec. Geometric Latent Diffusion Models for 3D Molecule Generation. In International Conference on Machine Learning , pages 38592–38610. PMLR, July 2023. [35] Yuyan Ni, Shikun Feng, Haohan Chi, Bowen Zheng, Huan-ang Gao, Wei-Ying Ma, Zhi-Ming Ma, and Yanyan Lan. Straight-Line Diffusion Model for Efficient 3D Molecular Generation. In Conference on Neural Information Processing Systems , October 2025. 
+
+11 [36] Yuxuan Song, Jingjing Gong, Minkai Xu, Ziyao Cao, Yanyan Lan, Stefano Ermon, Hao Zhou, and Wei-Ying Ma. Equivariant Flow Matching with Hybrid Probability Transport for 3D Molecule Generation. In 
+
+Conference on Neural Information Processing Systems , 2023. [37] Leon Klein, Andreas Krämer, and Frank Noé. Equivariant flow matching. In Conference on Neural Information Processing Systems , 2023. [38] Haokai Hong, Wanyu Lin, and Kay Chen Tan. Accelerating 3D Molecule Generation via Jointly Geometric Optimal Transport, March 2025. [39] Yuxuan Song, Jingjing Gong, Hao Zhou, Mingyue Zheng, Jingjing Liu, and Wei-Ying Ma. Unified Generative Modeling of 3D Molecules with Bayesian Flow Networks. In International Conference on Learning Representations , October 2023. [40] Lemeng Wu, Chengyue Gong, Xingchao Liu, Mao Ye, and Qiang Liu. Diffusion-based Molecule Generation with Informative Prior Bridges. In Conference on Neural Information Processing Systems ,October 2022. [41] Wenyin Zhou, Christopher Iliffe Sprague, Vsevolod Viliuga, Matteo Tadiello, Arne Elofsson, and Hossein Azizpour. Energy-Based Flow Matching for Generating 3D Molecular Structure. In International Conference on Machine Learning , June 2025. [42] Guikun Xu, Xiaohan Yi, Peilin Zhao, and Yatao Bian. Energy-Guided Flow Matching Enables Few-Step Conformer Generation and Ground-State Identification, December 2025. [43] Amir Beck and Marc Teboulle. Mirror descent and nonlinear projected subgradient methods for convex optimization. Operations Research Letters , 31(3):167–175, May 2003. [44] Aharon Ben-Tal, Tamar Margalit, and Arkadi Nemirovski. The Ordered Subsets Mirror Descent Optimiza-tion Method with Applications to Tomography. SIAM Journal on Optimization , 12(1):79–108, January 2001. [45] Ruilin Li, Molei Tao, Santosh S. Vempala, and Andre Wibisono. The Mirror Langevin Algorithm Converges with Vanishing Bias. In International Conference on Algorithmic Learning Theory , pages 718–742. PMLR, March 2022. [46] Kwangjun Ahn and Sinho Chewi. Efficient constrained sampling via the mirror-Langevin algorithm. In 
+
+Conference on Neural Information Processing Systems , 2021. [47] Vishwak Srinivasan, Andre Wibisono, and Ashia Wilson. Fast sampling from constrained spaces using the metropolis-adjusted mirror langevin algorithm. In The Thirty Seventh Annual Conference on Learning Theory , pages 4593–4635. PMLR, 2024. [48] Guan-Horng Liu, Tianrong Chen, Evangelos Theodorou, and Molei Tao. Mirror Diffusion Models for Constrained and Watermarked Generation. In Conference on Neural Information Processing Systems ,November 2023. [49] Aapo Hyvärinen and Peter Dayan. Estimation of non-normalized statistical models by score matching. 
+
+Journal of Machine Learning Research , 6(4), 2005. [50] François R. J. Cornet, Grigory Bartosh, Mikkel N. Schmidt, and Christian A. Naesseth. Equivariant Neural Diffusion for Molecule Generation. In Conference on Neural Information Processing Systems , June 2024. [51] Shikun Feng, Yuyan Ni, Lu Yan, Zhi-Ming Ma, Wei-Ying Ma, and Yanyan Lan. UniGEM: A Unified Approach to Generation and Property Prediction for Molecules. In International Conference on Learning Representations , October 2024. [52] Filipp Nikitin, Ian Dunn, David Ryan Koes, and Olexandr Isayev. GEOM-drugs revisited: toward more chemically accurate benchmarks for 3D molecule generation. Digital Discovery , 4(11):3282–3291, 2025. [53] Dan Friedman and Adji Bousso Dieng. The vendi score: A diversity evaluation metric for machine learning. 
+
+Transactions on Machine Learning Research , 2022. [54] Christoph Bannwarth, Sebastian Ehlert, and Stefan Grimme. GFN2-xTB—An Accurate and Broadly Parametrized Self-Consistent Tight-Binding Quantum Chemical Method with Multipole Electrostatics and Density-Dependent Dispersion Contributions. Journal of Chemical Theory and Computation , 15(3):1652– 1671, March 2019. 
+
+12 [55] Thomas A Halgren. Merck molecular force field. i. basis, form, scope, parameterization, and performance of mmff94. Journal of computational chemistry , 17(5-6):490–519, 1996. [56] Ilia Igashov, Hannes Stärk, Clément Vignac, Arne Schneuing, Victor Garcia Satorras, Pascal Frossard, Max Welling, Michael Bronstein, and Bruno Correia. Equivariant 3D-conditional diffusion model for molecular linker design. Nature Machine Intelligence , 6(4):417–427, April 2024. [57] Alexander Falk, Andreas Habring, Christoph Griesbacher, and Thomas Pock. An Inertial Langevin Algorithm, October 2025. [58] Benedict J. Leimkuhler, Daniel Paulin, and Peter A. Whalley. Contraction and Convergence Rates for Discretized Kinetic Langevin Dynamics. SIAM Journal on Numerical Analysis , 62(3):1226–1258, June 2024. [59] Santosh Vempala and Andre Wibisono. Rapid convergence of the unadjusted langevin algorithm: Isoperime-try suffices. Advances in neural information processing systems , 32, 2019. [60] Dominique Bakry, Franck Barthe, Patrick Cattiaux, and Arnaud Guillin. A simple proof of the poincaré inequality for a large class of probability measures. 2008. [61] Matthias Fey, Jinu Sunil, Akihiro Nitta, Rishi Puri, Manan Shah, Blaž Stojanoviˇ c, Ramona Bendias, Alexandria Barghi, Vid Kocijan, Zecheng Zhang, Xinwei He, Jan Eric Lenssen, and Jure Leskovec. PyG 2.0: Scalable Learning on Real World Graphs. In Temporal Graph Learning Workshop @ KDD 2025 ,August 2025. 
+
+## A Proofs 
+
+In this section we provide rigorous formulations and proofs of the theoretical results in section 3.5. Let us first fix some notation. We denote the marginal densities of xt by pt = law( xt) and 
+
+px(x) = R pt(x) p(t) d t. We denote the domain of x as Ω = RN ×3 × ∆K−1. We define the Sobolev space W 1,2(Ω) = {f ∈ L2(Ω) | ∇ f ∈ L2(Ω) } where the gradient is understood in the usual weak sense. Moreover, as the underlying solution space for our training problem we define the weighted Sobolev space 
+
+W1,2(Ω) = 
+
+n
+
+f : Ω → R ∇f exists weakly and 
+
+Z
+
+> Ω
+
+ |f (x)|2 +|∇ f (x)|2 px(x) d x < ∞
+
+o
+
+. (10) We impose the following assumptions on the occurring distributions, respectively their densities. 
+
+Assumption 1. 
+
+1. The domain dom( px) is connected, px is continuous, bounded above and strictly positive on Ω. Moreover, px satisfies a Poincaré inequality, that is, there exists C > 0 such that 
+
+∥f − ¯f ∥L2(px)dx ≤ C∥∇ f ∥L2(px), f ∈ W 1,2(Ω) (PI) 
+
+where ¯f = R f (x)px(x)d x.2. It holds p0 ≪ px with p0 
+
+> px
+
+locally bounded. Moreover, there exists A ⊂ Rd such that for 
+
+x ∈ A, p0(x) = 0 implies px(x) = 0 and R 
+
+> A
+
+px(x)d x > 0.
+
+Remark 1. Let us briefly comment on assumption 1. 1. In the first assumption the most interesting part is the Poincaré inequality. This assumptions appears frequently in the context of diffusion processes and Langevin sampling [ 59 ]. A Poincaré inequality is, in particular, satisfied for a density p, if 
+
+⟨∇ log p(x), x⟩ ≤ − a∥x∥ + b
+
+for some a > 0, b ∈ R [ 60 ]. That is, the Poincaré inequality imposes in some sense sufficiently fast decaying tails on the density. 2. Regarding the second assumption, p0 ≪ px is to be expected, as px is effectively a perturbed version of p0. The converse absolute continuity on the set A is, for instance, satisfied if there exists a set A of positive measure px with p0 > 0 on A.
+
+13 Before considering the main results, we prove the following equivalence of norms in W1,2(Ω) .
+
+Lemma 1. Under assumption 1 for every u ∈ W 1,2(Ω) we have 
+
+∥u∥L2(px) ≤ ∥ u∥L2(p0) + ∥∇ u∥L2(px). (11) 
+
+Remark 2. The important aspect above is that the first L2 norm on the right-hand side is with respect to p0.Proof. Assume to the contrary, we find a sequence (un)n ⊂ W 1,2(Ω) with 
+
+∥un∥L2(px) ≥ n(∥un∥L2(p0) + ∥∇ un∥L2(px)). (12) Define 
+
+vn = un
+
+∥un∥L2(px)
+
+(13) so that ∥vn∥L2(px) = 1 and by (12) 
+
+1
+
+n ≥ (∥vn∥L2(p0) + ∥∇ vn∥L2(px)). (14) In particular, we can extract a subsequence (vnk )k such that 
+
+vnk ⇀ v 
+
+∇vnk ⇀ g (15) both in L2(px) and by the assumed positivity and continuity of px we find in particular, that vnk ⇀ v 
+
+in W 1,2loc (Ω) , that is, with respect to the regular Lebesgue measure, and g = ∇v. Moreover, v ∈W1,2(Ω) . Now, (14) implies that ∇vnk → 0 and since weak limits are unique we have ∇v = g = 0 .The Poincaré inequality, cf. assumption 1, then implies 
+
+∥v − ¯v∥L2(px) ≤ C∥∇ v∥L2(px) = 0 ,
+
+that is, v(x) is equal to a constant, say c ∈ R, px-a.e. Similarly, (14) yields vnk → 0 in L2(p0) so that v(x) = 0 for p0-a.e. x. Using the set A from assumption 1 we find 
+
+c
+
+Z
+
+> A
+
+px(x)d x =
+
+Z
+
+> A
+
+v(x) px(x)
+
+p0(x) p0(x)d x = 0 (16) where the last equality follows from v(x) = 0 , p0-a.e. Since R 
+
+> A
+
+px(x)d x > 0 it follows c = 0 , that is, v = 0 , px-a.e. Thus, we have that vnk ⇀ 0 in L2(px). Since constants are elements of L2(px)
+
+this also implies that 
+
+¯vnk =
+
+Z
+
+vnk (x)px(x)d x → 0. (17) Then, the Poincaré inequality implies 
+
+∥vnk ∥L2(px) ≤∥ vnk − ¯vnk ∥L2(px) + ∥¯vnk ∥L2(px)
+
+≤∥ vnk − ¯vnk ∥L2(px) + ¯ vnk
+
+≤C∥∇ vnk ∥L2(px) + ¯ vnk → 0
+
+(18) We, therefore, find 
+
+1 = ∥vnk ∥L2(px) → 0 (19) which is a contradiction. We can now prove existence and uniqueness of solutions of the training problem. Let us first rigorously reformulate the result. 
+
+Proposition 3 (Existence of solutions) . Under assumption 1 the problem 
+
+min  
+
+> E∈W 1,2(Ω)
+
+L(E)
+
+admits a unique solution. 
+
+14 Proof. Denoting u = ( uc, up) we can rewrite the objective as 
+
+L(E) = 
+
+Z Z Z  
+
+−∇ Eθ (xt) − u 2 + λreg E(x0)2
+
+
+
+p(x0, xt, t )d xtdx0dt
+
+=
+
+Z Z Z 
+
+−∇ Eθ (xt) − u 2p(x0, xt, t )d xtdx0dt + λreg 
+
+Z
+
+E(x)2p0(x)d x
+
+(20) Now let (En)n ⊂ W 1,2(Ω) be a minimizing sequence, that is, 
+
+lim  
+
+> n→∞
+
+L(En) = inf  
+
+> E∈W 1,2(Ω)
+
+L(E).
+
+By definition of L it follows that ∥En∥L2(p0) and ∥∇ En∥L2(px) are bounded. The Poincaré inequality, 
+
+cf. lemma 1 then yields that also ∥En∥L2(px) is bounded so that we can extract a subsequence (Enk )k
+
+and functions E∗ ∈ L2(px), g ∈ L2(px) such that Enk ⇀ E ∗, ∇Enk ⇀ g both in L2(px).Moreover, by the assumed properties of px we also find that the weak convergence is in W 1,2(Ω) and that ∇E∗ = g and E∗ ∈ W 1,2(Ω) . By potentially extracting another subsequence, Enk converges also weakly in L2(p0) and the limit is again E∗ due to the assumed boundedness of p0/p x as the latter implies that weak convergence in L2(px) includes also weak convergence in L2(p0). Note that 
+
+G 7 →
+
+Z Z Z 
+
+−G(xt) − u 2p(x0, xt, t )d xtdx0dt. (21) is convex and continuous in L2(px) and therefore also lower semi-continuous with respect to weak convergence in L2(px). Similarly, 
+
+E 7 →
+
+Z Z Z 
+
+λreg E(x0)2p(x0)d x0 (22) is weakly lower semi-continuous in L2(p0). Thus, 
+
+L(E∗) ≤ lim inf  
+
+> n→∞
+
+L(En) = inf  
+
+> E
+
+L(E) (23) showing existence of a solution. Uniqueness is a consequence of strict convexity of the objective. Having established well-posedness we can consider the concise formulation and proof of proposi-tion 2. 
+
+Proposition 4 (Convergence for small and large regularization parameters) . Under assumption 1, let 
+
+E∗(x, λ ) be the minimizer of L for λreg = λ. It holds true that (i) There exists a weak accumulation point E∗∞ ∈ W 1,2(Ω) of E∗(·, λ ) as λ → ∞ and every such accumulation point satisfies E∗∞(x) = 0 for p0-a.e. x.(ii) There exists E∗ 
+
+> 0
+
+∈ W 1,2(Ω) such that ∇E∗ 
+
+> 0
+
+is a weak accumulation point of ∇E∗(·, λ ) as 
+
+λ → 0 and every such E∗ 
+
+> 0
+
+minimizes 
+
+W1,2(Ω) ∋ G 7 →
+
+Z Z Z 
+
+−∇ G(xt) − u 2p(x0, xt, t )d xtdx0dt, (24) 
+
+that is, ∇E∗ 
+
+> 0
+
+is precisely the projection of u onto the space of all gradient fields. Moreover, if there exists F ∈ W 1,2(Ω) with 
+
+∇F (x) = −E[u|xt = x], px − a.e. x. (25) 
+
+then ∇E∗(x) = −E[u|xt = x], px-a.e. (iii) If, in addition it holds true that v(x0, x1, t ) = v(xt), that is, v depends solely on xt, then there exists a weak accumulation point E∗ 
+
+> 0
+
+∈ W 1,2(Ω) of E∗(·, λ ) as λ → 0 and every such accumulation point satisfies ∇E∗ 
+
+> 0
+
+= −u, px-a.e. 
+
+15 Proof. We begin with the limit for λ → ∞ . Assume without loss of generality λ ≥ 1. By optimality of E∗(·, λ )
+
+Z
+
+E∗(x0, λ )2p0(x0)d x0
+
+≤
+
+Z Z Z 
+
+−∇ E∗(xt, λ ) − u 2p(x0, xt, t )d xtdx0dt + λ
+
+Z
+
+E∗(x0, λ )2p0(x0)d x0
+
+≤
+
+Z Z Z 
+
+0 − u 2p(x0, xt, t )d xtdx0dt + λ
+
+Z
+
+0d x0
+
+≤
+
+Z Z Z 
+
+u 2p(x0, xt, t )d xtdx0dt < ∞
+
+(26) which implies that ∥E∗(·, λ )∥L2(p0) and ∥∇ E∗(·, λ )∥L2(px) are bounded for all λ ≥ 1. As above, we can therefore extract a weakly convergent subsequence E∗(·, λ n) → E∗∞ in W1,2(Ω) as well as in L2(p0). By weak lower semi-continuity of E 7 → R E(x)2p0(x)d x and (26) it follows 
+
+Z
+
+E∗∞(x0)2p0(x0)d x0 ≤ lim inf 
+
+> n→∞
+
+Z
+
+E∗(x0, λ n)2p0(x0)d x0
+
+≤ 1
+
+λn
+
+Z Z Z 
+
+u 2p(x0, xt, t )d xtdx0dt → 0
+
+(27) as n → ∞ implying E∗∞ = 0 , p(x0)-a.e. Regarding the convergence as λ → 0, as above we find that 
+
+Z Z Z 
+
+−∇ E∗(xt, λ ) − u 2p(x0, xt, t )d xtdx0dt
+
+≤
+
+Z Z Z 
+
+u 2p(x0, xt, t )d xtdx0dt < ∞.
+
+(28) Thus, we can only deduce boundedness of ∇E∗(·, λ ) in L2(px) as λ → 0. By the Poincaré inequality (cf. assumption 1), however, we also have that F ∗(·, λ ) = E∗(·, λ ) − ¯E∗(λ) is bounded in L2(px).Therefore, we may extract a subsequence such that F ∗(·, λ n) ⇀ F ∗ 
+
+> 0
+
+as n → ∞ . In particular, it follows that ∇E∗(·, λ n) = ∇F ∗(·, λ n) ⇀ ∇F ∗ 
+
+> 0
+
+. Once again, by weak lower semicontinuity and optimality we find for any G ∈ W 1,2(Ω) 
+
+Z Z Z 
+
+−∇ F ∗ 
+
+> 0
+
+(xt) − u 2p(x0, xt, t )d xtdx0dt
+
+≤ lim inf 
+
+> n→∞
+
+Z Z Z 
+
+−∇ E∗(xt, λ n) − u 2p(x0, xt, t )d xtdx0dt
+
+≤ lim inf 
+
+> n→∞
+
+Z Z Z 
+
+−∇ E∗(xt, λ n) − u 2p(x0, xt, t )d xtdx0dt + λn
+
+Z
+
+E∗(x0, λ )2p(x0)d x0
+
+≤ lim inf 
+
+> n→∞
+
+Z Z Z 
+
+−∇ G(xt) − u 2p(x0, xt, t )d xtdx0dt + λn
+
+Z
+
+G(x0)2p(x0)d x0
+
+≤
+
+Z Z Z 
+
+−∇ G(xt) − u 2p(x0, xt, t )d xtdx0dt
+
+(29) implying the desired result. The representation, ∇E∗(x) = −E[u|xt = x] follows directly by the fact that 
+
+w 7 →
+
+Z Z Z 
+
+w(xt) − u 2p(x0, xt, t )d xtdx0dt (30) is minimized for w(x) = E[u|xt = x].In the last case, we note that 
+
+Z Z Z 
+
+w(xt) − u 2p(x0, xt, t )d xtdx0dt
+
+=
+
+Z  Z Z 
+
+w(xt) − u 2p(x0, t |xt)d x0dt
+
+
+
+p(xt)d xt
+
+(31) 16 which is zero for w(xt) = u(xt). Therefore, under the assumption that there exists F ∈ W 1,2(Ω) 
+
+with ∇F (xt) = u(xt), we find by optimality of E∗(·, λ )
+
+Z Z Z 
+
+−∇ E∗(xt, λ ) − u 2p(x0, xt, t )d xtdx0dt + λn
+
+Z
+
+E∗(x0, λ )2p0(x0)d x0
+
+≤
+
+Z Z Z 
+
+∇F (xt) − u 2p(x0, xt, t )d xtdx0dt + λn
+
+Z
+
+F (x0)2p0(x0)d x0
+
+= λn
+
+Z
+
+F (x0)2p0(x0)d x0
+
+(32) so that in this case obtain again boundedness of ∇E∗(·, λ ) and E∗(·, λ ) both in L2(px). Extracting weakly convergent subsequences again with limit E∗ 
+
+> 0
+
+we find by weak lower semi-continuity 
+
+Z Z Z 
+
+∇E∗ 
+
+> 0
+
+(xt) − u 2p(x0, xt, t )d xtdx0dt
+
+≤ lim inf 
+
+> n→∞
+
+Z Z Z 
+
+∇E∗(xt, λ n) − u 2p(x0, xt, t )d xtdx0dt
+
+≤ lim inf 
+
+> n→∞
+
+Z Z Z 
+
+∇E∗(xt, λ n) − u 2p(x0, xt, t )d xtdx0dt + λn
+
+Z
+
+E∗(x0, λ )2p0(x0)d x0
+
+≤ lim inf  
+
+> n→∞
+
+λn
+
+Z
+
+F (x0, λ )2p0(x0)d x0 = 0 
+
+(33) concluding the proof. 
+
+## B Empirical Verification of Local Minima 
+
+The RFM construction aims to place data points at local minima of the learned energy, as the smoothing function ensures pointwise stationarity at t = 0 , and the symmetric restoring targets induce non-negative curvature around data. The theoretical analysis in Section 3.5 establishes existence and uniqueness of the loss minimizer and characterizes its behavior under varying regularization strength, but does not formally prove the local-minima property for the marginalized predictor. Here we verify empirically that the trained network Eθ realizes this intended behavior through three complementary experiments. 
+
+Deterministic gradient relaxation from data. We initialize 1000 molecules taken from the training and test sets and run deterministic gradient descent ( τ = 0 ) for N = 500 steps with step size η = 0 .01 
+
+on the learned energy landscape. We evaluate atom displacement via mean RMSD, the energy change during relaxation, and the change in molecule stability. We conduct this experiment for two models: EBMol trained with the full RFM objective, and the OTFM ablation from Table 6, which is trained without the extrapolation construction. Table 5: Deterministic gradient relaxation initialized at data. Energy values, RMSD (in ), and stability after N steps of gradient descent on Eθ .
+
+Method Split Median ∆E ↓ Mean RMSD ↓ ∆Mol. Stability ↓
+
+EBMol (RFM) Train -0.59 0.121 2.4 EBMol (RFM) Test -0.67 0.124 2.1 OTFM (6) Train -154.98 143.365 63.1 Results are reported in Table 5. Three observations confirm the role of the RFM construction. First, on training data, EBMol configurations remain effectively stationary (RMSD 0.121 , stability loss 
+
+2.4 percentage points), verifying that the RFM loss produces energy minima at training samples as intended. Second, the same holds on held-out test data (RMSD 0.124 , stability loss 2.1 percentage points), demonstrating that the local-minima property generalizes to molecules unseen during training. Third, under the OTFM loss, configurations diverge dramatically (RMSD 143 .4 ) into spurious minima that do not correspond to valid molecular structures, with molecule stability dropping by 
+
+63 percentage points. This confirms that the extrapolation construction of RFM is responsible for placing data at local minima. 17 −1.00 −0.75 −0.50 −0.25 0.00 0.25 0.50 0.75 1.00 Interpolation parameter t 
+
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75 Gradient magnitude
+> Gradient magnitude Cosine similarity 0.30.40.50.60.70.80.9Cosine similarity
+
+Figure 3: Gradient (wrt. position) magnitude (blue) and cosine similarity between the learned restoring field and the prescribed target direction (orange) along interpolation paths from prior (t = ±1) through data ( t = 0 ). Shaded regions indicate one standard deviation over 1000 molecules. The gradient vanishes near data, confirming stationarity, while the high cosine similarity away from data confirms that the learned field consistently points toward training molecules. 0.0 0.2 0.4 0.6 0.8 1.0Positional Noise Level (std dev) 
+
+> 0
+> 50
+> 100
+> 150
+> 200 EBMol Energy
+> Mean energy +/- 1 std
+
+Figure 4: Learned energy Eθ as a function of Gaussian noise magnitude σ applied to training molecule coordinates. Shaded regions indicate one standard deviation over 1000 molecules. The monotonic increase confirms that data points occupy local minima of the learned landscape. 
+
+Energy and gradient profiles along interpolation paths. We evaluate the gradient magnitude with respect to the position ∥∇ cEθ (xt)∥ and the cosine similarity between ∇cEθ (xt) and the unsmoothed restoring direction uc = sign( t) · (c0 − c1), along linear interpolation paths between training molecules (t = 0) and corresponding optimal-transport-matched prior samples (t = ±1) .Figure 3 shows the results averaged over 1000 molecules. The gradient magnitude drops sharply near 
+
+t = 0 , consistent with data sitting at stationary points of the learned energy. Away from data, the gradient grows monotonically toward the prior, indicating increasingly steep energy walls around each basin. The cosine similarity remains high ( > 0.6) throughout most of the interval, confirming that the learned gradient field points back toward data across the interpolation range, and drops near 
+
+t = 0 where the vanishing gradient magnitude makes the direction ill-defined. The symmetric profile across t < 0 and t > 0 reflects the symmetric construction of the RFM target. 
+
+Response to Gaussian perturbation. We perturb training molecules by adding isotropic Gaussian noise ϵ ∼ N (0 , σ 2I) to atomic coordinates for increasing noise levels σ and evaluate Eθ at the perturbed configurations. Figure 4 shows the learned energy as a function of σ, averaged over 1000 molecules. The energy increases smoothly and monotonically with perturbation magnitude, starting near zero at clean data. This confirms that data points sit at the center of well-shaped energy basins, with the learned landscape assigning progressively higher energy to configurations that deviate from valid molecular geometries. 18 1.30 1.35 1.40 1.45 1.50 1.55 1.60 
+
+> Bond distance ( Å)
+> 0
+> 10
+> 20
+> 30
+> Density
+
+C−C     
+
+> Dataset
+> EBMol
+> SLDM
+> 1.1 1.2 1.3 1.4 1.5 1.6
+> Bond distance ( Å)
+> 0
+> 10
+> 20
+
+C−N        
+
+> Dataset
+> EBMol
+> SLDM
+> 1.10 1.15 1.20 1.25 1.30 1.35 1.40 1.45 1.50
+> Bond distance ( Å)
+> 0
+> 5
+> 10
+> 15
+> 20
+> Density
+
+C−O      
+
+> Dataset
+> EBMol
+> SLDM
+> 1.02 1.04 1.06 1.08 1.10 1.12 1.14
+> Bond distance ( Å)
+> 0
+> 25
+> 50
+> 75
+> 100
+
+C−H
+
+> Dataset
+> EBMol
+> SLDM
+
+Figure 5: Bond distance distributions for C–C, C–N, C–O, and C–H pairs on GEOM-Drugs, compar-ing EBMol 7240 (blue) and SLDM (orange) against the dataset (gray). Distinct peaks correspond to different bond orders. EBMol recovers the multimodal structure of the reference distributions, with sharper peak separation and more realistic proportions than SLDM. 
+
+## C Structural and energetic analysis 
+
+Bond distance distributions. Figure 5 provides a per-element decomposition of the aggregate bond length errors reported in Table 3, comparing bond distance distributions for molecules generated by SLDM and EBMol 7240 against the training data on GEOM-Drugs. EBMol recovers the C–C distribution with high fidelity, accurately capturing peak locations, relative heights, and the separation between single, aromatic, and double bond modes. For C–N and C–O, EBMol correctly resolves relative peak proportions, which SLDM fails to achieve. EBMol also successfully recovers the bimodality of C–H bonds. 
+
+Cross-model energy correlation. Figure 6 plots EBMol’s learned energy against the energy de-crease upon GFN2-xTB relaxation for 10,000 molecules generated by EDM. The positive correlation and its interpretation are discussed in Section 4.4. 
+
+## D Training objective and sampler ablation 
+
+Training objective ablation. A learned energy landscape requires a sampler to generate samples. We therefore evaluate each training objective under three different samplers (Forward Euler (FWDE), Annealed Langevin Dynamics (ALD), and Parallel Tempering (PT)) to disentangle the contributions of training and sampling. All ablations use a reduced-size model with embedding dimension halved to 128 to keep the search tractable. To ensure a fair comparison, we tune sampler hyperparameters separately for each training objective. For FWDE, we sweep the step size over [0 .05 , 0.001] and select the configuration with the highest atom stability. For the FM baselines this controls how finely the [0 , 1] integration interval is discretized, giving them the best possible performance under their natural sampling procedure. For ALD, we lock in the selected step size and additionally sweep over the noise scale σ, using the same value for coordinates and atom types for simplicity. For PT, we reuse the ALD configuration. We acknowledge this sequential scheme is suboptimal but it keeps the search feasible across all method-sampler combinations. All experiments use a fixed budget of 1080 NFE per sample on average and n = 500 samples per experiment. In addition to atom stability and validity, we report two metrics specific to this ablation: W2, the Wasserstein-2 distance between 19 0 10 20 30 40 50 60 70 
+
+> EBMol Energy
+> 0
+> 200
+> 400
+> 600
+> 800
+> GFN2-xTB Energy
+> Difference in kcal/mol
+> Linear Fit
+> r = 0.65
+
+Figure 6: The learned energy correlates with physical quality across models. EBMol energy vs. energy decrease upon GFN2-xTB relaxation for 10k molecules generated by EDM ( r = 0 .65 , p < 0.0001 ). Higher EBMol energy predicts larger relaxation energy, indicating physically strained geometries. pairwise atom distance distributions of generated and reference molecules restricted to the 1.0–2.0 Årange most relevant for bond lengths, and the number of diverged samples that exceeded plausible energy bounds during sampling and were discarded. Results are reported in Table 6. We ablate against two baselines that share EBMol’s energy architecture but are trained with the flow matching loss: Standard FM (without optimal transport or atom permutation alignment) and Equivariant OT-FM (with SE(3)-equivariant optimal transport coupling and atom permutation). The gap between the two is substantial, confirming that equivariant OT alignment is critical for learning a useful energy landscape in our framework. However, Equivariant OT-FM produces a significant number of diverged samples across all samplers, consistent with the relaxation experiments in Section B: without the RFM construction, data points are not local minima, and gradient-based sampling can escape into unphysical regions. This problem is most severe under PT, where high-temperature chains actively encourage exploration of the landscape. We note that the 1074 diverged samples for only 500 generated samples is possible because our parallel tempering implementation replaces diverged samples with fresh prior samples periodically. This also precludes inference-time compute scaling, since increasing the sampling budget leads to more divergences rather than better samples. The RFM block tells a different story. No RFM variant produces a single diverged sample, confirming that the restoring-field construction yields a landscape that is globally stable under sampling. Within the RFM variants, several trends emerge. Comparing RFM with and without the smoothing function 
+
+b(t) shows that smoothing improves the W2 bond-distance metric, suggesting that the smoother basins are easier for the sampler to navigate, though PT partially compensates for the absence of smoothing. Moving from a static isotropic prior to the data-driven anisotropic prior described in the Implementation section yields a further improvement, most visible in the Valid & Connected rate: the full RFM model achieves 37.7% under PT, compared to 22.6% for the static-prior variant. This indicates that the data-driven prior helps the sampler to find not just locally valid atomic environments (atom stability) but globally coherent molecular structures (validity and connectivity). We ablate sampler choices for our full RFM model used throughout this paper, evaluating on GEOM-Drugs with n = 200 samples. We follow the same incremental hyperparameter search as before: sweep step size for FWDE, lock it in and additionally sweep σ for ALD. For PT we use the hyperparameters from Table 8. Results are reported in Table 7. The results show that noise is critical for sampling quality, as FWDE ( σ = 0 ) achieves reasonable atom stability but near-zero molecule stability and the highest median energy, indicating that deterministic trajectories get trapped in shallow local minima. ALD 20 Table 6: Ablation of training objectives on GEOM-Drugs using a reduced-size model. ALD: Annealed Langevin Dynamics; PT: Parallel Tempering. No b(t) omits smoothing and static prior uses a single fixed prior during training. Best overall per metric in bold , best within each block underlined. 
+
+Method Sampler Atom Valid & W2 Dist. Diverged Stability ↑ Connected ↑ (×10 −2) ↓ Samples ↓
+
+FM-based baselines 
+
+Standard FM FWDE 40.4 0.00 5.3 0Standard FM ALD 40.3 0.00 5.2 0Standard FM PT 40.1 0.00 5.3 0Equivariant OT-FM FWDE 60.5 1.6 3.3 40 Equivariant OT-FM ALD 64.6 2.2 0.6 51 Equivariant OT-FM PT 53.7 14.9 0.8 1074 
+
+RFM ablations 
+
+RFM, no b(t), static prior FWDE 76.1 9.4 0.8 0RFM, no b(t), static prior ALD 79.7 16.8 0.6 0RFM, no b(t), static prior PT 85.2 22.4 0.4 0RFM, static prior FWDE 78.6 15.8 0.4 0RFM, static prior ALD 79.1 13.0 0.4 0RFM, static prior PT 81.6 22.6 0.5 0RFM FWDE 79.6 23.6 0.4 0RFM ALD 81.6 33.0 0.3 0RFM PT 83.6 37.7 0.2 0improves substantially across all metrics, confirming that stochastic exploration helps escape these shallow basins. However, ALD tends to produce locally valid fragments rather than globally coherent molecules, as evidenced by the gap between its atom stability and Valid & Connected rate. Both PT variants close this gap, indicating that the temperature ladder successfully enables basin-to-basin transitions. A surprising observation is the significant difference between the two PT variants, as Atom Max nearly doubles molecule stability compared to Atom Avg at matched NFE (24.5% vs. 15.5% at 1080 steps). We additionally test inference-time compute scaling by increasing the NFE budget from 1080 to 1960 steps. All samplers improve, with PT + Atom Max showing the largest gains, reaching 40.0% molecule stability. Table 7: Ablation of sampling algorithms for our RFM-trained model on GEOM-Drugs ( n = 200 
+
+samples). ALD: Annealed Langevin Dynamics; PT: Parallel Tempering. 
+
+Algorithm (Avg.) Atom Molecule Valid & Diversity Median Steps Stab. ( ↑) Stab. ( ↑) Connected( ↑) (↑) Energy (↓)FWDE 1080 88.2 0.5 48.0 129.8 21.7 FWDE 1960 88.1 0.5 50.0 130.0 20.8 ALD 1080 93.0 18.0 61.0 110.0 7.7 ALD 1960 95.5 23.5 70.5 108.9 4.6 PT + Atom Avg. 1080 92.9 15.5 78.0 116.4 3.8 PT + Atom Avg. 1960 95.5 22.0 82.5 113.0 1.6 PT + Atom Max 1080 95.6 24.5 83.0 114.5 2.5 PT + Atom Max 1960 97.3 40.0 89.5 108.1 1.3 
+
+## E Hyperparameters & experiment Details 
+
+Implementation. We implement EBMol in PyTorch using PyTorch Geometric [ 61 ] for their efficient batched graph operations. SE(3) and permutation alignment uses the efficient CPU-based optimal-transport solver of [ 37 , 36 ]. We use exponential moving average (EMA) for evaluation and sampling. Dataset splits for QM9 and GEOM-Drugs follow [32]. 21 Compute. The QM9 model was trained for approximately 4 days on a single NVIDIA RTX 3090 Ti. The GEOM-Drugs model was trained for approximately 3 days on 2 × NVIDIA L40. Table 8: Full hyperparameters. 
+
+Parameter QM9 GEOM-Drugs Network 
+
+EGNN layers 9 4Embedding dimension 256 128 Energy MLP layers 2 2Energy MLP hidden dim 256 128 Total parameters 5.2M 2.2M 
+
+Training 
+
+Optimization 
+
+Optimizer Adam Adam Learning rate 5e-5 5e-5 LR schedule Linear Linear Batch size 64 16 Training epochs 750 7EMA decay 0.999 0.999 Gradient clipping Yes Yes 
+
+RFM loss 
+
+Smoothing function b(s) tanh( γs ) tanh( γs )
+
+Smoothing sharpness γ 25.0 25.0 Energy regularization λreg 1e-3 1e-3 
+
+Prior 
+
+Position prior Anisotropic Gaussian (PCA-matched) Atom-type prior Dir (1 /K, . . . , 1/K )
+
+Sampling 
+
+Mirror-Langevin Algorithm 
+
+Step size η 0.05 0.1 Coordinate noise σc 0.6 0.2 Atom-type noise σp 0.6 0.4 Simplex floor ϵ 0.0015 0.0005 
+
+Parallel tempering 
+
+Number of chains M 8 8Temperature levels 11 11 Min/Max Temperature 0.05/1.0 0.05/1.0 Steps between swaps 10 10 Swaps between harvesting [8, 12, 16] [8, 16 ,32, 64] Swap criterion Atom Max Atom Max Relaxation steps ( τ = 0 ) 50 200 Relaxation step size 0.01 0.01 
+
+Simplex boundary stabilization. The Mirror Langevin Algorithm requires the mirror potential Φ
+
+to satisfy a self-concordance-like condition (A1) of [12]: there exists κ ≥ 0 such that 
+
+√2 [∇2Φ( x)] 1/2 − [∇2Φ( x′)] 1/2 
+
+> F
+
+≤ κ ∥∇ Φ( x) − ∇ Φ( x′)∥2. (34) For the negative-entropy potential Φp(p) = P 
+
+> i
+
+pi log pi, the Hessian is ∇2Φp = diag(1 /p i) and its square root is [∇2Φp]1/2 = diag(1 /√pi). As pi → 0, the left-hand side of (A1) grows as p−1/2
+
+> i
+
+while the right-hand side grows as | log pi|, so κ = ∞ on the full simplex interior, consistent with Table 1 of [12]. By clamping p ≥ ϵ before each update, we restrict the domain to ∆K−1 
+
+> ϵ
+
+= {p ∈ ∆K−1 : pi ≥ ϵ ∀i},a compact subset of the simplex interior on which κ is finite. The choice of ϵ involves a tradeoff: too 22 small and the logits log pi approach numerical limits, causing instability in the dual-space update; too large and the floor acts as a persistent noise source that prevents atom types from fully committing to a vertex, degrading sample quality. In effect, ϵ controls the minimum categorical noise injected at each step via the 1/√pi scaling, establishing a noise floor below which the sampler cannot refine atom-type assignments. This makes ϵ a dataset-dependent hyperparameter that requires tuning: datasets with fewer atom types tolerate smaller values, while larger type vocabularies need careful balancing to avoid both numerical instability and premature convergence. We report the values used for each benchmark in Table 8. 
+
+## F Generated samples 
+
+Figure 7 shows random samples for GEOM-Drugs using shape-steering, while Figure 8 shows unconditional samples from the same trained EBMol. Linear Spherical Planar 
+
+Figure 7: Random samples from an EBMol model trained on GEOM-Drugs using potential composi-tion to steer the molecule shape. Samples are generated with a compute budget of 1960 NFEs. 23 Figure 8: Random samples from an EBMol model trained on GEOM-Drugs. Samples are generated with a compute budget of 1960 NFEs. 24

@@ -1,0 +1,580 @@
+Title: MolWorld: Molecule World Models for Actionable Molecular Optimization
+
+URL Source: https://arxiv.org/pdf/2605.08954v1
+
+Published Time: Tue, 12 May 2026 01:10:35 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# MOL WORLD : Molecule World Models for Actionable Molecular Optimization 
+
+Yang Qiao 
+
+Emory University Atlanta, GA, USA 
+
+yqiao47@emory.edu 
+
+Bo Pan 
+
+Emory University Atlanta, GA, USA 
+
+bo.pan@emory.edu 
+
+Hao-Wei Pang 
+
+Merck & Co., Inc. Rahway, NJ, USA 
+
+hao-wei.pang@merck.com 
+
+Peter Zhiping Zhang 
+
+Merck & Co., Inc. Rahway, NJ, USA 
+
+zhiping.peter.zhang@merck.com 
+
+Liying Zhang 
+
+Merck & Co., Inc. Rahway, NJ, USA 
+
+liying.zhang@merck.com 
+
+Liang Zhao 
+
+Emory University Atlanta, GA, USA 
+
+liang.zhao@emory.edu 
+
+## Abstract 
+
+Molecular optimization in drug discovery aims to discover molecules with im-proved target properties, but practical lead optimization often requires more than high predicted scores. A useful candidate should also be actionable: it should be reachable from known molecules through valid local structural transformations, so that it can be interpreted as a plausible revision within an evolving chemical series. Existing de novo and single-molecule optimization methods do not explic-itly model such reachability, especially when both the target molecules and the intermediate molecules connecting them to known compounds are unknown. In this work, we formulate actionable molecular optimization as sequential expansion of a molecule-transfer graph, where nodes are molecules and edges encode valid local transformations. We propose M OL WORLD , a molecule world model-guided framework that treats the current molecule-transfer graph as an evolving search state. At each iteration, M OL WORLD selects local anchor contexts, generates candidate molecules conditioned on these contexts, evaluates their properties, and uses a learned world model to update the evolving molecule world by retaining admissible candidates and inserting them into the molecule-transfer graph. The expanded molecule world then guides subsequent optimization. Experiments on property optimization and docking-based tasks show that M OL WORLD discov-ers high-property molecules while maintaining substantially stronger structural connectivity, supporting actionable and sequential molecular design. 
+
+## 1 Introduction 
+
+Molecular optimization aims to design molecules with improved target properties, such as activity, selectivity, docking affinity, or drug-likeness [ 63 , 41 ]. Recent machine learning methods have made substantial progress by formulating this problem as de novo molecular generation [ 35 , 38 , 30 , 65 , 14 ,60 ] or property-guided optimization from existing molecules [ 23 , 22 , 32 , 9 , 53 ]. These formulations are effective for discovering high-scoring candidates under a property oracle, but practical lead optimization often requires more than high predicted property values. A useful candidate should also be actionable : it should be reached from existing molecules through valid local transformations, so 
+
+> Preprint.
+> arXiv:2605.08954v1 [cs.LG] 9 May 2026
+
+that chemists can translate the proposed design into a concrete optimization step that is synthetically plausible and experimentally testable [5, 1, 28, 64]. 
+
+Figure 1: Molecule-transfer graph expan-sion. Generated molecules are progressively inserted into the graph through valid local structural transformations, enabling sequen-tial exploration toward higher-property re-gions while preserving reachability from the initial molecule series. In lead optimization, molecules are commonly or-ganized around analogue series, where compounds share conserved structural contexts and differ through local substitutions or modifications [ 40 , 47 , 44 , 59 ]. Such relationships naturally induce a molecule-transfer graph : nodes are molecules, and edges in-dicate valid local structural transformations between molecules. Under this view, a generated molecule need not be globally close to any single starting molecule. However, it should remain reachable from the existing series through a path of local molecular transfers. We therefore study actionable molecular optimiza-tion : as illustrated in Figure 1, given an initial set of related molecules, the goal is to discover molecules with strong properties while ensuring that they are reachable from the initial set through valid local struc-tural transformations. After a new molecule is generated and connected to the current series, it be-comes part of the molecular world from which future molecules can be designed. Thus, optimization is not a one-shot generation problem, but an iterative process of expanding a structured molecule world: the current molecule-transfer graph is the state, generating new molecules is the action, and the updated graph defines the next state for subsequent optimization. Achieving this goal is nontrivial for three reasons. First, the desired target molecules are unknown, and so are the intermediate molecules that may connect existing compounds to future high-property candidates. The optimizer must therefore reason over incomplete and evolving transformation paths, rather than only score isolated molecules. Second, the space of possible molecular transfers is combinatorial: even if local edits are individually simple, their multi-step composition can lead to a rapidly expanding search space. Third, the search state itself changes over time. Each generated molecule can alter the reachable region of chemical space and provide new contexts for subsequent generation. Therefore, effective optimization requires a predictive model of how the molecule world evolves after candidate molecules are introduced. Motivated by this view, we propose M OL WORLD , a molecule world model-guided framework for actionable molecular optimization. At each iteration, the model selects local anchor contexts from the current molecule-transfer graph, generates candidate molecules conditioned on these contexts, evaluates their properties, and updates the molecule-transfer graph by predicting how the new molecules connect to existing ones. The updated graph then serves as the next molecule world, enabling the system to bootstrap from both the original molecules and the newly discovered molecules in later iterations. To support this process, M OL WORLD combines two components. First, a context-conditioned molecular generator proposes candidates from local anchor subgraphs, allowing generation to exploit analogue-series structure instead of relying on a single molecule or the full graph. Second, a molecule world model predicts structural links between new candidates and the existing graph, allowing the search state to evolve without exhaustively enumerating all possible transformation paths. We evaluate M OL WORLD on molecular property optimization and docking-based optimization tasks. The results show that M OL WORLD discovers high-property molecules while maintaining stronger graph connectivity than competing methods. These results support the central thesis of this work: explicitly modeling the transferable structure among molecules enables molecular optimization to move beyond isolated property maximization toward actionable, sequential expansion of a chemical series. Our contributions are summarized as follows: • We formulate actionable molecular optimization as a reachability-aware optimization problem, where generated molecules should achieve strong target properties while remaining reachable from an initial molecule set through valid local structural transformations. • We introduce the molecule-transfer graph as a structured representation of an evolving chemical series, converting molecular optimization into sequential molecule-world expansion. 2• We propose M OL WORLD , a molecule world model-guided framework that selects local anchor contexts, generates candidate molecules, evaluates their properties, and predicts how generated molecules connect to the current molecule-transfer graph. • We demonstrate that M OL WORLD achieves competitive property optimization while producing molecules with substantially stronger structural connectivity, supporting its usefulness for actionable molecular design. 
+
+## 2 Related Work 
+
+Machine Learning-based Molecular Optimization. ML-based molecular optimization can be broadly categorized by whether the generation process is initialized from scratch or conditioned on an existing molecule. De novo molecular optimization aims to explore chemical space and generate molecules satisfying desired objectives without requiring a specific starting compound. This line of work has been approached through continuous latent-space optimization [ 35 , 38 , 30 ], reinforcement learning [ 65 , 14 , 60 , 42 , 39 , 51 ]; through graph-based autoregressive or flow models [ 46 , 61 ]; and more recently through diffusion and structure-aware generation, where models generate 2D or 3D molecules under geometric or target-conditioned constraints [ 24 , 56 , 43 , 13 , 45 , 26 ]. In contrast, 
+
+pairwise molecular optimization starts from a lead molecule and seeks improved analogs while maintaining molecular similarity, scaffold consistency, or key substructures. Existing approaches treated this as molecular translation from paired examples over textual representations [ 23 , 22 ], graph-to-graph translation [ 33 , 31 , 32 , 9, 55 ], and LLM-based approaches [ 53 , 58 ]. To the best of our knowledge, there is no existing work targeting multi-molecule-conditioned molecular optimization. Additional related work on World Models is given in Appendix A. 
+
+## 3 Problem Formulation 
+
+Let M0 denote an initial set of related molecules. We assume a local structural transformation relation ∼ over molecules, where m ∼ m′ indicates that m′ can be obtained from m through a valid local chemical modification. In this work, we instantiate ∼ using matched molecular pair relations, although the formulation is compatible with other definitions of local molecular edits. A molecule x is reachable from M0 if there exists a finite transformation path: 
+
+m0 → m1 → · · · → mL = x, m0 ∈ M 0, (1) such that 
+
+mℓ−1 ∼ mℓ, ℓ = 1 , . . . , L. (2) This definition allows both direct analogues of initial molecules (L = 1) and multi-step extensions 
+
+(L > 1) , as long as the molecule remains connected to the initial series through valid local transfor-mations. Let R(M0) denote the set of all molecules reachable from M0. Given a target property oracle f , we aim to generate a set of molecules X1: T over T optimization iterations by solving: 
+
+max 
+
+> X1: T
+
+Jf (X1: T ) s.t. ∀x ∈ X 1: T : x ∈ R (M0), (3) where Jf measures the property quality of the generated set, such as top-k scores, oracle-efficiency curves, or the overall score distribution. To operationalize reachability, we represent the initial molecule set as a molecule-transfer graph: 
+
+G0 = ( V0, E 0), (4) where V0 = M0 and (u, v ) ∈ E0 if u ∼ v. During optimization, the graph evolves as new molecules are generated and connected to existing nodes. Under this representation, reachability corresponds to graph connectivity: a generated molecule is structurally admissible only if it can be inserted into the evolving graph through valid local transformation edges 1 .
+
+## 4 Overall Framework 
+
+To solve the reachable molecular optimization problem in Eq. 3, M OL WORLD treats molecular generation as a closed-loop graph expansion process, as shown in Figure 2. Instead of generating molecules independently, the method maintains an evolving molecule-transfer graph and repeatedly expands it with newly generated molecules. This design allows the search space to grow progressively 
+
+> 1In this work, we instantiate edges using matched molecular pairs (MMPs): two molecules are connected if they share the same chemical context while differing by a well-defined variable fragment [7, 12].
+
+3Figure 2: Illustration of M OL WORLD . Given the current molecule-transfer graph, M OL WORLD 
+
+selects an anchor context and uses a context-based generator to propose candidate molecules. The retained molecules are then inserted back into the graph through a world-model-based update, enabling iterative graph-guided molecular optimization. while keeping generated molecules connected to the initial molecular series through valid local transformations. We summarize the information available at iteration t by a search state: 
+
+St = ( Gt, H t, P t), (5) where Gt = ( Vt, Et) is the current molecule-transfer graph, Ht records the search history, and Pt
+
+stores property observations obtained from the target oracle. Specifically, Ht keeps track of previous expansion decisions, while Pt = {(x, f (x)) : x ∈ V t has been evaluated } summarizes the current property feedback over explored molecules. Thus, St contains both the structural search space and the feedback signals needed to guide subsequent optimization. At each iteration, M OL WORLD takes the current state St as input and produces a set of candidate molecules Xt. These candidates are then filtered, evaluated by the target oracle, and incorporated into the evolving search state if they can be connected to the molecule-transfer graph through valid local transformations. The updated state is used as the input to the next iteration. This closed-loop procedure is decomposed into two components: 
+
+Xt ∼ πθ (· | St)
+
+| {z }
+
+> molecule generation
+
+, St+1 = Wϕ(St, Xt)
+
+| {z }
+
+> state evolution
+
+. (6) The generation policy πθ proposes candidate molecules based on the current search state, while the world model Wϕ determines how these candidates affect the evolving graph and property feedback. In particular, Wϕ updates the search state by validating candidates, adding admissible molecules and transformation edges, and recording newly obtained oracle evaluations. We describe these two components in the following sections. 
+
+4.1 Context-Guided Molecule Generation 
+
+This subsection instantiates the generation policy πθ (· | St) in Eq. 6. Given the current search state 
+
+St = ( Gt, H t, P t), the goal of the generation module is to propose a batch of candidates Xt that are both promising under the current property feedback and compatible with the local transformation structure of the molecule-transfer graph. Ideally, at iteration t, the module would solve: 
+
+max 
+
+> Xt
+
+Jf (Xt) s.t. Xt ⊆ R (Gt). (7) However, directly optimizing Eq. 7 over the full reachable region of Gt is difficult, as the reachable space can expand combinatorially, making it unrealistic for a learned generator to maintain a global view of all transformations and to identify high-value candidates through exhaustive reasoning. MOL WORLD therefore implements πθ through a context-guided generation strategy. Rather than generating from the full graph at once, the method first identifies a batch of connected local subgraphs that serve as generation contexts, and then generates molecules conditioned on each selected context: 
+
+Zt = AnchorSelect( St), Xt = [
+
+> Z∈Z t
+
+Gen θ (Z). (8) 4Here, Zt = {Zt, 1, . . . , Z t,B } denotes a batch of connected local contexts selected from the current molecule-transfer graph Gt. This decomposition turns the abstract policy πθ (· | St) into two concrete operations: selecting where the current state should be expanded, and generating molecules that locally complete or extend the selected graph patterns. The context selection procedure is described in Section 4.1.1, and the context-conditioned generator is described in Section 4.1.2. 
+
+4.1.1 Anchor Context Selection 
+
+Anchor context selection instantiates the first step of Eq. 8. Given the current search state St =(Gt, H t, P t), its role is to choose a batch of connected local contexts from the molecule-transfer graph that will be used to condition molecule generation. Intuitively, these contexts should satisfy three desiderata: they should lie in property-promising regions, encourage exploration of insufficiently visited regions, and cover diverse parts of the current graph. Let C(Gt) denote the set of candidate local contexts in Gt, where each context Z ∈ C (Gt) is a connected subgraph of the molecule-transfer graph. Anchor selection can be written as the following multi-criteria selection problem: 
+
+Z⋆t = arg max   
+
+> Z⊆C (Gt),|Z| =B
+
+[Sproperty (Z; Gt, P t) + αS exploration (Z; Ht) + βS diversity (Z)] , (9) where B is the number of selected contexts. The property score Sproperty uses the property obser-vations in Pt to identify regions that are likely to yield high-quality molecules. The exploration score Sexploration uses the search history Ht to favor regions that have not been sufficiently expanded. The diversity score Sdiversity encourages the selected batch to cover distinct graph regions. The coefficients α and β control the relative strengths of exploration and diversity. Directly optimizing Eq. 9 over C(Gt) is intractable, because the number of connected subgraphs grows combinatorially with the size of Gt. M OL WORLD therefore uses a two-stage approximation. The first stage constructs a pool of promising connected contexts using property- and exploration-guided beam search. The second stage selects a compact and diverse anchor batch from this pool. In the first stage, M OL WORLD performs beam search over connected contexts. Starting from seed molecules in Gt, each partial context is expanded by adding neighboring molecules along valid transformation edges. This guarantees that every candidate context remains connected. During beam search, a context Z is scored by 
+
+Sbeam (Z) = Sproperty (Z; Gt, P t) + αS exploration (Z; Ht). (10) The beam search then returns a pool of candidate contexts: 
+
+Ct = BeamSearch Ka (Gt, H t, P t, S beam ) , (11) where Ka is the beam width. The resulting pool Ct is a tractable approximation to the property-promising and under-explored regions of the full context space C(Gt).In the second stage, M OL WORLD selects the final anchor batch from Ct. Although beam search identi-fies promising contexts, many high-scoring candidates may still concentrate on similar neighborhoods. To avoid redundant generation, M OL WORLD selects a diverse batch by solving 
+
+Zt = arg max  
+
+> Z⊆C t,|Z| =B
+
+" X
+
+> Z∈Z
+
+Sbeam (Z) + βS diversity (Z)
+
+#
+
+. (12) In practice, Eq. 12 is optimized greedily. At each step, the method adds the candidate context with the largest combined beam score and marginal diversity gain with respect to the contexts already selected. After B greedy selection steps, M OL WORLD obtains the anchor batch Zt = {Zt, 1, . . . , Z t,B }. The selected contexts are then used as inputs for the context-based generator described next. More details of this selection process is given in Appendix B.1. 
+
+4.1.2 Context-based Generator 
+
+The context-based generator instantiates the second step of Eq. 8. Given a selected context Z ∈ Z t, its role is to propose candidates that locally complete or extend the molecule-transfer pattern represented by Z. For an anchor context Z = ( VZ , E Z ), the generator models a conditional distribution: 
+
+pθ (x | Z) ≈ pdata 
+
+ x | x ∈ N local (Z), (13) where Nlocal (Z) denotes molecules that plausibly complete or extend the local molecule-transfer graph represented by Z. This formulation turns candidate generation from one-to-one molecular 5editing into local graph completion: instead of modifying a single molecule in isolation, the model generates molecules that are compatible with the transformation regularities shared by multiple related molecules in the selected context. We use an encoder-decoder architecture to parameterize this distribution. Each molecule mi ∈ VZ
+
+is represented by its SMILES string. A shared molecular encoder first maps the molecules in the context into node representations. A graph fusion module then performs message passing over the context edges EZ to obtain a structure-aware context representation: 
+
+CZ = Pool 
+
+GNN θ
+
+ {Enc θ (SMILES( mi)) }mi∈VZ , E Z
+
+ 
+
+> imi∈VZ
+
+
+
+. (14) Here, CZ encodes the molecular identities of the context nodes and their local transformation relations. A Transformer decoder conditions on CZ for autoregressive SMILES generation: 
+
+pθ (x | Z) = 
+
+> L
+
+Y
+
+> ℓ=1
+
+pθ (xℓ | x<ℓ , C Z ). (15) Sampling from this distribution yields multiple candidate molecules from the same selected context while keeping them aligned with the local analogue-series pattern. The generator is trained in two stages, first using pairwise molecules to pretrain the Transformer encoder-decoder, then using subgraph based contexts to train all modules. Training details are provided in Appendix B.2. 
+
+4.2 World Model-based Graph Evolution 
+
+This subsection instantiates the graph evolution component Wϕ(St, Xt) in Eq. 6. Given the current search state St = ( Gt, H t, P t) and a batch of generated molecules Xt, the role of the world model is to determine how these candidates change the evolving search state. We model this process as a state transition: 
+
+St+1 = Wϕ(St, Xt) = 
+
+
+
+Gt ⊕ ( eXt, bEt), H t ⊕ ∆Ht, P t ∪ Y t
+
+
+
+, (16) where eXt ⊆ X t denotes candidates retained after molecular critique, including canonicalization, validity checking, and duplicate removal. These candidates are evaluated by the oracle, giving 
+
+Yt = {(x, f (x)) : x ∈ eXt}.
+
+The term ∆Ht records the expansion information from the current iteration. The key structural operation in Wϕ is graph insertion. For each retained candidate molecule x ∈ eXt
+
+and existing molecule u ∈ V t, the world model predicts whether they satisfy the local transformation relation. The inserted edge set is 
+
+bEt =
+
+n
+
+(x, u ) x ∈ eXt, u ∈ V t, p ϕ(x ∼ u | x, u, G t) > τ 
+
+o
+
+. (17) Only candidates with at least one valid predicted connection can enter the reachable molecule-transfer graph. After insertion, the expanded graph and updated property observations define the next search state St+1 . This updated state is then passed back to the generation policy πθ (· | St+1 ), closing the loop between molecule generation and graph evolution. Details about this expansion process and training of the link prediction model is given in Appendix B.3. 
+
+## 5 Experiments 
+
+5.1 Experimental Setup 
+
+We pretrain the context-based generator and the molecule world model on ChEMBL [ 62 ], which provides a large-scale collection of bioactive molecules for learning local molecular transformation patterns, and evaluate M OL WORLD on ZINC250 [ 48 ] and PMV21 [ 50 ]. For each dataset, we construct a molecule-transfer graph whose nodes are molecules and whose edges correspond to valid local structural transformations, implemented using MMPDB 2. Additional implementation details and hyperparameter settings are provided in Appendix B. 
+
+> 2https://github.com/rdkit/mmpdb
+
+6(a) Docking-based optimization results. (b) Generated molecule distributions. 
+
+Figure 3: Optimization performance and generated molecule analysis. 
+
+Task 1: Property Optimization. We follow the standard property optimization (PMO) benchmark setting [ 10 ] on both ZINC250 and PMV21. Given a set of molecules, the task is to iteratively generate new molecules under a fixed oracle budget to improve a target property. We consider multiple property optimization tasks, including the QED[ 2] score, which measures drug-likeness based on heuristic rules, and three bioactivity-related tasks: DRD2 (dopamine receptor D2), GSK3 β (glycogen synthase kinase-3 beta), and JNK3 (c-Jun N-terminal kinase-3). For the bioactivity tasks, pre-trained predictive models from TDC are used as oracle functions, which take a SMILES string as input and output a probability p ∈ [0 , 1] , where p ≥ 0.5 indicates predicted inhibition. The oracle budget is set to 10,000 calls for ZINC250 and 1,000 calls for PMV21. Early stopping is applied if the average fitness of the top-100 molecules does not improve by 10 −3 within 5 epochs, following PMO. 
+
+Task 2: Docking-Based Optimization. We further consider three protein-ligand docking tasks from TDC [ 11 ], which correspond to structure-based drug design scenarios. The proteins include DRD3 (PDB ID: 3PBL), EGFR (PDB ID: 2RGP), and Adenosine A2A receptor (PDB ID: 3EML). For each task, molecules are evaluated using the TDC docking oracle implemented through the PyScreener AutoDock Vina backend [ 8]. The oracle returns the best Vina binding affinity among generated poses, where lower docking scores indicate stronger predicted binding. All methods are evaluated under the same docking protocol and oracle budget. Due to the higher computational cost of docking evaluation, we restrict the oracle budget to 1,000 calls. The full docking protocol, including receptor preparation, ligand conformer generation, docking box settings, and Vina parameters, is provided in Appendix C.2. 
+
+Compared Methods. We evaluate M OL WORLD against five representative baselines for molec-ular optimization: GraphGA [ 29 ], REINVENT [ 42 ], Augmented Memory [ 15 ], GP-BO [ 49 ] and MOLLEO [ 51 ]. For a fair comparison, all methods are run under the same oracle budgets and task settings. Further details on the baseline methods are provided in Appendix C.1. 
+
+Evaluation Metrics. For Task 1, following prior PMO evaluations, we report the area under the curve (AUC) of the top-k oracle scores over reachable generated molecules, where k ∈ { 1, 10 , 100 }.To further assess whether generated molecules remain actionable within the molecule-transfer graph, we report two graph-level metrics based on valid local transformations extracted by MMPDB: the isolated node ratio, which measures the fraction of generated molecules not connected by any valid local transformation, and the average degree of the augmented graph. For Task 2, we report the proportion of generated molecules with docking scores better than −6 and −8, and evaluate the same graph-level metrics on the corresponding high-quality subsets. 
+
+5.2 Main Results Task 1: Property Optimization. Table 1 reports the main property optimization results. Across both ZINC250 and PMV21, M OL WORLD achieves the strongest overall performance, obtaining the best or highly competitive AUC scores across most tasks. This shows that M OL WORLD can effectively discover high-property molecules under fixed oracle budgets. Beyond property scores, M OL WORLD also shows clear advantages in structural connectivity. It maintains near-zero isolated node ratios and substantially higher average transfer degree in almost all settings, indicating that the generated molecules remain well integrated into the molecule-transfer graph through valid local transformations. The advantage is especially clear on PMV21, where the oracle budget is more limited. These results suggest that the molecule world model enables effective and actionable expansion of the chemical series, rather than isolated property-driven generation. 7Table 1: Property optimization results on ZINC250 and PMV21. Only average results are reported here, and detailed results with standard deviations are provided in Appendix C.3.                                                                                                                                                                                                                                                             
+
+> Metric Model ZINC (10k oracle) PMV21 (1k oracle) AUC@1 AUC@10 AUC@100 Iso. ↓Degree ↑AUC@1 AUC@10 AUC@100 Iso. ↓Degree ↑
+> qed GraphGA 0.9463 0.9383 0.9083 0.6223 0.8467 0.8964 0.8591 0.7413 0.4763 3.1177 REINVENT 0.9466 0.9409 0.9111 0.4675 2.9545 0.8816 0.6047 0.0898 0.9763 0.0247 Aug-Mem 0.9462 0.9388 0.8996 0.5863 2.8359 0.6961 0.1786 0.0180 0.9940 0.0060 GP-BO 0.9433 0.9359 0.9089 0.6174 0.9397 0.8268 0.7736 0.6796 0.2033 12.5507 MOLLEO 0.9440 0.9368 0.9107 0.5824 1.1310 0.8943 0.8559 0.7405 0.4693 3.0390 MolWorld 0.9482 0.9481 0.9472 0.0272 12.5625 0.9176 0.8979 0.8474 0.0501 29.9079
+> jnk3 GraphGA 0.6372 0.6065 0.5502 0.3799 6.2139 0.1977 0.1541 0.1026 0.3237 6.6723 REINVENT 0.8087 0.7767 0.7302 0.2645 35.5800 0.1498 0.0908 0.0264 0.9073 0.2320 Aug-Mem 0.8050 0.7706 0.7135 0.5348 8.2912 0.1991 0.0745 0.0087 0.9807 0.0233 GP-BO 0.4032 0.3634 0.3213 0.0989 28.5221 0.2941 0.2397 0.1405 0.2603 10.7317 MOLLEO 0.8491 0.8260 0.7764 0.2335 10.9015 0.2381 0.1923 0.1249 0.2737 7.1437 MolWorld 0.9473 0.8201 0.7794 0.0179 54.2610 0.2991 0.2543 0.1918 0.0024 58.4911
+> drd2 GraphGA 0.9464 0.8988 0.7725 0.4417 2.9932 0.8967 0.8245 0.5344 0.3353 5.3493 REINVENT 0.9599 0.9346 0.8912 0.2949 23.9205 0.7116 0.4507 0.0958 0.9230 0.2967 Aug-Mem 0.9464 0.9201 0.8639 0.5234 5.8850 0.6757 0.3896 0.0861 0.9567 0.0793 GP-BO 0.9603 0.9315 0.8753 0.0765 32.4271 0.9247 0.8376 0.5462 0.1467 14.1423 MOLLEO 0.9891 0.9819 0.9576 0.3778 2.7038 0.9354 0.8920 0.6638 0.3840 4.3993 MolWorld 0.9993 0.9970 0.9894 0.0039 58.9239 0.9564 0.9463 0.8977 0.0007 79.5481
+> gsk3b GraphGA 0.7982 0.7574 0.7023 0.3594 16.0579 0.3375 0.2881 0.2021 0.3467 5.8117 REINVENT 0.8797 0.8443 0.7913 0.3163 31.5371 0.3677 0.1719 0.0208 0.9813 0.0267 Aug-Mem 0.8892 0.8472 0.7674 0.6901 3.0238 0.1719 0.0494 0.0049 0.9933 0.0067 GP-BO 0.9154 0.8803 0.8317 0.1378 53.6171 0.4486 0.3982 0.2719 0.2590 10.7700 MOLLEO 0.9446 0.9127 0.8459 0.2045 28.5696 0.5105 0.4153 0.2785 0.3293 5.3533 MolWorld 0.9977 0.9679 0.9148 0.0118 19.4698 0.4956 0.4692 0.4094 0.0024 99.5469
+
+Task 2: Docking-Based Optimization. Figure 3a reports the docking-based optimization results on A2AR, DRD3, and EGFR under two score cutoffs, −8 and −6. Across all protein targets and both cutoffs, M OL WORLD achieves the highest docking success ratio among the compared methods, indicating that the evolving molecule-transfer graph can effectively guide the search toward high-affinity candidates. In addition to improved docking performance, M OL WORLD also shows clear advantages in structural integration. It consistently obtains the highest non-isolated ratio and substantially larger average transfer degree, suggesting that the generated high-quality molecules remain well connected to the molecule-transfer graph through valid local transformations. These results show that M OL WORLD improves docking-based optimization while preserving the actionability and structural reachability of generated molecules. 
+
+5.3 Understanding M OL WORLD 
+
+Score Distribution and Optimization Dynamics. To further analyze the quality of generated molecules, we compare oracle-score distributions under a fixed oracle budget on PMV21 (Figure 3b). Across all four tasks, M OL WORLD consistently shifts the generated molecules toward higher-score regions and produces a stronger high-score tail than the baselines. This distributional view comple-ments top-k AUC metrics by showing the overall quality of the generated molecule set, rather than only the best few samples. We further analyze the optimization process using the top-10 running average score as a function of oracle calls (Appendix C.4). M OL WORLD converges faster on several tasks, particularly JNK3 and GSK3 β on ZINC, while remaining comparable to strong baselines on the remaining tasks. 
+
+(a) Ablation distributions. (b) Sequential optimization case. 
+
+Figure 4: Ablation and qualitative analysis of M OL WORLD .8Ablation Study. We conduct ablation studies on PMV21 to examine the contribution of key components in M OL WORLD : anchor context selection, the context-based generator, and the molecule world model for graph evolution. We consider three variants: W-R ANDOM ANCHORS , which replaces anchor context selection with random anchor sampling; W-R ANDOM GENERATOR , which replaces the context-based generator with STONED-style random mutation; and W/ O WORLD 
+
+MODEL , which disables graph evolution and operates on a fixed molecule-transfer graph. Figure 4a shows the oracle-score distributions of generated molecules. M OL WORLD consistently produces distributions more concentrated in the high-score region, while all ablation variants shift toward lower-score regions. This indicates that all three components contribute to generating high-quality molecules under the proposed optimization framework. Full ablation results across all four tasks are provided in Appendix C.5. 
+
+Figure 5: Generated molecule distribution and oracle-score progression of M OL WORLD on the GSK3 β task. (Best viewed in color.) 
+
+Generated Molecule Distribution. We visualize how M OL WORLD explores molecular space during optimization. Figure 5 shows the results on the GSK3 β task, where the left panel presents a UMAP projection of initial and generated molecules, and the right panel shows oracle scores of generated molecules over generation order. In the UMAP projection, early generated molecules largely overlap with the initial molecules, suggesting that M OL WORLD first searches around the starting molecule-transfer graph. As optimization proceeds, generated molecules gradually expand toward new regions of the chemical space. The score progression plot further shows that oracle scores improve over generation order, as reflected by the 10-step moving-average curve. Similar patterns are observed on QED, JNK3, and DRD2, as shown in Appendix C.6. We also analyze the evolution of anchor context selection in Appendix C.7. Anchor contexts quickly shift from initial molecules to newly generated molecules after the early iterations, enabling a self-expanding optimization process. This shows that M OL WORLD can progressively build upon its own generated molecules and extend the evolving molecule-transfer graph toward higher-scoring regions. 
+
+Qualitative Visualization of Sequential Molecular Optimization. We provide a qualitative visualization on the QED task to illustrate the sequential and actionable nature of M OL WORLD . As shown in Figure 4b, M OL WORLD starts from three related molecules in the initial molecule-transfer graph ( O1–O3) and expands the graph through generated candidates across iterations. Although the full visualization contains branching candidates, we focus on one highlighted path rooted at O1 to show how a high-QED molecule can be reached through successive chemically interpretable edits. Along this path, the QED score improves from 0.827 to 0.936 through a sequence of local transforma-tions. Starting from O1 ( QED = 0 .827 ), the first generated molecule G1 ( QED = 0 .835 ) replaces the terminal carbonyl-containing alkynyl substituent with a trifluoromethyl-substituted alkynyl group, preserving the main scaffold while modifying the terminal group. The next step produces G4
+
+( QED = 0 .895 ), which introduces a more compact fused heteroaromatic scaffold while retaining the amine-containing side-chain motif, suggesting a scaffold-level refinement. Then, G4 is edited into G7
+
+(QED = 0 .922 ) by simplifying the substituent pattern and removing the bulky CC(F)(F)F appendage while preserving the fused aromatic core. Finally, G7 is refined into G9 ( QED = 0 .936 ) through fluorine substitution on the aromatic core and reorganization of the aminoalkyl side chain, further ad-justing the polarity–lipophilicity balance. This progression demonstrates that M OL WORLD can build high-scoring molecules through an actionable multi-step path, where later molecules are generated by editing previously generated intermediates rather than being sampled as isolated candidates. 96 Conclusion 
+
+We introduced M OL WORLD , a molecule world model-guided framework for actionable molecular optimization. By representing a chemical series as an evolving molecule-transfer graph, M OL WORLD 
+
+optimizes not only for high target-property values but also for reachability through valid local struc-tural transformations. The framework iteratively selects local anchor contexts, generates candidates, evaluates their properties, and predicts how new molecules connect back to the current graph, enabling sequential expansion of the molecule world. Experiments on property and docking-based optimiza-tion tasks show that M OL WORLD discovers competitive high-scoring molecules while maintaining stronger structural connectivity than existing methods. These results suggest that explicitly modeling molecule-transfer structure can make molecular optimization more actionable and better aligned with practical lead optimization workflows. 
+
+Limitations . MOL WORLD uses matched molecular-pair reachability as a structural proxy for actionable lead optimization. This notion captures whether a generated molecule can be connected to an evolving analogue-series graph through local structural transformations, but it does not by itself guarantee retrosynthetic accessibility, commercial availability, or experimental feasibility. Future work should integrate retrosynthesis-aware constraints, uncertainty-aware graph evolution, and prospective experimental validation. 10 References 
+
+[1] Rutherford Aris. Prolegomena to the rational analysis of systems of chemical reactions. Archive for rational mechanics and analysis , 19(2):81–99, 1965. [2] G Richard Bickerton, Gaia V Paolini, Jérémy Besnard, Sorel Muresan, and Andrew L Hopkins. Quantifying the chemical beauty of drugs. Nature chemistry , 4(2):90–98, 2012. [3] Tim Brooks, Bill Peebles, Connor Holmes, Will DePue, Yufei Guo, Li Jing, David Schnurr, Joe Taylor, Troy Luhman, Eric Luhman, Clarence Wing Yin Ng, Ricky Wang, and Aditya Ramesh. Video generation models as world simulators. OpenAI Technical Report , 2024. [4] Jake Bruce, Michael Dennis, Ashley Edwards, Jack Parker-Holder, Yuge Shi, Edward Hughes, Matthew Lai, Aditi Mavalankar, Richie Steigerwald, Chris Apps, et al. Genie: Generative interactive environments. arXiv preprint , 2024. [5] E. J. Corey and W. Todd Wipke. Computer-assisted design of complex organic syntheses. 
+
+Science , 166(3902):178–192, 1969. [6] Jingtao Ding, Yunke Zhang, Yu Shang, Yuheng Zhang, Zefang Zong, Jie Feng, Yuan Yuan, Hongyuan Su, Nian Li, Nicholas Sukiennik, et al. Understanding world or predicting future? a comprehensive survey of world models. ACM Computing Surveys , 58(3):1–38, 2025. [7] Alexander G Dossetter, Edward J Griffen, and Andrew G Leach. Matched molecular pair analysis in drug discovery. Drug Discovery Today , 18(15-16):724–731, 2013. [8] Jerome Eberhardt, Diogo Santos-Martins, Andreas F Tillack, and Stefano Forli. Autodock vina 1.2. 0: new docking methods, expanded force field, and python bindings. Journal of chemical information and modeling , 61(8):3891–3898, 2021. [9] Tianfan Fu, Cao Xiao, and Jimeng Sun. CORE: Automatic molecule optimization using copy & refine strategy. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 34, pages 638–645, 2020. [10] Wenhao Gao, Tianfan Fu, Jimeng Sun, and Connor Coley. Sample efficiency matters: a benchmark for practical molecular optimization. Advances in neural information processing systems , 35:21342–21357, 2022. [11] David E Graff, Eugene I Shakhnovich, and Connor W Coley. Accelerating high-throughput virtual screening through molecular pool-based active learning. Chemical science , 12(22):7866– 7881, 2021. [12] Ed Griffen, Andrew G Leach, Graeme R Robb, and Daniel J Warner. Matched molecular pairs as a medicinal chemistry tool: miniperspective. Journal of medicinal chemistry , 54(22):7739–7750, 2011. [13] Jiaqi Guan, Wesley Wei Qian, Xingang Peng, Yufeng Su, Jian Peng, and Jianzhu Ma. 3d equiv-ariant diffusion for target-aware molecule generation and affinity prediction. In International Conference on Learning Representations , 2023. [14] Gabriel Lima Guimaraes, Benjamin Sanchez-Lengeling, Carlos Outeiral, Pedro Luis Cunha Farias, and Alán Aspuru-Guzik. Objective-reinforced generative adversarial networks (organ) for sequence generation models. arXiv preprint arXiv:1705.10843 , 2017. [15] Jeff Guo and Philippe Schwaller. Augmented memory: Capitalizing on experience replay to accelerate de novo molecular design. arXiv preprint arXiv:2305.16160 , 2023. [16] Wes Gurnee and Max Tegmark. Language models represent space and time. In International Conference on Learning Representations , 2024. [17] David Ha and Jürgen Schmidhuber. World models. arXiv preprint arXiv:1803.10122 , 2018. [18] Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Learning latent dynamics for planning from pixels. In International Conference on Machine Learning , 2019. 11 [19] Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control: Learning behaviors by latent imagination. In International Conference on Learning Representa-tions , 2020. [20] Danijar Hafner, Jurgis Pasukonis, Jimmy Ba, and Timothy Lillicrap. Mastering diverse domains through world models. arXiv preprint arXiv:2301.04104 , 2023. [21] Nicklas Hansen, Hao Su, and Xiaolong Wang. Td-mpc2: Scalable, robust world models for continuous control. arXiv preprint arXiv:2310.16828 , 2024. [22] Jiazhen He, Huifang You, Eva Nittinger, Christian Tyrchan, Esben Jannik Bjerrum, Werngard Czechtizky, and Ola Engkvist. Transformer-based molecular optimization beyond matched molecular pairs. Journal of Cheminformatics , 14:18, 2022. [23] Jiazhen He, Huifang You, Emil Sandström, Eva Nittinger, Esben Jannik Bjerrum, Christian Tyr-chan, Werngard Czechtizky, and Ola Engkvist. Molecular optimization by capturing chemist’s intuition using deep neural networks. Journal of Cheminformatics , 13:26, 2021. [24] Emiel Hoogeboom, Víctor Garcia Satorras, Clément Vignac, and Max Welling. Equivariant diffusion for molecule generation in 3d. In Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pages 8867–8887. PMLR, 2022. [25] Anthony Hu, Lloyd Russell, Harrison Yeo, Zak Murez, Georgy Fedoseev, Alex Kendall, Jamie Shotton, and Greg Corrado. Gaia-1: A generative world model for autonomous driving. arXiv preprint , 2023. [26] Lei Huang, Tingyang Xu, Yang Yu, Peilin Zhao, Xingjian Chen, Jing Han, Zhi Xie, Hailong Li, Wenge Zhong, Ka-Chun Wong, et al. A dual diffusion model enables 3d molecule generation and lead optimization based on target pockets. Nature Communications , 15(1):2657, 2024. [27] Alan Ianeselli, Jewon Im, Eddie Cavallin, and Mark B. Gerstein. Generative world models to compute protein folding pathways. bioRxiv , 2025. [28] P-M Jacob, P Yamin, C Perez-Storey, M Hopgood, and AA Lapkin. Towards automation of chemical process route selection based on data mining. Green Chemistry , 19(1):140–152, 2017. [29] Jan H Jensen. A graph-based genetic algorithm and generative model/monte carlo tree search for the exploration of chemical space. Chemical science , 10(12):3567–3572, 2019. [30] Wengong Jin, Regina Barzilay, and Tommi Jaakkola. Junction tree variational autoencoder for molecular graph generation. In International conference on machine learning , pages 2323–2332. PMLR, 2018. [31] Wengong Jin, Regina Barzilay, and Tommi Jaakkola. Hierarchical graph-to-graph translation for molecules. arXiv preprint arXiv:1907.11223 , 2019. [32] Wengong Jin, Regina Barzilay, and Tommi Jaakkola. Hierarchical generation of molecular graphs using structural motifs. In Proceedings of the 37th International Conference on Machine Learning , volume 119 of Proceedings of Machine Learning Research , pages 4839–4848. PMLR, 2020. [33] Wengong Jin, Kevin Yang, Regina Barzilay, and Tommi Jaakkola. Learning multimodal graph-to-graph translation for molecular optimization. In International Conference on Learning Representations , 2019. [34] Bowen Jing, Hannes Stärk, Tommi Jaakkola, and Bonnie Berger. Generative modeling of molecular dynamics trajectories. In Advances in Neural Information Processing Systems ,volume 37, 2024. [35] Matt J Kusner, Brooks Paige, and José Miguel Hernández-Lobato. Grammar variational autoencoder. In International conference on machine learning , pages 1945–1954. PMLR, 2017. [36] Kenneth Li et al. The geometry of concepts: Sparse autoencoder feature structure. arXiv preprint , 2024. 12 [37] Yilun Lin, Yilun Du, Olivia Watkins, Danijar Hafner, Pieter Abbeel, Dan Klein, Anca Dragan, and Sergey Levine. Learning to model the world with language. In International Conference on Machine Learning , 2024. [38] Qi Liu, Miltiadis Allamanis, Marc Brockschmidt, and Alexander Gaunt. Constrained graph variational autoencoders for molecule design. Advances in neural information processing systems , 31, 2018. [39] Brenton P. Munson, Michael Chen, Audrey Bogosian, Jason F. Kreisberg, Katherine Licon, Ruben Abagyan, Brent M. Kuenzi, and Trey Ideker. De novo generation of multi-target compounds using deep generative chemistry. Nature Communications , 15(1):3636, 2024. [40] José J Naveja and Martin Vogt. Automatic identification of analogue series from large compound data sets: methods and applications. Molecules , 26(17):5291, 2021. [41] Christos A Nicolaou, Nathan Brown, and Constantinos S Pattichis. Molecular optimization using computational multi-objective methods. Current Opinion in Drug Discovery and Development ,10(3):316, 2007. [42] Marcus Olivecrona, Thomas Blaschke, Ola Engkvist, and Hongming Chen. Molecular de-novo design through deep reinforcement learning. Journal of cheminformatics , 9(1):48, 2017. [43] Xingang Peng, Shitong Luo, Jiaqi Guan, Qi Xie, Jian Peng, and Jianzhu Ma. Pocket2Mol: Effi-cient molecular sampling based on 3d protein pockets. In Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research ,pages 17644–17655. PMLR, 2022. [44] John W Raymond, Ian A Watson, and Abdelaziz Mahoui. Rationalizing lead optimization by associating quantitative relevance with molecular structure modification. Journal of chemical information and modeling , 49(8):1952–1962, 2009. [45] Arne Schneuing, Charles Harris, Yuanqi Du, Kieran Didi, Arian Jamasb, Ilia Igashov, Weitao Du, Carla Gomes, Tom L. Blundell, Pietro Lio, Max Welling, Michael Bronstein, and Bruno Correia. Structure-based drug design with equivariant diffusion models. Nature Computational Science , 4:899–909, 2024. [46] Chence Shi, Minkai Xu, Zhaocheng Zhu, Weinan Zhang, Ming Zhang, and Jian Tang. Graphaf: a flow-based autoregressive model for molecular graph generation. arXiv preprint arXiv:2001.09382 , 2020. [47] Jessica Stacey, Baptiste Canault, Stephen D Pickett, and Valerie J Gillet. Visualising lead optimisation series using reduced graphs. Journal of Cheminformatics , 17(1):60, 2025. [48] Teague Sterling and John J. Irwin. Zinc 15–ligand discovery for everyone. Journal of Chemical Information and Modeling , 55(11):2324–2337, 2015. [49] Austin Tripp, Gregor NC Simm, and José Miguel Hernández-Lobato. A fresh look at de novo molecular design benchmarks. In NeurIPS 2021 AI for Science Workshop , 2021. [50] Binh Vu, Romyr Dominique, Hongju Li, Bruce Fahr, and Andrew Good. Methods and com-pounds for restoring mutant p53 function, 2021. [51] Haorui Wang, Marta Skreta, Cher Tian Ser, Wenhao Gao, Lingkai Kong, Felix Strieth-Kalthoff, Chenru Duan, Yuchen Zhuang, Yue Yu, Yanqiao Zhu, Yuanqi Du, Alan Aspuru-Guzik, Kirill Neklyudov, and Chao Zhang. Efficient evolutionary search over chemical space with large language models. In International Conference on Learning Representations , 2025. [52] Xiaofeng Wang, Zheng Zhu, Guan Huang, Xinze Chen, Jiwen Zhu, and Jiwen Lu. Drivedreamer: Towards real-world-driven world models for autonomous driving. arXiv preprint , 2023. [53] Zhenxing Wu, Odin Zhang, Xiaorui Wang, Li Fu, Huifeng Zhao, Jike Wang, Hongyan Du, Dejun Jiang, Yafeng Deng, Dongsheng Cao, Chang-Yu Hsieh, and Tingjun Hou. Leveraging language model for advanced multiproperty molecular optimization via prompt engineering. 
+
+Nature Machine Intelligence , 6:1359–1369, 2024. 13 [54] Jiannan Xiang, Tianhua Tao, Yi Gu, Tianmin Shu, Zichen Wang, Zongqing Yang, and Zhiting Hu. Extracting world models from large language models for embodied agents. In Advances in Neural Information Processing Systems , 2023. [55] Yutong Xie, Chence Shi, Hao Zhou, Yuwei Yang, Weinan Zhang, Yong Yu, and Lei Li. MARS: Markov molecular sampling for multi-objective drug discovery. In International Conference on Learning Representations , 2021. [56] Minkai Xu, Alexander S. Powers, Ron O. Dror, Stefano Ermon, and Jure Leskovec. Geometric latent diffusion models for 3d molecule generation. In Proceedings of the 40th International Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research ,pages 38592–38610. PMLR, 2023. [57] Mengjiao Yang, Yilun Du, Kamyar Ghasemipour, Jonathan Tompson, Dale Schuurmans, and Pieter Abbeel. Learning interactive real-world simulators. arXiv preprint , 2023. [58] Geyan Ye, Xibao Cai, Houtim Lai, Xing Wang, Junhong Huang, Longyue Wang, Wei Liu, and Xiangxiang Zeng. DrugAssist: A large language model for molecule optimization. Briefings in Bioinformatics , 26(1):bbae693, 2025. [59] Atsushi Yoshimori and Jürgen Bajorath. Deepas – chemical language model for the extension of active analogue series. Bioorganic & Medicinal Chemistry , 66:116808, 2022. [60] Jiaxuan You, Bowen Liu, Zhitao Ying, Vijay Pande, and Jure Leskovec. Graph convolutional policy network for goal-directed molecular graph generation. Advances in neural information processing systems , 31, 2018. [61] Chengxi Zang and Fei Wang. Moflow: an invertible flow model for generating molecular graphs. In Proceedings of the 26th ACM SIGKDD international conference on knowledge discovery & data mining , pages 617–626, 2020. [62] Barbara Zdrazil, Eloy Felix, Fiona Hunter, Emma J Manners, James Blackshaw, Sybilla Corbett, Marleen De Veij, Harris Ioannidis, David Mendez Lopez, Juan F Mosquera, et al. The chembl database in 2023: a drug discovery platform spanning multiple bioactivity data types and time periods. Nucleic acids research , 52(D1):D1180–D1192, 2024. [63] Wenchao Zhao, Sunsun Li, Huifeng Yao, Shaoqing Zhang, Yun Zhang, Bei Yang, and Jianhui Hou. Molecular optimization enables over 13% efficiency in organic solar cells. Journal of the American Chemical Society , 139(21):7148–7151, 2017. [64] Weihe Zhong, Ziduo Yang, and Calvin Yu-Chian Chen. Retrosynthesis prediction using an end-to-end graph generative architecture for molecular graph editing. Nature Communications ,14(1):3009, 2023. [65] Zhenpeng Zhou, Steven Kearnes, Li Li, Richard N Zare, and Patrick Riley. Optimization of molecules via deep reinforcement learning. Scientific reports , 9(1):10752, 2019. 14 A Additional Related Work 
+
+World Models. World models aim to build compact and actionable abstractions of the external world, enabling agents to reason about hidden dynamics, predict future states, and make decisions under uncertainty [ 6]. Existing studies can be broadly divided into two lines. The first line treats world models as latent representations for decision-making, especially in model-based reinforcement learning. Early neural world models learn compressed visual states and recurrent dynamics to support policy learning in imagination [ 17 ], while subsequent methods formulate control as learning latent dynamics and optimizing policies through imagined rollouts [ 18 , 19 , 20 , 21 ]. With the rise of large language and multimodal models, this view has been extended to embedding world knowledge in foundation models [ 16 , 36 ]. The second line views world models as future simulators. Recent video generation models show that large-scale generative models can capture temporal coherence, object persistence, and some physical regularities in visual sequences [ 3]. Recent work also moved to interactive simulators and embodied environments, where models generate future states conditioned on actions, language instructions, or multimodal observations [ 57 , 4, 25 ], especially in autonomous driving and robotics, where world models serve both as implicit scene-understanding modules and as simulators for counterfactual prediction, planning, and policy learning [ 52 , 54 , 37 ]. Incorporating world models into scientific discovery is a promising yet under-explored area. MDGen models full molecular trajectories as a time series of 3D structures and supports forward simulation [ 34 ]. Recent work further formulates protein-folding pathway prediction as a generative world-modeling problem [ 27 ]. This direction suggests that the scope of world models can extend from visual and embodied prediction to scientific simulation, where learning controllable future dynamics may accelerate biomedical discovery. 
+
+## B Implementation Details 
+
+We provide additional implementation details for M OL WORLD , including anchor context selection, generator training, and molecule world model training. Throughout all experiments, molecules are represented as nodes in a molecule-transfer graph, and graph edges correspond to valid local structural transformations. In implementation, these transfer edges are instantiated using matched molecular pair relations extracted by MMPDB 3.
+
+B.1 Anchor Context Selection 
+
+Anchor context selection determines where M OL WORLD performs generation in the current molecule-transfer graph. As described in Section 4.1.1, the goal is to select connected local contexts that are both promising for optimization and sufficiently diverse for exploration. We implement this procedure using connected-subgraph beam search followed by diversity-aware reranking. At iteration t, the current search state contains a molecule-transfer graph Gt = ( Vt, Et), a search trace Ht, and property observations Pt. Each molecule v ∈ V t may have an observed property value 
+
+st(v) if it belongs to the initial graph or has been evaluated during previous optimization steps. We denote whether this property signal is available by 
+
+rt(v) = 
+
+1, if v has an observed property value at iteration t, 
+
+0, otherwise . (18) For an anchor context Z ⊆ V t, the property score is computed from the molecules with available property observations: 
+
+Sprop (Z; Gt, P t) = 
+
+P 
+
+> v∈Z
+
+rt(v)st(v)
+
+P 
+
+> v∈Z
+
+rt(v) + ϵ − λmiss 1 − 1
+
+|Z|
+
+X
+
+> v∈Z
+
+rt(v)
+
+!
+
+, (19) where ϵ is a small constant for numerical stability. The first term favors anchor contexts with high observed property values, while the second term discourages contexts with sparse property information. The search trace Ht records how frequently each molecule has been used in previous anchor contexts. Let ct(v) be the usage count of molecule v before iteration t. We define an exploration score as 
+
+Sexplore (Z; Ht) = 1
+
+|Z|
+
+X
+
+> v∈Z
+
+1
+
+pct(v) + 1 . (20) This term favors anchor contexts containing less frequently used molecules. 
+
+> 3https://github.com/rdkit/mmpdb
+
+15 To avoid repeatedly selecting the same local region, we also use a repeat penalty. Let ρt(v) denote the most recent iteration before t in which molecule v appeared in a selected anchor context. The recency penalty is 
+
+Precent (Z; Ht) = 1
+
+|Z|
+
+X
+
+> v∈Z
+
+1[ρt(v) exists ] exp 
+
+
+
+− t − ρt(v)
+
+γ
+
+
+
+, (21) where γ controls the decay rate. We further define a visit-count penalty: 
+
+Pvisit (Z; Ht) = 1
+
+|Z|
+
+X
+
+> v∈Z
+
+log(1 + ct(v)) . (22) The final repeat penalty is 
+
+Srepeat (Z; Ht) = λvisit Pvisit (Z; Ht) + λrecent Precent (Z; Ht). (23) During beam search, each partial anchor context is expanded only through its graph frontier: 
+
+Ft(Z) = {u ∈ V t \ Z | ∃ v ∈ Z, (u, v ) ∈ E t}. (24) This ensures that every partial context and every completed anchor context remains connected in the molecule-transfer graph. Each partial context is scored by 
+
+Sbeam (Z) = Sprop (Z; Gt, P t) + αS explore (Z; Ht) − Srepeat (Z; Ht). (25) The beam is initialized from a mixture of high-property molecules and under-explored molecules. At each expansion step, partial contexts are expanded through the frontier in Eq. 24, scored by Eq. 25, and pruned to retain the top candidates. After expansion reaches the anchor size Ka, beam search returns a candidate pool of connected anchor contexts: 
+
+Ct = BeamSearch Ka (Gt, H t, P t) = {Ct, 1, . . . , C t,N }. (26) The candidate pool is then reranked to select a compact and diverse batch of anchor contexts for generation. Given previously selected contexts Z<b t = {Zt, 1, . . . , Z t,b −1}, each candidate is scored by 
+
+Srank (Z; Z<b t ) = Sprop (Z; Gt, P t) + αS explore (Z; Ht) − β max 
+
+> Z′∈Z <b t
+
+Jaccard( Z, Z ′), (27) where 
+
+Jaccard( Z, Z ′) = |Z ∩ Z′||Z ∪ Z′| . (28) The final anchor batch is selected greedily: 
+
+Zt,b = arg max 
+
+> Z∈C t\Z <b t
+
+Srank (Z; Z<b t ), Zt = {Zt, 1, . . . , Z t,B }. (29) After selecting Zt, the search trace is updated by increasing the usage counts and recent-selection records of molecules appearing in the selected anchor contexts: 
+
+Ht+1 = UpdateTrace( Ht, Zt). (30) This allows future anchor selection to account for which regions of the evolving molecule-transfer graph have already been explored. In our experiments, the anchor size is set to 5, the beam size is set to 1000, initialized with 100 high-property seed molecules and 200 under-explored or randomly sampled seed molecules. Each iteration selects 20 anchor contexts for generation. 
+
+B.2 Generator Training Details 
+
+The context-based generator is trained to complete local molecule-transfer patterns. Its goal is to generate a target molecule conditioned on a small context of related molecules, thereby learning both chemically valid molecular edits and the local transformation regularities present in analogue-series neighborhoods. 16 We train the generator in two stages. In the first stage, we initialize the sequence-to-sequence backbone from a molecular Transformer pretrained on pairwise molecular transformation data. This pretraining stage exposes the model to a broad range of molecular structures and local edits, and provides a general molecular generation prior. In the second stage, we insert a graph neural network fusion module and fine-tune the resulting hybrid model on graph-based subgraph completion tasks constructed from a ChEMBL-derived molecule-transfer graph. Each training instance consists of a local molecular context as input and one held-out related molecule as the target. This training scheme encourages the generator to combine broad molecular-edit knowledge from pairwise pretraining with local analogue-series pattern modeling from graph-based completion. To construct the molecule-transfer graph, we first apply MMPDB to extract matched molecular pairs from ChEMBL. This yields approximately 2.63 million matched molecular pairs. We then connect molecules appearing in these pairs into an undirected molecule-transfer graph, resulting in approximately 706k molecular nodes and 8.6 million edges. From this graph, we sample connected local subgraphs as training examples. Each sampled subgraph contains six molecules: five molecules are used as the input context, and the remaining molecule is held out as the target. We construct 300k such subgraph-completion examples and train the generator with supervised teacher forcing by maximizing the conditional likelihood of the target molecule given the context. Architecturally, we use T5Chem as the molecular sequence-to-sequence backbone. A two-layer GNN fusion module is inserted after the encoder to aggregate information across molecules in the input context before decoding the target molecule. Unless otherwise stated, the context length is five molecules, the GNN dropout rate is 0.1, and the GNN hidden dimension is set to match the hidden dimension of the Transformer backbone. The model is optimized with AdamW using a learning rate of 10 −4, weight decay of 10 −5, batch size 16, and maximum input and target lengths of 96 and 64 tokens, respectively. We train for three epochs and select the checkpoint with the lowest validation loss. We consider three fine-tuning regimes to assess the contribution of different model components: updating only the GNN module, updating the GNN and decoder, and updating the full model. In all cases, optimization is performed only over trainable parameters. For distributed training, validation losses are averaged across workers, and the best checkpoint is selected separately for each fine-tuning regime. At inference time, each selected anchor context is fed into the trained generator to propose candidate molecules. We use beam-search decoding and evaluate multiple beam sizes k ∈ { 1, 5, 10 , 20 }, with maximum generation length 64. Generated molecules are canonicalized, filtered for chemical validity, and deduplicated before downstream oracle evaluation. For the subgraph-completion evaluation, we report Hit@ k, where a prediction is counted as correct if any of the top-k decoded molecules is canonically equivalent to the held-out target molecule. 
+
+B.3 Molecule World Model and Graph Evolution 
+
+The molecule world model implements the graph-evolution step described in Section 4.2. Its role is to predict how retained generated molecules should be inserted into the current molecule-transfer graph. Given the current graph Gt and a generated molecule x, the model predicts whether x has a valid local transformation relation with each existing molecule u ∈ V t.Before graph insertion, raw generated strings are processed by molecular critique. This step canoni-calizes generated molecules, removes invalid molecules, removes duplicates, and filters molecules already present in the current graph: 
+
+Xt =
+
+n
+
+canon( x) | x ∈ eXt, valid( x) = 1 , canon( x) /∈ V t
+
+o
+
+. (31) The retained candidates are then evaluated by the target oracle and inserted into the evolving search state according to Eq. 16. We implement the molecule world model as a graph link prediction model. Each molecule v is first mapped to an initial molecular representation: 
+
+hv = Feat( v), zv = GNN ϕ(hv , G t), (32) where hv denotes the molecular feature vector and zv denotes the graph-contextualized representation after message passing over the molecule-transfer graph. The world model is trained on molecule-transfer graphs constructed from known local transformation relations. Observed transfer edges are used as positive examples, and non-edge molecule pairs are 17 sampled as negative examples. Given labeled training pairs Dlink , the training objective is 
+
+Lworld = − X
+
+> (u,v,y )∈D link
+
+[y log pϕ(u ∼ v) + (1 − y) log(1 − pϕ(u ∼ v))] , (33) where y = 1 indicates an observed transfer edge and y = 0 indicates a sampled negative pair. During optimization, the trained world model predicts insertion edges between retained generated molecules and the current graph. Consistent with Eq. 17, predicted edges whose probabilities exceed the threshold τ are inserted: 
+
+bEt = {(x, u ) | x ∈ X t, u ∈ V t, p ϕ(x ∼ u | x, u, G t) > τ }. (34) The resulting graph becomes the molecule-transfer graph for the next iteration, allowing future anchor contexts to include both initial molecules and previously generated molecules. 
+
+Training of link prediction model. We train an inductive molecule-molecule link prediction model on the same ChEMBL graph, where nodes are SMILES molecules and edges are treated as unweighted. Node features are RDKit Morgan fingerprints (radius = 2 , default length = 512 ). For strict inductive evaluation, nodes are randomly partitioned into train/validation/test sets with an 80/10/10 split (seed 
+
+= 42 ); positive edges are assigned to a split only when both endpoints fall in that split, yielding node-disjoint edge subsets. The encoder is a 2-layer GCN ( GCNConv ) with hidden/output dimensions 
+
+256 /128 , ReLU and dropout ( p = 0 .2) between layers, and training-message passing is performed on the undirected train-positive graph with uniform edge weight 1.0. Link scores are computed by dot-product decoding suv = z⊤ 
+
+> u
+
+zv , and optimization uses Adam ( lr = 10 −3, weight decay = 10 −5,
+
+80 epochs) with balanced binary cross-entropy over positive edges and dynamically resampled 1:1 negative edges each epoch (sparse negative sampling). Validation/test negatives are similarly sampled at 1:1 ratio within each split-specific node set. 
+
+Evaluation of link prediction model. The molecule world model is responsible for predicting whether a retained generated molecule should be connected to existing molecules in the evolving molecule-transfer graph. Since inaccurate edge predictions could distort the graph state and artificially improve graph-level connectivity metrics, we evaluate the link prediction module independently from the downstream optimization tasks. We construct a binary link prediction benchmark from the molecule-transfer graph induced by matched molecular pair relations. Positive examples correspond to molecule pairs connected by a valid MMP edge, while negative examples are sampled from non-edge molecule pairs. The evaluation is performed on held-out molecule pairs that are not used for training the link predictor. We report standard binary classification metrics, including accuracy, F1 score, precision, and recall. Table 2: Independent evaluation of the molecule world model for MMP link prediction. Positive labels correspond to valid molecule-transfer edges, and negative labels correspond to non-edge molecule pairs. Metric Value Accuracy 0.9424 F1 score 0.9422 Precision 0.9461 Recall 0.9384 As shown in Table 2, the molecule world model achieves an accuracy of 0.9424 and an F1 score of 0.9422. The precision of 0.9461 indicates that most predicted transfer edges correspond to true MMP edges, which is important because false-positive edges would overestimate the reachability of generated molecules. The recall of 0.9384 further shows that the model preserves most valid local transfer relations, reducing the risk of prematurely discarding generated molecules that could be connected to the evolving graph. These results support the reliability of the world model as a learned graph-evolution component. 
+
+B.4 Optimization Protocol 
+
+At each iteration, M OL WORLD selects anchor contexts from the current molecule-transfer graph, generates candidate molecules from each anchor context, evaluates retained candidates with the target oracle, and updates the search state using the molecule world model. Generated molecules are canonicalized and deduplicated before oracle evaluation. The updated molecule-transfer graph is then used for the next iteration. For property optimization, the oracle budget is 10000 for ZINC250 18 and 1000 for PMV21. For docking-based optimization, the oracle budget is 1000. All experiments are repeated with 3 random seeds and conducted on a server equipped with an AMD EPYC 7413 CPU, 125 GiB system memory, and an NVIDIA RTX A6000 GPU with 48 GB of memory. Each run was submitted through Slurm and typically used one GPU and two CPU cores. The property optimization experiments on ZINC250 and PMV21 requested 16 GB of memory, while the docking experiments requested 8 GB of memory. 
+
+## C Additional Experimental Details 
+
+C.1 Baseline Details 
+
+We provide brief descriptions of the baseline methods used in our experiments. All baselines are evaluated under the same oracle budgets and task settings as M OL WORLD .
+
+GraphGA. GraphGA [ 29 ] is a graph-based genetic algorithm for molecular optimization. It maintains a population of molecules and iteratively generates new candidates through molecular mutation and crossover operations. The population is updated according to oracle scores, allowing the search process to favor molecules with improved properties over successive generations. 
+
+MOLLEO. MOLLEO [ 51 ] is a recent molecule optimization method that combines evolutionary search with large language model-based molecular editing. It uses LLM-guided mutation and crossover operations to propose chemically meaningful candidates, and then selects molecules based on oracle feedback. This makes it a strong search-based baseline under limited oracle budgets. 
+
+REINVENT. REINVENT [ 42 ] is a reinforcement-learning-based molecular generation method built on a SMILES generative model. Starting from a pretrained prior model, it updates the gener-ator using oracle-based rewards so that generated molecules are biased toward desired molecular properties. 
+
+Augmented Memory. Augmented Memory [ 15 ] is a reinforcement-learning-based molecular optimization method that improves sample efficiency by reusing high-scoring molecules observed during optimization. The memory mechanism helps preserve promising molecular patterns and stabilizes oracle-guided generator updates. 
+
+GP-BO. GP-BO [ 49 ] applies Bayesian optimization to molecular optimization. It trains a Gaussian process surrogate model to approximate the oracle function over molecular representations and uses the surrogate to guide the selection of promising candidate molecules. These baselines provide representative comparisons against existing molecular optimization methods that search for high-scoring molecules using oracle feedback. Unlike these methods, M OL WORLD 
+
+performs optimization over an evolving molecule network, where generated molecules are incorpo-rated back into the search state and used to support subsequent generation. 
+
+C.2 Docking Protocol 
+
+Task 2 evaluates generated molecules using docking-based oracles from the Therapeutics Data Com-mons (TDC). The three targets are DRD3, EGFR, and A2AR, corresponding to the PDB structures 3PBL, 2RGP, and 3EML, respectively. The TDC docking oracles are executed through the PyScreener AutoDock Vina backend, rather than through a custom repository-local Vina implementation. For each molecule, the oracle returns the best Vina binding affinity among the generated poses; therefore, lower docking scores indicate stronger predicted binding. Receptor structures are provided as the prepared PDB files oracle/3pbl.pdb , oracle/2rgp.pdb ,and oracle/3eml.pdb . During docking, PyScreener converts these receptor files to PDBQT format using the external prepare_receptor utility. The receptor files used in the evaluation do not contain water molecules or other HETATM records, and no additional protein minimization step is applied in the inspected evaluation pipeline. For ligand preparation, generated SMILES strings are parsed with RDKit, hydrogens are added, 3D conformers are generated using RDKit distance-geometry embedding, and the resulting conformers are minimized with the MMFF force field. The minimized ligands are then converted through OpenBabel/Pybel, assigned Gasteiger charges, and written in PDBQT format for docking. No explicit protonation-state enumeration, tautomer enumeration, or additional chemistry standardization is applied beyond SMILES parsing and hydrogen addition. The docking box centers and sizes are inherited from the TDC metadata and are summarized in Table 3. The Vina parameters follow the PyScreener defaults: exhaustiveness is set to 8, the number of output poses is 9, the energy range is 3.0 kcal/mol, and each docking call uses 4 CPU threads. No 19 Table 3: Docking settings used for the three Task 2 targets. Docking boxes are inherited from TDC metadata. 
+
+Target PDB ID Box center (x, y, z ) Box size (x, y, z ) Exhaustiveness Poses DRD3 3PBL (9 , 22 .5, 26) (15 , 15 , 15) 8 9EGFR 2RGP (16 .2921 , 34 .8708 , 92 .0353) (15 , 15 , 15) 8 9A2AR 3EML (−9.0636 , −7.1446 , 55 .8626) (15 , 15 , 15) 8 9
+
+Table 4: Detailed reachable-generated-molecule property optimization results on ZINC250 with 10,000 oracle calls. Results are reported as mean ± standard deviation across three runs. Higher is better for AUC and average degree; lower is better for isolated node ratio.                                                                                                                                                                                                                                                                                                                                                                               
+
+> Metric Model AUC@1 AUC@10 AUC@100 Iso. ↓Degree ↑
+> qed GraphGA 0.9463 ±0.0002 0.9383 ±0.0014 0.9083 ±0.0023 0.6223 ±0.0135 0.8467 ±0.0831 REINVENT 0.9466 ±0.0004 0.9409 ±0.0005 0.9111 ±0.0020 0.4675 ±0.0761 2.9545 ±1.3309 Aug-Mem 0.9462 ±0.0004 0.9388 ±0.0004 0.8996 ±0.0038 0.5863 ±0.0285 2.8359 ±0.6664 GP-BO 0.9433 ±0.0020 0.9359 ±0.0023 0.9089 ±0.0016 0.6174 ±0.0391 0.9397 ±0.2354 MOLLEO 0.9440 ±0.0015 0.9368 ±0.0032 0.9107 ±0.0087 0.5824 ±0.0217 1.1310 ±0.1635 MolWorld 0.9482 ±0.0000 0.9481 ±0.0000 0.9472 ±0.0001 0.0272 ±0.0033 12.5625 ±1.1693
+> jnk3 GraphGA 0.6372 ±0.1695 0.6065 ±0.1640 0.5502 ±0.1520 0.3799 ±0.0361 6.2139 ±1.5829 REINVENT 0.8087 ±0.0331 0.7767 ±0.0333 0.7302 ±0.0342 0.2645 ±0.0318 35.5800 ±15.1864 Aug-Mem 0.8050 ±0.0719 0.7706 ±0.0792 0.7135 ±0.0769 0.5348 ±0.0761 8.2912 ±4.0764 GP-BO 0.4032 ±0.1313 0.3634 ±0.1578 0.3213 ±0.1721 0.0989 ±0.0609 28.5221 ±22.5681 MOLLEO 0.8491 ±0.0305 0.8260 ±0.0306 0.7764 ±0.0355 0.2335 ±0.0050 10.9015 ±2.7359 MolWorld 0.9473 ±0.0132 0.8201 ±0.0643 0.7794 ±0.1106 0.0179 ±0.0026 54.2610 ±54.6174
+> drd2 GraphGA 0.9464 ±0.0249 0.8988 ±0.0893 0.7725 ±0.2474 0.4417 ±0.0563 2.9932 ±1.2693 REINVENT 0.9599 ±0.0084 0.9346 ±0.0082 0.8912 ±0.0085 0.2949 ±0.0588 23.9205 ±12.3922 Aug-Mem 0.9464 ±0.0231 0.9201 ±0.0235 0.8639 ±0.0336 0.5234 ±0.0798 5.8850 ±1.9058 GP-BO 0.9603 ±0.0157 0.9315 ±0.0225 0.8753 ±0.0218 0.0765 ±0.0283 32.4271 ±6.0065 MOLLEO 0.9891 ±0.0021 0.9819 ±0.0006 0.9576 ±0.0011 0.3778 ±0.0863 2.7038 ±0.8870 MolWorld 0.9993 ±0.0000 0.9970 ±0.0000 0.9894 ±0.0001 0.0039 ±0.0010 58.9239 ±29.3915
+> gsk3b GraphGA 0.7982 ±0.0794 0.7574 ±0.0962 0.7023 ±0.1042 0.3594 ±0.1090 16.0579 ±13.4906 REINVENT 0.8797 ±0.0358 0.8443 ±0.0373 0.7913 ±0.0390 0.3163 ±0.0575 31.5371 ±13.0861 Aug-Mem 0.8892 ±0.0084 0.8472 ±0.0089 0.7674 ±0.0217 0.6901 ±0.1151 3.0238 ±1.7847 GP-BO 0.9154 ±0.0678 0.8803 ±0.0715 0.8317 ±0.0736 0.1378 ±0.0686 53.6171 ±25.2326
+> MOLLEO 0.9446 ±0.0125 0.9127 ±0.0197 0.8459 ±0.0210 0.2045 ±0.0658 28.5696 ±21.8408 MolWorld 0.9977 ±0.0000 0.9679 ±0.0045 0.9148 ±0.0020 0.0118 ±0.0079 19.4698 ±1.1292
+
+fixed Vina random seed is specified in the docking command. Invalid SMILES strings are filtered before evaluation, and duplicate canonical SMILES are removed in the world-model evaluation path. No explicit molecular-weight, LogP, QED, synthetic-accessibility-score, or reactive-substructure filtering is applied during docking evaluation. 
+
+C.3 Additional Property Optimization Results 
+
+This section provides detailed property optimization results with standard deviations. Tables 4 and 5 report the reachable-generated-molecule evaluation on ZINC250 and PMV21, respectively. For completeness, Tables 6 and 7 provide the corresponding results computed over all generated molecules. ZINC250 results are evaluated with 10,000 oracle calls, while PMV21 results are evaluated with 1,000 oracle calls. All results are reported as mean ± standard deviation across three runs. Overall, M OL WORLD maintains strong performance under both evaluation settings, showing consistent advantages across datasets and tasks. 
+
+C.4 Optimization Dynamics 
+
+We analyze the optimization dynamics of different methods by plotting the top-10 running average oracle score as a function of oracle calls. Figure 6 show how efficiently each method discovers high-quality molecules under the same oracle budget. MOL WORLD shows faster improvement on more challenging tasks such as JNK3 and GSK3 β,reaching strong top-10 performance earlier than most baselines. On relatively easier tasks such as DRD2 and QED, most methods improve quickly, while M OL WORLD remains competitive throughout the search process. Overall, these results suggest that M OL WORLD can efficiently guide molecular search toward high-quality regions while maintaining stable optimization dynamics under fixed oracle budgets. 20 Table 5: Detailed reachable-generated-molecule property optimization results on PMV21 with 1,000 oracle calls. Results are reported as mean ± standard deviation across three runs. Higher is better for AUC and average degree; lower is better for isolated node ratio. 
+
+Metric Model AUC@1 AUC@10 AUC@100 Iso. ↓ Degree ↑
+
+qed GraphGA 0.8964 ± 0.0023 0.8591 ± 0.0036 0.7413 ± 0.0038 0.4763 ± 0.0369 3.1177 ± 0.2235 REINVENT 0.8816 ± 0.0421 0.6047 ± 0.1183 0.0898 ± 0.0289 0.9763 ± 0.0071 0.0247 ± 0.0082 Aug-Mem 0.6961 ± 0.0692 0.1786 ± 0.1081 0.0180 ± 0.0109 0.9940 ± 0.0043 0.0060 ± 0.0043 GP-BO 0.8268 ± 0.0119 0.7736 ± 0.0042 0.6796 ± 0.0032 0.2033 ± 0.0147 12.5507 ± 0.9550 MOLLEO 0.8943 ± 0.0088 0.8559 ± 0.0072 0.7405 ± 0.0045 0.4693 ± 0.0235 3.0390 ± 0.1566 MolWorld 0.9176 ± 0.0000 0.8979 ± 0.0000 0.8474 ± 0.0000 0.0501 ± 0.0000 29.9079 ± 0.0000 
+
+jnk3 GraphGA 0.1977 ± 0.0208 0.1541 ± 0.0142 0.1026 ± 0.0061 0.3237 ± 0.0140 6.6723 ± 0.0349 REINVENT 0.1498 ± 0.0282 0.0908 ± 0.0202 0.0264 ± 0.0125 0.9073 ± 0.0312 0.2320 ± 0.1458 Aug-Mem 0.1991 ± 0.0589 0.0745 ± 0.0376 0.0087 ± 0.0053 0.9807 ± 0.0111 0.0233 ± 0.0146 GP-BO 0.2941 ± 0.0492 0.2397 ± 0.0348 0.1405 ± 0.0126 0.2603 ± 0.0336 10.7317 ± 0.5210 MOLLEO 0.2381 ± 0.0181 0.1923 ± 0.0107 0.1249 ± 0.0041 0.2737 ± 0.0303 7.1437 ± 0.4161 MolWorld 0.2991 ± 0.0133 0.2543 ± 0.0121 0.1918 ± 0.0073 0.0024 ± 0.0013 58.4911 ± 9.0523 
+
+drd2 GraphGA 0.8967 ± 0.0232 0.8245 ± 0.0163 0.5344 ± 0.0095 0.3353 ± 0.0106 5.3493 ± 0.5848 REINVENT 0.7116 ± 0.0269 0.4507 ± 0.0399 0.0958 ± 0.0111 0.9230 ± 0.0085 0.2967 ± 0.1606 Aug-Mem 0.6757 ± 0.0953 0.3896 ± 0.1752 0.0861 ± 0.0812 0.9567 ± 0.0415 0.0793 ± 0.0910 GP-BO 0.9247 ± 0.0110 0.8376 ± 0.0210 0.5462 ± 0.0339 0.1467 ± 0.0039 14.1423 ± 0.4607 MOLLEO 0.9354 ± 0.0011 0.8920 ± 0.0014 0.6638 ± 0.0046 0.3840 ± 0.0208 4.3993 ± 0.3764 MolWorld 0.9564 ± 0.0003 0.9463 ± 0.0000 0.8977 ± 0.0008 0.0007 ± 0.0005 79.5481 ± 4.2188 
+
+gsk3b GraphGA 0.3375 ± 0.0169 0.2881 ± 0.0225 0.2021 ± 0.0201 0.3467 ± 0.0130 5.8117 ± 0.6718 REINVENT 0.3677 ± 0.2013 0.1719 ± 0.1145 0.0208 ± 0.0153 0.9813 ± 0.0078 0.0267 ± 0.0154 Aug-Mem 0.1719 ± 0.1190 0.0494 ± 0.0354 0.0049 ± 0.0035 0.9933 ± 0.0034 0.0067 ± 0.0034 GP-BO 0.4486 ± 0.0330 0.3982 ± 0.0346 0.2719 ± 0.0283 0.2590 ± 0.0364 10.7700 ± 0.3050 MOLLEO 0.5105 ± 0.0835 0.4153 ± 0.0709 0.2785 ± 0.0410 0.3293 ± 0.0058 5.3533 ± 0.3375 MolWorld 0.4956 ± 0.0367 0.4692 ± 0.0345 0.4094 ± 0.0288 0.0024 ± 0.0005 99.5469 ± 19.9433 
+
+Figure 6: Optimization dynamics on ZINC250. Top-10 running average oracle score as a function of oracle calls across four tasks. 
+
+C.5 Additional Ablation Results 
+
+Figure 7 provides the full ablation results on all four PMV21 tasks. The overall trend is consistent across tasks: M OL WORLD produces generated molecule distributions that are more concentrated in the high-score regions, while each ablation variant leads to a visible shift toward lower-score regions. This confirms that anchor context selection, context-based generation, and world model-based graph evolution all contribute to the optimization performance of M OL WORLD .21 Table 6: Detailed property optimization results on ZINC with 10,000 oracle calls. Results are reported as mean ± standard deviation across three runs. Higher is better for AUC and average degree; lower is better for isolated node ratio. 
+
+Metric Model AUC@1 AUC@10 AUC@100 Iso. ↓ Degree ↑
+
+qed GraphGA 0.9472 ± 0.0000 0.9416 ± 0.0007 0.9211 ± 0.0016 0.6209 ± 0.0127 0.8520 ± 0.0811 MOLLEO 0.9442 ± 0.0014 0.9383 ± 0.0022 0.9182 ± 0.0046 0.5827 ± 0.0219 1.1323 ± 0.1616 REINVENT 0.9480 ± 0.0001 0.9450 ± 0.0004 0.9352 ± 0.0011 0.4672 ± 0.0757 2.9547 ± 1.3309 Aug-Mem 0.9479 ± 0.0001 0.9460 ± 0.0002 0.9381 ± 0.0005 0.5863 ± 0.0285 2.8359 ± 0.6664 GP-BO 0.9446 ± 0.0015 0.9383 ± 0.0023 0.9174 ± 0.0030 0.6172 ± 0.0392 0.9434 ± 0.2358 NFBO 0.9476 ± 0.0001 0.9456 ± 0.0004 0.9351 ± 0.0005 0.4490 ± 0.0208 3.4350 ± 0.5014 MOL WORLD 0.9482 ± 0.0000 0.9481 ± 0.0000 0.9475 ± 0.0000 0.0272 ± 0.0033 12.5625 ± 1.1693 
+
+jnk3 GraphGA 0.6395 ± 0.1697 0.6093 ± 0.1644 0.5537 ± 0.1529 0.3802 ± 0.0352 6.1910 ± 1.5714 MOLLEO 0.8503 ± 0.0290 0.8266 ± 0.0302 0.7784 ± 0.0355 0.2334 ± 0.0050 10.9031 ± 2.7380 REINVENT 0.8122 ± 0.0322 0.7829 ± 0.0334 0.7397 ± 0.0352 0.2647 ± 0.0316 35.4058 ± 15.0836 Aug-Mem 0.8158 ± 0.0741 0.7864 ± 0.0821 0.7424 ± 0.0808 0.5348 ± 0.0761 8.2912 ± 4.0764 GP-BO 0.4163 ± 0.1121 0.3719 ± 0.1451 0.3239 ± 0.1701 0.0991 ± 0.0613 28.4886 ± 22.5932 NFBO 0.8995 ± 0.0235 0.8493 ± 0.0211 0.7508 ± 0.0189 0.3479 ± 0.0231 359.5501 ± 360.5875 
+
+MOL WORLD 0.9473 ± 0.0132 0.9201 ± 0.0643 0.8895 ± 0.1107 0.0179 ± 0.0026 54.2610 ± 54.6174 drd2 GraphGA 0.9505 ± 0.0260 0.9122 ± 0.0683 0.7923 ± 0.2169 0.4411 ± 0.0564 2.9963 ± 1.2665 MOLLEO 0.9894 ± 0.0016 0.9826 ± 0.0005 0.9615 ± 0.0010 0.3778 ± 0.0863 2.7076 ± 0.8824 REINVENT 0.9686 ± 0.0060 0.9458 ± 0.0057 0.9087 ± 0.0053 0.2947 ± 0.0587 23.9207 ± 12.3923 Aug-Mem 0.9786 ± 0.0129 0.9621 ± 0.0069 0.9377 ± 0.0110 0.5234 ± 0.0798 5.8850 ± 1.9058 GP-BO 0.9609 ± 0.0150 0.9322 ± 0.0215 0.8761 ± 0.0214 0.0763 ± 0.0281 32.5879 ± 5.8427 NFBO 0.9974 ± 0.0017 0.9908 ± 0.0046 0.9607 ± 0.0066 0.2923 ± 0.0022 22.1955 ± 2.4160 MOL WORLD 0.9993 ± 0.0000 0.9970 ± 0.0000 0.9894 ± 0.0001 0.0039 ± 0.0010 58.9239 ± 29.3915 
+
+gsk3b GraphGA 0.8058 ± 0.0776 0.7609 ± 0.0951 0.7061 ± 0.1030 0.3591 ± 0.1088 16.0595 ± 13.4905 MOLLEO 0.9446 ± 0.0125 0.9129 ± 0.0194 0.8481 ± 0.0204 0.2045 ± 0.0658 28.5698 ± 21.8406 REINVENT 0.8950 ± 0.0278 0.8594 ± 0.0349 0.8139 ± 0.0387 0.3161 ± 0.0575 31.5373 ± 13.0862 Aug-Mem 0.9165 ± 0.0106 0.8814 ± 0.0077 0.8263 ± 0.0120 0.6901 ± 0.1151 3.0238 ± 1.7847 GP-BO 0.9158 ± 0.0672 0.8808 ± 0.0708 0.8332 ± 0.0728 0.1379 ± 0.0687 53.6170 ± 25.2328 NFBO 0.9909 ± 0.0019 0.9779 ± 0.0008 0.9167 ± 0.0033 0.3639 ± 0.0387 119.3908 ± 103.7946 
+
+MOL WORLD 0.9977 ± 0.0000 0.9679 ± 0.0045 0.9148 ± 0.0020 0.0118 ± 0.0079 19.4698 ± 1.1292 
+
+C.6 Additional Generated Molecule Distribution Results 
+
+We provide additional generated molecule distribution visualizations on QED, JNK3, and DRD2 in Figures 8, 9, and 10. For each task, the left panel shows the UMAP projection of initial and generated molecules, and the right panel shows oracle-score progression over generation order with a 10-step moving-average curve. Consistent with the GSK3 β result in the main text, M OL WORLD 
+
+progressively expands from the initial molecule-transfer graph toward higher-scoring regions of the molecular space. 
+
+C.7 Anchor Context Evolution 
+
+We further analyze how the selected anchor contexts evolve during optimization, as shown in Figure 11. Each anchor context contains five molecules that define the local generation region. Blue bars denote molecules from the initial molecule-transfer graph, while light, medium, and dark green bars denote generated molecules discovered in early, middle, and late optimization stages, respectively. Across all tasks, anchor contexts quickly shift from initial molecules to newly generated molecules after the early iterations. The number of initial molecules used in anchor contexts increases only at the beginning and then stabilizes, while generated molecules become the dominant source of later anchor contexts. This confirms the self-expanding behavior of M OL WORLD : newly generated molecules are incorporated into the evolving molecule-transfer graph and reused to guide subsequent generation. As a result, M OL WORLD can progressively build upon its own generated molecules rather than repeatedly sampling from the initial graph. 22 Table 7: Detailed property optimization results on PMV21 with 1,000 oracle calls. Results are reported as mean ± standard deviation across three runs. Higher is better for AUC and average degree; lower is better for isolated node ratio. 
+
+Metric Model AUC@1 AUC@10 AUC@100 Iso. ↓ Degree ↑
+
+qed GraphGA 0.8966 ± 0.0022 0.8641 ± 0.0031 0.7620 ± 0.0017 0.4763 ± 0.0369 3.1177 ± 0.2235 MOLLEO 0.8948 ± 0.0089 0.8579 ± 0.0065 0.7568 ± 0.0023 0.4693 ± 0.0235 3.0390 ± 0.1566 REINVENT 0.9442 ± 0.0020 0.9279 ± 0.0021 0.8700 ± 0.0085 0.9763 ± 0.0071 0.0247 ± 0.0082 Aug-Mem 0.9436 ± 0.0009 0.9281 ± 0.0013 0.8748 ± 0.0065 0.9940 ± 0.0043 0.0060 ± 0.0043 GP-BO 0.8294 ± 0.0145 0.7750 ± 0.0035 0.6860 ± 0.0025 0.2033 ± 0.0147 12.5507 ± 0.9550 NFBO 0.9448 ± 0.0013 0.9299 ± 0.0029 0.8735 ± 0.0042 0.3739 ± 0.0122 4.8319 ± 1.0980 MOL WORLD 0.9448 ± 0.0000 0.9279 ± 0.0000 0.8678 ± 0.0000 0.0501 ± 0.0000 29.9079 ± 0.0000 
+
+jnk3 GraphGA 0.1977 ± 0.0208 0.1546 ± 0.0140 0.1040 ± 0.0058 0.3237 ± 0.0140 6.6723 ± 0.0349 MOLLEO 0.2424 ± 0.0121 0.1944 ± 0.0087 0.1271 ± 0.0037 0.2737 ± 0.0303 7.1437 ± 0.4161 REINVENT 0.2240 ± 0.0323 0.1553 ± 0.0050 0.0942 ± 0.0037 0.9073 ± 0.0312 0.2320 ± 0.1458 Aug-Mem 0.4047 ± 0.0611 0.2610 ± 0.0464 0.1286 ± 0.0228 0.9807 ± 0.0111 0.0233 ± 0.0146 GP-BO 0.3080 ± 0.0392 0.2570 ± 0.0268 0.1633 ± 0.0098 0.2603 ± 0.0336 10.7317 ± 0.5210 NFBO 0.2252 ± 0.0090 0.1925 ± 0.0036 0.1341 ± 0.0023 0.3191 ± 0.0180 6.3131 ± 3.0930 MOL WORLD 0.2893 ± 0.0132 0.2744 ± 0.0120 0.2322 ± 0.0072 0.0024 ± 0.0013 58.4911 ± 9.0523 
+
+drd2 GraphGA 0.8969 ± 0.0229 0.8263 ± 0.0185 0.5458 ± 0.0056 0.3353 ± 0.0106 5.3493 ± 0.5848 MOLLEO 0.9357 ± 0.0012 0.8941 ± 0.0018 0.6843 ± 0.0092 0.3840 ± 0.0208 4.3993 ± 0.3764 REINVENT 0.7426 ± 0.0127 0.5752 ± 0.0255 0.2616 ± 0.0188 0.9230 ± 0.0085 0.2967 ± 0.1606 Aug-Mem 0.8603 ± 0.0303 0.7359 ± 0.0328 0.4920 ± 0.0253 0.9567 ± 0.0415 0.0793 ± 0.0910 GP-BO 0.9248 ± 0.0110 0.8411 ± 0.0190 0.5635 ± 0.0355 0.1467 ± 0.0039 14.1423 ± 0.4607 NFBO 0.9706 ± 0.0001 0.9362 ± 0.0057 0.7868 ± 0.0023 0.2750 ± 0.0001 10.8090 ± 2.4900 MOL WORLD 0.9564 ± 0.0003 0.9463 ± 0.0000 0.8977 ± 0.0008 0.0007 ± 0.0005 79.5481 ± 4.2188 
+
+gsk3b GraphGA 0.3387 ± 0.0171 0.2905 ± 0.0220 0.2053 ± 0.0202 0.3467 ± 0.0130 5.8117 ± 0.6718 MOLLEO 0.5171 ± 0.0760 0.4187 ± 0.0702 0.2857 ± 0.0434 0.3293 ± 0.0058 5.3533 ± 0.3375 REINVENT 0.5519 ± 0.0728 0.3934 ± 0.0633 0.2049 ± 0.0419 0.9813 ± 0.0078 0.0267 ± 0.0154 Aug-Mem 0.5665 ± 0.0581 0.4228 ± 0.0525 0.2529 ± 0.0491 0.9933 ± 0.0034 0.0067 ± 0.0034 GP-BO 0.4651 ± 0.0208 0.4163 ± 0.0230 0.2968 ± 0.0227 0.2590 ± 0.0364 10.7700 ± 0.3050 NFBO 0.6808 ± 0.0027 0.6059 ± 0.0022 0.4001 ± 0.0019 0.4744 ± 0.0009 3.3470 ± 0.9729 MOL WORLD 0.4956 ± 0.0367 0.4692 ± 0.0345 0.4094 ± 0.0288 0.0024 ± 0.0005 99.5469 ± 19.9433 
+
+Figure 7: Additional ablation results on PMV21. Generated molecule score distributions are shown across all four tasks. 23 Figure 8: Generated molecule distribution and oracle-score progression of M OL WORLD on QED. (Best viewed in color.) 
+
+Figure 9: Generated molecule distribution and oracle-score progression of M OL WORLD on JNK3. (Best viewed in color.) 
+
+Figure 10: Generated molecule distribution and oracle-score progression of M OL WORLD on DRD2. (Best viewed in color.) 24 Figure 11: Evolution of anchor context sources across iterations. Blue bars denote molecules from the initial molecule-transfer graph, while light, medium, and dark green bars denote generated molecules discovered in early, middle, and late optimization stages. 25 NeurIPS Paper Checklist 
+
+The checklist is designed to encourage best practices for responsible machine learning research, addressing issues of reproducibility, transparency, research ethics, and societal impact. Do not remove the checklist: The papers not including the checklist will be desk rejected. The checklist should follow the references and follow the (optional) supplemental material. The checklist does NOT count towards the page limit. Please read the checklist guidelines carefully for information on how to answer these questions. For each question in the checklist: • You should answer [Yes], [No], or [N/A]. • [N/A] means either that the question is Not Applicable for that particular paper or the relevant information is Not Available. • Please provide a short (1–2 sentence) justification right after your answer (even for [N/A]). 
+
+The checklist answers are an integral part of your paper submission. They are visible to the reviewers, area chairs, senior area chairs, and ethics reviewers. You will also be asked to include it (after eventual revisions) with the final version of your paper, and its final version will be published with the paper. The reviewers of your paper will be asked to use the checklist as one of the factors in their evaluation. While [Yes] is generally preferable to [No], it is perfectly acceptable to answer [No] provided a proper justification is given (e.g., error bars are not reported because it would be too computationally expensive” or “we were unable to find the license for the dataset we used”). In general, answering [No] or [N/A] is not grounds for rejection. While the questions are phrased in a binary way, we acknowledge that the true answer is often more nuanced, so please just use your best judgment and write a justification to elaborate. All supporting evidence can appear either in the main paper or the supplemental material, provided in appendix. If you answer [Yes] to a question, in the justification please point to the section(s) where related material for the question can be found. IMPORTANT, please: • Delete this instruction block, but keep the section heading “NeurIPS Paper Checklist" ,• Keep the checklist subsection headings, questions/answers and guidelines below. 
+
+• Do not modify the questions and only use the provided macros for your answers .1. Claims 
+
+Question: Do the main claims made in the abstract and introduction accurately reflect the paper’s contributions and scope? Answer: [Yes] Justification: We study actionable molecular optimization; this contribution is both accurately expressed and well supported by experiments. Guidelines: • The answer [N/A] means that the abstract and introduction do not include the claims made in the paper. • The abstract and/or introduction should clearly state the claims made, including the contributions made in the paper and important assumptions and limitations. A [No] or [N/A] answer to this question will not be perceived well by the reviewers. • The claims made should match theoretical and experimental results, and reflect how much the results can be expected to generalize to other settings. • It is fine to include aspirational goals as motivation as long as it is clear that these goals are not attained by the paper. 2. Limitations 
+
+Question: Does the paper discuss the limitations of the work performed by the authors? Answer: [Yes] Justification: In Section 6. Guidelines: • The answer [N/A] means that the paper has no limitation while the answer [No] means that the paper has limitations, but those are not discussed in the paper. • The authors are encouraged to create a separate “Limitations” section in their paper. • The paper should point out any strong assumptions and how robust the results are to violations of these assumptions (e.g., independence assumptions, noiseless settings, model well-specification, asymptotic approximations only holding locally). The authors should reflect on how these assumptions might be violated in practice and what the implications would be. 26 • The authors should reflect on the scope of the claims made, e.g., if the approach was only tested on a few datasets or with a few runs. In general, empirical results often depend on implicit assumptions, which should be articulated. • The authors should reflect on the factors that influence the performance of the approach. For example, a facial recognition algorithm may perform poorly when image resolution is low or images are taken in low lighting. Or a speech-to-text system might not be used reliably to provide closed captions for online lectures because it fails to handle technical jargon. • The authors should discuss the computational efficiency of the proposed algorithms and how they scale with dataset size. • If applicable, the authors should discuss possible limitations of their approach to address problems of privacy and fairness. • While the authors might fear that complete honesty about limitations might be used by reviewers as grounds for rejection, a worse outcome might be that reviewers discover limitations that aren’t acknowledged in the paper. The authors should use their best judgment and recognize that individual actions in favor of transparency play an important role in developing norms that preserve the integrity of the community. Reviewers will be specifically instructed to not penalize honesty concerning limitations. 3. Theory assumptions and proofs 
+
+Question: For each theoretical result, does the paper provide the full set of assumptions and a complete (and correct) proof? Answer: [N/A] Justification: No theoretical results. Guidelines: • The answer [N/A] means that the paper does not include theoretical results. • All the theorems, formulas, and proofs in the paper should be numbered and cross-referenced. • All assumptions should be clearly stated or referenced in the statement of any theorems. • The proofs can either appear in the main paper or the supplemental material, but if they appear in the supplemental material, the authors are encouraged to provide a short proof sketch to provide intuition. • Inversely, any informal proof provided in the core of the paper should be complemented by formal proofs provided in appendix or supplemental material. • Theorems and Lemmas that the proof relies upon should be properly referenced. 4. Experimental result reproducibility 
+
+Question: Does the paper fully disclose all the information needed to reproduce the main experi-mental results of the paper to the extent that it affects the main claims and/or conclusions of the paper (regardless of whether the code and data are provided or not)? Answer: [Yes] Justification: Experimental settings and implementation details are adequately provided. Guidelines: • The answer [N/A] means that the paper does not include experiments. • If the paper includes experiments, a [No] answer to this question will not be perceived well by the reviewers: Making the paper reproducible is important, regardless of whether the code and data are provided or not. • If the contribution is a dataset and/or model, the authors should describe the steps taken to make their results reproducible or verifiable. • Depending on the contribution, reproducibility can be accomplished in various ways. For example, if the contribution is a novel architecture, describing the architecture fully might suffice, or if the contribution is a specific model and empirical evaluation, it may be necessary to either make it possible for others to replicate the model with the same dataset, or provide access to the model. In general. releasing code and data is often one good way to accomplish this, but reproducibility can also be provided via detailed instructions for how to replicate the results, access to a hosted model (e.g., in the case of a large language model), releasing of a model checkpoint, or other means that are appropriate to the research performed. • While NeurIPS does not require releasing code, the conference does require all submissions to provide some reasonable avenue for reproducibility, which may depend on the nature of the contribution. For example (a) If the contribution is primarily a new algorithm, the paper should make it clear how to reproduce that algorithm. 27 (b) If the contribution is primarily a new model architecture, the paper should describe the architecture clearly and fully. (c) If the contribution is a new model (e.g., a large language model), then there should either be a way to access this model for reproducing the results or a way to reproduce the model (e.g., with an open-source dataset or instructions for how to construct the dataset). (d) We recognize that reproducibility may be tricky in some cases, in which case authors are welcome to describe the particular way they provide for reproducibility. In the case of closed-source models, it may be that access to the model is limited in some way (e.g., to registered users), but it should be possible for other researchers to have some path to reproducing or verifying the results. 5. Open access to data and code 
+
+Question: Does the paper provide open access to the data and code, with sufficient instructions to faithfully reproduce the main experimental results, as described in supplemental material? Answer: [Yes] Justification: The used ZINC, PMV and ChEMBL are all public datasets. Guidelines: • The answer [N/A] means that paper does not include experiments requiring code. • Please see the NeurIPS code and data submission guidelines ( https://neurips.cc/public/ guides/CodeSubmissionPolicy ) for more details. • While we encourage the release of code and data, we understand that this might not be possible, so [No] is an acceptable answer. Papers cannot be rejected simply for not including code, unless this is central to the contribution (e.g., for a new open-source benchmark). • The instructions should contain the exact command and environment needed to run to reproduce the results. See the NeurIPS code and data submission guidelines ( https://neurips.cc/ public/guides/CodeSubmissionPolicy ) for more details. • The authors should provide instructions on data access and preparation, including how to access the raw data, preprocessed data, intermediate data, and generated data, etc. • The authors should provide scripts to reproduce all experimental results for the new proposed method and baselines. If only a subset of experiments are reproducible, they should state which ones are omitted from the script and why. • At submission time, to preserve anonymity, the authors should release anonymized versions (if applicable). • Providing as much information as possible in supplemental material (appended to the paper) is recommended, but including URLs to data and code is permitted. 6. Experimental setting/details 
+
+Question: Does the paper specify all the training and test details (e.g., data splits, hyperparameters, how they were chosen, type of optimizer) necessary to understand the results? Answer: [Yes] Justification: Provided in Experimental Setup and appendix. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The experimental setting should be presented in the core of the paper to a level of detail that is necessary to appreciate the results and make sense of them. • The full details can be provided either with the code, in appendix, or as supplemental material. 7. Experiment statistical significance 
+
+Question: Does the paper report error bars suitably and correctly defined or other appropriate information about the statistical significance of the experiments? Answer: [Yes] Justification: standard deviation reported. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The authors should answer [Yes] if the results are accompanied by error bars, confidence intervals, or statistical significance tests, at least for the experiments that support the main claims of the paper. • The factors of variability that the error bars are capturing should be clearly stated (for example, train/test split, initialization, random drawing of some parameter, or overall run with given experimental conditions). • The method for calculating the error bars should be explained (closed form formula, call to a library function, bootstrap, etc.) 28 • The assumptions made should be given (e.g., Normally distributed errors). • It should be clear whether the error bar is the standard deviation or the standard error of the mean. • It is OK to report 1-sigma error bars, but one should state it. The authors should preferably report a 2-sigma error bar than state that they have a 96% CI, if the hypothesis of Normality of errors is not verified. • For asymmetric distributions, the authors should be careful not to show in tables or figures symmetric error bars that would yield results that are out of range (e.g., negative error rates). • If error bars are reported in tables or plots, the authors should explain in the text how they were calculated and reference the corresponding figures or tables in the text. 8. Experiments compute resources 
+
+Question: For each experiment, does the paper provide sufficient information on the computer resources (type of compute workers, memory, time of execution) needed to reproduce the experi-ments? Answer: [Yes] Justification: reported in appendix. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The paper should indicate the type of compute workers CPU or GPU, internal cluster, or cloud provider, including relevant memory and storage. • The paper should provide the amount of compute required for each of the individual experimental runs as well as estimate the total compute. • The paper should disclose whether the full research project required more compute than the experiments reported in the paper (e.g., preliminary or failed experiments that didn’t make it into the paper). 9. Code of ethics 
+
+Question: Does the research conducted in the paper conform, in every respect, with the NeurIPS Code of Ethics https://neurips.cc/public/EthicsGuidelines ?Answer: [Yes] Justification: We well align with the code of ethics. Guidelines: • The answer [N/A] means that the authors have not reviewed the NeurIPS Code of Ethics. • If the authors answer [No], they should explain the special circumstances that require a deviation from the Code of Ethics. • The authors should make sure to preserve anonymity (e.g., if there is a special consideration due to laws or regulations in their jurisdiction). 10. Broader impacts 
+
+Question: Does the paper discuss both potential positive societal impacts and negative societal impacts of the work performed? Answer: [N/A] Justification: No potential social impacts, contributes to foundation research. Guidelines: • The answer [N/A] means that there is no societal impact of the work performed. • If the authors answer [N/A] or [No], they should explain why their work has no societal impact or why the paper does not address societal impact. • Examples of negative societal impacts include potential malicious or unintended uses (e.g., disinformation, generating fake profiles, surveillance), fairness considerations (e.g., deploy-ment of technologies that could make decisions that unfairly impact specific groups), privacy considerations, and security considerations. • The conference expects that many papers will be foundational research and not tied to par-ticular applications, let alone deployments. However, if there is a direct path to any negative applications, the authors should point it out. For example, it is legitimate to point out that an improvement in the quality of generative models could be used to generate Deepfakes for disinformation. On the other hand, it is not needed to point out that a generic algorithm for optimizing neural networks could enable people to train models that generate Deepfakes faster. • The authors should consider possible harms that could arise when the technology is being used as intended and functioning correctly, harms that could arise when the technology is being used as intended but gives incorrect results, and harms following from (intentional or unintentional) misuse of the technology. 29 • If there are negative societal impacts, the authors could also discuss possible mitigation strategies (e.g., gated release of models, providing defenses in addition to attacks, mechanisms for monitoring misuse, mechanisms to monitor how a system learns from feedback over time, improving the efficiency and accessibility of ML). 11. Safeguards 
+
+Question: Does the paper describe safeguards that have been put in place for responsible release of data or models that have a high risk for misuse (e.g., pre-trained language models, image generators, or scraped datasets)? Answer: [N/A] Justification: No such risks. Guidelines: • The answer [N/A] means that the paper poses no such risks. • Released models that have a high risk for misuse or dual-use should be released with necessary safeguards to allow for controlled use of the model, for example by requiring that users adhere to usage guidelines or restrictions to access the model or implementing safety filters. • Datasets that have been scraped from the Internet could pose safety risks. The authors should describe how they avoided releasing unsafe images. • We recognize that providing effective safeguards is challenging, and many papers do not require this, but we encourage authors to take this into account and make a best faith effort. 12. Licenses for existing assets 
+
+Question: Are the creators or original owners of assets (e.g., code, data, models), used in the paper, properly credited and are the license and terms of use explicitly mentioned and properly respected? Answer: [Yes] Justification: Correctly cited. Guidelines: • The answer [N/A] means that the paper does not use existing assets. • The authors should cite the original paper that produced the code package or dataset. • The authors should state which version of the asset is used and, if possible, include a URL. • The name of the license (e.g., CC-BY 4.0) should be included for each asset. • For scraped data from a particular source (e.g., website), the copyright and terms of service of that source should be provided. • If assets are released, the license, copyright information, and terms of use in the package should be provided. For popular datasets, paperswithcode.com/datasets has curated licenses for some datasets. Their licensing guide can help determine the license of a dataset. • For existing datasets that are re-packaged, both the original license and the license of the derived asset (if it has changed) should be provided. • If this information is not available online, the authors are encouraged to reach out to the asset’s creators. 13. New assets 
+
+Question: Are new assets introduced in the paper well documented and is the documentation provided alongside the assets? Answer: [N/A] Justification: Guidelines: • The answer [N/A] means that the paper does not release new assets. • Researchers should communicate the details of the dataset/code/model as part of their sub-missions via structured templates. This includes details about training, license, limitations, etc. • The paper should discuss whether and how consent was obtained from people whose asset is used. • At submission time, remember to anonymize your assets (if applicable). You can either create an anonymized URL or include an anonymized zip file. 14. Crowdsourcing and research with human subjects 
+
+Question: For crowdsourcing experiments and research with human subjects, does the paper include the full text of instructions given to participants and screenshots, if applicable, as well as details about compensation (if any)? Answer: [N/A] Justification: 30 Guidelines: • The answer [N/A] means that the paper does not involve crowdsourcing nor research with human subjects. • Including this information in the supplemental material is fine, but if the main contribution of the paper involves human subjects, then as much detail as possible should be included in the main paper. • According to the NeurIPS Code of Ethics, workers involved in data collection, curation, or other labor should be paid at least the minimum wage in the country of the data collector. 15. Institutional review board (IRB) approvals or equivalent for research with human subjects 
+
+Question: Does the paper describe potential risks incurred by study participants, whether such risks were disclosed to the subjects, and whether Institutional Review Board (IRB) approvals (or an equivalent approval/review based on the requirements of your country or institution) were obtained? Answer: [N/A] Justification: Guidelines: • The answer [N/A] means that the paper does not involve crowdsourcing nor research with human subjects. • Depending on the country in which research is conducted, IRB approval (or equivalent) may be required for any human subjects research. If you obtained IRB approval, you should clearly state this in the paper. • We recognize that the procedures for this may vary significantly between institutions and locations, and we expect authors to adhere to the NeurIPS Code of Ethics and the guidelines for their institution. • For initial submissions, do not include any information that would break anonymity (if applica-ble), such as the institution conducting the review. 16. Declaration of LLM usage 
+
+Question: Does the paper describe the usage of LLMs if it is an important, original, or non-standard component of the core methods in this research? Note that if the LLM is used only for writing, editing, or formatting purposes and does not impact the core methodology, scientific rigor, or originality of the research, declaration is not required. Answer: [N/A] Justification: Guidelines: • The answer [N/A] means that the core method development in this research does not involve LLMs as any important, original, or non-standard components. • Please refer to our LLM policy in the NeurIPS handbook for what should or should not be described. 31
