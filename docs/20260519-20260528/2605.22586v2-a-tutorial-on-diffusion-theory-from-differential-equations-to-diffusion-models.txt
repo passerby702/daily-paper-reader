@@ -1,0 +1,5446 @@
+Title: A Tutorial on Diffusion Theory: From Differential Equations to Diffusion Models
+
+URL Source: https://arxiv.org/pdf/2605.22586v2
+
+Published Time: Tue, 26 May 2026 00:42:05 GMT
+
+Number of Pages: 53
+
+Markdown Content:
+# A Tutorial on Diffusion Theory: From Differential Equations to Diffusion Models 
+
+Jiayi Fu, Yuxia Wang INSAIT, Sofia University “St. Kliment Ohridski”, Bulgaria 
+
+jiayi.fu@insait.ai , yuxia.wang@insait.ai 
+
+Abstract 
+
+This tutorial develops diffusion models from the viewpoint of differential equations. We begin with the conditional Gaussian forward process and show that this path admits both an ordinary differential equation (ODE) representation and a stochastic differential equation (SDE) representation. Averaging the conditional process over the data distribution then yields marginalized forward ODE and SDE formulations that transport the data distribution p0 = pdata 
+
+to a Gaussian prior p1 = N (0 , I ). We next derive the corresponding reverse-time dynamics, namely the reverse SDE and the reverse probability-flow ODE, both of which are governed by the marginal score ∇ log pt(x). This leads to a training objective for score estimation and shows that the standard noise-prediction objective is equivalent to score matching up to an additive constant independent of the model parameters. We then discuss sampling methods for the learned reverse dynamics, including DPM-Solver, as well as guided sampling through classifier guidance and classifier-free guidance. Finally, we compare DDPM and DDIM with the reverse SDE/ODE framework and show that they share the same training objective, while DDPM sampling corresponds to discrete reverse-SDE sampling and DDIM sampling corresponds to reverse-ODE sampling. 
+
+# Contents 
+
+Setup 31 Conditional Forward Process 3
+
+1.1 Conditional Gaussian forward path . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31.2 Conditional ODE that generates the conditional forward process . . . . . . . . . . . 41.3 Conditional SDE that generates the conditional forward process . . . . . . . . . . . . 6
+
+2 Marginalized Forward Process 7
+
+2.1 Marginalized forward path . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 72.2 Marginalized ODE that generates the marginalized forward process . . . . . . . . . . 72.3 Marginalized SDE that generates the marginalized forward process . . . . . . . . . . 9
+
+3 Reverse Process and Reverse Dynamics 9
+
+3.1 Definition of the reverse process . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 93.2 Reverse density equation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 93.3 Reverse SDE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 10 3.4 Reverse probability-flow ODE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 11 1
+
+> arXiv:2605.22586v2 [cs.LG] 23 May 2026
+
+4 Learning the Score for Reverse Sampling 12 
+
+4.1 The unknown part of the reverse ODE and reverse SDE . . . . . . . . . . . . . . . . 12 4.2 A neural score model and score matching . . . . . . . . . . . . . . . . . . . . . . . . 12 4.3 The score as a conditional expectation of the forward noise . . . . . . . . . . . . . . 12 4.4 Reparameterizing the score model as a noise predictor . . . . . . . . . . . . . . . . . 13 4.5 The learned reverse SDE and reverse ODE . . . . . . . . . . . . . . . . . . . . . . . . 14 
+
+5 Sampling from the Reverse ODE and SDE 15 
+
+5.1 Terminal distribution . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 5.2 Basic reverse SDE sampler . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 5.3 Basic reverse ODE sampler . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 5.4 Fast sampling in the style of DPM-Solver . . . . . . . . . . . . . . . . . . . . . . . . 16 
+
+6 Guided Diffusion 18 
+
+6.1 Classifier guidance . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 6.2 Classifier-free guidance . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19 
+
+7 Unifying DDPM, DDIM in the Reverse ODE/SDE Framework 21 
+
+7.1 Continuizing the DDPM forward process and constructing its SDE . . . . . . . . . . 21 7.2 DDPM training and its relation to the reverse SDE loss . . . . . . . . . . . . . . . . 25 7.3 DDPM inference and its relation to the reverse SDE . . . . . . . . . . . . . . . . . . 27 7.4 DDIM inference and its relation to the reverse ODE . . . . . . . . . . . . . . . . . . 33 
+
+8 Unifying Flow Matching and Score Matching in the Reverse ODE/SDE Frame-work 35 
+
+8.1 Flow models, diffusion models, flow matching, and score matching . . . . . . . . . . 35 8.2 The reverse SDE is the diffusion model and the reverse ODE is the flow model . . . 36 8.3 Why the standard diffusion loss is score matching . . . . . . . . . . . . . . . . . . . . 36 8.4 Why the same loss can also be viewed as flow matching . . . . . . . . . . . . . . . . 37 8.5 Relation to standard conditional flow matching . . . . . . . . . . . . . . . . . . . . . 37 
+
+A Differential Operators 39 B Brownian Motion in Forward and Reverse Time 39 C Deterministic Itô Integrals and Itô Isometry 43 D Continuity Equation 47 E Fokker–Planck Equation 48 F Conditional-to-Marginal Averaging Lemmas 49 G Fisher’s Identity 50 H Orthogonality Identity Used in the Denoising Loss 51 References 52 
+
+2Setup 
+
+Let X0 ∈ Rd denote a data random variable with density p0(x0), and let t ∈ [0 , 1] denote forward time. Throughout, we assume that αt > 0 and σt ≥ 0 are differentiable functions of t, and we define 
+
+ft := ˙αt
+
+αt
+
+, g2 
+
+> t
+
+:= ddt σ2 
+
+> t
+
+− 2 ˙αt
+
+αt
+
+σ2 
+
+> t
+
+. (1) The conditional Gaussian forward kernel is 
+
+pt(x | x0) := N (x; αtx0, σ 2 
+
+> t
+
+I), (2) and the corresponding marginal forward density is 
+
+pt(x) := 
+
+> ∫
+> Rd
+
+pt(x | x0)p0(x0) d x0. (3) To describe reverse-time dynamics, we introduce the reverse-time variable 
+
+τ := 1 − t, (4) and define the reverse process by 
+
+Yτ := X1−τ . (5) Its density is 
+
+qτ (x) := p1−τ (x). (6) Unless explicitly stated otherwise, all gradients, divergences, and Laplacians are taken with respect to the state variable. We write Wt for a standard Brownian motion when an SDE is expressed in forward time t. When the reverse SDE is written in the forward reverse-time variable τ , its driving Brownian motion is denoted by W rev  
+
+> τ
+
+. When the same reverse SDE is written using the original label t : 1 → 0, we denote the corresponding reverse-time Brownian motion by ¯Wt, where 
+
+¯Wt := W rev 1−t.
+
+Thus W rev  
+
+> τ
+
+and ¯Wt represent the same reverse-time noise under two different time parametrizations. See Appendix B for a detailed discussion. The notation introduced above encompasses the principal formulations of modern diffusion modeling. Diffusion probabilistic models originate in nonequilibrium thermodynamic constructions and were subsequently developed into DDPMs, improved DDPMs, and variational diffusion models [ 21 , 4 , 15 , 9 ]. The complementary score-based perspective begins with score matching and denoising score matching [ 7 , 26 ] and leads to modern score-based generative models together with their SDE formulations [ 23 , 24 , 25 ]. Deterministic probability-flow formulations and fast samplers include DDIM, DPM-Solver, DPM-Solver++, EDM, and progressive distillation [ 22 , 11 , 12 , 8 , 20 ]. The stochastic-calculus and Fokker–Planck identities used throughout are classical and are adopted by [1, 16, 17, 6]. 
+
+# 1 Conditional Forward Process 
+
+1.1 Conditional Gaussian forward path 
+
+The conditional forward process is the family of random variables 
+
+Xt | X0 = x0, 0 ≤ t ≤ 1,
+
+3whose density path is prescribed by the Gaussian kernel (2). Equivalently, if ε ∼ N (0 , I ), then 
+
+Xt = αtX0 + σtε (7) has conditional law 
+
+Xt | X0 = x0 ∼ pt(· | x0).Xt0 Xtn Xtn+1 XtN
+
+ODE : Xtn+1 = Xtn + utn(Xtn ∣ x0) ⋅ (tn+1 − tn)
+
+SDE : Xtn+1 = Xtn + ftn Xtn ⋅ (tn+1 − tn) + gtnz
+
+Figure 1: Conditional forward process: Create a time grid 0 = t0 < · · · < t n < t n+1 < · · · <tN = 1 . Starting from a given clean image X0, the forward diffusion gradually corrupts the sample with Gaussian noise or equivalently simulate the conditional forward ODE/SDE ,where 
+
+z ∼ N (0 , (tn+1 − tn)I), until the terminal state is approximately pure Gaussian noise. 
+
+Proposition 1.1 (Conditional score) . The score of the conditional Gaussian path is 
+
+∇ log pt(x | x0) = − x − αtx0
+
+σ2
+
+> t
+
+. (8) 
+
+Proof. Since 
+
+log pt(x | x0) = Ct − 12σ2
+
+> t
+
+∥x − αtx0∥22,
+
+where Ct is independent of x, differentiating with respect to x gives (8). 
+
+1.2 Conditional ODE that generates the conditional forward process 
+
+Theorem 1.2 (Conditional forward ODE) . For every fixed x0, the conditional Gaussian path (2) is generated by the ODE dXt
+
+dt = ut(Xt | x0), (9) 
+
+with velocity field 
+
+ut(x | x0) := 
+
+(
+
+˙αt − ˙σt
+
+σt
+
+αt
+
+)
+
+x0 + ˙σt
+
+σt
+
+x. (10) 
+
+Equivalently, the conditional density satisfies the conditional continuity equation 
+
+∂tpt(x | x0) = −∇· (pt(x | x0)ut(x | x0)). (11) 
+
+Proof. Fix x0 and define 
+
+rt(x) := x − αtx0.
+
+From (7), 
+
+Xt = αtx0 + σtε. 
+
+4Differentiating with respect to t gives 
+
+dXt
+
+dt = ˙ αtx0 + ˙ σtε = ˙ αtx0 + ˙ σt
+
+Xt − αtx0
+
+σt
+
+,
+
+which simplifies to (10). Thus the ODE (9) indeed generates the conditional Gaussian path. We now verify (11) by exact algebra. Since 
+
+pt(x | x0) = 1(2 πσ 2 
+
+> t
+
+)d/ 2 exp 
+
+(
+
+− ∥rt(x)∥22
+
+2σ2
+
+> t
+
+)
+
+,
+
+we have 
+
+log pt(x | x0) = − d
+
+2 log(2 πσ 2 
+
+> t
+
+) − ∥rt(x)∥22
+
+2σ2
+
+> t
+
+.
+
+Because 
+
+∂trt(x) = − ˙αtx0, ∂t∥rt(x)∥22 = −2 ˙ αtrt(x)⊤x0,
+
+we obtain 
+
+∂t log pt(x | x0) = −d ˙σt
+
+σt
+
+− ∂t
+
+( ∥rt(x)∥22
+
+2σ2
+
+> t
+
+)
+
+= −d ˙σt
+
+σt
+
++ ˙αt
+
+σ2
+
+> t
+
+rt(x)⊤x0 + ˙σt
+
+σ3
+
+> t
+
+∥rt(x)∥22.
+
+Therefore 
+
+∂tpt(x | x0) = pt(x | x0)
+
+[
+
+−d ˙σt
+
+σt
+
++ ˙αt
+
+σ2
+
+> t
+
+rt(x)⊤x0 + ˙σt
+
+σ3
+
+> t
+
+∥rt(x)∥22
+
+]
+
+. (12) Next, 
+
+∇pt(x | x0) = pt(x | x0)∇ log pt(x | x0) = −pt(x | x0) rt(x)
+
+σ2
+
+> t
+
+.
+
+Since 
+
+ut(x | x0) = ˙ αtx0 + ˙σt
+
+σt
+
+rt(x),
+
+we get 
+
+ut(x | x0)⊤∇pt(x | x0) = −pt(x | x0)
+
+[ ˙αt
+
+σ2
+
+> t
+
+rt(x)⊤x0 + ˙σt
+
+σ3
+
+> t
+
+∥rt(x)∥22
+
+]
+
+.
+
+Also, 
+
+∇· ut(x | x0) = ˙σt
+
+σt
+
+∇· rt(x) = d ˙σt
+
+σt
+
+,
+
+because rt(x) = x − αtx0 and ∇· x = d. Hence 
+
+∇· (pt(x | x0)ut(x | x0)) = ut(x | x0)⊤∇pt(x | x0) + pt(x | x0)∇· ut(x | x0)= pt(x | x0)
+
+[
+
+− ˙αt
+
+σ2
+
+> t
+
+rt(x)⊤x0 − ˙σt
+
+σ3
+
+> t
+
+∥rt(x)∥22 + d ˙σt
+
+σt
+
+]
+
+.
+
+Therefore 
+
+−∇· (pt(x | x0)ut(x | x0)) = pt(x | x0)
+
+[
+
+−d ˙σt
+
+σt
+
++ ˙αt
+
+σ2
+
+> t
+
+rt(x)⊤x0 + ˙σt
+
+σ3
+
+> t
+
+∥rt(x)∥22
+
+]
+
+. (13) Comparing (12) and (13) proves (11). 5Lemma 1.3 (Score form of the conditional forward velocity) . The velocity field (10) can be rewritten as 
+
+ut(x | x0) = ftx − 12 g2 
+
+> t
+
+∇ log pt(x | x0). (14) 
+
+Proof. By (8), 
+
+− 12 g2 
+
+> t
+
+∇ log pt(x | x0) = g2
+
+> t
+
+2σ2
+
+> t
+
+(x − αtx0).
+
+Using (1), 
+
+g2 
+
+> t
+
+= ddt σ2 
+
+> t
+
+− 2ftσ2 
+
+> t
+
+= 2 σt ˙σt − 2ftσ2 
+
+> t
+
+,
+
+so g2
+
+> t
+
+2σ2
+
+> t
+
+= ˙σt
+
+σt
+
+− ft.
+
+Therefore 
+
+ftx − 12 g2 
+
+> t
+
+∇ log pt(x | x0) = ftx +
+
+( ˙σt
+
+σt
+
+− ft
+
+)
+
+(x − αtx0)= ˙σt
+
+σt
+
+x +
+
+(
+
+˙αt − ˙σt
+
+σt
+
+αt
+
+)
+
+x0
+
+= ut(x | x0).
+
+1.3 Conditional SDE that generates the conditional forward process 
+
+Theorem 1.4 (Conditional forward SDE) . For every fixed x0, the SDE 
+
+dXt = ftXt dt + gt dWt, X0 = x0, (15) 
+
+has conditional density path (2) . Equivalently, the density (2) satisfies the conditional Fokker–Planck equation 
+
+∂tpt(x | x0) = −∇· (ftx p t(x | x0)) + 12 g2 
+
+> t
+
+∆pt(x | x0). (16) 
+
+Proof. We keep the notation rt(x) = x − αtx0. From the previous proof, 
+
+∂tpt(x | x0) = pt(x | x0)
+
+[
+
+−d ˙σt
+
+σt
+
++ ˙αt
+
+σ2
+
+> t
+
+rt(x)⊤x0 + ˙σt
+
+σ3
+
+> t
+
+∥rt(x)∥22
+
+]
+
+. (17) We now compute the right-hand side of (16). First, 
+
+∇pt(x | x0) = −pt(x | x0) rt(x)
+
+σ2
+
+> t
+
+.
+
+Hence 
+
+∆pt(x | x0) = ∇· 
+
+(
+
+−pt(x | x0) rt(x)
+
+σ2
+
+> t
+
+)
+
+= − 1
+
+σ2
+
+> t
+
+(
+
+rt(x)⊤∇pt(x | x0) + pt(x | x0)∇· rt(x)
+
+)
+
+= − 1
+
+σ2
+
+> t
+
+(
+
+−pt(x | x0) ∥rt(x)∥22
+
+σ2
+
+> t
+
++ d p t(x | x0)
+
+)
+
+= pt(x | x0)
+
+( ∥rt(x)∥22
+
+σ4
+
+> t
+
+− dσ2
+
+> t
+
+)
+
+.
+
+6Next, 
+
+∇· (ftx p t(x | x0)) = ft∇· (x p t(x | x0))
+
+= ft
+
+(
+
+d p t(x | x0) + x⊤∇pt(x | x0)
+
+)
+
+= ftd p t(x | x0) − ftpt(x | x0) x⊤rt(x)
+
+σ2
+
+> t
+
+.
+
+Therefore 
+
+− ∇· (ftx p t(x | x0)) + 12 g2 
+
+> t
+
+∆pt(x | x0)= pt(x | x0)
+
+[
+
+−ftd + ft
+
+x⊤rt(x)
+
+σ2
+
+> t
+
++ g2
+
+> t
+
+2
+
+( ∥rt(x)∥22
+
+σ4
+
+> t
+
+− dσ2
+
+> t
+
+)] 
+
+.
+
+Because x = rt(x) + αtx0,
+
+x⊤rt(x) = ∥rt(x)∥22 + αtx⊤ 
+
+> 0
+
+rt(x).
+
+Also ftαt = ˙ αt, and 
+
+g2
+
+> t
+
+2σ2
+
+> t
+
+= ˙σt
+
+σt
+
+− ft, g2
+
+> t
+
+2σ4
+
+> t
+
+= ˙σt
+
+σ3
+
+> t
+
+− ft
+
+σ2
+
+> t
+
+.
+
+Substituting these identities yields 
+
+− ∇· (ftx p t(x | x0)) + 12 g2 
+
+> t
+
+∆pt(x | x0)= pt(x | x0)
+
+[
+
+−d ˙σt
+
+σt
+
++ ˙αt
+
+σ2
+
+> t
+
+rt(x)⊤x0 + ˙σt
+
+σ3
+
+> t
+
+∥rt(x)∥22
+
+]
+
+.
+
+This matches (17), so (16) holds exactly. 
+
+# 2 Marginalized Forward Process 
+
+2.1 Marginalized forward path 
+
+The marginalized forward process is the unconditional family (Xt)0≤t≤1 with density path 
+
+pt(x) = 
+
+∫
+
+pt(x | x0)p0(x0) d x0. (18) Because the conditional kernels are Gaussian, pt is a Gaussian mixture induced by the data distribution p0. In general pt is not itself Gaussian unless p0 is Gaussian. 
+
+2.2 Marginalized ODE that generates the marginalized forward process 
+
+Theorem 2.1 (Marginalized forward ODE) . The marginal path 18 is generated by the ODE 
+
+dXt
+
+dt = ut(Xt), (19) 
+
+with velocity field 
+
+ut(x) := E[ut(x | X0) | Xt = x] = ftx − 12 g2 
+
+> t
+
+∇ log pt(x). (20) 
+
+or equivalently, and the marginal density path satisfies marginal continuity equation 
+
+∂tpt(x) = −∇· (pt(x)ut(x)). (21) 7Xt0 Xtn Xtn+1 XtN
+
+ODE : Xtn+1 = Xtn + utn(Xtn) ⋅ (tn+1 − tn)
+
+SDE : Xtn+1 = Xtn + ftn Xtn ⋅ (tn+1 − tn) + gtnzFigure 2: Marginalized forward process: Create a time grid 0 = t0 < · · · < t n < t n+1 < · · · < t N = 1 .The initial clean image X0 is drawn from the data distribution p0, and the marginal forward ODE/SDE progressively transform the data distribution to Gaussian noise distribution. Where 
+
+z ∼ N (0 , (tn+1 − tn)I).
+
+Proof. Starting from the conditional score form (14), 
+
+ut(x | X0) = ftx − 12 g2 
+
+> t
+
+∇ log pt(x | X0).
+
+Conditioning on Xt = x yields 
+
+ut(x) = E[ut(x | X0) | Xt = x]= ftx − 12 g2 
+
+> t
+
+E[∇ log pt(x | X0) | Xt = x].
+
+By Fisher’s identity, proved in Appendix G, 
+
+E[∇ log pt(x | X0) | Xt = x] = ∇ log pt(x),
+
+which gives (20). We now verify the continuity equation directly by averaging the conditional continuity equations: 
+
+∂tpt(x) = 
+
+∫
+
+∂tpt(x | x0)p0(x0) d x0
+
+= −
+
+∫
+
+∇· (pt(x | x0)ut(x | x0))p0(x0) d x0
+
+= −∇· 
+
+(∫ 
+
+pt(x | x0)ut(x | x0)p0(x0) d x0
+
+)
+
+.
+
+By the definition (20), 
+
+∫
+
+pt(x | x0)ut(x | x0)p0(x0) d x0 = pt(x)ut(x).
+
+Therefore (21) holds. 82.3 Marginalized SDE that generates the marginalized forward process 
+
+Theorem 2.2 (Marginalized forward SDE) . The marginal forward process is also generated by the SDE 
+
+dXt = ftXt dt + gt dWt, X0 ∼ p0. (22) 
+
+Equivalently, the marginal density path satisfies the marginal Fokker–Planck equation 
+
+∂tpt(x) = −∇· (ftx p t(x)) + 12 g2 
+
+> t
+
+∆pt(x). (23) 
+
+Proof. For every fixed x0, Theorem 1.4 gives 
+
+∂tpt(x | x0) = −∇· (ftx p t(x | x0)) + 12 g2 
+
+> t
+
+∆pt(x | x0).
+
+Integrating both sides against p0(x0) d x0 gives 
+
+∂tpt(x) = −
+
+∫
+
+∇· (ftx p t(x | x0))p0(x0) d x0 + 12 g2
+
+> t
+
+∫
+
+∆pt(x | x0)p0(x0) d x0
+
+= −∇· 
+
+(
+
+ftx
+
+∫
+
+pt(x | x0)p0(x0) d x0
+
+)
+
++ 12 g2 
+
+> t
+
+∆
+
+(∫ 
+
+pt(x | x0)p0(x0) d x0
+
+)
+
+= −∇· (ftx p t(x)) + 12 g2 
+
+> t
+
+∆pt(x).
+
+This is exactly (23), the Fokker–Planck equation of (22). 
+
+Remark 2.3 (From here on) . After Section 2 we work only with the marginal process Xt, the marginal density path pt, and their reverse-time counterparts. This is the level at which practical diffusion models are trained and sampled. 
+
+# 3 Reverse Process and Reverse Dynamics 
+
+3.1 Definition of the reverse process 
+
+Definition 3.1 (Reverse process) . Given the forward marginal process (Xt)0≤t≤1, the reverse process is 
+
+Yτ := X1−τ , 0 ≤ τ ≤ 1. (24) 
+
+Its density is 
+
+qτ (x) := p1−τ (x). (25) 
+
+3.2 Reverse density equation 
+
+Proposition 3.2 (PDE for the reverse density path) . The reverse density qτ satisfies 
+
+∂τ qτ (x) = ∇· (f1−τ x q τ (x)) − 12 g21−τ ∆qτ (x). (26) 
+
+Proof. Since qτ (x) = p1−τ (x),
+
+∂τ qτ (x) = −∂tpt(x)∣∣t=1 −τ .
+
+Using the forward marginal Fokker–Planck equation (23), 
+
+∂tpt(x) = −∇· (ftx p t(x)) + 12 g2 
+
+> t
+
+∆pt(x),
+
+we obtain 
+
+∂τ qτ (x) = ∇· (f1−τ x q τ (x)) − 12 g21−τ ∆qτ (x).
+
+9Xt0 Xtn−1 Xtn XtN                          
+
+> Reverse ODE :Xtn−1=Xtn−[ftnXtn+g2
+> tn
+> 2σtn
+> ϵθ(Xtn,tn)]Δtn
+> Reverse SDE :Xtn−1=Xtn−[ftnXtn+g2
+> tn
+> σtn
+> ϵθ(Xtn,tn)]Δtn+gtnz
+
+Figure 3: (Marginalized) Reverse process: Create a time grid 1 = tN > · · · > t n > t n−1 >
+
+· · · > t 0 = 0 . The initial noise X1 is drawn from the Gaussian distribution p1, and the marginal reverse ODE/SDE progressively transform the Gaussian distribution to data distribution. Where 
+
+z ∼ N (0 , (tn − tn−1)I).
+
+3.3 Reverse SDE 
+
+The reverse-time diffusion viewpoint used below is classical in stochastic analysis [ 1] and underlies the modern reverse-SDE formulation of score-based generative modeling [25]. 
+
+Theorem 3.3 (Reverse SDE in τ ). Define 
+
+brev  
+
+> τ
+
+(x) := −f1−τ x + g21−τ ∇ log qτ (x). (27) 
+
+Then the SDE 
+
+dYτ = brev  
+
+> τ
+
+(Yτ ) d τ + g1−τ dW rev  
+
+> τ
+
+, Y0 ∼ q0 = p1, (28) 
+
+has density path qτ .Proof. We claim that qτ satisfies the Fokker–Planck equation 
+
+∂τ qτ (x) = −∇· (brev  
+
+> τ
+
+(x)qτ (x)) + 12 g21−τ ∆qτ (x).
+
+Substitute (27): 
+
+− ∇· (brev  
+
+> τ
+
+(x)qτ (x)) + 12 g21−τ ∆qτ (x)= −∇· 
+
+([ 
+
+−f1−τ x + g21−τ ∇ log qτ (x)
+
+]
+
+qτ (x)
+
+)
+
++ 12 g21−τ ∆qτ (x)= ∇· (f1−τ x q τ (x)) − g21−τ ∇· (qτ (x)∇ log qτ (x)) + 12 g21−τ ∆qτ (x).
+
+Since qτ ∇ log qτ = ∇qτ , we have 
+
+∇· (qτ (x)∇ log qτ (x)) = ∆ qτ (x).
+
+Hence 
+
+−∇· (brev  
+
+> τ
+
+(x)qτ (x)) + 12 g21−τ ∆qτ (x) = ∇· (f1−τ x q τ (x)) − 12 g21−τ ∆qτ (x),
+
+which is exactly (26). Therefore qτ satisfies the Fokker–Planck equation 10 Corollary 3.4 (Reverse SDE written in the original time label) . Rewriting (28) in the original time label t gives 
+
+dXt =
+
+(
+
+ftXt − g2 
+
+> t
+
+∇ log pt(Xt)
+
+)
+
+dt + gt d ¯Wt, t : 1 → 0, X1 ∼ p1 (29) 
+
+Proof. Set τ = 1 − t and Yτ = Xt. Then qτ = pt, and the drift (27) becomes 
+
+brev  
+
+> τ
+
+(x) = −ftx + g2 
+
+> t
+
+∇ log pt(x).
+
+Writing the same diffusion in backward t notation gives (29). 
+
+3.4 Reverse probability-flow ODE 
+
+Theorem 3.5 (Reverse ODE in τ ). The ODE 
+
+dYτ
+
+dτ = −f1−τ Yτ + 12 g21−τ ∇ log qτ (Yτ ), Y0 ∼ q0 = p1, (30) 
+
+has the same density path qτ as the reverse SDE. Proof. From the reverse SDE proof, 
+
+∂τ qτ (x) = −∇· (brev  
+
+> τ
+
+(x)qτ (x)) + 12 g21−τ ∆qτ (x),
+
+where brev  
+
+> τ
+
+(x) = −f1−τ x + g21−τ ∇ log qτ (x). Since 
+
+∆qτ (x) = ∇· (qτ (x)∇ log qτ (x)),
+
+we can rewrite the right-hand side as 
+
+∂τ qτ (x) = −∇· (brev  
+
+> τ
+
+(x)qτ (x)) + 12 g21−τ ∇· (qτ (x)∇ log qτ (x))
+
+= −∇· 
+
+(
+
+qτ (x)
+
+[
+
+brev  
+
+> τ
+
+(x) − 12 g21−τ ∇ log qτ (x)
+
+]) 
+
+.
+
+Substituting the expression for brev  
+
+> τ
+
+yields 
+
+∂τ qτ (x) = −∇· 
+
+(
+
+qτ (x)
+
+[
+
+−f1−τ x + 12 g21−τ ∇ log qτ (x)
+
+]) 
+
+,
+
+which is precisely the continuity equation of (30). 
+
+Corollary 3.6 (Reverse ODE written in the original time label) . Rewriting (30) in backward t
+
+notation gives dXt
+
+dt = ftXt − 12 g2 
+
+> t
+
+∇ log pt(Xt), t : 1 → 0, X1 ∼ p1 (31) 
+
+Proof. As before, use τ = 1 − t, Yτ = Xt, and qτ = pt. Since 
+
+dYτ
+
+dτ = − dXt
+
+dt ,
+
+equation (30) becomes 
+
+− dXt
+
+dt = −ftXt + 12 g2 
+
+> t
+
+∇ log pt(Xt),
+
+which is equivalent to (31). 
+
+Remark 3.7 (Important distinction) . The reverse ODE shares the same one-time density path as the reverse process, but it is not the same stochastic process law as the reverse SDE unless the diffusion coefficient vanishes. This deterministic ODE is therefore best understood as a probability-flow ODE for the reverse density path. 11 4 Learning the Score for Reverse Sampling 
+
+Sections 3 derived the reverse SDE and reverse ODE associated with the forward diffusion. To use these reverse dynamics for generation, we must identify the unknown term in the reverse equations and learn it from data. This section presents that story in a narrative order: we first isolate the unknown quantity in the reverse dynamics; next we introduce a score model and a score-matching objective; then we connect the score to the posterior mean noise in the forward process; after that we reparameterize the score model as a noise predictor and derive the standard denoising loss; finally we write the learned reverse SDE and reverse ODE in both score-model and noise-prediction form. 
+
+4.1 The unknown part of the reverse ODE and reverse SDE 
+
+Recall that the reverse SDE and reverse ODE are 
+
+dXt =
+
+> (
+
+ftXt − g2 
+
+> t
+
+∇ log pt(Xt)
+
+> )
+
+dt + gt d ¯Wt, t : 1 → 0, (32) 
+
+dXt
+
+dt = ftXt − 12 g2 
+
+> t
+
+∇ log pt(Xt), t : 1 → 0. (33) The coefficients ft and gt are determined by the chosen forward process, so they are known once the noise schedule has been fixed. The only unknown term in both reverse dynamics is therefore the time-dependent score 
+
+s∗ 
+
+> t
+
+(x) := ∇ log pt(x).
+
+Thus the central problem in reverse-time sampling is to estimate the score function along the forward density path. 
+
+4.2 A neural score model and score matching 
+
+A natural strategy is to approximate the score by a neural network 
+
+sθ(x, t ) ≈ s∗ 
+
+> t
+
+(x) = ∇ log pt(x).
+
+This leads to the score-matching objective 
+
+LSM (θ) := 12 
+
+> ∫10
+
+λ(t) EXt∼pt
+
+> [
+
+∥sθ(Xt, t ) − ∇ log pt(Xt)∥22
+
+> ]
+
+dt, (34) where λ(t) ≥ 0 is a user-chosen weighting function. In principle, minimizing (34) would directly learn the unknown part of the reverse ODE and reverse SDE. In practice, however, the target 
+
+∇ log pt(x) is not available in closed form, so we need a tractable reformulation of the same objective. 
+
+4.3 The score as a conditional expectation of the forward noise 
+
+The key observation comes from the forward reparameterization 
+
+Xt = αtX0 + σtε, ε ∼ N (0 , I ).
+
+It implies that the score can be expressed in terms of a conditional expectation of the Gaussian noise. 12 Proposition 4.1 (Posterior mean noise identity) . If 
+
+Xt = αtX0 + σtε, ε ∼ N (0 , I ),
+
+then 
+
+E[ε | Xt = x] = −σt∇ log pt(x). (35) 
+
+Proof. From the forward reparameterization, 
+
+ε = Xt − αtX0
+
+σt
+
+.
+
+By (8), for every fixed x0,
+
+∇x log pt(x | x0) = − x − αtx0
+
+σ2
+
+> t
+
+,
+
+so 
+
+−σt∇x log pt(x | x0) = x − αtx0
+
+σt
+
+.
+
+Substituting x = Xt and x0 = X0 yields 
+
+−σt∇ log pt(Xt | X0) = ε. 
+
+Now condition on the event Xt = x. After conditioning, the remaining randomness is through the posterior variable X0 | Xt = x (equivalently, through ε | Xt = x). Therefore 
+
+E[ε | Xt = x] = −σtE[∇x log pt(x | X0) | Xt = x].
+
+Since the quantity inside the conditional expectation depends on the remaining randomness only through X0, we may write 
+
+E[ε | Xt = x] = −σtEX0|Xt=x[∇x log pt(x | X0)] .
+
+Fisher’s identity gives 
+
+EX0|Xt=x[∇x log pt(x | X0)] = ∇ log pt(x),
+
+which proves (35). 
+
+4.4 Reparameterizing the score model as a noise predictor 
+
+The previous proposition suggests introducing the ideal noise predictor 
+
+ϵ∗(x, t ) := −σt∇ log pt(x) = E[ε | Xt = x]. (36) We now reparameterize the score model by 
+
+ϵθ(x, t ) := −σtsθ(x, t ).
+
+Then 
+
+sθ(x, t ) − ∇ log pt(x) = − 1
+
+σt
+
+(ϵθ(x, t ) − ϵ∗(x, t )),
+
+so 
+
+∥sθ(x, t ) − ∇ log pt(x)∥22 = 1
+
+σ2
+
+> t
+
+∥ϵθ(x, t ) − ϵ∗(x, t )∥22 .
+
+Therefore the factor σ−2 
+
+> t
+
+can be absorbed into the time weighting. Renaming the resulting weight by ω(t), the score-matching objective (34) becomes 
+
+L(θ) := 12
+
+∫ 10
+
+ω(t) EXt∼pt
+
+[
+
+∥ϵθ(Xt, t ) + σt∇ log pt(Xt)∥22
+
+]
+
+dt. (37) This is still score matching; it is simply written in the equivalent noise-prediction parameterization. 13 Theorem 4.2 (Score loss and noise-prediction loss) . Let ω(t) ≥ 0 be a weighting function. Then minimizing (37) is equivalent, up to a constant independent of θ, to minimizing 
+
+L(θ) = 12
+
+∫ 10
+
+ω(t) EX0,ε 
+
+[
+
+∥ϵθ(αtX0 + σtε, t ) − ε∥22
+
+]
+
+dt + C. (38) 
+
+Proof. By (36), the objective (37) can be rewritten as 
+
+L(θ) = 12
+
+∫ 10
+
+ω(t) EXt
+
+[
+
+∥ϵθ(Xt, t ) − E[ε | Xt]∥22
+
+]
+
+dt. 
+
+Apply the orthogonality identity from Appendix H with Z = Xt and a(Z) = ϵθ(Xt, t ):
+
+EZ,ε ∥a(Z) − ε∥22 = EZ ∥a(Z) − E[ε | Z]∥22 + EZ,ε ∥ε − E[ε | Z]∥22.
+
+The second term is independent of θ. Hence minimizing (37) is equivalent to minimizing 
+
+12
+
+∫ 10
+
+ω(t) EX0,ε 
+
+[
+
+∥ϵθ(Xt, t ) − ε∥22
+
+]
+
+dt + C. 
+
+Finally, substitute Xt = αtX0 + σtε to obtain (38). 
+
+4.5 The learned reverse SDE and reverse ODE 
+
+Once the score model has been learned, replacing the marginal score by the learned score model, 
+
+∇ log pt(x) ≈ sθ(x, t ),
+
+The reverse SDE and reverse ODE can be written directly in score-model form as 
+
+dXt =
+
+(
+
+ftXt − g2 
+
+> t
+
+sθ(Xt, t )
+
+)
+
+dt + gt d ¯Wt, t : 1 → 0,
+
+and dXt
+
+dt = ftXt − 12 g2 
+
+> t
+
+sθ(Xt, t ), t : 1 → 0.
+
+Using the equivalent parameterization 
+
+sθ(x, t ) = − 1
+
+σt
+
+ϵθ(x, t ),
+
+turns the reverse SDE (29) into 
+
+dXt =
+
+(
+
+ftXt + g2
+
+> t
+
+σt
+
+ϵθ(Xt, t )
+
+)
+
+dt + gt d ¯Wt, t : 1 → 0, (39) and turns the reverse ODE (31) into 
+
+dXt
+
+dt = ftXt + g2
+
+> t
+
+2σt
+
+ϵθ(Xt, t ), t : 1 → 0. (40) 14 5 Sampling from the Reverse ODE and SDE 
+
+5.1 Terminal distribution 
+
+Diffusion models are designed so that the terminal marginal is approximately Gaussian: 
+
+p1(x) ≈ N (0 , ˜σ2I). (41) Sampling therefore begins from 
+
+X1 ∼ N (0 , ˜σ2I).
+
+5.2 Basic reverse SDE sampler 
+
+To sample from the learned reverse SDE (39), choose a decreasing time grid 
+
+1 = tN > t N −1 > · · · > t 1 > t 0 = 0 , ∆tn := tn − tn−1 > 0.
+
+The quantity ∆tn is the positive numerical step size. Although the reverse SDE is written with the convention t : 1 → 0, the differential increment along one numerical step satisfies 
+
+dt = tn−1 − tn = −∆tn < 0.
+
+Consequently, every explicit backward update acquires a minus sign in front of the drift evaluated at the right endpoint tn.Initialize 
+
+XtN ∼ N (0 , ˜σ2I).
+
+To connect the discrete update with the continuous reverse SDE, write (39) as 
+
+dXt = bθ(Xt, t ) d t + gt d ¯Wt, bθ(x, t ) := ftx + g2
+
+> t
+
+σt
+
+ϵθ(x, t ).
+
+Integrating from tn down to tn−1 gives 
+
+Xtn−1 − Xtn =
+
+∫ tn−1
+
+> tn
+
+bθ(Xs, s ) d s +
+
+∫ tn−1
+
+> tn
+
+gs d ¯Ws.
+
+Approximating the drift by its value at the right endpoint yields 
+
+∫ tn−1
+
+> tn
+
+bθ(Xs, s ) d s = −bθ(Xtn , t n)∆ tn + O(∆ t2
+
+> n
+
+).
+
+For the stochastic term, define the reverse-time Brownian increment 
+
+∆ ¯Wn := 
+
+∫ tn−1
+
+> tn
+
+d ¯Ws.
+
+Since ¯Wt = W rev 1−t and W rev  
+
+> τ
+
+is a standard Brownian motion in the increasing variable τ = 1 − t, we have 
+
+∆ ¯Wn = W rev 1−tn−1 − W rev 1−tn ∼ N (0 , ∆tnI).
+
+Therefore the stochastic integral is implemented by sampling 
+
+∆ ¯Wn = √∆tn Zn, Zn ∼ N (0 , I ),
+
+which is exactly the meaning of the symbol d ¯Wt in the numerical scheme. Thus, for n = N, N − 1, . . . , 1, we sample Zn ∼ N (0 , I ) independently and update 
+
+Xtn−1 = Xtn −
+
+[
+
+ftn Xtn + g2
+
+> tn
+
+σtn
+
+ϵθ(Xtn , t n)
+
+]
+
+∆tn + gtn
+
+√∆tn Zn. (42) Equation (42) is therefore the first-order Euler–Maruyama discretization of the reverse SDE (39). 15 5.3 Basic reverse ODE sampler 
+
+The learned reverse ODE (40) can be solved with any numerical ODE solver. The simplest explicit backward-in-time Euler update is 
+
+dXt
+
+dt = hθ(Xt, t ), hθ(x, t ) := ftx + g2
+
+> t
+
+2σt
+
+ϵθ(x, t ).
+
+Integrating from tn down to tn−1 gives 
+
+Xtn−1 − Xtn =
+
+∫ tn−1
+
+> tn
+
+hθ(Xs, s ) d s = −hθ(Xtn , t n)∆ tn + O(∆ t2
+
+> n
+
+),
+
+which produces the explicit first-order backward update 
+
+Xtn−1 = Xtn −
+
+[
+
+ftn Xtn + g2
+
+> tn
+
+2σtn
+
+ϵθ(Xtn , t n)
+
+]
+
+∆tn. (43) A higher-order option is Heun’s method: 
+
+k1 = ftn Xtn + g2
+
+> tn
+
+2σtn
+
+ϵθ(Xtn , t n), (44) 
+
+˜X = Xtn − ∆tn k1, (45) 
+
+k2 = ftn−1 ˜X + g2
+
+> tn−1
+
+2σtn−1
+
+ϵθ( ˜X, t n−1), (46) followed by 
+
+Xtn−1 = Xtn − ∆tn
+
+2 (k1 + k2). (47) Because the ODE is deterministic, adaptive high-order solvers such as RK45 are standard choices. 
+
+5.4 Fast sampling in the style of DPM-Solver 
+
+Fast ODE-based samplers of this type were developed systematically in DPM-Solver and DPM-Solver++ [11, 12]; related acceleration strategies include progressive distillation [20]. Define the log-SNR variable 
+
+λt := log αt
+
+σt
+
+. (48) Assume in this subsection that λt is monotone in t, so that λ can be used as an alternative time coordinate. 
+
+Proposition 5.1 (Exact integral form of the learned reverse ODE) . Let 
+
+dXt
+
+dt = ftXt + g2
+
+> t
+
+2σt
+
+ϵθ(Xt, t ).
+
+Then for any two times s and t,
+
+Xt
+
+αt
+
+= Xs
+
+αs
+
+−
+
+∫ λt
+
+> λs
+
+e−ζ ϵθ(Xϑ(ζ), ϑ (ζ)) d ζ, (49) 
+
+or equivalently 
+
+Xt = αt
+
+αs
+
+Xs − αt
+
+∫ λt
+
+> λs
+
+e−ζ ϵθ(Xϑ(ζ), ϑ (ζ)) d ζ. (50) 
+
+Here ϑ(·) denotes the inverse of the monotone map t 7 → λt.
+
+16 Proof. Define 
+
+Rt := Xt
+
+αt
+
+.
+
+Since ˙αt = ftαt,
+
+dRt
+
+dt = 1
+
+αt
+
+( dXt
+
+dt − ftXt
+
+)
+
+= 1
+
+αt
+
+· g2
+
+> t
+
+2σt
+
+ϵθ(Xt, t ).
+
+Also, 
+
+˙λt = ˙αt
+
+αt
+
+− ˙σt
+
+σt
+
+= ft − ˙σt
+
+σt
+
+.
+
+Using (1), 
+
+g2 
+
+> t
+
+= 2 σt ˙σt − 2ftσ2 
+
+> t
+
+= −2σ2 
+
+> t
+
+˙λt.
+
+Therefore dRt
+
+dt = − σt
+
+αt
+
+˙λt ϵθ(Xt, t ) = −e−λt ˙λt ϵθ(Xt, t ).
+
+Since dλt = ˙λt dt, this is 
+
+dRt = −e−λt ϵθ(Xt, t ) d λt.
+
+Integrating from s to t gives 
+
+Rt − Rs = −
+
+∫ λt
+
+> λs
+
+e−ζ ϵθ(Xϑ(ζ), ϑ (ζ)) d ζ, 
+
+which is (49). Multiplying by αt yields (50). 
+
+First-order DPM-Solver update. Suppose s > t in physical time, so that we move backward from s to t. Let 
+
+h := λt − λs.
+
+Approximate the integrand 
+
+ϵθ(Xϑ(ζ), ϑ (ζ)) 
+
+in (50) by ϵθ(Xs, s ). Then 
+
+Xt ≈ αt
+
+αs
+
+Xs − αtϵθ(Xs, s )
+
+∫ λt
+
+> λs
+
+e−ζ dζ
+
+= αt
+
+αs
+
+Xs − αtϵθ(Xs, s )(e−λs − e−λt ).
+
+For standard VP-type schedules, λt decreases as t increases, so s > t implies h > 0. Also, 
+
+αte−λt = αt
+
+σt
+
+αt
+
+= σt,
+
+and 
+
+αte−λs = αte−λt eλt−λs = σteh.
+
+Therefore 
+
+Xt ≈ αt
+
+αs
+
+Xs − σt(eh − 1) ϵθ(Xs, s ). (51) Higher-order DPM-Solver methods replace the constant approximation of the integrand by linear or quadratic interpolation in λ [11, 12]. 17 6 Guided Diffusion 
+
+Guided diffusion modifies the reverse score so that the generated sample is steered toward a prescribed condition c. This framework includes classifier guidance, classifier-free guidance, and a number of influential text-to-image and image-editing systems [ 3 , 5, 14 , 13 , 18 , 19 ]. In text-to-image generation, c is typically a text prompt or its embedding. 
+
+6.1 Classifier guidance 
+
+Classifier guidance was popularized in diffusion-based image synthesis by Dhariwal and Nichol [3]. Classifier guidance requires two trained components: 1. an unconditional diffusion model, trained with the denoising objective from Section 4, 2. a time-dependent classifier pϕ(c | x, t ), trained on noised data. Let (X0, C ) ∼ p0(x, c ), let ε ∼ N (0 , I ), and define 
+
+Xt = αtX0 + σtε. 
+
+With t sampled from a chosen distribution on [0 , 1] (typically the uniform distribution), the standard classifier-training objective is 
+
+Lclf (ϕ) := EX0,C,t,ε 
+
+> [
+
+− log pϕ(C | Xt, t )]. (52) This is simply the cross-entropy loss of the noisy classifier. Indeed, conditioning on (Xt, t ) = ( x, t )
+
+yields 
+
+EC|Xt=x,t 
+
+> [
+
+− log pϕ(C | Xt, t )] = ∑
+
+> c
+
+pt(c | x)(− log pϕ(c | x, t )),
+
+which is the cross-entropy between the true noisy conditional label distribution pt(c | x) and the classifier prediction pϕ(c | x, t ). Hence, under sufficient model capacity, the pointwise minimizer satisfies 
+
+pϕ(c | x, t ) = pt(c | x),
+
+so that 
+
+∇ log pϕ(c | x, t ) ≈ ∇ log pt(c | x).
+
+This is precisely the quantity required in the guidance formulas below. Suppose we want to sample from the conditional distribution pt(x | c). By Bayes’ rule, 
+
+log pt(x | c) = log pt(x) + log pt(c | x) − log pt(c),
+
+so differentiating with respect to x gives 
+
+∇ log pt(x | c) = ∇ log pt(x) + ∇ log pt(c | x). (53) In practice one often uses a time-dependent classifier pϕ(c | x, t ) and replaces ∇ log pt(c | x) by 
+
+∇ log pϕ(c | x, t ).With a guidance scale γ ≥ 0, the guided reverse SDE becomes 
+
+dXt =
+
+> [
+
+ftXt − g2 
+
+> t
+
+(∇ log pt(Xt) + γ∇ log pϕ(c | Xt, t )) 
+
+> ]
+
+dt + gt d ¯Wt, t : 1 → 0. (54) 18 The corresponding guided reverse ODE is 
+
+dXt
+
+dt = ftXt − 12 g2 
+
+> t
+
+(∇ log pt(Xt) + γ∇ log pϕ(c | Xt, t )) , t : 1 → 0. (55) Using the noise predictor ϵθ(x, t ) ≈ − σt∇ log pt(x), these become 
+
+dXt =
+
+[
+
+ftXt + g2
+
+> t
+
+σt
+
+ϵθ(Xt, t ) − γg 2 
+
+> t
+
+∇ log pϕ(c | Xt, t )
+
+]
+
+dt + gt d ¯Wt, (56) and dXt
+
+dt = ftXt + g2
+
+> t
+
+2σt
+
+ϵθ(Xt, t ) − γ
+
+2 g2 
+
+> t
+
+∇ log pϕ(c | Xt, t ). (57) 
+
+6.2 Classifier-free guidance 
+
+Classifier-free guidance was introduced by Ho and Salimans [5]. Classifier-free guidance avoids a separate classifier. Instead, one trains a single network ϵθ(x, t, c )
+
+with random condition dropout, so that the same network can produce 
+
+ϵθ(x, t, c ) and ϵθ(x, t, ∅),
+
+where ∅ denotes the null condition. Let Pdrop ∈ [0 , 1] be the dropout probability, and define a random dropped condition 
+
+˜C := 
+
+{C, with probability 1 − Pdrop ,
+
+∅, with probability Pdrop .
+
+Classifier-free guidance trains a single denoiser with the mixed objective 
+
+Lcfg (θ) := 12
+
+∫ 10
+
+ω(t) EX0,C,ε, ˜C
+
+[∥∥∥ϵθ(Xt, t, ˜C) − ε
+
+∥∥∥22
+
+]
+
+dt, (58) where, as before, 
+
+Xt = αtX0 + σtε. 
+
+This is the same denoising loss as in Section 4, but applied to the augmented conditioning variable 
+
+˜C. By the orthogonality identity with 
+
+Z = ( Xt, ˜C),
+
+the pointwise minimizer is 
+
+ϵ∗
+
+> θ
+
+(x, t, ˜c) = Eε|Xt=x, ˜C=˜c[ε]. (59) When ˜c = c is a genuine condition, this conditional expectation equals the scaled conditional score, 
+
+ϵ∗
+
+> θ
+
+(x, t, c ) = −σt∇ log pt(x | c),
+
+whereas for the null condition it reduces to the unconditional predictor, 
+
+ϵ∗
+
+> θ
+
+(x, t, ∅) = −σt∇ log pt(x).
+
+Thus a single network learns both the conditional and unconditional denoisers needed for classifier-free guidance. 19 The classifier-free guided predictor is 
+
+ϵcfg  
+
+> θ
+
+(x, t, c ; s) := ϵθ(x, t, ∅) + s
+
+> (
+
+ϵθ(x, t, c ) − ϵθ(x, t, ∅)
+
+> )
+
+, (60) where s ≥ 1 is the guidance scale. When s = 1 this reduces to the ordinary conditional predictor; when s > 1 it extrapolates toward the conditional direction and typically improves condition fidelity at the cost of some diversity. The classifier-free guided reverse SDE is obtained by replacing ϵθ in (39) by ϵcfg  
+
+> θ
+
+:
+
+dXt =
+
+> [
+
+ftXt + g2
+
+> t
+
+σt
+
+ϵcfg  
+
+> θ
+
+(Xt, t, c ; s)
+
+> ]
+
+dt + gt d ¯Wt. (61) Similarly, the classifier-free guided reverse ODE is 
+
+dXt
+
+dt = ftXt + g2
+
+> t
+
+2σt
+
+ϵcfg  
+
+> θ
+
+(Xt, t, c ; s). (62) 
+
+Remark 6.1 (Text-to-image generation) . In text-to-image diffusion models, the condition c is a text prompt encoded into a sequence of text features. Classifier-free guidance is especially widely used because it avoids training a separate image-text classifier while still allowing strong conditional control through the scale s; representative examples include GLIDE, latent diffusion models, and Imagen [14, 18, 19]. 
+
+Remark 6.2 (Two different conditional scores in this tutorial) . Two distinct conditional scores appear in this tutorial, and they play different roles. First, the score 
+
+∇ log pt(x | x0)
+
+is the pathwise conditional score . Here the conditioning variable is a specific clean sample x0. This score is used in the conditional forward and reverse ODE/SDE analysis, where one studies the noising and denoising trajectory associated with a single data point. In this setting, pt(x | x0) is the conditional Gaussian transition density along the forward diffusion path. Second, the score 
+
+∇ log pt(x | c)
+
+is the guidance conditional score . Here the conditioning variable is an external condition c, such as a class label or a text prompt. Unlike pt(x | x0), the density pt(x | c) is not a single-sample transition kernel. Rather, it is the conditional marginal distribution obtained by averaging over all clean data 
+
+x0 compatible with the condition c:
+
+pt(x | c) = 
+
+> ∫
+
+pt(x | x0) p0(x0 | c) d x0.
+
+Accordingly, its score 
+
+∇ log pt(x | c)
+
+describes how to guide generation toward the conditional data distribution associated with c, rather than how to reverse the noising trajectory of one fixed clean sample. Thus the two conditionals have different meanings: 
+
+• pt(x | x0) is a pathwise conditional distribution for a fixed clean sample x0;
+
+• pt(x | c) is a conditional marginal distribution obtained after averaging over clean data x0
+
+under the condition c.They should therefore be interpreted separately, even though both lead to conditional score functions. 20 7 Unifying DDPM, DDIM in the Reverse ODE/SDE Framework 
+
+This section makes the correspondence between the continuous reverse ODE/SDE framework and the discrete DDPM/DDIM formulations explicit [4, 22, 25]. The logic is organized in four steps: 1. start from the discrete DDPM forward process, continuize it, and construct the corresponding forward SDE; 2. connect the DDPM training loss with the reverse-SDE training loss; 3. connect DDPM inference with reverse-SDE inference; 4. connect DDIM inference with reverse-ODE inference. To avoid conflicts with the continuous-time notation used in the earlier sections, we use a separate notation for the discrete chain: 
+
+˜x0, ˜x1, . . . , ˜xN
+
+for the discrete states, while 
+
+Xt, 0 ≤ t ≤ 1
+
+continues to denote the continuous-time process from the previous sections. 
+
+Remark 7.1 (Notation map) . The original DDPM paper writes the discrete schedule as (βk, α k, ¯αk)
+
+and the discrete states as (xk)Nk=0 . In this section we rename them as 
+
+bk, ak := 1 − bk, ¯ak := 
+
+> k∏
+> i=1
+
+ai, ˜xk,
+
+so that they do not clash with the continuous-time objects αt, σ t, β (t), X t already used in this tutorial. 
+
+7.1 Continuizing the DDPM forward process and constructing its SDE 
+
+Let 
+
+0 = t0 < t 1 < · · · < t N = 1 
+
+be a time grid. The discrete forward Gaussian chain is 
+
+q(˜ xk | ˜xk−1) = N (˜ xk; √ak ˜xk−1, (1 − ak)I) , k = 1 , . . . , N, (63) where 
+
+bk ∈ (0 , 1) , ak := 1 − bk, ¯ak := 
+
+> k∏
+> i=1
+
+ai, ¯a0 := 1 .
+
+Proposition 7.2 (Closed form of the DDPM forward marginal) . For every k ∈ { 1, . . . , N },
+
+q(˜ xk | ˜x0) = N
+
+> (
+
+˜xk; √¯ak ˜x0, (1 − ¯ak)I
+
+> )
+
+. (64) 
+
+Equivalently, 
+
+˜xk = √¯ak ˜x0 + √1 − ¯ak ε, ε ∼ N (0 , I ). (65) 21 Proof. We prove (64) by induction on k.For k = 1 , the statement is exactly the one-step kernel (63), because ¯a1 = a1.Now assume that for some k − 1 ≥ 1 we have 
+
+˜Xk−1 = √¯ak−1 ˜X0 + √1 − ¯ak−1 ε′
+
+> k−1
+
+, ε′ 
+
+> k−1
+
+∼ N (0 , I ),
+
+with ε′ 
+
+> k−1
+
+independent of ˜X0. The one-step DDPM forward process gives 
+
+˜Xk = √ak ˜Xk−1 + √1 − ak εk, εk ∼ N (0 , I ),
+
+where εk is independent of ( ˜X0, ε ′
+
+> k−1
+
+). Substituting the inductive form of ˜Xk−1 yields 
+
+˜Xk = √ak ¯ak−1 ˜X0 +
+
+√
+
+ak(1 − ¯ak−1) ε′ 
+
+> k−1
+
++ √1 − ak εk
+
+= √¯ak ˜X0 +
+
+√
+
+ak(1 − ¯ak−1) ε′ 
+
+> k−1
+
++ √1 − ak εk,
+
+because ¯ak = ak ¯ak−1.The last two terms are independent centered Gaussians. Their sum is therefore Gaussian with covariance 
+
+ak(1 − ¯ak−1)I + (1 − ak)I
+
+= (ak − ak ¯ak−1 + 1 − ak
+
+)I
+
+= (1 − ¯ak
+
+)I. 
+
+Hence there exists ε′ 
+
+> k
+
+∼ N (0 , I ) such that 
+
+√
+
+ak(1 − ¯ak−1) ε′ 
+
+> k−1
+
++ √1 − ak εk = √1 − ¯ak ε′
+
+> k
+
+.
+
+Therefore ˜Xk = √¯ak ˜X0 + √1 − ¯ak ε′
+
+> k
+
+,
+
+which is exactly (64) and (65). The induction is complete. Compare this with the continuous Gaussian path from Section 2: 
+
+Xt = αtX0 + σtε. 
+
+The exact correspondence at the grid point tk is 
+
+Xtk ≡ ˜Xk, ptk (x) = qk(x), αtk = √¯ak, σtk = √1 − ¯ak. (66) At every grid point we therefore have 
+
+α2 
+
+> tk
+
++ σ2 
+
+> tk
+
+= ¯ ak + (1 − ¯ak) = 1 .
+
+This suggests the following continuization of the discrete DDPM forward process. 
+
+Definition 7.3 (Continuized DDPM forward path) . Choose differentiable functions αt, σ t on [0 , 1] 
+
+such that 
+
+αtk = √¯ak, σtk = √1 − ¯ak, α2 
+
+> t
+
++ σ2 
+
+> t
+
+= 1 for all t ∈ [0 , 1] .
+
+The associated conditional Gaussian path is 
+
+pt(x | x0) = N (x; αtx0, σ 2 
+
+> t
+
+I).
+
+We call this path the continuized DDPM forward process .
+
+22 Theorem 7.4 (The continuized DDPM forward process is generated by a VP-SDE) . Let pt(x |
+
+x0) = N (x; αtx0, σ 2 
+
+> t
+
+I) be the continuized DDPM forward path. Then it is generated by the variance-preserving SDE 
+
+dXt = − 12 β(t)Xt dt +
+
+√
+
+β(t) d Wt, (67) 
+
+where 
+
+β(t) := −2 ˙αt
+
+αt
+
+= g2 
+
+> t
+
+≥ 0. (68) 
+
+Proof. Section 2 proved that any Gaussian path 
+
+pt(x | x0) = N (x; αtx0, σ 2 
+
+> t
+
+I)
+
+is generated by the forward SDE 
+
+dXt = ftXt dt + gt dWt,
+
+provided 
+
+ft = ˙αt
+
+αt
+
+, g2 
+
+> t
+
+= ddt σ2 
+
+> t
+
+− 2 ˙αt
+
+αt
+
+σ2 
+
+> t
+
+.
+
+We now simplify these coefficients under the variance-preserving constraint 
+
+α2 
+
+> t
+
++ σ2 
+
+> t
+
+= 1 .
+
+Differentiate this identity with respect to t:
+
+ddt (α2 
+
+> t
+
++ σ2 
+
+> t
+
+) = 0 .
+
+Hence 
+
+2αt ˙αt + ddt σ2 
+
+> t
+
+= 0 ,
+
+so ddt σ2 
+
+> t
+
+= −2αt ˙αt.
+
+Substituting this into the general formula for g2 
+
+> t
+
+gives 
+
+g2 
+
+> t
+
+= −2αt ˙αt − 2 ˙αt
+
+αt
+
+σ2
+
+> t
+
+= −2 ˙αt
+
+αt
+
+(α2 
+
+> t
+
++ σ2
+
+> t
+
+)
+
+= −2 ˙αt
+
+αt
+
+,
+
+because α2 
+
+> t
+
++ σ2 
+
+> t
+
+= 1 . Therefore 
+
+ft = ˙αt
+
+αt
+
+= − 12 g2 
+
+> t
+
+.
+
+Define 
+
+β(t) := g2 
+
+> t
+
+.
+
+Then 
+
+ft = − 12 β(t), gt =
+
+√
+
+β(t),
+
+23 and the general Gaussian-path SDE becomes exactly 
+
+dXt = − 12 β(t)Xt dt +
+
+√
+
+β(t) d Wt.
+
+Finally, Section 2 already verified that the Gaussian conditional density satisfies the conditional Fokker–Planck equation for the general coefficients (ft, g t). Since in the present variance-preserving case those coefficients reduce to 
+
+ft = − 12 β(t), g2 
+
+> t
+
+= β(t),
+
+the same verification yields 
+
+∂tpt(x | x0) = −∇· 
+
+(
+
+− 12 β(t) x p t(x | x0)
+
+)
+
++ 12 β(t)∆ pt(x | x0),
+
+which is exactly the conditional Fokker–Planck equation of (67) . Therefore the VP-SDE (67) generates the continuized DDPM forward process. For the discrete step [tk−1, t k], define the integrated noise level 
+
+hk := 
+
+∫ tk
+
+> tk−1
+
+β(s) d s. (69) Since ˙αt
+
+αt
+
+= − 12 β(t),
+
+integration over [tk−1, t k] gives 
+
+log αtk − log αtk−1 = − 12
+
+∫ tk
+
+> tk−1
+
+β(s) d s = − hk
+
+2 ,
+
+hence αtk
+
+αtk−1
+
+= e−hk /2.
+
+Now compare this continuous one-step signal factor with the DDPM one-step kernel 
+
+q(˜ xk | ˜xk−1) = N (˜ xk; √ak ˜xk−1, (1 − ak)I) .
+
+The one-step mean coefficient must match, so 
+
+√ak := αtk
+
+αtk−1
+
+= e−hk /2.
+
+Squaring both sides yields 
+
+ak = e−hk , bk = 1 − ak = 1 − e−hk . (70) This is the precise bridge between the continuous VP-SDE coefficients and the discrete DDPM schedule. 24 Remark 7.5 (Why the map goes through hk rather than pointwise ft, g t). The discrete DDPM coefficients ak and bk do not correspond to the instantaneous values of ft and gt at a single time. They correspond to the effect of the continuous SDE accumulated over the whole interval [tk−1, t k].That is why the correct bridge is 
+
+hk =
+
+∫ tk
+
+> tk−1
+
+β(s) d s, ak = e−hk , bk = 1 − e−hk ,
+
+rather than a direct pointwise identification such as ak = ftk or bk = g2 
+
+> tk
+
+.Continuous-time notation in this tutorial Discrete DDPM/DDIM notation 
+
+Xtk ˜xk
+
+αtk
+
+√¯ak
+
+σtk
+
+√1 − ¯ak
+
+ft = −β(t)/2 one-step attenuation √ak = e−hk /2
+
+g2 
+
+> t
+
+= β(t) one-step noise increment bk = 1 − e−hk
+
+hk = ∫ tk 
+
+> tk−1
+
+β(s) d s ak = e−hk
+
+ϵθ(Xtk , t k) ϵθ(˜ xk, k )
+
+Throughout this section, we write 
+
+ϵθ(˜ xk, k ) := ϵθ(˜ xk, t k)
+
+for the restriction of the continuous-time noise predictor to the discrete grid. When expectations or conditional laws are involved, we denote by ˜Xk the discrete random variable at step k and by ˜xk
+
+one of its realized values. 
+
+7.2 DDPM training and its relation to the reverse SDE loss 
+
+DDPM training [4] samples 
+
+˜X0 ∼ p0, K ∼ Unif {1, . . . , N }, ε ∼ N (0 , I ),
+
+constructs ˜XK = √¯aK ˜X0 + √1 − ¯aK ε, 
+
+and minimizes 
+
+LDDPM (θ) := E ˜X0,K,ε 
+
+[∥∥∥ϵθ( ˜XK , K ) − ε
+
+∥∥∥22
+
+]
+
+. (71) 
+
+Theorem 7.6 (DDPM training is the reverse-SDE training objective on the time grid) . Let 
+
+qk(x) := q( ˜Xk = x)
+
+be the marginal density of the discrete forward chain at step k. Then 
+
+LDDPM (θ) = E ˜X0,K,ε 
+
+[∥∥∥ϵθ( ˜XK , K ) + √1 − ¯aK ∇ log qK ( ˜XK )
+
+∥∥∥22
+
+]
+
++ C, (72) 
+
+where C is independent of θ. Under the identification (66) , this is exactly the grid-restricted reverse-SDE training objective 
+
+EK EXtK ∼ptK
+
+[
+
+∥ϵθ(XtK , t K ) + σtK ∇ log ptK (XtK )∥22
+
+]
+
+.
+
+25 Proof. From (65), 
+
+ε = ˜xk − √¯ak ˜x0
+
+√1 − ¯ak
+
+.
+
+The conditional forward density is 
+
+q(˜ xk | ˜x0) = N
+
+(
+
+˜xk; √¯ak ˜x0, (1 − ¯ak)I
+
+)
+
+,
+
+so its score is 
+
+∇ log q(˜ xk | ˜x0) = − ˜xk − √¯ak ˜x0
+
+1 − ¯ak
+
+.
+
+Hence 
+
+ε = −√1 − ¯ak ∇ log q(˜ xk | ˜x0). (73) Taking conditional expectation given ˜xk yields 
+
+Eε| ˜Xk =˜ xk [ε] = −√1 − ¯ak E ˜X0| ˜Xk =˜ xk [∇ log q(˜ xk | ˜x0)] .
+
+By Fisher’s identity, 
+
+E ˜X0| ˜Xk =˜ xk [∇ log q(˜ xk | ˜x0)] = ∇ log qk(˜ xk),
+
+and therefore 
+
+Eε| ˜Xk =˜ xk [ε] = −√1 − ¯ak ∇ log qk(˜ xk). (74) Now apply the orthogonality identity with 
+
+Z = ˜ xk, a(Z) = ϵθ(˜ xk, k ).
+
+Then 
+
+E ˜Xk ,ε ∥ϵθ( ˜Xk, k ) − ε∥22 = E ˜Xk
+
+∥∥∥ϵθ( ˜Xk, k ) − Eε| ˜Xk [ε]
+
+∥∥∥22 + E ˜Xk ,ε 
+
+∥∥∥ε − Eε| ˜Xk [ε]
+
+∥∥∥22 .
+
+The second term is independent of θ. Substituting (74) gives 
+
+E ˜Xk ,ε ∥ϵθ( ˜Xk, k ) − ε∥22 = E ˜Xk
+
+∥∥∥ϵθ( ˜Xk, k ) + √1 − ¯ak ∇ log qk( ˜Xk)
+
+∥∥∥22 + C, 
+
+which is exactly (72). Finally, by (66), 
+
+qk(x) = ptk (x), √1 − ¯ak = σtk ,
+
+so the discrete target is precisely 
+
+−σtk ∇ log ptk (x).
+
+Thus DDPM training learns the same scaled score as the reverse-SDE framework, but only at the discrete times tk. Since the reverse ODE is obtained from the same scaled score, the same conclusion also applies to the reverse ODE. 26 7.3 DDPM inference and its relation to the reverse SDE 
+
+The exact reverse Gaussian posterior of the discrete forward chain, central to DDPM sampling [4, 15], is 
+
+q(˜ xk−1 | ˜xk, ˜x0) = N
+
+(
+
+˜xk−1; ˜μk(˜ xk, ˜x0), ˜bkI
+
+)
+
+, (75) where 
+
+˜μk(˜ xk, ˜x0) := 
+
+√¯ak−1 bk
+
+1 − ¯ak
+
+˜x0 +
+
+√ak(1 − ¯ak−1)1 − ¯ak
+
+˜xk, (76) and 
+
+˜bk := 1 − ¯ak−1
+
+1 − ¯ak
+
+bk. (77) To see this directly, fix ˜xk and ˜x0 and regard the posterior as a function of ˜xk−1. By Bayes’ rule, 
+
+q(˜ xk−1 | ˜xk, ˜x0) ∝ q(˜ xk | ˜xk−1) q(˜ xk−1 | ˜x0).
+
+Using the forward kernels, 
+
+q(˜ xk | ˜xk−1) ∝ exp 
+
+(
+
+− ∥˜xk − √ak ˜xk−1∥22
+
+2bk
+
+)
+
+,
+
+and 
+
+q(˜ xk−1 | ˜x0) ∝ exp 
+
+(
+
+− ∥˜xk−1 − √¯ak−1 ˜x0∥22
+
+2(1 − ¯ak−1)
+
+)
+
+.
+
+Therefore 
+
+log q(˜ xk−1 | ˜xk, ˜x0) = C − ∥˜xk − √ak ˜xk−1∥22
+
+2bk
+
+− ∥˜xk−1 − √¯ak−1 ˜x0∥22
+
+2(1 − ¯ak−1)= C′ − 12
+
+( ak
+
+bk
+
++ 11 − ¯ak−1
+
+)
+
+∥˜xk−1∥22
+
++
+
+( √ak
+
+bk
+
+˜xk +
+
+√¯ak−1
+
+1 − ¯ak−1
+
+˜x0
+
+)⊤
+
+˜xk−1,
+
+where C, C ′ are constants independent of ˜xk−1. Since 
+
+ak
+
+bk
+
++ 11 − ¯ak−1
+
+= ak(1 − ¯ak−1) + bk
+
+bk(1 − ¯ak−1) = 1 − ¯ak
+
+bk(1 − ¯ak−1) ,
+
+the quadratic coefficient equals ˜b−1 
+
+> k
+
+with 
+
+˜bk = 1 − ¯ak−1
+
+1 − ¯ak
+
+bk.
+
+Completing the square therefore gives a Gaussian posterior with covariance ˜bkI and mean 
+
+˜μk(˜ xk, ˜x0) = ˜bk
+
+( √ak
+
+bk
+
+˜xk +
+
+√¯ak−1
+
+1 − ¯ak−1
+
+˜x0
+
+)
+
+.
+
+Now substitute 
+
+˜bk = 1 − ¯ak−1
+
+1 − ¯ak
+
+bk.
+
+27 Then 
+
+˜μk(˜ xk, ˜x0) = 1 − ¯ak−1
+
+1 − ¯ak
+
+bk
+
+( √ak
+
+bk
+
+˜xk +
+
+√¯ak−1
+
+1 − ¯ak−1
+
+˜x0
+
+)
+
+=
+
+√ak(1 − ¯ak−1)1 − ¯ak
+
+˜xk + bk
+
+√¯ak−1
+
+1 − ¯ak
+
+˜x0,
+
+which is exactly (76). Using (65), 
+
+˜x0 = ˜xk − √1 − ¯ak ε
+
+√¯ak
+
+,
+
+so substituting into (76) gives 
+
+˜μk(˜ xk, ˜x0) = 
+
+√ak(1 − ¯ak−1)1 − ¯ak
+
+˜xk + bk
+
+√¯ak−1
+
+1 − ¯ak
+
+· ˜xk − √1 − ¯ak ε
+
+√¯ak
+
+=
+
+√ak(1 − ¯ak−1)1 − ¯ak
+
+˜xk + bk
+
+√ak(1 − ¯ak) ˜xk − bk
+
+√ak
+
+√1 − ¯ak
+
+ε. 
+
+Here we used ¯ak = ak ¯ak−1, hence √¯ak−1
+
+√¯ak
+
+= 1
+
+√ak
+
+.
+
+Now combine the two coefficients of ˜xk:
+
+√ak(1 − ¯ak−1)1 − ¯ak
+
++ bk
+
+√ak(1 − ¯ak) = ak(1 − ¯ak−1) + bk
+
+√ak(1 − ¯ak)= 1 − ¯ak
+
+√ak(1 − ¯ak) = 1
+
+√ak
+
+,
+
+because 
+
+ak(1 − ¯ak−1) + bk = ak − ak ¯ak−1 + bk = ak + bk − ¯ak = 1 − ¯ak.
+
+Therefore 
+
+˜μk(˜ xk, ˜x0) = 1
+
+√ak
+
+(
+
+˜xk − bk
+
+√1 − ¯ak
+
+ε
+
+)
+
+. (78) DDPM replaces the true noise ε in (78) by the learned predictor ϵθ( ˜xk, k ) and defines the learned reverse kernel 
+
+pθ(˜ xk−1 | ˜xk) = N
+
+(
+
+˜xk−1; ˜μθ(˜ xk, k ), ˜bkI
+
+)
+
+, (79) with 
+
+˜μθ(˜ xk, k ) := 1
+
+√ak
+
+(
+
+˜xk − bk
+
+√1 − ¯ak
+
+ϵθ(˜ xk, k )
+
+)
+
+. (80) 
+
+Theorem 7.7 (DDPM ancestral sampling and the reverse SDE) . Consider the learned reverse SDE 
+
+dXt =
+
+(
+
+ftXt + g2
+
+> t
+
+σt
+
+ϵθ(Xt, t )
+
+)
+
+dt + gt d ¯Wt.
+
+DDPM sampling admits two complementary interpretations. 1. It is exactly the learned reverse Gaussian chain associated with the discrete forward diffusion 
+
+(63) .
+
+28 2. Under the VP correspondence (66) and (70) , its conditional mean matches the conditional mean of the first-order backward Euler–Maruyama discretization of the learned reverse SDE up to O(h2
+
+> k
+
+). Its stochastic term does not coincide exactly with the Euler–Maruyama stochastic term at finite step size; instead DDPM uses the exact Gaussian posterior variance of the discrete forward diffusion. For interior steps with 1 − ¯ak−1 > 0 fixed, the two variances agree to first order: ˜bk = hk + O(h2
+
+> k
+
+).
+
+Proof. For the first claim, the exact reverse posterior of the discrete forward chain was derived above: 
+
+q(˜ xk−1 | ˜xk, ˜x0) = N
+
+(
+
+˜xk−1; ˜μk(˜ xk, ˜x0), ˜bkI
+
+)
+
+,
+
+with 
+
+˜μk(˜ xk, ˜x0) = 1
+
+√ak
+
+(
+
+˜xk − bk
+
+√1 − ¯ak
+
+ε
+
+)
+
+.
+
+DDPM keeps the same Gaussian form and the same variance ˜bkI, but replaces the inaccessible target ε by the learned predictor ϵθ( ˜xk, k ). Therefore the learned DDPM kernel (79) is exactly the learned reverse Gaussian chain associated with the discrete forward diffusion. We now compare with the reverse SDE from Section 5. In the variance-preserving case, 
+
+ft = − 12 β(t), g2 
+
+> t
+
+= β(t), σtk = √1 − ¯ak.
+
+Let 
+
+hk := 
+
+∫ tk
+
+> tk−1
+
+β(s) d s. 
+
+Then by (70), 
+
+ak = e−hk , bk = 1 − e−hk .
+
+Step 1: derive the backward Euler–Maruyama step from the reverse SDE. In the VP case, the learned reverse SDE is 
+
+dXt =
+
+(
+
+− 12 β(t)Xt + β(t)
+
+σt
+
+ϵθ(Xt, t )
+
+)
+
+dt +
+
+√
+
+β(t) d ¯Wt, t : 1 → 0.
+
+Integrating from tk down to tk−1 gives 
+
+Xtk−1 − Xtk =
+
+∫ tk−1
+
+> tk
+
+(
+
+− 12 β(s)Xs + β(s)
+
+σs
+
+ϵθ(Xs, s )
+
+)
+
+ds +
+
+∫ tk−1
+
+> tk
+
+√
+
+β(s) d ¯Ws
+
+= 12
+
+∫ tk
+
+> tk−1
+
+β(s)Xs ds −
+
+∫ tk
+
+> tk−1
+
+β(s)
+
+σs
+
+ϵθ(Xs, s ) d s +
+
+∫ tk−1
+
+> tk
+
+√
+
+β(s) d ¯Ws.
+
+For a first-order backward Euler–Maruyama step, freeze the drift at the right endpoint: 
+
+Xs = ˜ xk + O(|s − tk|), ϵθ(Xs, s ) = ϵθ(˜ xk, k ) + O(|s − tk|), σs = σtk + O(|s − tk|).
+
+Then 12
+
+∫ tk
+
+> tk−1
+
+β(s)Xs ds = 12 ˜xk
+
+∫ tk
+
+> tk−1
+
+β(s) d s + O(h2
+
+> k
+
+) = hk
+
+2 ˜xk + O(h2
+
+> k
+
+),
+
+and ∫ tk
+
+> tk−1
+
+β(s)
+
+σs
+
+ϵθ(Xs, s ) d s = ϵθ(˜ xk, k )
+
+σtk
+
+∫ tk
+
+> tk−1
+
+β(s) d s + O(h2
+
+> k
+
+) = hk
+
+σtk
+
+ϵθ(˜ xk, k ) + O(h2
+
+> k
+
+).
+
+29 Since σtk = √1 − ¯ak, this term is 
+
+hk
+
+√1 − ¯ak
+
+ϵθ(˜ xk, k ) + O(h2
+
+> k
+
+).
+
+For the stochastic term, define 
+
+ηk := 
+
+∫ tk−1
+
+> tk
+
+√
+
+β(s) d ¯Ws.
+
+Recall from Appendix B that ¯Wt = W rev 1−t is the backward-t representation of the standard Brownian motion W rev  
+
+> τ
+
+in the increasing reverse-time variable τ = 1 − t. Therefore 
+
+ηk =
+
+∫ 1−tk−1
+
+> 1−tk
+
+√
+
+β(1 − τ ) d W rev  
+
+> τ
+
+.
+
+Since the integrand is deterministic, ηk is a centered Gaussian random vector. Appendix C proves this deterministic-integrand case in detail from the definition of the Itô integral. More explicitly, 
+
+EW rev [ηk] = 0 .
+
+Moreover, Itô isometry gives 
+
+EW rev [ηkη⊤ 
+
+> k
+
+] = 
+
+(∫ 1−tk−1
+
+> 1−tk
+
+β(1 − τ ) d τ
+
+)
+
+I =
+
+(∫ tk
+
+> tk−1
+
+β(s) d s
+
+)
+
+I = hkI. 
+
+Hence 
+
+ηk ∼ N (0 , h kI).
+
+Therefore there exists zk ∼ N (0 , I ) such that 
+
+ηk = √hk zk, zk ∼ N (0 , I ).
+
+Therefore 
+
+Xtk−1 = Xtk + hk
+
+2 Xtk − hk
+
+σtk
+
+ϵθ(Xtk , t k) + √hk zk + O(h2
+
+> k
+
+).
+
+Replacing Xtk by ˜xk and σtk by √1 − ¯ak yields 
+
+˜xSDE  
+
+> k−1
+
+= ˜ xk + hk
+
+2 ˜xk − hk
+
+√1 − ¯ak
+
+ϵθ(˜ xk, k ) + √hk zk + O(h2
+
+> k
+
+), (81) where zk ∼ N (0 , I ).Equation (81) is the first-order backward Euler–Maruyama step associated with the learned reverse SDE. 
+
+Step 2: expand the DDPM ancestral mean. On the other hand, the DDPM ancestral mean (80) satisfies 
+
+˜μθ(˜ xk, k ) = 1
+
+√ak
+
+(
+
+˜xk − bk
+
+√1 − ¯ak
+
+ϵθ(˜ xk, k )
+
+)
+
+= 1
+
+√ak
+
+˜xk − 1
+
+√ak
+
+bk
+
+√1 − ¯ak
+
+ϵθ(˜ xk, k ).
+
+We now expand the two coefficients separately. 30 First, since ak = e−hk , we have 
+
+1
+
+√ak
+
+= ehk /2 = 1 + hk
+
+2 + h2
+
+> k
+
+8 + O(h3
+
+> k
+
+) = 1 + hk
+
+2 + O(h2
+
+> k
+
+).
+
+Therefore 1
+
+√ak
+
+˜xk =
+
+(
+
+1 + hk
+
+2 + O(h2
+
+> k
+
+)
+
+)
+
+˜xk. (A) Second, since bk = 1 − e−hk ,
+
+bk = 1 −
+
+(
+
+1 − hk + h2
+
+> k
+
+2 + O(h3
+
+> k
+
+)
+
+)
+
+= hk − h2
+
+> k
+
+2 + O(h3
+
+> k
+
+) = hk + O(h2
+
+> k
+
+).
+
+Hence 1
+
+√ak
+
+bk =
+
+(
+
+1 + hk
+
+2 + O(h2
+
+> k
+
+)
+
+) (
+
+hk + O(h2
+
+> k
+
+)
+
+)
+
+.
+
+Expanding this product term by term gives 
+
+1
+
+√ak
+
+bk = hk + 1 · O(h2
+
+> k
+
+) + hk
+
+2 · hk + hk
+
+2 · O(h2
+
+> k
+
+) + O(h2
+
+> k
+
+) · hk + O(h2
+
+> k
+
+) · O(h2
+
+> k
+
+)= hk + O(h2
+
+> k
+
+) + h2
+
+> k
+
+2 + O(h3
+
+> k
+
+) + O(h3
+
+> k
+
+) + O(h4
+
+> k
+
+)= hk + O(h2
+
+> k
+
+).
+
+Therefore 1
+
+√ak
+
+bk
+
+√1 − ¯ak
+
+ϵθ(˜ xk, k ) = 
+
+(
+
+hk + O(h2
+
+> k
+
+)
+
+) 1
+
+√1 − ¯ak
+
+ϵθ(˜ xk, k ). (B) Substituting (A) and (B) back into ˜μθ(˜ xk, k ) yields 
+
+˜μθ(˜ xk, k ) = 
+
+(
+
+1 + hk
+
+2 + O(h2
+
+> k
+
+)
+
+)
+
+˜xk −
+
+(
+
+hk + O(h2
+
+> k
+
+)
+
+) 1
+
+√1 − ¯ak
+
+ϵθ(˜ xk, k ).
+
+Hence the DDPM ancestral mean admits the first-order expansion displayed above. Therefore the DDPM conditional mean matches the conditional mean of the reverse-SDE step (81) to first order in hk.
+
+Step 3: compare the stochastic terms. The backward Euler–Maruyama step (81) uses the Gaussian increment 
+
+ηEM  
+
+> k
+
+:= √hk zk, ηEM  
+
+> k
+
+∼ N (0 , h kI).
+
+By contrast, the DDPM ancestral step uses 
+
+ηDDPM  
+
+> k
+
+:= 
+
+√˜bk zk, ηDDPM  
+
+> k
+
+∼ N (0 , ˜bkI),
+
+where 
+
+˜bk = 1 − ¯ak−1
+
+1 − ¯ak
+
+bk
+
+is the exact Gaussian posterior variance of the discrete forward diffusion. 31 In general, ˜bk is not equal to hk, so the DDPM stochastic term is not exactly the same as the Euler–Maruyama stochastic term. Indeed, using (70) and ¯ak = ak ¯ak−1 = e−hk ¯ak−1, we obtain 
+
+˜bk = 1 − ¯ak−1
+
+1 − e−hk ¯ak−1
+
+(1 − e−hk ). (82) This formula already shows that exact equality with hk fails in general. For example, at the final denoising step k = 1 we have ¯a0 = 1 , hence 
+
+˜b1 = 1 − ¯a0
+
+1 − ¯a1
+
+b1 = 0 ,
+
+whereas 
+
+h1 =
+
+∫ t1
+
+> t0
+
+β(s) d s > 0
+
+whenever β is not identically zero on [t0, t 1]. Therefore the DDPM stochastic term does not coincide exactly with the Euler–Maruyama stochastic term at finite step size. Nevertheless, away from this degenerate endpoint, the two variances agree to first order. Assume that 1 − ¯ak−1 > 0 is fixed. Since 
+
+e−hk = 1 − hk + O(h2
+
+> k
+
+),
+
+we have 
+
+bk = 1 − e−hk = hk + O(h2
+
+> k
+
+).
+
+Also, 
+
+1 − ¯ak = 1 − ¯ak−1e−hk
+
+= 1 − ¯ak−1
+
+(1 − hk + O(h2
+
+> k
+
+))
+
+= (1 − ¯ak−1) + ¯ ak−1hk + O(h2
+
+> k
+
+).
+
+Hence 
+
+1 − ¯ak−1
+
+1 − ¯ak
+
+= 1 − ¯ak−1
+
+(1 − ¯ak−1) + ¯ ak−1hk + O(h2
+
+> k
+
+)= 11 + ¯ak−1 
+
+> 1−¯ak−1
+
+hk + O(h2
+
+> k
+
+)= 1 + O(hk),
+
+where the last step uses the Taylor expansion (1 + u)−1 = 1 − u + O(u2) as u → 0. Multiplying by 
+
+bk = hk + O(h2
+
+> k
+
+) gives 
+
+˜bk = (1 + O(hk)) 
+
+(
+
+hk + O(h2
+
+> k
+
+)
+
+)
+
+= hk + O(h2
+
+> k
+
+).
+
+Consequently √˜bk = √hk
+
+√
+
+1 + O(hk) = √hk (1 + O(hk)) ,
+
+so the DDPM stochastic term agrees with the Euler–Maruyama stochastic term to first order on interior steps. We conclude that DDPM sampling should be interpreted in two layers: 
+
+• exactly, it is the learned reverse Gaussian chain of the discrete forward diffusion; 32 • asymptotically, under the VP correspondence and for small step size, it is a first-order discrete approximation to the continuous reverse SDE. The ancestral DDPM sampling algorithm is 1. Sample ˜xN ∼ N (0 , I ).2. For k = N, N − 1, . . . , 1, sample zk ∼ N (0 , I ) and set 
+
+˜xk−1 = ˜μθ(˜ xk, k ) + 
+
+√˜bk zk. (83) 3. Output ˜x0.
+
+7.4 DDIM inference and its relation to the reverse ODE 
+
+DDIM [ 22 ] uses the same trained noise predictor as DDPM, but changes the reverse sampler. Define the predicted clean sample ̂
+
+˜x0(˜ xk, k ) := ˜xk − √1 − ¯ak ϵθ(˜ xk, k )
+
+√¯ak
+
+. (84) The deterministic DDIM update is 
+
+˜xk−1 = √¯ak−1̂ ˜x0(˜ xk, k ) + √1 − ¯ak−1 ϵθ(˜ xk, k ). (85) More generally, DDIM introduces a stochasticity parameter η ∈ [0 , 1] and uses 
+
+˜xk−1 = √¯ak−1̂ ˜x0(˜ xk, k ) + 
+
+√
+
+1 − ¯ak−1 −̂ s2 
+
+> k
+
+ϵθ(˜ xk, k ) + ̂ skzk, (86) where zk ∼ N (0 , I ) and ̂
+
+sk := η
+
+√
+
+1 − ¯ak−1
+
+1 − ¯ak
+
+(
+
+1 − ¯ak
+
+¯ak−1
+
+)
+
+. (87) 
+
+Theorem 7.8 (Deterministic DDIM is a discrete reverse-ODE sampler) . When η = 0 , the DDIM update (85) is exactly the first-order one-step discretization of the learned reverse ODE 
+
+dXt
+
+dt = ftXt + g2
+
+> t
+
+2σt
+
+ϵθ(Xt, t )
+
+obtained by freezing ϵθ on the interval [tk−1, t k].Proof. Section 5 showed that the learned reverse ODE has the exact variation-of-constants formula 
+
+Xt = αt
+
+αs
+
+Xs − αt
+
+∫ λt
+
+> λs
+
+e−ζ ϵθ(Xϑ(ζ), ϑ (ζ)) d ζ. 
+
+Apply this with s = tk and t = tk−1. Then 
+
+Xtk−1 = αtk−1
+
+αtk
+
+Xtk − αtk−1
+
+∫ λtk−1
+
+> λtk
+
+e−ζ ϵθ(Xϑ(ζ), ϑ (ζ)) d ζ. 
+
+33 Now freeze the integrand on the interval [tk−1, t k]:
+
+ϵθ(Xϑ(ζ), ϑ (ζ)) ≈ ϵθ(˜ xk, k ).
+
+Then 
+
+˜xk−1 = αtk−1
+
+αtk
+
+˜xk − αtk−1 ϵθ(˜ xk, k )
+
+∫ λtk−1
+
+λtk
+
+e−ζ dζ
+
+= αtk−1
+
+αtk
+
+˜xk − αtk−1 ϵθ(˜ xk, k )
+
+[
+
+−e−ζ ]λtk−1
+
+λtk
+
+= αtk−1
+
+αtk
+
+˜xk − αtk−1 ϵθ(˜ xk, k )
+
+(
+
+e−λtk − e−λtk−1
+
+)
+
+.
+
+Because 
+
+∆λk := λtk−1 − λtk ,
+
+we have 
+
+e−λtk = e−λtk−1 e∆λk ,
+
+so 
+
+e−λtk − e−λtk−1 = e−λtk−1 (e∆λk − 1) .
+
+Since 
+
+e−λtk−1 = σtk−1
+
+αtk−1
+
+,
+
+the coefficient of ϵθ becomes 
+
+αtk−1
+
+(
+
+e−λtk − e−λtk−1
+
+)
+
+= αtk−1 e−λtk−1 (e∆λk − 1) = σtk−1 (e∆λk − 1) .
+
+Hence 
+
+˜xk−1 = αtk−1
+
+αtk
+
+˜xk − σtk−1
+
+(e∆λk − 1)ϵθ(˜ xk, k ), (88) Using 
+
+e∆λk = αtk−1 σtk
+
+αtk σtk−1
+
+,
+
+the coefficient of ϵθ becomes 
+
+−σtk−1 (e∆λk − 1) = σtk−1 − αtk−1
+
+αtk
+
+σtk .
+
+Therefore (88) is equivalent to 
+
+˜xk−1 = αtk−1
+
+αtk
+
+˜xk +
+
+(
+
+σtk−1 − αtk−1
+
+αtk
+
+σtk
+
+)
+
+ϵθ(˜ xk, k ). (89) Now substitute the discrete-continuous identification 
+
+αtk = √¯ak, σtk = √1 − ¯ak,
+
+to get 
+
+˜xk−1 =
+
+√
+
+¯ak−1
+
+¯ak
+
+˜xk +
+
+(√1 − ¯ak−1 −
+
+√
+
+¯ak−1
+
+¯ak
+
+√1 − ¯ak
+
+)
+
+ϵθ(˜ xk, k ).
+
+34 On the other hand, by the definition (84), 
+
+> √
+
+¯ak−1̂ ˜x0(˜ xk, k ) + √1 − ¯ak−1 ϵθ(˜ xk, k ) = √¯ak−1
+
+˜xk − √1 − ¯ak ϵθ(˜ xk, k )
+
+√¯ak
+
++ √1 − ¯ak−1 ϵθ(˜ xk, k )=
+
+> √
+
+¯ak−1
+
+¯ak
+
+˜xk +
+
+> (√
+
+1 − ¯ak−1 −
+
+> √
+
+¯ak−1
+
+¯ak
+
+√1 − ¯ak
+
+> )
+
+ϵθ(˜ xk, k ).
+
+The coefficient of ˜xk and the coefficient of ϵθ( ˜xk, k ) agree term by term, so the two updates are identical. Therefore 
+
+˜xk−1 = √¯ak−1̂ ˜x0(˜ xk, k ) + √1 − ¯ak−1 ϵθ(˜ xk, k ),
+
+which is precisely the deterministic DDIM update (85) . Thus deterministic DDIM is the discrete reverse-ODE sampler corresponding to the learned probability-flow ODE. When η > 0, the additional term ̂ skzk in (86) reintroduces stochasticity. So DDIM interpolates between deterministic reverse-ODE sampling ( η = 0 ) and a stochastic reverse-diffusion-style sampler (η > 0). 
+
+# 8 Unifying Flow Matching and Score Matching in the Reverse ODE/SDE Framework 
+
+The viewpoints of [ 25 , 10 ] can be expressed in a single language once we keep track of what is being learned and which time direction is being used. Song et al. [ 25 ] emphasize a forward SDE, its reverse-time SDE, and the associated probability-flow ODE. Lipman et al. [ 10 ] emphasize learning an ODE velocity field that generates a prescribed probability path. In this tutorial we write the reverse generative dynamics using the original diffusion label t : 1 → 0, whereas many flow-model papers use a generative clock that runs from noise to data. This is only a change of time orientation, not a change of the underlying density path. 
+
+8.1 Flow models, diffusion models, flow matching, and score matching 
+
+A flow model is a deterministic generative model defined by an ODE 
+
+dXt
+
+dt = vt(Xt),
+
+where vt : Rd → Rd is a time-dependent velocity field. Once the initial condition is sampled, the subsequent trajectory is deterministic. 
+
+Flow matching learns a velocity field that generates a chosen density path. If pt is a target path and v∗ 
+
+> t
+
+is a velocity field satisfying 
+
+∂tpt(x) = −∇· (pt(x)v∗ 
+
+> t
+
+(x)),
+
+then a flow-matching objective has the form  
+
+> ∫10
+
+EXt∼pt
+
+> [
+
+∥vθ(Xt, t ) − v∗ 
+
+> t
+
+(Xt)∥22
+
+> ]
+
+dt. 
+
+In the conditional-flow-matching formulation of [ 10 ], one often regresses a conditional velocity first and obtains the marginal velocity by averaging. 35 A diffusion model is a stochastic generative model defined by an SDE 
+
+dXt = bt(Xt) d t + gt dWt.
+
+Here the drift transports mass while the Brownian term injects randomness continuously in time. 
+
+Score matching learns the score 
+
+st(x) := ∇ log pt(x),
+
+or an equivalent reparameterization of it. In diffusion modeling one usually learns the scaled score 
+
+ϵ∗(x, t ) := −σt∇ log pt(x),
+
+which, by (36), is exactly the posterior mean noise. 
+
+8.2 The reverse SDE is the diffusion model and the reverse ODE is the flow model 
+
+In the notation of this tutorial, the reverse SDE 
+
+dXt =
+
+> (
+
+ftXt − g2 
+
+> t
+
+∇ log pt(Xt)
+
+> )
+
+dt + gt d ¯Wt, t : 1 → 0, (90) is exactly the stochastic generative model; compare with (29). The corresponding reverse ODE 
+
+dXt
+
+dt = ftXt − 12 g2 
+
+> t
+
+∇ log pt(Xt), t : 1 → 0, (91) is exactly the deterministic probability-flow model; compare with (31) . These two dynamics have the same one-time marginals pt, even though they do not have the same path law. This is the precise bridge between the two papers. Song et al. [ 25 ] show that once the score 
+
+∇ log pt is known, both the reverse-time SDE and the probability-flow ODE are determined. Lipman et al. [ 10 ] observe that the Fokker–Planck equation of an SDE can be rewritten as a continuity equation with velocity 
+
+v∗ 
+
+> t
+
+(x) = ftx − 12 g2 
+
+> t
+
+∇ log pt(x).
+
+But this is exactly the velocity field of (91) . Therefore a single reverse density path can be described in two equivalent ways: 
+
+• stochastically, by the reverse SDE; 
+
+• deterministically, by the reverse ODE whose velocity is an affine transform of the score. 
+
+8.3 Why the standard diffusion loss is score matching 
+
+Section 4 showed that the unknown part of both reverse dynamics is the same marginal score. Equivalently, the unknown part is the scaled score 
+
+ϵ∗(x, t ) = −σt∇ log pt(x).
+
+The loss (37) , or equivalently (38) , trains ϵθ(x, t ) to approximate ϵ∗(x, t ). Substituting the learned predictor into the reverse dynamics yields the learned reverse SDE (39) and the learned reverse ODE (40). For that reason, the standard diffusion objective used in this tutorial is most accurately described as denoising score matching : the network is directly supervised to learn the score, not a velocity field. This matches the viewpoint of [ 25 ], where both the reverse SDE and the probability-flow ODE are obtained by first estimating the score. 36 8.4 Why the same loss can also be viewed as flow matching 
+
+Although the parameterization is score-based, the learned reverse ODE is a flow model. Define its exact velocity and learned velocity by 
+
+h∗(x, t ) := ftx + g2
+
+> t
+
+2σt
+
+ϵ∗(x, t ), hθ(x, t ) := ftx + g2
+
+> t
+
+2σt
+
+ϵθ(x, t ). (92) Then (40) is precisely 
+
+dXt
+
+dt = hθ(Xt, t ), t : 1 → 0.
+
+Moreover, 
+
+hθ(x, t ) − h∗(x, t ) = g2
+
+> t
+
+2σt
+
+> (
+
+ϵθ(x, t ) − ϵ∗(x, t )).
+
+Hence 
+
+∥hθ(x, t ) − h∗(x, t )∥22 = g4
+
+> t
+
+4σ2
+
+> t
+
+∥ϵθ(x, t ) − ϵ∗(x, t )∥22. (93) 
+
+Proposition 8.1 (Noise prediction induces a weighted flow-matching objective) . Assume gt > 0
+
+for t ∈ (0 , 1) . Minimizing the score loss (37) is equivalent to minimizing 
+
+> ˜
+
+L(θ) := 12 
+
+> ∫10
+> ˜
+
+ω(t) EXt∼pt
+
+> [
+
+∥hθ(Xt, t ) − h∗(Xt, t )∥22
+
+> ]
+
+dt, (94) 
+
+where 
+
+> ˜
+
+ω(t) := ω(t) 4σ2
+
+> t
+
+g4
+
+> t
+
+.
+
+Proof. By (93), 
+
+∥ϵθ(x, t ) − ϵ∗(x, t )∥22 = 4σ2
+
+> t
+
+g4
+
+> t
+
+∥hθ(x, t ) − h∗(x, t )∥22.
+
+Substituting this identity into (37) gives (94). Therefore the same diffusion objective admits two correct interpretations: 
+
+• in its native parameterization, it is score matching; 
+
+• after converting the score into the reverse-ODE velocity, it becomes a time-weighted flow-matching objective for the induced flow model. 
+
+8.5 Relation to standard conditional flow matching 
+
+The previous proposition does not say that the usual diffusion loss is identical to standard conditional flow matching in the sense of [ 10 ]. In standard conditional flow matching, one chooses a probability path and directly regresses the corresponding conditional or marginal velocity field. The chosen path may be a diffusion path, but it may also be a non-diffusive path such as the OT path emphasized in [10]. This tutorial already contains the structural ingredients behind that viewpoint. In Sections 1 and 2 we constructed the conditional Gaussian path pt(x | x0), its conditional velocity field 
+
+ut(x | x0) in (10) , and the corresponding marginalized forward dynamics. This conditional-to-marginal construction is exactly the kind of mechanism that flow matching exploits. However, the training objective used in Section 4 does not directly regress ut(x | x0) or the reverse-ODE velocity 37 h∗(x, t ). Instead, it regresses the scaled score ϵ∗(x, t ) and only afterward converts that score into the reverse-ODE velocity via (92). So the clean conceptual picture is: 
+
+• reverse SDE = diffusion model; 
+
+• reverse ODE = flow model; 
+
+• noise-prediction loss = denoising score matching for the reverse SDE/ODE pair; 
+
+• the same loss = weighted flow matching for the induced reverse ODE; 
+
+• standard conditional flow matching differs mainly in that it supervises the velocity directly and can use probability paths beyond diffusion paths. This is the sense in which the reverse ODE/SDE framework unifies score matching and flow matching: score matching learns the quantity that defines both reverse dynamics, while flow matching learns the deterministic reverse velocity directly; in the diffusion setting of this tutorial, these two views are linked by the explicit affine transformation (92). 38 A Differential Operators 
+
+This appendix records the basic differential operators used throughout the tutorial. Let 
+
+x = ( x1, . . . , x d) ∈ Rd.
+
+Definition A.1 (Gradient) . If f : Rd → R is a scalar-valued differentiable function, its gradient is the vector field 
+
+∇f (x) :=  
+
+> (
+
+∂f ∂x 1
+
+(x), . . . , ∂f ∂x d
+
+(x)
+
+> )⊤
+
+.
+
+Thus the gradient maps a scalar function to a vector field. 
+
+Definition A.2 (Divergence) . If v : Rd → Rd is a differentiable vector field with components 
+
+v(x) = (v1(x), . . . , v d(x))⊤,
+
+its divergence is the scalar function 
+
+∇· v(x) := 
+
+> d∑
+> i=1
+
+∂v i
+
+∂x i
+
+(x).
+
+Thus the divergence maps a vector field to a scalar function. 
+
+Definition A.3 (Laplacian) . If f : Rd → R is twice differentiable, its Laplacian is 
+
+∆f (x) := ∇· (∇f (x)) = 
+
+> d∑
+> i=1
+
+∂2f∂x 2
+
+> i
+
+(x).
+
+Thus the Laplacian maps a scalar function to a scalar function. For completeness, if v : Rd → Rd is a differentiable vector field, then ∇v(x) denotes its Jacobian matrix, 
+
+∇v(x) :=  
+
+> (
+
+∂v i
+
+∂x j
+
+(x)
+
+> )di,j =1
+
+.
+
+This notation should not be confused with the divergence ∇· v(x), which is the trace of this Jacobian matrix. 
+
+# B Brownian Motion in Forward and Reverse Time 
+
+This appendix clarifies the three noise symbols that appear in the main text: 
+
+Wt, W rev  
+
+> τ
+
+, ¯Wt.
+
+They are related, but they play different conceptual roles. The main source of confusion is that standard Brownian motion is defined with respect to an increasing time parameter, whereas the reverse SDE is often rewritten in the original label t with the convention t : 1 → 0.39 Forward Brownian motion 
+
+The forward diffusion is written in the increasing time variable t ∈ [0 , 1] as 
+
+dXt = bt(Xt) d t + gt dWt.
+
+For the Brownian motion itself, the most natural filtration is the Brownian filtration 
+
+FWt := σ(Ws : 0 ≤ s ≤ t),
+
+or an augmentation of it. The forward process Xt has its own natural filtration 
+
+FXt := σ(Xs : 0 ≤ s ≤ t).
+
+In a strong-solution setting one usually works with a filtration (Ft)0≤t≤1 large enough that both Xt
+
+and Wt are adapted, for example 
+
+FXt ⊆ F t ⊇ F Wt .
+
+For the definition of Brownian motion, however, it is conceptually cleaner to refer to FWt rather than to FXt .By definition, Wt is a standard Brownian motion if: 1. W0 = 0 almost surely; 2. for every 0 ≤ s < t ≤ 1, the increment Wt − Ws is Gaussian with mean 0 and covariance 
+
+(t − s)I;3. for every 0 ≤ s < t ≤ 1, the increment Wt − Ws is independent of FWs .Thus Wt is a forward-time noise process. It is attached to the forward SDE and to the forward filtration. 
+
+Reverse process and reverse-time filtration 
+
+The reverse process is defined by 
+
+Yτ := X1−τ , 0 ≤ τ ≤ 1.
+
+The reverse process has its own natural filtration 
+
+GYτ := σ(Ys : 0 ≤ s ≤ τ ) = σ(X1−s : 0 ≤ s ≤ τ ).
+
+This filtration grows as τ increases from 0 to 1. Therefore τ is the natural forward time variable for the reverse process. The reverse Brownian motion W rev  
+
+> τ
+
+also has its own Brownian filtration 
+
+GW rev  
+
+> τ
+
+:= σ(W rev  
+
+> ρ
+
+: 0 ≤ ρ ≤ τ ).
+
+These two filtrations play different roles: 
+
+• GYτ records the reverse-time information carried by the reverse process; 
+
+• GW rev  
+
+> τ
+
+is the natural filtration of the reverse Brownian driver itself. 40 For a rigorous reverse SDE, one works on a filtration large enough to support both objects. The relationship with the forward filtration is as follows. The forward Brownian filtration 
+
+FWt = σ(Ws : 0 ≤ s ≤ t)
+
+and the reverse Brownian filtration 
+
+GW rev  
+
+> τ
+
+= σ(W rev  
+
+> ρ
+
+: 0 ≤ ρ ≤ τ )
+
+play analogous roles, but they are attached to different Brownian motions and different time directions. Likewise, the forward process filtration 
+
+FXt = σ(Xs : 0 ≤ s ≤ t)
+
+and the reverse process filtration 
+
+GYτ = σ(Ys : 0 ≤ s ≤ τ )
+
+describe information revealed along the forward and reverse evolutions, respectively. In general these forward and reverse filtrations should not be identified with one another, and there is typically no simple inclusion relation between them. They are different increasing families of sigma-algebras adapted to different time parameterizations. When the reverse diffusion theorem is stated in the variable τ , the reverse SDE has the form 
+
+dYτ = brev  
+
+> τ
+
+(Yτ ) d τ + g1−τ dW rev  
+
+> τ
+
+,
+
+where W rev  
+
+> τ
+
+is a standard Brownian motion with respect to its Brownian filtration GW rev  
+
+> τ
+
+, or with respect to an augmented filtration that also makes Yτ adapted. Concretely, this means: 1. W rev 0 = 0 almost surely; 2. for every 0 ≤ ρ < τ ≤ 1,
+
+W rev  
+
+> τ
+
+− W rev  
+
+> ρ
+
+∼ N (0 , (τ − ρ)I); 
+
+3. for every 0 ≤ ρ < τ ≤ 1, the increment W rev  
+
+> τ
+
+− W rev  
+
+> ρ
+
+is independent of the past Brownian filtration GW rev  
+
+> ρ
+
+.The crucial point is that W rev  
+
+> τ
+
+is the Brownian driver of the reverse diffusion. It is not the same symbol as the forward Brownian motion Wt, because it is attached to a different Brownian filtration and a different stochastic evolution. At the same time, the reverse SDE itself is naturally interpreted relative to the reverse-process filtration GYτ , because that filtration records the information carried by the reversed trajectory. 
+
+Backward-t notation and the definition of ¯Wt
+
+The same reverse diffusion may be rewritten in the original time label t by setting 
+
+t = 1 − τ. 
+
+Because the reverse process is still the same stochastic process viewed under a different clock, it is natural to define ¯Wt := W rev 1−t, t : 1 → 0.
+
+41 With this notation, the reverse SDE written in the original label becomes 
+
+dXt = (bt(Xt) − g2 
+
+> t
+
+∇ log pt(Xt)) dt + gt d ¯Wt, t : 1 → 0.
+
+The notation ¯Wt emphasizes that this is the same reverse-time noise as W rev  
+
+> τ
+
+, but expressed in the backward label t. The symbol ¯Wt should therefore be interpreted as a reverse-time noise driver .It is not introduced as a new forward-time Brownian motion in the increasing variable t.The corresponding backward-t filtration is obtained by relabeling the reverse-time filtration: 
+
+¯GXt := GY 
+
+> 1−t
+
+= σ(Xs : t ≤ s ≤ 1) .
+
+Likewise, the Brownian filtration of the reverse noise may be rewritten as 
+
+¯G ¯Wt := GW rev  
+
+> 1−t
+
+= σ( ¯Ws : t ≤ s ≤ 1) .
+
+The family ¯GXt is decreasing when t is read in the ordinary increasing direction, but it is increasing when the reverse SDE is read in its natural orientation t : 1 → 0. The same is true for ¯G ¯Wt . Thus ¯Wt
+
+is the backward-t representation of the reverse Brownian driver, while ¯GXt records the backward-time information of the reverse process itself. 
+
+Which symbols are standard Brownian motions? 
+
+The correct classification is: 
+
+• Wt is a standard Brownian motion in the increasing forward time variable t ∈ [0 , 1] , naturally associated with the filtration FWt .
+
+• W rev  
+
+> τ
+
+is a standard Brownian motion in the increasing reverse-time variable τ ∈ [0 , 1] , naturally associated with the filtration GW rev  
+
+> τ
+
+.
+
+• ¯Wt is the same reverse-time noise as W rev  
+
+> τ
+
+, rewritten in the label t = 1 − τ . It is naturally associated with the relabeled Brownian filtration ¯G ¯Wt and is not, by itself, introduced as a standard Brownian motion in increasing t.Indeed, ¯W1 = W rev 0 = 0 , ¯W0 = W rev 1 .
+
+So ¯Wt starts at zero when the parameter is read from t = 1 down to t = 0 , exactly as the backward formulation of the reverse SDE requires. 
+
+Summary 
+
+The three symbols may be summarized as follows: forward SDE in t : dXt = bt(Xt) d t + gt dWt,
+
+reverse SDE in τ : dYτ = brev  
+
+> τ
+
+(Yτ ) d τ + g1−τ dW rev  
+
+> τ
+
+,
+
+same reverse SDE in t : dXt = (bt(Xt) − g2 
+
+> t
+
+∇ log pt(Xt)) dt + gt d ¯Wt, t : 1 → 0,
+
+¯Wt = W rev 1−t.
+
+This is the precise sense in which W rev  
+
+> τ
+
+and ¯Wt represent the same reverse-time noise under two different clocks. 42 C Deterministic Itô Integrals and Itô Isometry 
+
+This appendix explains the stochastic-integral step used in Section 7 when comparing DDPM sampling with the reverse SDE. The key object there is an integral of the form 
+
+η :=  
+
+> ∫ba
+
+ϕ(τ ) d Wτ ,
+
+where Wτ is a standard Brownian motion and ϕ is a deterministic scalar function. The conclusion used in the main text is that η is Gaussian with mean zero and variance 
+
+EW [η2] =  
+
+> ∫ba
+
+ϕ(τ )2 dτ. 
+
+In the vector-valued case relevant to diffusion models, the same statement holds componentwise, yielding covariance 
+
+EW [ηη ⊤] =  
+
+> (∫ba
+
+ϕ(τ )2 dτ
+
+> )
+
+I. 
+
+What does EW [η] mean? 
+
+Some readers may be unfamiliar with notation such as EW [η]. The meaning is simple: it denotes expectation with respect to the randomness of the Brownian motion W .Formally, let (Ω , F, P) be the underlying probability space, and let 
+
+Wτ = Wτ (ω), ω ∈ Ω,
+
+be a Brownian motion on that space. Then the stochastic integral 
+
+η = 
+
+> ∫ba
+
+ϕ(τ ) d Wτ
+
+is itself a random variable on Ω, that is, 
+
+η = η(ω).
+
+Therefore 
+
+EW [η]
+
+simply means 
+
+E[η] = 
+
+> ∫
+> Ω
+
+η(ω) d P(ω),
+
+with the subscript W added only to remind the reader that the randomness comes from the Brownian path W . In the present appendix, there is no additional source of randomness, so 
+
+EW [η] = E[η].
+
+Likewise, 
+
+EW [η2] = E[η2], EW [ηη ⊤] = E[ηη ⊤].
+
+We keep the subscript W only as a bookkeeping device indicating that the expectation is taken over Brownian trajectories. 43 Step 1: the case of a step-function integrand 
+
+Suppose first that 
+
+ϕ(τ ) = 
+
+> m−1
+
+∑
+
+> j=0
+
+cj 1(uj ,u j+1 ](τ ), a = u0 < u 1 < · · · < u m = b, 
+
+where each cj ∈ R is deterministic. By definition of the Itô integral for step functions, 
+
+∫ ba
+
+ϕ(τ ) d Wτ := 
+
+> m−1
+
+∑
+
+> j=0
+
+cj
+
+(Wuj+1 − Wuj
+
+).
+
+Each increment 
+
+Wuj+1 − Wuj
+
+is Gaussian with mean zero and variance uj+1 − uj , and the increments over disjoint intervals are independent. Therefore the random variable 
+
+η := 
+
+> m−1
+
+∑
+
+> j=0
+
+cj
+
+(Wuj+1 − Wuj
+
+)
+
+is a linear combination of independent Gaussian random variables, hence itself Gaussian. Its mean is 
+
+EW [η] = 
+
+> m−1
+
+∑
+
+> j=0
+
+cj EW [Wuj+1 − Wuj ] = 0 .
+
+Its variance is 
+
+EW [η2] = EW
+
+
+
+> m−1
+
+∑
+
+> j=0
+
+cj (Wuj+1 − Wuj )
+
+
+
+> 2
+
+
+
+=
+
+> m−1
+
+∑
+
+> j=0
+
+c2 
+
+> j
+
+EW [( Wuj+1 − Wuj )2] + 2 ∑
+
+> 0≤i<j ≤m−1
+
+cicj EW [( Wui+1 − Wui )( Wuj+1 − Wuj )] .
+
+The cross terms vanish because disjoint Brownian increments are independent and centered: 
+
+EW [( Wui+1 − Wui )( Wuj+1 − Wuj )] = EW [Wui+1 − Wui ] EW [Wuj+1 − Wuj ] = 0 (i̸ = j).
+
+Hence 
+
+EW [η2] = 
+
+> m−1
+
+∑
+
+> j=0
+
+c2 
+
+> j
+
+EW [( Wuj+1 − Wuj )2]=
+
+> m−1
+
+∑
+
+> j=0
+
+c2 
+
+> j
+
+(uj+1 − uj ).
+
+But this sum is exactly ∫ ba
+
+ϕ(τ )2 dτ. 
+
+Therefore, for step-function integrands, 
+
+∫ ba
+
+ϕ(τ ) d Wτ ∼ N 
+
+(
+
+0,
+
+∫ ba
+
+ϕ(τ )2 dτ
+
+)
+
+.
+
+This identity is the deterministic step-function case of Itô isometry. 44 Step 2: extension to general deterministic integrands 
+
+Now let ϕ ∈ L2([ a, b ]) be any deterministic square-integrable function. By the standard construction of the Itô integral, there exists a sequence of step functions ϕn such that 
+
+∫ ba
+
+|ϕn(τ ) − ϕ(τ )|2 dτ → 0.
+
+For each n, define 
+
+ηn := 
+
+∫ ba
+
+ϕn(τ ) d Wτ .
+
+From Step 1, 
+
+EW [ηn] = 0 , EW [η2
+
+> n
+
+] = 
+
+∫ ba
+
+ϕn(τ )2 dτ. 
+
+Moreover, 
+
+ηn − ηm =
+
+∫ ba
+
+(ϕn(τ ) − ϕm(τ )) d Wτ ,
+
+so Step 1 again gives 
+
+EW [( ηn − ηm)2] = 
+
+∫ ba
+
+|ϕn(τ ) − ϕm(τ )|2 dτ. 
+
+Since (ϕn) is Cauchy in L2([ a, b ]) , the sequence (ηn) is Cauchy in L2(Ω) and therefore converges in 
+
+L2 to a limit, which is by definition 
+
+η := 
+
+∫ ba
+
+ϕ(τ ) d Wτ .
+
+We now justify the mean and variance formulas carefully. First, L2 convergence implies L1 convergence by Cauchy–Schwarz: 
+
+EW [|ηn − η|] ≤ (EW [( ηn − η)2])1/2 → 0.
+
+Therefore 
+
+EW [η] = EW [ηn] + EW [η − ηn].
+
+Taking absolute values and using EW [ηn] = 0 for every n,
+
+|EW [η]| ≤ | EW [ηn]| + EW [|η − ηn|] = EW [|η − ηn|].
+
+Letting n → ∞ gives 
+
+EW [η] = 0 .
+
+Next, to compute the second moment, write 
+
+η2 − η2 
+
+> n
+
+= ( η − ηn)( η + ηn).
+
+Hence ∣∣EW [η2] − EW [η2
+
+> n
+
+]∣∣ ≤ EW [|η − ηn| | η + ηn|].
+
+By Cauchy–Schwarz, 
+
+EW [|η − ηn| | η + ηn|] ≤ (EW [( η − ηn)2])1/2(EW [( η + ηn)2])1/2.
+
+45 The first factor tends to zero because ηn → η in L2. The second factor remains bounded because 
+
+EW [( η + ηn)2] ≤ 2EW [η2] + 2 EW [η2
+
+> n
+
+],
+
+and both terms on the right are finite. Therefore 
+
+EW [η2
+
+> n
+
+] → EW [η2].
+
+Since 
+
+EW [η2
+
+> n
+
+] = 
+
+∫ ba
+
+ϕn(τ )2 dτ
+
+and ϕn → ϕ in L2([ a, b ]) , we also have 
+
+∫ ba
+
+ϕn(τ )2 dτ →
+
+∫ ba
+
+ϕ(τ )2 dτ. 
+
+Consequently, 
+
+EW [η2] = 
+
+∫ ba
+
+ϕ(τ )2 dτ. 
+
+This identity is the deterministic-integrand form of Itô isometry: 
+
+EW
+
+(∫ ba
+
+ϕ(τ ) d Wτ
+
+)2 =
+
+∫ ba
+
+ϕ(τ )2 dτ. 
+
+Because each ηn is Gaussian and the sequence converges in L2, the limit η is also Gaussian with the same limiting mean and variance. Therefore 
+
+∫ ba
+
+ϕ(τ ) d Wτ ∼ N 
+
+(
+
+0,
+
+∫ ba
+
+ϕ(τ )2 dτ
+
+)
+
+for every deterministic ϕ ∈ L2([ a, b ]) .
+
+Step 3: the vector-valued case 
+
+In diffusion models, the Brownian motion is d-dimensional: 
+
+Wτ = ( W (1)  
+
+> τ
+
+, . . . , W (d) 
+
+> τ
+
+)⊤.
+
+If ϕ is a deterministic scalar function, define 
+
+η := 
+
+∫ ba
+
+ϕ(τ ) d Wτ =
+
+(∫ ba
+
+ϕ(τ ) d W (1)  
+
+> τ
+
+, . . . , 
+
+∫ ba
+
+ϕ(τ ) d W (d)
+
+> τ
+
+)⊤
+
+.
+
+Each component is Gaussian with mean zero and variance ∫ ba ϕ(τ )2 dτ . Since the Brownian components are independent, the components of η are independent as well. Consequently, 
+
+η ∼ N 
+
+(
+
+0,
+
+(∫ ba
+
+ϕ(τ )2 dτ
+
+)
+
+I
+
+)
+
+.
+
+Equivalently, 
+
+EW [η] = 0 ,
+
+and 
+
+EW [ηη ⊤] = 
+
+(∫ ba
+
+ϕ(τ )2 dτ
+
+)
+
+I. 
+
+46 Step 4: application to the DDPM/reverse-SDE comparison 
+
+In Section 7, the stochastic term is 
+
+ηk := 
+
+∫ 1−tk−1
+
+> 1−tk
+
+√
+
+β(1 − τ ) d W rev  
+
+> τ
+
+.
+
+Here the deterministic integrand is 
+
+ϕ(τ ) := 
+
+√
+
+β(1 − τ ).
+
+Applying the vector-valued result above gives 
+
+EW rev [ηk] = 0 
+
+and 
+
+EW rev [ηkη⊤ 
+
+> k
+
+] = 
+
+(∫ 1−tk−1
+
+> 1−tk
+
+β(1 − τ ) d τ
+
+)
+
+I. 
+
+Now make the change of variables 
+
+s = 1 − τ, ds = − dτ. 
+
+When τ = 1 − tk, we have s = tk, and when τ = 1 − tk−1, we have s = tk−1. Therefore 
+
+∫ 1−tk−1
+
+> 1−tk
+
+β(1 − τ ) d τ =
+
+∫ s=tk−1
+
+> s=tk
+
+β(s)( − ds)=
+
+∫ tk
+
+> tk−1
+
+β(s) d s
+
+= hk.
+
+Hence 
+
+EW rev [ηkη⊤ 
+
+> k
+
+] = hkI. 
+
+Since ηk is Gaussian and centered, this proves 
+
+ηk ∼ N (0 , h kI).
+
+Therefore one may write 
+
+ηk = √hk zk, zk ∼ N (0 , I ),
+
+which is exactly the stochastic increment used in the backward Euler–Maruyama step of the reverse SDE. 
+
+# D Continuity Equation 
+
+Theorem D.1 (Continuity equation) . Let Xt satisfy the deterministic ODE 
+
+dXt
+
+dt = ut(Xt),
+
+and let pt denote the density of Xt. Then 
+
+∂tpt(x) = −∇· (pt(x)ut(x)). (95) 47 Proof. Let φ : Rd → R be a smooth compactly supported test function. Since dXt/ dt = ut(Xt),
+
+ddt φ(Xt) = ∇φ(Xt)⊤ut(Xt).
+
+Taking expectations, ddt EXt [φ(Xt)] = EXt [∇φ(Xt)⊤ut(Xt)] .
+
+Writing the expectation in terms of the density pt,
+
+ddt
+
+∫
+
+φ(x)pt(x) d x =
+
+∫
+
+∇φ(x)⊤ut(x)pt(x) d x. 
+
+Integrating by parts gives 
+
+∫
+
+∇φ(x)⊤ut(x)pt(x) d x = −
+
+∫
+
+φ(x)∇· (ut(x)pt(x)) dx. 
+
+Therefore ∫
+
+φ(x)∂tpt(x) d x = −
+
+∫
+
+φ(x)∇· (ut(x)pt(x)) dx. 
+
+Since this holds for every test function φ, (95) follows. 
+
+# E Fokker–Planck Equation 
+
+Theorem E.1 (Fokker–Planck equation) . Let Xt satisfy the Itô SDE 
+
+dXt = bt(Xt) d t + gt dWt, (96) 
+
+where bt : Rd → Rd and gt is scalar. Let pt be the density of Xt. Then 
+
+∂tpt(x) = −∇· (bt(x)pt(x)) + 12 g2 
+
+> t
+
+∆pt(x). (97) 
+
+Proof. Let φ : Rd → R be a smooth compactly supported test function. By Itô’s formula, 
+
+dφ(Xt) = ∇φ(Xt)⊤ dXt + 12 tr (g2 
+
+> t
+
+I∇2φ(Xt)) dt. 
+
+Substituting (96), 
+
+dφ(Xt) = ∇φ(Xt)⊤bt(Xt) d t + gt∇φ(Xt)⊤ dWt + 12 g2 
+
+> t
+
+∆φ(Xt) d t. 
+
+Taking expectation removes the martingale term: 
+
+ddt EXt [φ(Xt)] = EXt [∇φ(Xt)⊤bt(Xt)] + 12 g2 
+
+> t
+
+EXt [∆ φ(Xt)] .
+
+Writing the expectations using the density, 
+
+ddt
+
+∫
+
+φ(x)pt(x) d x =
+
+∫
+
+∇φ(x)⊤bt(x)pt(x) d x + 12 g2
+
+> t
+
+∫
+
+∆φ(x)pt(x) d x. 
+
+Integrating by parts, 
+
+∫
+
+∇φ(x)⊤bt(x)pt(x) d x = −
+
+∫
+
+φ(x)∇· (bt(x)pt(x)) dx, 
+
+48 and ∫
+
+∆φ(x)pt(x) d x =
+
+∫
+
+φ(x)∆ pt(x) d x. 
+
+Therefore ∫
+
+φ(x)∂tpt(x) d x =
+
+∫
+
+φ(x)
+
+[
+
+−∇· (bt(x)pt(x)) + 12 g2 
+
+> t
+
+∆pt(x)
+
+]
+
+dx. 
+
+Since this holds for every test function φ, (97) follows. 
+
+# F Conditional-to-Marginal Averaging Lemmas 
+
+Lemma F.1 (Averaging continuity equations) . Suppose that for each fixed x0, a conditional density 
+
+pt(x | x0) satisfies 
+
+∂tpt(x | x0) = −∇· (pt(x | x0)vt(x | x0)).
+
+Let 
+
+pt(x) = 
+
+∫
+
+pt(x | x0)p0(x0) d x0.
+
+Then the marginal density satisfies 
+
+∂tpt(x) = −∇· (pt(x)¯ vt(x)),
+
+where 
+
+¯vt(x) := EX0|Xt=x[vt(x | X0)] . (98) 
+
+Proof. Differentiate under the integral sign: 
+
+∂tpt(x) = 
+
+∫
+
+∂tpt(x | x0)p0(x0) d x0.
+
+Substitute the conditional continuity equation: 
+
+∂tpt(x) = −
+
+∫
+
+∇· (pt(x | x0)vt(x | x0))p0(x0) d x0.
+
+Since the divergence acts only on x, it can be moved outside the integral: 
+
+∂tpt(x) = −∇· 
+
+(∫ 
+
+pt(x | x0)vt(x | x0)p0(x0) d x0
+
+)
+
+.
+
+Define 
+
+¯vt(x) := 
+
+∫ pt(x | x0)vt(x | x0)p0(x0) d x0
+
+pt(x) .
+
+By Bayes’ rule, this is exactly (98). Hence 
+
+∂tpt(x) = −∇· (pt(x)¯ vt(x)).
+
+Lemma F.2 (Averaging Fokker–Planck equations) . Suppose that for each fixed x0, a conditional density pt(x | x0) satisfies 
+
+∂tpt(x | x0) = −∇· (pt(x | x0)bt(x | x0)) + 12 g2 
+
+> t
+
+∆pt(x | x0).
+
+Then the marginal density 
+
+pt(x) = 
+
+∫
+
+pt(x | x0)p0(x0) d x0
+
+49 satisfies 
+
+∂tpt(x) = −∇· (pt(x)¯bt(x)) + 12 g2 
+
+> t
+
+∆pt(x),
+
+where ¯bt(x) := EX0|Xt=x[bt(x | X0)] . (99) 
+
+Proof. Differentiate under the integral sign: 
+
+∂tpt(x) = 
+
+∫
+
+∂tpt(x | x0)p0(x0) d x0.
+
+Substitute the conditional Fokker–Planck equation: 
+
+∂tpt(x) = −
+
+∫
+
+∇· (pt(x | x0)bt(x | x0))p0(x0) d x0
+
++ 12 g2
+
+> t
+
+∫
+
+∆pt(x | x0)p0(x0) d x0.
+
+Move derivatives outside the integrals: 
+
+∂tpt(x) = −∇· 
+
+(∫ 
+
+pt(x | x0)bt(x | x0)p0(x0) d x0
+
+)
+
++ 12 g2 
+
+> t
+
+∆pt(x).
+
+Define 
+
+¯bt(x) := 
+
+∫ pt(x | x0)bt(x | x0)p0(x0) d x0
+
+pt(x) .
+
+By Bayes’ rule this is (99), so 
+
+∂tpt(x) = −∇· (pt(x)¯bt(x)) + 12 g2 
+
+> t
+
+∆pt(x).
+
+# G Fisher’s Identity 
+
+Theorem G.1 (Fisher’s identity) . If 
+
+pt(x) = 
+
+∫
+
+pt(x | x0)p0(x0) d x0,
+
+then 
+
+∇ log pt(x) = E[∇ log pt(x | X0) | Xt = x]. (100) 
+
+Proof. Differentiate the marginal density: 
+
+∇pt(x) = 
+
+∫
+
+∇pt(x | x0)p0(x0) d x0.
+
+Divide by pt(x):
+
+∇ log pt(x) = 
+
+∫ ∇pt(x | x0)
+
+pt(x) p0(x0) d x0.
+
+Multiply and divide by pt(x | x0) inside the integral: 
+
+∇ log pt(x) = 
+
+∫ ∇pt(x | x0)
+
+pt(x | x0)
+
+pt(x | x0)p0(x0)
+
+pt(x) dx0.
+
+The first factor is ∇ log pt(x | x0). The second factor is p(x0 | Xt = x) by Bayes’ rule. Hence 
+
+∇ log pt(x) = 
+
+∫
+
+∇ log pt(x | x0) p(x0 | Xt = x) d x0,
+
+which is (100). 50 H Orthogonality Identity Used in the Denoising Loss 
+
+Theorem H.1 (Orthogonality identity) . Let Z and ε be square-integrable random variables, and let a(Z) be any square-integrable function of Z. Then 
+
+EZ,ε ∥a(Z) − ε∥22 = EZ ∥a(Z) − Eε|Z [ε]∥22 + EZ,ε ∥ε − Eε|Z [ε]∥22. (101) 
+
+Proof. Write 
+
+a(Z) − ε = (a(Z) − Eε|Z [ε]) + (Eε|Z [ε] − ε).
+
+Let 
+
+A := a(Z) − Eε|Z [ε], B := Eε|Z [ε] − ε. 
+
+Then 
+
+∥A + B∥22 = ∥A∥22 + 2 A⊤B + ∥B∥22.
+
+Taking expectation, 
+
+EZ,ε ∥A + B∥22 = EZ,ε ∥A∥22 + 2 EZ,ε [A⊤B] + EZ,ε ∥B∥22.
+
+Now A is measurable with respect to Z, and 
+
+Eε|Z [B] = Eε|Z [Eε|Z [ε] − ε] = Eε|Z [ε] − Eε|Z [ε] = 0 .
+
+Therefore 
+
+EZ,ε [A⊤B] = EZ
+
+[
+
+Eε|Z [A⊤B]
+
+]
+
+= EZ
+
+[
+
+A⊤Eε|Z [B]
+
+]
+
+= 0 .
+
+Hence 
+
+EZ,ε ∥a(Z) − ε∥22 = EZ ∥a(Z) − Eε|Z [ε]∥22 + EZ,ε ∥ε − Eε|Z [ε]∥22.
+
+51 References 
+
+[1] Brian D. O. Anderson. Reverse-time diffusion equation models. Stochastic Processes and their Applications , 12(3):313–326, 1982. [2] Ricky T. Q. Chen, Yulia Rubanova, Jesse Bettencourt, and David Duvenaud. Neural ordinary differential equations. In Advances in Neural Information Processing Systems , 2018. [3] Prafulla Dhariwal and Alexander Nichol. Diffusion models beat GANs on image synthesis. In 
+
+Advances in Neural Information Processing Systems , 2021. [4] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In 
+
+Advances in Neural Information Processing Systems , 2020. [5] Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. arXiv preprint arXiv:2207.12598 , 2022. [6] Peter Holderrieth and Ezra Erives. An introduction to flow matching and diffusion models. arXiv, 2025. [7] Aapo Hyvärinen. Estimation of non-normalized statistical models by score matching. Journal of Machine Learning Research , 6:695–709, 2005. [8] Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine. Elucidating the design space of diffusion-based generative models. In Advances in Neural Information Processing Systems ,2022. [9] Diederik P. Kingma, Tim Salimans, Ben Poole, and Jonathan Ho. Variational diffusion models. In Advances in Neural Information Processing Systems , 2021. [10] Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. In International Conference on Learning Representations ,2023. [11] Cheng Lu, Yuhao Zhou, Fan Bao, Jianfei Chen, Chongxuan Li, and Jun Zhu. DPM-Solver: A fast ODE solver for diffusion probabilistic model sampling in around 10 steps. In Advances in Neural Information Processing Systems , 2022. [12] Cheng Lu, Yuhao Zhou, Fan Bao, Jianfei Chen, Chongxuan Li, and Jun Zhu. DPM-Solver++: Fast solver for guided sampling of diffusion probabilistic models. arXiv preprint arXiv:2211.01095 , 2022. [13] Chenlin Meng, Yutong He, Yang Song, Jiaming Song, Jue Wang, and Stefano Ermon. SDEdit: Guided image synthesis and editing with stochastic differential equations. arXiv preprint arXiv:2108.01073 , 2021. [14] Alex Nichol, Prafulla Dhariwal, Aditya Ramesh, Pranav Shyam, Pamela Mishkin, Bob McGrew, Ilya Sutskever, and Mark Chen. GLIDE: Towards photorealistic image generation and editing with text-guided diffusion models. arXiv preprint arXiv:2112.10741 , 2021. [15] Alexander Quinn Nichol and Prafulla Dhariwal. Improved denoising diffusion probabilistic models. In International Conference on Machine Learning , 2021. 52 [16] Bernt Øksendal. Stochastic Differential Equations: An Introduction with Applications . Springer, 6th edition, 2003. [17] Hannes Risken. The Fokker–Planck Equation: Methods of Solution and Applications . Springer, 2nd edition, 1996. [18] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2022. [19] Chitwan Saharia, William Chan, Saurabh Saxena, Lala Li, Jay Whang, Emily Denton, Seyed Kamyar Seyed Ghasemipour, Burcu Karagol Ayan, Shiki Sagawa, Maithra Raghu, et al. Photorealistic text-to-image diffusion models with deep language understanding. In Advances in Neural Information Processing Systems , 2022. [20] Tim Salimans and Jonathan Ho. Progressive distillation for fast sampling of diffusion models. In International Conference on Learning Representations , 2022. [21] Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan, and Surya Ganguli. Deep unsuper-vised learning using nonequilibrium thermodynamics. In Proceedings of the 32nd International Conference on Machine Learning , 2015. [22] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. In 
+
+International Conference on Learning Representations , 2021. [23] Yang Song and Stefano Ermon. Generative modeling by estimating gradients of the data distribution. In Advances in Neural Information Processing Systems , 2019. [24] Yang Song and Stefano Ermon. Improved techniques for training score-based generative models. In Advances in Neural Information Processing Systems , 2020. [25] Yang Song, Jascha Sohl-Dickstein, Diederik P. Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. In 
+
+International Conference on Learning Representations , 2021. [26] Pascal Vincent. A connection between score matching and denoising autoencoders. Neural Computation , 23(7):1661–1674, 2011. 53

@@ -1,0 +1,573 @@
+Title: PhAME: Phenotype-Aware Molecular Editing via Latent Diffusion
+
+URL Source: https://arxiv.org/pdf/2605.28226v1
+
+Published Time: Thu, 28 May 2026 01:25:33 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# PhAME: Phenotype-Aware Molecular Editing via Latent Diffusion 
+
+Łukasz Janisiów 1,2∗ Sebastian Musiał 1∗ Bartosz Zieli ´ nski 1,3
+
+Dawid Rymarczyk 1,5† Tomasz Danel 4†
+
+> 1
+
+Faculty of Mathematics and Computer Science, Jagiellonian University 
+
+> 2
+
+Doctoral School of Exact and Natural Sciences, Jagiellonian University 
+
+> 3
+
+Jagiellonian Center for Artificial Intelligence, Jagiellonian University 
+
+> 4
+
+Faculty of Chemistry, Jagiellonian University 5Ardigen SA 
+
+## Abstract 
+
+Small-molecule drug discovery requires simultaneous optimization of numerous properties of candidate molecules. These properties can be investigated through the analysis of high-dimensional biological signatures, such as cell morphology and transcriptomic perturbations, which provide a rich perspective on the underlying biological mechanisms. However, existing generative methods, which use those signatures for optimization, fail to meet two key requirements: providing precise guidance toward desired phenotypic signatures while maintaining structural prox-imity to a known hit. We introduce PhAME (Phenotype-Aware Molecular Editing), a latent diffusion framework that overcomes this challenge by recasting molecular optimization as editing in the latent space of a pretrained graph-based VAE. Our central contribution is a compositional classifier-free guidance scheme with two independent scales, one for the phenotype-conditioning and one for similarity to the seed structure, allowing practitioners to control the tradeoff between these two objectives. Empirical evaluations across diverse benchmarks, including dock-ing score optimization and multimodal phenotypic generation, demonstrate that PhAME achieves state-of-the-art results while maintaining high chemical validity and novelty. 
+
+## 1 Introduction PhAME 
+
+> seed molecule (hit or lead) target phenotype (e.g. gene knockout) phenotype experiment  structure guidance phenotype guidance analog analog analog
+
+Figure 1: Molecular editing with PhAME. Given a seed molecule and target phenotype, the model generates close structural analogs that induce a target phenotype by balancing two independent guidance scales: structure and phenotype. Drug discovery is a search over a chemical space estimated at 10 60 drug-like molecules [ 38 ], but in practice it rarely starts from scratch. The dom-inant bottleneck is the iterative refinement of an already-active compound through Hit-to-Lead 
+
+(H2L) and Lead Optimization (LO), reshaping a screening hit into a potent, drug-like, synthe-sizable candidate [ 35 ]. Compounding this, the field is shifting from single-target binding as-says toward phenotypic readouts, such as gene-expression changes and cell-morphology pro-files, that capture how a molecule perturbs a  
+
+> ∗Equal contribution.
+> †Corresponding authors: {tomasz.danel, dawid.rymarczyk}@uj.edu.pl
+> Preprint.
+> arXiv:2605.28226v1 [cs.LG] 27 May 2026
+
+biological system as a whole [ 5, 46 ]. A generative model that can both edit a known hit and steer it toward such system-level signals would be a powerful tool for ML-driven discovery, yet no method today delivers both. Ligand-centric generators [ 9 , 16 , 17 ] produce valid molecules but ignore cell-level response and offer no mechanism to anchor on a seed compound. Phenotype-conditioned generators close the first gap but not the second: GxVAEs [ 21 ] and SmilesGEN [ 25 ] both generate de novo from a phenotypic target and cannot be steered around a known hit. A concurrent work [ 43 ] adds molecule editing via discrete mask-and-reconstruct on SELFIES substructures, but only under L1000 transcriptomics. Even classifier-free guidance (CFG) [ 12 ], the standard steering tool for diffusion models, does not solve the problem. Its single guidance scale forces a trade-off between matching the target phenotype and staying close to the seed molecule. We propose PhAME (Ph enotype-Aware Molecular Editing) to close both gaps: conditioning on a desired phenotype and anchoring on a seed compound. PhAME reformulates design as an editing task in the latent space of a frozen graph-based VAE [ 34 ]. A seed molecule is partially noised and denoised under guidance, so the noise level controls the structural exploration radius. Structural proximity is measured in a learned embedding space of InfoAlign [ 24 ] that reflects cellular response rather than raw chemical similarity. Crucially, we replace standard CFG with a compositional variant that splits the guidance signal into two terms with independent scales, one for the phenotypic target and one for structural anchoring, directly removing the trade-off baked into single-scale CFG. Across docking-score optimization, transcriptomic-conditioned generation, and phenotype-driven mode of action (MoA) design, PhAME delivers the strongest results to date: the best novel hit ratio on four out of five MOOD [ 19 ] protein targets, and consistent superiority on phenotype-driven MoA retrieval, all while maintaining near-perfect validity and novelty. Our contributions can be summarized as follows: • Latent-diffusion molecular editing: We introduce PhAME, a framework utilizing latent diffusion on graph-based embeddings to enable systematic Hit-to-Lead guided by complex biological signatures. • Compositional guidance mechanism: We generalize classifier-free guidance to use two independent scales, one for phenotype matching and one for seed proximity, replacing the forced trade-off with explicit control over each objective. • SOTA across modalities: PhAME sets new state-of-the-art on docking-score optimization, transcriptomic-conditioned generation, and Cell-Painting-driven MoA generation, with near-perfect validity and novelty. The source code and accompanying data are available at https://github.com/gmum/PhAME .
+
+## 2 Related Work 
+
+Generative models for molecules. Molecular generation has progressed from SMILES-based VAEs [ 9 ] to graph-based VAEs [ 16 ], and more recently to latent diffusion models [ 40 ] that compress denoising into a learned manifold. Mol-CycleGAN [ 30 ] already showed that the latent space of a graph VAE supports direct molecular optimization. Equivariant and graph variants of latent diffusion in chemistry include EDM [ 13 ] and GCLDM [ 54 ]. For property-driven optimization, score-based MOOD [ 19 ], the flow-matching frameworks PropMolFlow [ 53 ] and MoltenFlow [ 27 ], and fragment-level discrete diffusion with GenMol [ 20 ] offer stable alternatives to reinforcement learning [ 28 ]. Conditioning is typically realized via classifier-free guidance (CFG) [ 12 , 50 ]. Recent factorized variants in scPPDM [ 23 ] and the multi-attribute CFGen [ 37 ] expose multiple interpretable controls, but were developed for single-cell rather than molecular targets. PhAME instantiates a latent-diffusion-on-graph-VAE recipe on top of the DGVAE [ 34 ] backbone and replaces single-scale CFG with a compositional scheme that scales the phenotypic target and structural anchor independently. 
+
+Phenotype-conditioned molecular generation. A complementary line conditions generation on system-level biological readouts. Most methods consume L1000 transcriptomic signatures: the GAN of Méndez-Lucio et al. [ 31 ], the VAEs Triomphe [ 18 ], GxVAE [ 21 ] and SmilesGEN [ 25 ], the graph latent diffusion GLDM [ 49 ], and the chemistry LLM GEMGen [ 15 ]. A smaller group conditions on Cell Painting morphology: CPMolGAN [ 52 ], MGMG [ 47 ], and the GFlowNet of Lu et 2al. [ 29 ]. However, most of these methods generate molecules de novo . PhAME differs by editing in a graph-VAE latent, anchoring proximity through InfoAlign [ 24 ] embeddings aligned with both Cell Painting and L1000 via an information bottleneck, and exposing independent phenotypic and structural CFG scales. 
+
+## 3 Methods 
+
+3.1 Background Latent diffusion models. Diffusion models [ 11 , 44 ] learn to generate data by reversing a gradual noising process. Operating this process directly on high-dimensional or discrete data, such as SMILES strings or molecular graphs, is computationally expensive and requires careful handling of discrete structures. Latent diffusion models (LDMs) [ 40 ] resolve this by first training an autoencoder to map data into a compact continuous latent space, and then applying the diffusion process entirely within that space. In our setting, a pretrained SMILES VAE with encoder E and decoder D provides the latent space: z0 = E(m) for a molecule m ∈ M .The forward process progressively corrupts z0 into Gaussian noise via q(zt | z0) =
+
+N (zt; √¯αt z0, (1 − ¯αt) I), where ¯αt = Qts=1 αs follows a predefined variance schedule and 
+
+zT ≈ N (0 , I ) for sufficiently large T . A neural network ϵθ (zt, t ) is trained to reverse this process by predicting the added noise, minimizing 
+
+L = Ez0,ϵ,t 
+
+h
+
+∥ϵ − ϵθ (zt, t )∥2i
+
+, ϵ ∼ N (0 , I ), t ∼ U{ 1, . . . , T }. (1) At inference, new molecules are generated by sampling ˆzT ∼ N (0 , I ) and iteratively denoising: 
+
+ˆzt−1 = 1
+
+√αt
+
+
+
+ˆzt − 1 − αt
+
+√1 − ¯αt
+
+ϵθ (ˆ zt, t )
+
+
+
++ σt η, η ∼ N (0 , I ), (2) where σt controls sampling stochasticity ( σt = 0 recovers DDIM deterministic sampling [ 42 ]). The final molecule is obtained by decoding: m′ = D(ˆ z0).
+
+Classifier-free guidance. To enable conditional generation without a separate classifier, classifier-free guidance (CFG) [ 12 ] trains a single network ϵθ (ˆ zt, t, c ) on both conditional and unconditional objectives. During training, the conditioning signal c is randomly replaced with a null token ∅ with probability puncond , so that the network implicitly learns both the conditional and unconditional score functions. At inference, the noise prediction is interpolated as 
+
+˜ϵθ (ˆ zt, t, c ) = ϵθ (ˆ zt, t, ∅) + w [ϵθ (ˆ zt, t, c ) − ϵθ (ˆ zt, t, ∅)] , (3) where w ≥ 0 is the guidance scale. Setting w = 0 recovers unconditional sampling; w = 1 
+
+corresponds to standard conditional sampling; and w > 1 amplifies the influence of the conditioning signal at the expense of sample diversity. This mechanism is agnostic to the dimensionality and semantics of c, making it naturally suited for conditioning on signals ranging from scalar properties to high-dimensional phenotypic profiles. 
+
+3.2 Problem Definition 
+
+Let M denote the space of valid molecules represented as SMILES strings. We write m ∈ M for a seed (lead) molecule and define a target signature c ∈ RK , where K ≥ 1. Depending on the task, c may represent a scalar property target, a multi-property vector, a transcriptomic profile, or a cell morphology signature. Let ϕ : M → RK denote a (generally unknown) oracle mapping each molecule to its ground-truth signature, and let sim : M × M → [0 , 1] be a structural similarity measure (e.g. Tanimoto similarity over Morgan fingerprints). 
+
+Objective. Given a seed molecule m and a target signature c, we seek an optimized molecule m∗
+
+that minimizes divergence from c while remaining structurally related to the seed: 
+
+m∗ = arg min  
+
+> m′∈M
+
+d(ϕ(m′), c ) + λ(1 − sim( m, m ′)) , (4) 3A · TRAINING B · INFERENCE similar  z 0 z t-1 z t z T             
+
+> forward diffusion reverse diffusion denoising net
+> ϵθ
+> LATENT SPACE DGVAE Encoder
+> E
+> InfoAlign Encoder
+> Izalign
+> cmseed
+> mtarget z0z0
+> zt*
+> partial diffusion reverse diffusion denoising net
+> ϵθ
+> LATENT SPACE DGVAE Encoder
+> E
+> InfoAlign Encoder
+> Izalign
+> cmseed DGVAE Decoder
+> D
+> m*
+> phenotype phenotype oracle
+
+Figure 2: Overview of PhAME. (Training, left) A frozen DGVAE encoder E maps a target molecule to a latent z0, which is noised along a forward diffusion, and a phenotype-aware encoding zalign 
+
+of a seed molecule along with a target phenotypic signature c is used to train a denoising network. 
+
+(Inference, right) A molecule is encoded into the latent space and partially noised; then, the denoising network conditioned on phenotype-aware encoding zalign of the same molecule and phenotypic signature c is used to generate a molecular analog, which is decoded by the DGVAE decoder D.where m′ ∈ M denotes a candidate molecule, d is a divergence in the signature space, and λ ≥ 0
+
+governs the trade-off between property improvement and structural conservation. Setting λ = 0 
+
+recovers unconstrained de novo generation. In practice, we do not optimize this objective directly. The trade-off is controlled implicitly through the noise level t in a partial diffusion process, which governs the structural exploration radius around the seed, and the guidance scale w in classifier-free guidance (Section 3.1), which governs the strength of conditioning toward c.
+
+3.3 PhAME 
+
+PhAME (overview in Figure 2) operates in the latent space of DGVAE [ 34 ], a pretrained VAE that encodes molecular graphs and decodes SMILES strings. The graph encoder yields latent codes 
+
+z0 = E(m) that are invariant to SMILES string ordering, while the SMILES decoder D maps back to valid molecules. The encoder and decoder are frozen; we only train the diffusion model on top of this latent space, following the formulation in Section 3.1. The denoising network ϵθ is conditioned on two signals in addition to the timestep t: a target signature c ∈ RK and a molecular embedding zalign that anchors generation to the seed molecule’s neighborhood. We obtain zalign from InfoAlign [ 24 ], which contains an information bottleneck that aligns molecular structure with Cell Painting morphological profiles [ 2] and L1000 gene expression profiles [ 45 ]. Since InfoAlign retains structural information that is predictive of cellular phenotype, 
+
+zalign encodes phenotypically relevant molecular similarity rather than raw fingerprint distance. The embedding is computed once per seed and held fixed during denoising. 
+
+Training. The model is trained on molecular pairs constructed as described in Section 3.4: for each pair, z0 = E(mtarget ) is the DGVAE latent of the target molecule with signature c, and zalign is the InfoAlign embedding of the corresponding seed molecule. We use a cosine noise schedule [ 36 ]and train with the denoising objective from Section 3.1, extended to the dual-conditioned network: 
+
+Ldiff = Ez0,ϵ,t 
+
+∥ϵ − ϵθ (zt, t, c, z align )∥2. Since Ldiff alone does not constrain where in latent space the denoised sample ˆz0 lands, we add an alignment loss 
+
+Lalign = max(0 , τ − cos(ˆ z0, ψ (zalign ))) , (5) with margin τ =0 .8, penalizing predictions that drift too far from the seed. Function ψ is a two-layer MLP that projects the compound representation into the VAE latent space. The full objective is 
+
+L = Ldiff + γ Lalign . During training, c and zalign are each independently replaced with a null token 
+
+∅ with probability puncond = 0 .1, so the network sees all four conditioning combinations. 
+
+Compositional guidance. Standard CFG (Section 3.1) uses a single scale w for all conditioning, conflating signature guidance with structural anchoring. We decompose guidance into two terms with 4separate scales wc and wa. Let ∆c = ϵθ (ˆ zt, t, c, ∅) − ϵθ (ˆ zt, t, ∅, ∅) and ∆a = ϵθ (ˆ zt, t, ∅, z align ) −
+
+ϵθ (ˆ zt, t, ∅, ∅) denote the signature and alignment directions. The guided prediction is 
+
+˜ϵθ (ˆ zt, t, c, z align ) = ϵθ (ˆ zt, t, ∅, ∅) + wc ∆c + wa ∆a. (6) Here wc controls how strongly generation is pushed toward the target signature, while wa controls how tightly it stays near the seed structure. 
+
+Inference. PhAME can run in two modes. In molecular optimization , we encode the seed molecule 
+
+z0 = E(m), run t∗ < T forward noising steps, and denoise with Eq. 6; the noise level t∗ controls the exploration radius around the seed, while wc and wa independently steer signature and structural guidance. In de novo generation , we sample ˆzT ∼ N (0 , I ) and denoise from pure noise with γ = 0 
+
+and wa = 0 , reducing the model to a signature-conditioned generator with no structural anchor. 
+
+3.4 Dataset 
+
+For each task, we partition the dataset according to a predefined property threshold (e.g., solubility or docking score), yielding two disjoint subsets corresponding to molecules with property values above and below the threshold. To construct the training data, molecules from the two subsets are paired by selecting the most structurally similar counterparts across the threshold. Specifically, for each molecule in one subset, we identify the nearest neighbor in the opposite subset based on molecular similarity and form a training pair. Structural similarity is computed using the Tanimoto similarity between Morgan fingerprints. This pairing strategy provides supervision signals that encourage the model to learn transformations that move molecules across the threshold while preserving structural similarity to the source structure. 
+
+## 4 Results 
+
+We evaluate the proposed approach across a range of benchmark and real-world molecular design tasks. In Section 4.1, we examine the contribution of individual model components within a controlled logP optimization setting, and benchmark our method against state-of-the-art approaches for molecular editing. In Section 4.2, we evaluate the model’s ability to generate novel compounds with high predicted binding affinity while preserving drug-likeness and synthetic accessibility. Finally, in Sections 4.3 and 4.4, we demonstrate the model’s capability for multimodal conditioning, enabling molecular generation guided by gene expression profiles and phenotypic signals. 
+
+4.1 Controlled Property Editing on logP 
+
+We first evaluate PhAME on a controlled logP optimization benchmark against state-of-the-art molecular editing methods. Moreover, we show that independently tuning phenotype guidance (wc) and structural guidance ( wa) provides explicit control over the trade-off between property optimization and structural preservation. 
+
+Setup. We evaluate on the MOSES benchmark [ 39 ] using the standard train/test split. Following Section 3.4, we partition molecules according to the median logP of the training set to define the optimization direction. The task is bidirectional: high-logP molecules are optimized downward and low-logP molecules upward, providing a controlled setting for assessing property-guided generation. 
+
+Baselines. Given that oracle-guided optimization is rarely feasible in real-world drug discovery due to prohibitive costs and limited assay availability, our benchmark evaluates methods that operate without access to optimization oracles. We compare against state-of-the-art molecular editing and generation methods, including Mol-CycleGAN [ 30 ], DiGress [ 48 ], and PURE [ 10 ]. To contextu-alize task difficulty and dataset structure, we additionally include a set of simple retrieval-based baselines. Random target class retrieves a randomly selected molecule from the target partition. 
+
+Nearest target class retrieves the closest molecule within the target partition, approximating an ideal similarity-preserving transformation. VAE reconstruction reconstructs the input molecule without explicitly optimizing the target property. Full details are provided in Appendix B. 5Metrics. We evaluate generated molecules using four metrics. Nov (novelty) is the frac-tion of molecules not present in the training set. Tgt (target success) measures the fraction of molecules that reach the desired property region. Sim denotes the Tanimoto similarity to the seed molecule. NTS is defined as the product of Nov , Tgt , and Sim , capturing the abil-ity to generate novel molecules that satisfy the target objective while remaining close to the seed structure. Additional quality metrics of generated molecules are reported in Appendix B. Table 1: LogP optimization with similarity preservation to the seed molecule. While com-peting methods typically optimize either target suc-cess ( Tgt ) or structural similarity ( Sim ), PhAME achieves the strongest overall performance on the metric NTS . We report mean ±std over 5 runs.                                                                         
+
+> Method Nov ↑Tgt ↑Sim ↑NTS ↑
+> Random target class 0.00 ±0.00 1.00 ±0.00 0.14 ±0.00 0.00 ±0.00
+> Nearest target class 0.00 ±0.00 1.00 ±0.00 0.60 ±0.00 0.00 ±0.00
+> VAE reconstruction 0.99 ±0.00 0.19 ±0.00 0.59 ±0.00 0.11 ±0.00
+> Mol-CycleGAN 0.99 ±0.00 0.51 ±0.04 0.15 ±0.00 0.08 ±0.01
+> DiGress 1.00 ±0.00 1.00 ±0.00 0.13 ±0.00 0.13 ±0.00
+> PURE 1.00 ±0.00 0.45 ±0.00 0.58 ±0.00 0.26 ±0.00
+> PhAME w/o Lalign 0.99 ±0.00 0.81 ±0.01 0.35 ±0.00 0.28 ±0.00
+> PhAME (ours) 0.99 ±0.00 0.78 ±0.03 0.39 ±0.02 0.30 ±0.01
+
+Results. Table 1 highlights a clear trade-off be-tween structural preservation and property opti-mization among the baselines. Mol-CycleGAN struggles to achieve both high target success and structural similarity. DiGress attains perfect tar-get success but sacrifices structural alignment, whereas PURE exhibits the opposite behavior, preserving similarity while underperforming on the optimization objective. In contrast, PhAME (wc = 6 , w a = 3 ) performs strongly across all metrics ( Nov , Tgt , and Sim ) and achieves the best overall NTS , demonstrating a superior balance between novelty, target satisfaction, and struc-tural preservation. Incorporating the alignment loss Lalign further improves structural preserva-tion relative to the variant without Lalign , increas-ing similarity while maintaining competitive tar-get success and resulting in a higher NTS score. 0.1 0.2 0.3 0.4 
+
+Similarity to seed molecule 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9              
+
+> Target success
+> wc= 0
+> wc= 1
+> wc= 2
+> wc= 3
+> wc= 4
+> wc= 5
+> wc= 6 wa= 0
+> wa= 1
+> wa= 2
+> wa= 3
+> wa= 4
+
+1.00 
+
+0.00 Validity 
+
+Figure 3: Influence of guidance scales . Trade-off between target success and similarity under vary-ing guidance strengths. Increasing property guid-ance ( wc) improves target success, while increas-ing alignment guidance ( wa) enhances similarity to the seed molecule. Notably, PhAME is highly steerable, as illus-trated in Figure 3 and detailed in Table 7 in Appendix B. This flexibility allows the model to match or approach the individual strengths of specialized methods, such as Tgt of DiGress or Sim of PURE. The compositional-guidance mechanism enables independent control over the optimization trade-off. Increasing property guidance ( wc) consistently improves target suc-cess, with diminishing returns at larger values and minimal effect on similarity. In contrast, increasing alignment guidance ( wa) improves similarity but weakens property optimization. These gains also saturate at larger wa, while validity decreases. Overall, the results show that jointly leverag-ing both guidance signals is essential, as nei-ther property nor structural guidance alone is sufficient. Their combination enables effective control over the trade-off between target opti-mization and similarity to the seed molecule. 
+
+4.2 Docking Score Optimization 
+
+We assess PhAME’s ability to generate novel high-affinity binders against established protein targets. Unlike the editing setting elsewhere in this paper, this benchmark has no seed compound: we sample from the DGVAE prior and denoise the random latents under PhAME’s compositional guidance, with binding affinity scored by QuickVina2 [ 1]. To push the model toward increasingly potent regions of chemical space, training follows a three-stage curriculum: each stage fine-tunes the denoising network on ZINC250k pairs split at a stricter binder/non-binder docking-score threshold than the previous, progressively sharpening the property gradient the model must learn to follow. 6Table 2: Novel top 5% docking score ( Dock. ) and novel hit ratio ( Hit ). Docking scores are reported in kcal/mol and hit ratios in %. PhAME achieves the best docking scores for all targets and the highest hit ratio for 4 out of 5 proteins. Cells report mean ±std over 5 runs; ZINC250k is a top-5% reference and has no std. Best results are in bold and second-best underlined.                                                                                                                                                                                                             
+
+> PARP1 FA7 5HT1B BRAF JAK2 Method Dock. ↓Hit ↑Dock. ↓Hit ↑Dock. ↓Hit ↑Dock. ↓Hit ↑Dock. ↓Hit ↑
+> ZINC250k -10.59 5.66 -8.48 1.61 -10.51 27.36 -10.28 1.62 -9.75 7.77 REINVENT -8.70 ±0.52 0.48 ±0.34 -7.21 ±0.26 0.21 ±0.08 -8.77 ±0.32 2.45 ±0.56 -8.39 ±0.40 0.13 ±0.09 -8.17 ±0.28 0.61 ±0.17
+> MORLD -7.53 ±0.26 0.05 ±0.05 -6.26 ±0.17 0.01 ±0.01 -7.87 ±0.65 0.88 ±0.74 -8.04 ±0.34 0.05 ±0.04 -7.82 ±0.13 0.23 ±0.12
+> HierVAE -9.49 ±0.28 0.55 ±0.21 -6.81 ±0.27 0.01 ±0.01 -8.08 ±0.25 0.51 ±0.28 -8.98 ±0.53 0.21 ±0.22 -8.29 ±0.37 0.23 ±0.13
+> FREED -10.43 ±0.18 3.63 ±0.96 -8.30 ±0.09 1.11 ±0.21 -10.43 ±0.33 10.19 ±3.31 -10.33 ±0.16 2.07 ±0.63 -9.62 ±0.10 4.52 ±0.67
+> FREED-QS -10.58 ±0.10 4.63 ±0.73 -8.38 ±0.04 1.33 ±0.11 -10.71 ±0.18 16.77 ±0.90 -10.56 ±0.08 2.94 ±0.36 -9.74 ±0.02 5.80 ±0.30
+> GDSS -9.97 ±0.03 1.93 ±0.21 -7.78 ±0.04 0.37 ±0.10 -9.46 ±0.10 4.67 ±0.31 -9.22 ±0.07 0.17 ±0.13 -8.93 ±0.09 1.17 ±0.28
+> MOOD -10.87 ±0.11 7.02 ±0.43 -8.16 ±0.07 0.73 ±0.14 -11.15 ±0.04 18.67 ±0.42 -11.06 ±0.03 5.24 ±0.29 -10.15 ±0.06 9.20 ±0.52
+> Random VAE -8.51 ±0.04 0.10 ±0.04 -7.17 ±0.03 0.04 ±0.03 -8.48 ±0.07 1.43 ±0.14 -8.58 ±0.04 0.03 ±0.03 -8.28 ±0.05 0.33 ±0.06
+> PhAME (ours) -11.17 ±0.04 11.04 ±0.82 -9.09 ±0.10 5.75 ±0.76 -11.29 ±0.12 14.62 ±1.15 -11.12 ±0.13 6.36 ±0.64 -10.64 ±0.05 14.84 ±1.73
+
+Figure 4: Top-scoring docked poses of PhAME-generated molecules across five protein targets. 
+
+For each target, we visualize the highest-affinity molecule generated under docking-score guidance. The protein backbone is shown as cartoon; binding-pocket residues (any heavy-atom contact within 3.5 Å of the ligand) are drawn as light-blue sticks; the docked ligand is in orange. 
+
+Setup. Following Lee et al. [ 19 ], we train on ZINC250k [ 14 ] and generate 3,000 candidates each for the five protein targets PARP1, FA7, 5HT1B, BRAF, and JAK2, scoring them with QuickVina2 alongside QED and SA. We report two metrics from Yang et al. [ 51 ] with the novelty constraint of Lee et al. [ 19 ]: novel top 5% docking score (Dock. , kcal/mol), the average docking score over the top 5% of generations satisfying QED >0.5, SA <5, and max Tanimoto-to-train <0.4; and novel hit ratio (Hit ), the fraction of generations passing those filters and achieving a target-specific docking threshold. We compare against the seven baselines reported by Lee et al. [ 19 ], a Random VAE 
+
+sanity check that decodes Gaussian samples from the DGVAE prior without guidance, and an upper-reference computed on the top 5% of ZINC250k itself. Curriculum schedule, per-target thresholds, hyperparameters, and the Random VAE definition are in Appendix C. Table 3: Average molecular quality metrics across targets. PhAME achieves the strongest overall molecular quality among gene-conditioned generation baselines. Cells report mean ±std over targets.                                         
+
+> Method QED ↑SA ↓Uniqueness ↑Novelty ↑
+> TRIOMPHE 0.39 ±0.03 6.02 ±0.29 1.00 ±0.00 1.00 ±0.00
+> GxVAEs 0.59 ±0.04 3.42 ±0.32 0.86 ±0.09 0.45 ±0.20 SmilesGEN 0.60 ±0.02 3.48 ±0.18 0.94 ±0.03 0.16 ±0.14 PhAME (ours) 0.71 ±0.03 2.94 ±0.17 1.00 ±0.00 1.00 ±0.00
+
+Results. Table 2 shows PhAME setting a new state of the art across the benchmark. PhAME achieves the best Dock. score on all five tar-gets and is the only method whose top-5% gen-erations surpass the top-5% of ZINC250k uni-formly: PhAME’s 3,000 outputs contain a head that is more potent than the strongest 12,500 molecules of its own training set. On novel hit ratio, PhAME leads on four of five targets, with relative gains of +332% over the next-best method on FA7, +61% on JAK2, and +57% on PARP1. The single regression is 5HT1B, where PhAME (14.6%) trails MOOD (18.7%) and FREED-QS (16.8%). On this target, however, ZINC250k itself reaches a 27.4% novel hit rate, an order of magnitude above the other four, meaning the benchmark is dominated by the Tanimoto <0.4 novelty filter rather than by generative capacity: high-affinity 5HT1B chemotypes are densely populated in ZINC and any sufficiently active candidate is likely to share a scaffold with the training set. The gap between PhAME and MOOD here is small relative to the gaps PhAME opens on the other four targets. 7To attribute the gain to the three-stage curriculum rather than to the DGVAE latent space or CFG alone, we ablate the curriculum on FA7 in Appendix C: collapsing PhAME to a single stage drops the novel hit ratio markedly, confirming that the progressive sharpening of the binder/non-binder threshold is what unlocks the improvement. Top-scoring generated hits are visualized in Figure 4. 
+
+4.3 Transcriptomic Guided Generation 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> Max similarity to known binders
+> AKT1
+> AKT2
+> AURKB
+> CTSK
+> EGFR
+> HDAC1
+> MTOR
+> PIK3CA
+> SMAD3
+> TP53
+> TRIOMPHE
+> GxVAE
+> SmilesGEN
+> PhAME
+
+Figure 5: Recovery of known binder motifs .Maximum Tanimoto similarity to known binders for each target. PhAME generates compounds most similar to known binders for 8 out of 10 tar-gets. Bars show mean ± std over 5 runs. + 39% 0.36  
+
+> Max sim.
+> to binders
+> Seed molecule Generated analog
+
++
+
+> =
+> HDAC1
+> 0.30
+> Max sim.
+> to binders
+
++ 
+
+> =
+> AKT1
+> 0.57
+> Max sim.
+> to binders 0.50
+> Max sim.
+> to binders
+> + 90%
+
+Figure 6: Gene-driven recovery of known binders. PhAME generates analogs with sub-stantially increased similarity to known binders using only target-specific knockdown profiles. For AKT1, the maximum Tanimoto similarity to known binders improves by 39%, while for HDAC1 the improvement reaches 90%. Complementary to the structure-based dock-ing task, we evaluate PhAME on generating compounds conditioned on target-specific tran-scriptomic perturbations. This setting assesses whether the model can translate gene expression signatures into chemically plausible and target-relevant molecules, without relying on explicit structural or docking information. 
+
+Setup. We follow the evaluation protocol of Li & Yamanishi [ 22 , 26 ], where models are as-sessed on their ability to generate compounds conditioned on target-specific transcriptomic perturbations. Models are trained on paired tran-scriptomic–molecular data and evaluated against known ligands. For each target, we generate 100 molecules and report the maximum Tanimoto similarity of generated compounds to known ligands. Knockdown profiles are used to gener-ate inhibitors for AKT1 , AKT2 , AURKB , CTSK ,
+
+EGFR , HDAC1 , MTOR , and PIK3CA , while overexpression profiles are used for activators of SMAD3 and TP53 . Transcriptomic signatures are obtained from LINCS [ 7] using the MCF7 
+
+cell line. While largely following Li & Yaman-ishi [ 22 ], we identify data leakage due to overlap between training and evaluation molecules and remove the overlapping compounds, reducing the training set from 13,755 to 13,432 ( < 3% )(details in Appendix D). 
+
+Results. Table 3 shows that PhAME outper-forms prior gene-conditioned models, achieving the highest drug-likeness (QED) and lowest syn-thetic accessibility (SA), while maintaining per-fect uniqueness and novelty. In contrast, Smiles-GEN exhibits low novelty, suggesting memo-rization of training molecules. Figure 5 shows that PhAME generates compounds structurally similar to known binders, achieving the highest Tanimoto similarity for 8 of 10 targets. Figure 6 demonstrates PhAME’s editing capa-bility. Generation is initialized from the nearest training molecule in gene-expression space (cosine similarity). The left panel shows the starting compounds, and the right panel edited counterparts conditioned on target-specific expression profiles. In both cases, PhAME preserves the core molecular structure while increasing similarity to known binders, using only target knockdown profiles. For AKT1, PhAME improves similarity to known binders by 39%, while for HDAC1 the improvement reaches 90%. 8Table 4: MoA classification of de novo generated molecules evaluated in the ECFP structural embedding space. Values are percentages (mean ±std over 5 seeds). Best in bold, second-best underlined. PhAME fundamentally outperforms competing methods, uniquely demonstrating superior results on all evaluated metrics.                                                                     
+
+> Top-1 MoA Retrieval Rate @ k↑kNN Accuracy @ k↑
+> Model Cluster Acc ↑@1 @2 @3 @1 @3 @5
+> DGVAE 14.0 ±0.9 14.2 ±2.0 28.5 ±1.1 42.7 ±2.1 14.5 ±0.6 14.6 ±1.0 13.7 ±1.6
+> CPMolGAN 14.3 ±1.0 13.4 ±1.3 28.8 ±2.4 42.0 ±0.9 12.9 ±1.2 13.5 ±1.4 14.1 ±1.4
+> GFlowNet 17.0 ±1.8 15.1 ±1.3 29.0 ±1.6 46.1 ±2.1 12.7 ±1.1 14.4 ±1.3 15.3 ±1.6
+> PhAME (ours) 27.2 ±1.8 23.0 ±1.6 40.4 ±2.3 56.2 ±2.9 20.6 ±1.2 21.2 ±1.6 23.0 ±2.2
+
+4.4 Cell Phenotype Guided Generation 
+
+We close with the most demanding setting in this paper: generating de novo molecules conditioned on a Cell Painting morphology centroid corresponding to a target Mode of Action (MoA). There is no synthesizable oracle that can rate a generated compound on its true cellular response, so we evaluate via a structural proxy: do the generations sit closer to the reference compounds of target MoA than to those of any other MoA, across multiple representation spaces? 
+
+Setup. We use the JUMP Cell Painting dataset [ 4], for evaluation we intersected it with ChEMBL2K [ 8] and cross-referenced with the Broad Drug Repurposing Hub [ 6] to obtain MoA labels, restricted to seven balanced MoA classes (8 reference compounds each). PhAME is run in its de novo mode (Section 3.3): we condition on the CellProfiler [ 3 ] morphological centroid of each target MoA and sample 400 candidates per class (5 seeds × 80 valid samples). Dataset construction, feature provenance, contrastive-pairing thresholds, and inference hyperparameters are in Appendix E; baselines (DGVAE, CPMolGAN [52], GFlowNet [29]) follow their original protocols. 
+
+Metrics. We score each generation against the seven MoA classes in three representation spaces with complementary inductive biases: ECFP (raw structural similarity), CLOOME embeddings [ 41 ](jointly trained on molecule–cell pairs), and InfoAlign embeddings (information bottleneck over morphology and L1000). We report: Top-1 Cluster Accuracy (does the highest-scoring MoA class match the target?), MoA Retrieval Rate @ k (does the target rank in the top k classes by average similarity to its n=3 nearest reference compounds?), and kNN Accuracy @ k (majority-vote MoA among the k nearest references). The chance baseline for Top-1 Cluster Accuracy is 1/7 ≈ 14 .3% .The formal definitions of these metrics are given in Appendix E. 
+
+Figure 7: Phenotype-driven recovery of known drugs. PhAME, run in editing mode and seeded with a structurally similar hit, recovers analogs: aspirin ( cyclooxygenase inhibitor , left), clofibrate (PPAR receptor agonist , middle) and dyphylline (adenosine receptor antagonist , right) when condi-tioned on the corresponding MoA centroid. 
+
+Results. Table 4 reveals a clean separation for evaluation on ECFP embedding space. DG-VAE and CPMolGAN sit at the chance base-line ( ∼14.3% Top-1 Cluster Accuracy), recover-ing essentially no MoA information. GFlowNet shows only a marginal improvement over these baselines. In contrast, PhAME achieves a +60% 
+
+relative gain over GFlowNet on Top-1 Cluster Accuracy ( 0.272 vs. 0.170 ), with the same pat-tern repeating across MoA Retrieval Rate @ k
+
+and kNN Accuracy @ k.Crucially, extended results in Appendix E (Ta-ble 11) confirm that PhAME is the only method to clear the chance baseline across all three spaces (ECFP, CLOOME, InfoAlign). It sig-nificantly outperforms GFlowNet in InfoAlign (where the biological signal is richest) and re-covers from a minor deficit in CLOOME Top-1 accuracy by dominating deeper retrieval metrics (MoA @1/2/3, kNN @1/3/5). Because these advantages hold consistently across structurally diverse representations, the gains reflect genuine MoA-aware chemistry rather than embedding-specific overfitting. 9From de novo to drug recovery. The same model can be run in editing mode (Section 3.3) to recover known therapeutics: seeding with a structurally similar hit and conditioning on the target MoA, PhAME reconstructs aspirin, clofibrate and dyphylline from MoA-only guidance (Figure 7). Additional details are in Appendix F. 
+
+## 5 Conclusions 
+
+In this work, we introduced PhAME which combines discrete chemical graphs with high-dimensional biological signatures to formulate molecular design as an editing task within the latent space of a pretrained graph VAE. By introducing a novel compositional guidance mechanism that independently scales phenotypic targets and structural anchoring, PhAME resolves the problem of conflicting guidance signals. Consequently, it achieves SOTA performance across docking-score optimization, transcriptomic-conditioned generation, and Cell-Painting-driven Mode of Action generation while maintaining chemical validity and novelty. In future work, we plan to generalize this approach toward library design and hit generation tasks through multi-stage curriculum learning and to develop more robust biological oracles for evaluating de novo generated molecules. 
+
+## 6 Acknowledgments 
+
+The work of Ł.J. and T.D. was carried out within the "AI-Based Virtual Screening Assistant" project (LIDER15/0033/2024) funded by the National Center for Research and Development (Poland) under the LIDER XV program. The work of S.M., D.R, and B.Z. was funded by "Interpretable and Interactive Multimodal Retrieval in Drug Discovery" project. The „Interpretable and Interactive Multimodal Retrieval in Drug Discovery” project (FENG.02.02-IP.05-0040/23) is carried out within the First Team programme of the Foundation for Polish Science co-financed by the European Union under the European Funds for Smart Economy 2021-2027 (FENG). We gratefully acknowledge Polish high-performance computing infrastructure PLGrid (HPC Center: ACK Cyfronet AGH) for providing computer facilities and support within computational grant no. PLG/2026/019504. Some experiments were performed on servers purchased with funds from the flagship project entitled “Artificial Intelligence Computing Core Facility” from the DigiWorld Priority Research Area within the Excellence Initiative – Research University program at Jagiellonian University in Krakow. 
+
+## References 
+
+[1] A. Alhossary, S. D. Handoko, Y. Mu, and C.-K. Kwoh. Fast, accurate, and reliable molecular docking with quickvina 2. Bioinformatics , 31(13):2214–2216, 2015. [2] M.-A. Bray, S. Singh, H. Han, C. T. Davis, B. Borgeson, C. Hartland, M. Kost-Alimova, S. M. Gustafsdottir, C. C. Gibson, and A. E. Carpenter. Cell painting, a high-content image-based assay for morphological profiling using multiplexed fluorescent dyes. Nature protocols ,11(9):1757–1774, 2016. [3] A. E. Carpenter, T. R. Jones, M. R. Lamprecht, C. Clarke, I. H. Kang, O. Friman, D. A. Guertin, J. H. Chang, R. A. Lindquist, J. Moffat, P. Golland, and D. M. Sabatini. Cellprofiler: image analysis software for identifying and quantifying cell phenotypes. 2006. [4] S. N. Chandrasekaran, J. Ackerman, E. Alix, D. M. Ando, J. Arevalo, M. Bennion, N. Boisseau, A. Borowa, J. D. Boyd, and e. a. Brino. Jump cell painting dataset: morphological impact of 136,000 chemical and genetic perturbations. bioRxiv , 2023. [5] S. N. Chandrasekaran, H. Ceulemans, J. D. Boyd, and A. E. Carpenter. Image-based profiling for drug discovery: due for a machine-learning upgrade? Nature reviews drug discovery ,20(2):145–159, 2021. [6] S. M. Corsello, J. A. Bittker, Z. Liu, J. Gould, P. McCarren, J. E. Hirschman, S. E. Johnston, A. Vrcic, B. Wong, M. Khan, J. Asiedu, R. Narayan, C. C. Mader, A. Subramanian, and T. R. Golub. The drug repurposing hub: a next-generation drug library and information resource. 
+
+Nature medicine , 2017. 10 [7] Q. Duan, C. Flynn, M. Niepel, M. Hafner, J. L. Muhlich, N. F. Fernandez, A. D. Rouillard, C. M. Tan, E. Y. Chen, T. R. Golub, et al. Lincs canvas browser: interactive web app to query, browse and interrogate lincs l1000 gene expression signatures. Nucleic acids research ,42(W1):W449–W460, 2014. [8] A. Gaulton, L. J. Bellis, A. P. Bento, J. Chambers, M. Davies, A. Hersey, Y. Light, S. McGlinchey, D. Michalovich, B. Al-Lazikani, and J. P. Overington. Chembl: a large-scale bioactivity database for drug discovery. Nucleic Acids Research , 2012. [9] R. Gómez-Bombarelli, J. N. Wei, D. Duvenaud, J. M. Hernández-Lobato, B. Sánchez-Lengeling, D. Sheberla, J. Aguilera-Iparraguirre, T. D. Hirzel, R. P. Adams, and A. Aspuru-Guzik. Auto-matic chemical design using a data-driven continuous representation of molecules. ACS central science , 4(2):268–276, 2018. [10] A. Gupta, B. Lenin, S. Current, R. Batra, B. Ravindran, K. Raman, and S. Parthasarathy. Pure: policy-guided unbiased representations for structure-constrained molecular generation. Journal of Cheminformatics , 17(1):1–18, 2025. [11] J. Ho, A. Jain, and P. Abbeel. Denoising diffusion probabilistic models. In H. Larochelle, M. Ranzato, R. Hadsell, M. Balcan, and H. Lin, editors, Advances in Neural Information Processing Systems , volume 33, pages 6840–6851. Curran Associates, Inc., 2020. [12] J. Ho and T. Salimans. Classifier-free diffusion guidance, 2022. [13] E. Hoogeboom, V. G. Satorras, C. Vignac, and M. Welling. Equivariant diffusion for molecule generation in 3d. In International conference on machine learning , pages 8867–8887. PMLR, 2022. [14] J. J. Irwin and B. K. Shoichet. Zinc- a free database of commercially available compounds for virtual screening. Journal of chemical information and modeling , 45(1):177–182, 2005. [15] Q. Jiang, X. Ye, Z. Guo, Y. Xia, Z. Liu, J. Xu, P. Jin, F. Ju, H. Xia, S. Feng, et al. Phenotype-guided in silico molecular generation using large language models. bioRxiv , pages 2026–01, 2026. [16] W. Jin, R. Barzilay, and T. Jaakkola. Junction tree variational autoencoder for molecular graph generation. In International conference on machine learning , pages 2323–2332. PMLR, 2018. [17] B. Jing, G. Corso, J. Chang, R. Barzilay, and T. Jaakkola. Torsional diffusion for molecular conformer generation. Advances in neural information processing systems , 35:24240–24253, 2022. [18] K. Kaitoh and Y. Yamanishi. Triomphe: Transcriptome-based inference and generation of molecules with desired phenotypes by machine learning. Journal of Chemical Information and Modeling , 61(9):4303–4320, 2021. [19] S. Lee, J. Jo, and S. J. Hwang. Exploring chemical space with score-based out-of-distribution generation. In International Conference on Machine Learning , pages 18872–18892. PMLR, 2023. [20] S. Lee, K. Kreis, S. P. Veccham, M. Liu, D. Reidenbach, Y. Peng, S. Paliwal, W. Nie, and A. Vahdat. Genmol: A drug discovery generalist with discrete diffusion. arXiv preprint arXiv:2501.06158 , 2025. [21] C. Li and Y. Yamanishi. Gxvaes: Two joint vaes generate hit molecules from gene expression profiles. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 38, pages 13455–13463, 2024. [22] C. Li and Y. Yamanishi. Gxvaes: Two joint vaes generate hit molecules from gene expression profiles. Proceedings of the AAAI Conference on Artificial Intelligence , 38(12):13455–13463, Mar. 2024. [23] Z. Liang, S. Zhuang, X. Jiao, W. Mao, H. Chen, and C. Shen. scppdm: A diffusion model for single-cell drug-response prediction. arXiv preprint arXiv:2510.11726 , 2025. 11 [24] G. Liu, S. Seal, J. Arevalo, Z. Liang, A. E. Carpenter, M. Jiang, and S. Singh. Learning molecular representation in a cell. In The Thirteenth International Conference on Learning Representations , 2025. [25] H. Liu, S. Tian, and X. Liu. Phenotypic profile-informed generation of drug-like molecules via dual-channel variational autoencoders. arXiv preprint arXiv:2506.02051 , 2025. [26] H. Liu, S. Tian, and X. Liu. Phenotypic profile-informed generation of drug-like molecules via dual-channel variational autoencoders. In Proceedings of the Thirty-Fourth International Joint Conference on Artificial Intelligence , IJCAI ’25, 2025. [27] A. A. Lobo, U. Awasthi, and L. Zhukov. Property-guided molecular generation and optimization via latent flows. arXiv preprint arXiv:2603.26889 , 2026. [28] H. H. Loeffler, J. He, A. Tibo, J. P. Janet, A. Voronov, L. H. Mervin, and O. Engkvist. Reinvent 4: Modern ai–driven generative molecule design. Journal of Cheminformatics , 16(1):20, 2024. [29] S. Z. Lu, Z. Lu, E. Hajiramezanali, T. Biancalani, Y. Bengio, G. Scalia, and M. Koziarski. Cell morphology-guided small molecule generation with gflownets. In ICML 2024 Workshop on Structured Probabilistic Inference {\ &} Generative Modeling , 2024. [30] Ł. Maziarka, A. Pocha, J. Kaczmarczyk, K. Rataj, T. Danel, and M. Warchoł. Mol-cyclegan: a generative model for molecular optimization. Journal of Cheminformatics , 12(1):2, 2020. [31] O. Méndez-Lucio, B. Baillif, D.-A. Clevert, D. Rouquié, and J. Wichard. De novo generation of hit-like molecules from gene expression signatures using artificial intelligence. Nature communications , 11(1):10, 2020. [32] F. M. Morelli, V. Kim, F. Hecker, S. Geibel, and P. A. Marín Zapata. unidino: Assay-independent feature extraction for fluorescence microscopy images. Computational and Structural Biotech-nology Journal , 27:928–936, 2025. [33] N. Moshkov, M. Bornholdt, S. Benoit, M. Smith, C. McQuin, A. Goodman, R. A. Senft, Y. Han, M. Babadi, P. Horvath, B. A. Cimini, A. E. Carpenter, S. Singh, and J. C. Caicedo. Learning representations for image-based profiling of perturbations. bioRxiv , 2022. [34] T. Nguyen and A. Karolak. Expanding molecular design with graph variational autoencoders: A comparative study of pair-encoding and character tokenization. ChemRxiv , 2025(0523), 2025. [35] S. K. Niazi. The coming of age of ai/ml in drug discovery, development, clinical testing, and manufacturing: the fda perspectives. Drug Design, Development and Therapy , pages 2691–2725, 2023. [36] A. Q. Nichol and P. Dhariwal. Improved denoising diffusion probabilistic models. In Interna-tional conference on machine learning , pages 8162–8171. PMLR, 2021. [37] A. Palma, T. Richter, H. Zhang, M. Lubetzki, A. Tong, A. Dittadi, and F. Theis. Multi-modal and multi-attribute generation of single cells with cfgen. arXiv preprint arXiv:2407.11734 ,2024. [38] P. G. Polishchuk, T. I. Madzhidov, and A. Varnek. Estimation of the size of drug-like chemical space based on gdb-17 data. Journal of computer-aided molecular design , 27(8):675–679, 2013. [39] D. Polykovskiy, A. Zhebrak, B. Sanchez-Lengeling, S. Golovanov, O. Tatanov, S. Belyaev, R. Kurbanov, A. Artamonov, V. Aladinskiy, M. Veselov, et al. Molecular sets (moses): a bench-marking platform for molecular generation models. Frontiers in pharmacology , 11:565644, 2020. [40] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 10684–10695, 2022. [41] A. Sanchez-Fernandez, E. Rumetshofer, S. Hochreiter, and G. Klambauer. Cloome: contrastive learning unlocks bioimaging databases for queries with chemical structures. 2023. 12 [42] J. Song, C. Meng, and S. Ermon. Denoising diffusion implicit models. In International Conference on Learning Representations , 2021. [43] R. Song and H. Liu. Phenomoler: Phenotype-guided molecular optimization via chemistry large language model. arXiv preprint arXiv:2509.21424 , 2025. [44] Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole. Score-based generative modeling through stochastic differential equations. In International Conference on Learning Representations , 2021. [45] A. Subramanian, R. Narayan, S. M. Corsello, D. D. Peck, T. E. Natoli, X. Lu, J. Gould, J. F. Davis, A. A. Tubelli, J. K. Asiedu, D. L. Lahr, J. E. Hirschman, Z. Liu, M. Donahue, B. Julian, M. Khan, D. Wadden, I. C. Smith, D. Lam, A. Liberzon, C. Toder, M. Bagul, M. Orzechowski, O. M. Enache, F. Piccioni, S. A. Johnson, N. J. Lyons, A. H. Berger, A. F. Shamji, A. N. Brooks, A. Vrcic, C. Flynn, J. Rosains, D. Y. Takeda, R. Hu, D. Davison, J. Lamb, K. Ardlie, L. Hogstrom, P. Greenside, N. S. Gray, P. A. Clemons, S. Silver, X. Wu, W.-N. Zhao, W. Read-Button, X. Wu, S. J. Haggarty, L. V. Ronco, J. S. Boehm, S. L. Schreiber, J. G. Doench, J. A. Bittker, D. E. Root, B. Wong, and T. R. Golub. A next generation connectivity map: L1000 platform and the first 1,000,000 profiles. Cell , 171(6):1437–1452.e17, 2017. [46] D. C. Swinney. Phenotypic vs. target-based drug discovery for first-in-class medicines. Clinical Pharmacology & Therapeutics , 93(4):299–301, 2013. [47] Q. Tang, D. Ding, X. Yuan, G. Seabra, P. A. Ramdhan, C.-Y. Liu, M. T. Thai, C. Li, H. Luesch, and Y. Li. Mgmg: Cell morphology-guided molecule generation for drug discovery. bioRxiv ,2025. [48] C. Vignac, I. Krawczuk, A. Siraudin, B. Wang, V. Cevher, and P. Frossard. Digress: Discrete denoising diffusion for graph generation. In Proceedings of the 11th International Conference on Learning Representations , 2023. [49] C. Wang, H. H. Ong, S. Chiba, and J. C. Rajapakse. Gldm: hit molecule generation with constrained graph latent diffusion model. Briefings in bioinformatics , 25(3):bbae142, 2024. [50] T. Weiss, E. Mayo Yanes, S. Chakraborty, L. Cosmo, A. M. Bronstein, and R. Gershoni-Poranne. Guided diffusion for inverse molecular design. Nature Computational Science , 3(10):873–882, 2023. [51] S. Yang, D. Hwang, S. Lee, S. Ryu, and S. J. Hwang. Hit and lead discovery with explorative rl and fragment-based molecule generation. Advances in Neural Information Processing Systems ,34:7924–7936, 2021. [52] P. A. M. Zapata, O. Méndez-Lucio, T. Le, C. J. Beese, J. Wichard, D. Rouquié, and D.-A. Clevert. Cell morphology-guided de novo hit design by conditioning gans on phenotypic image features. Digital discovery , 2(1):91–102, 2023. [53] C. Zeng, J. Jin, C. Ambrose, G. Karypis, M. Transtrum, E. B. Tadmor, R. G. Hennig, A. Roitberg, S. Martiniani, and M. Liu. Propmolflow: property-guided molecule generation with geometry-complete flow matching. Nature Computational Science , pages 1–10, 2026. [54] Q. Zhang, J. Xiao, D. Niu, Z. Zhang, S. Ding, and Z. Li. Geometry-complete latent diffusion model for 3d molecule generation. Bioinformatics , 41(8):btaf426, 2025. 13 A Training Details 
+
+Python environment. All experiments were carried out using Python 3.11.5. The key libraries are listed in Table 5. Other requirements are included in the code repository. Table 5: Key libraries used in the experiments. Library Version 
+
+PyTorch 2.10.0 PyTorch Lightning 2.5.1 TorchGeometric 2.7.0 RDKit 2023.09.6 InfoAlign 0.1.1 Scikit-learn 1.8.0 Pandas 3.0.2 Numpy 1.26.4 
+
+Computational resources. Experiments were conducted on a single NVIDIA Grace 72-core CPU @ 3.1 GHz and a single NVIDIA GH200 GPU with 96 GB of memory, using up to 32.0 GB of system RAM. 
+
+## B Details of logP Optimization 
+
+Dataset. To construct the training and testing datasets of pairs, we compute the logP values using the RDKit implementation of the Crippen model (i.e., Crippen.MolLogP ). We then calculate the median logP value on the training set and use it as a threshold to split both sets. The training set contains an equal number of samples below and above this threshold, while the test set is split using the same value and undersampled to match the minority class. The distribution of logP values for both splits is shown in Figure 8. 
+
+Figure 8: Distribution of logP in the MOSES Dataset. Distribution of logP values for the training and test sets derived from the MOSES dataset. The dashed vertical line denotes the global median logP of the train set. 
+
+Model. For this task, we used the c-CFG (Compositional Classifier-Free Guidance) variant of PhAME. Unless otherwise stated, all reported results use wc = 6 and wa = 3 . The model was trained for 1000 epochs with a learning rate of 1 × 10 −4, a batch size of 512, and 1000 diffusion steps. The alignment loss weight was set to γ = 1 .During inference, we initialize the process from a partially noised seed molecule at timestep T = 900 ,and perform the reverse diffusion process over the remaining steps. 
+
+Baselines implementation. For our baselines, we adopted Mol-CycleGAN, which has a process most similar to our approach, it utilizes paired training. For DiGress, we used classifier guidance to steer the model toward the appropriate logP. However, it is worth noting that this model lacks an 14 Table 6: Comparison of methods for logP optimization with similarity preservation to the seed molecule. Notably, PhAME achieves the highest score on the aggregated NTS metric while maintaining strong, balanced performance across individual ones. Cells show mean ± std over 5 runs.                                      
+
+> Method Val ↑Uniq ↑QED ↑SA ↓Dir ↑Nov ↑Tgt ↑Sim ↑NTS ↑
+> Random target class 1.00 ±0.00 0.67 ±0.00 0.81 ±0.00 2.45 ±0.00 1.00 ±0.00 0.00 ±0.00 1.00 ±0.00 0.14 ±0.00 0.00 ±0.00 Nearest target class 1.00 ±0.00 0.34 ±0.00 0.82 ±0.00 2.28 ±0.00 1.00 ±0.00 0.00 ±0.00 1.00 ±0.00 0.60 ±0.00 0.00 ±0.00 VAE reconstruction 0.91 ±0.00 0.53 ±0.00 0.80 ±0.00 2.70 ±0.00 0.53 ±0.00 0.99 ±0.00 0.19 ±0.00 0.59 ±0.00 0.11 ±0.00 Mol-CycleGAN 0.72 ±0.00 0.90 ±0.01 0.82 ±0.01 2.57 ±0.07 0.71 ±0.03 0.99 ±0.00 0.51 ±0.04 0.15 ±0.00 0.08 ±0.01 DiGrees 0.83 ±0.03 0.99 ±0.00 0.77 ±0.01 2.87 ±0.07 1.00 ±0.00 1.00 ±0.00 1.00 ±0.00 0.13 ±0.00 0.13 ±0.00 PURE 0.86 ±0.00 0.96 ±0.00 0.54 ±0.01 2.83 ±0.02 0.61 ±0.00 1.00 ±0.00 0.45 ±0.00 0.58 ±0.00 0.26 ±0.00 PhAME 0.71 ±0.03 0.88 ±0.01 0.74 ±0.01 2.96 ±0.05 0.89 ±0.02 0.99 ±0.00 0.78 ±0.03 0.39 ±0.02 0.30 ±0.01
+
+Table 7: Ablation of PhAME for logP optimization with similarity preservation to the seed molecule. CFG refers to standard Classifier-Free Guidance, while c-CFG denotes compositional CFG. Cells show mean ± std over 5 runs. The results illustrate a clear trade-off across all metrics depending on the guidance scales.                                       
+
+> Method Val ↑Uniq ↑QED ↑SA ↓Dir ↑Nov ↑Tgt ↑Sim ↑NTS ↑
+> CFG(3) 0.42 ±0.02 0.89 ±0.01 0.70 ±0.01 2.80 ±0.06 0.81 ±0.01 0.99 ±0.00 0.68 ±0.01 0.40 ±0.00 0.27 ±0.01 c-CFG(6, 0) 0.87 ±0.02 0.97 ±0.01 0.74 ±0.01 2.95 ±0.07 0.99 ±0.01 1.00 ±0.00 0.96 ±0.01 0.13 ±0.00 0.12 ±0.00 c-CFG(0, 3) 0.73 ±0.03 0.88 ±0.00 0.76 ±0.01 2.93 ±0.03 0.76 ±0.01 0.99 ±0.00 0.59 ±0.01 0.41 ±0.01 0.24 ±0.00 c-CFG(6, 3) w/o Lalign 0.80 ±0.02 0.94 ±0.00 0.74 ±0.00 2.81 ±0.02 0.91 ±0.00 0.99 ±0.00 0.81 ±0.01 0.35 ±0.00 0.28 ±0.00 c-CFG(6, 3) 0.71 ±0.03 0.88 ±0.01 0.74 ±0.01 2.96 ±0.05 0.89 ±0.02 0.99 ±0.00 0.78 ±0.03 0.39 ±0.02 0.30 ±0.01 c-CFG (25, 0) 0.67 ±0.10 0.86 ±0.03 0.62 ±0.07 2.90 ±0.15 1.00 ±0.00 1.00 ±0.00 1.00 ±0.01 0.12 ±0.01 0.12 ±0.01 c-CFG (12, 3) 0.67 ±0.04 0.89 ±0.01 0.71 ±0.02 2.99 ±0.07 0.93 ±0.02 0.99 ±0.00 0.87 ±0.04 0.36 ±0.02 0.31 ±0.01
+
+explicit mechanism for direct editing. PURE was trained following the setup described in its original paper. Crucially, our experimental setup does not allow for oracle-based optimization or filtering, as we rely solely on the provided labeled dataset. Therefore, to ensure a fair and equitable comparison, all post-processing steps were strictly disabled across all evaluated models. 
+
+Extended results. Table 7 summarizes the contribution of individual components. Standard Classifier-Free Guidance (denoted as CFG) achieves a reasonable trade-off, with moderate tar-get success and similarity, resulting in limited performance in terms of NTS . Employing Com-positional Classifier-Free Guidance (denoted as c-CFG) with only the property signal active ( c-CFG (wc=6 , w a=0) ) maximizes target success but severely degrades similarity, indicating that optimizing logP alone leads to substantial structural drift. Conversely, using only alignment guidance ( c-CFG (wc=0 , w a=3) ) preserves high similarity but substantially reduces target success. Combin-ing both signals ( c-CFG (wc=6 , w a=3) ) yields a better balance between objectives. Removing the alignment loss decreases similarity and overall NTS , indicating that it helps the model learn stronger structural alignment with the seed molecule. Finally, we demonstrate that the model can be aggres-sively steered to reach specific performance peaks. ( c-CFG (wc=25 , w a=0) ) forces the model to achieve perfect target success. Applying a strong joint conditioning strategy ( c-CFG (wc=12 , w a=3) )yields the highest absolute NTS , though the increased guidance signal comes at the cost of molecular validity. As shown in Tables 6, 7, quality metrics such as Val , Uniq , QED , and SA remain broadly comparable across methods, with no approach consistently dominating all criteria. One notable exception is standard CFG, which significantly reduces validity, indicating that stronger guidance can lead to chemically invalid structures. In contrast, methods incorporating alignment, including PhAME, maintain more stable validity while preserving competitive performance across the remaining quality metrics. 15 Table 8: Percentile thresholds and numbers of compounds exceeding the threshold for different targets in the ZINC250k dataset. 
+
+Percentile Count PARP1 FA7 5HT1B BRAF JAK2 (≥ Thr.) Thr. Thr. Thr. Thr. Thr. 0.10 227,000 6.4 5.5 5.9 6.6 6.4 0.20 200,000 7.1 6.0 6.5 7.2 7.0 0.50 126,000 8.2 6.7 7.9 8.2 7.9 0.80 55,000 9.2 7.4 9.1 9.0 8.6 0.90 27,000 9.7 7.8 9.6 9.5 9.0 0.95 14,000 10.1 8.1 10.0 9.8 9.4 0.99 3,000 10.9 8.7 10.8 10.5 10.0 0.998 600 11.5 9.2 11.4 11.1 10.5 1.0 1 14.9 16.0 16.2 14.7 13.4 Table 9: Training hyperparameters for different targets. 
+
+PARP1 FA7 5HT1B BRAF JAK2 Stage 1 threshold 8.2 7.4 7.9 9.0 7.9 Stage 2 threshold 10.9 8.5 10.8 10.5 10.0 Stage 3 threshold 11.5 8.7 11.4 11.0 10.5 Stage 1 LR 1e −3 1e −3 1e −3 1e −3 1e −3
+
+Stage 1 epochs 1000 1000 1000 1000 1000 Stage 2 LR 1e −3 1e −3 1e −3 1e −4 1e −3
+
+Stage 2 epochs 500 500 1500 500 900 Stage 3 LR 1e −6 1e −4 1e −6 1e −5 1e −6
+
+Stage 3 epochs 500 800 500 800 500 
+
+γ 0.01 0.01 0.01 0.01 0.01 Batch size 512 512 512 512 512 Cond. scale 2.5 2.0 3.5 2.5 3.0 Target 12.0 13.0 13.0 14.7 12.5 
+
+## C Details of Docking Score Optimization 
+
+Three-stage curriculum. PhAME is trained in three stages on ZINC250k, following the pairing protocol of Section 3.4: at each stage, training pairs consist of molecules with QuickVina2 docking scores above and below a percentile-based threshold (non-binders vs. binders), with the most struc-turally similar pair selected across the threshold. Across stages, the threshold tightens from the 50th to the 90th and finally to the 99.8th percentile, so each stage fine-tunes the denoising network on a progressively higher-affinity property partition, a difficulty schedule rather than a self-distillation loop. Per-target percentile thresholds for ZINC250k are listed in Table 8; per-stage training hyperparameters and target docking value (between the 99.8th and 100th percentile) are summarized in Table 9. 
+
+Model. This is the only task that uses single-guidance CFG. All hyperparameters are listed in Table 9. 
+
+Hit thresholds. As in MOOD [ 19 ], the docking-score thresholds used in the novel hit ratio are 10.0 for PARP1, 8.5 for FA7, 8.7845 for 5HT1B, 9.1 for JAK2, and 10.3 for BRAF. 
+
+Random VAE baseline. Random VAE samples 3,000 latents from N (0 , I ) in the DGVAE latent space and decodes them without guidance, providing a no-conditioning lower-bound on docking performance. 
+
+Three-stage curriculum ablation. To attribute the gain reported in Section 4.2 to the iterative threshold-refresh curriculum rather than to the DGVAE backbone or compositional guidance alone, 16 Table 10: Properties of the top 5 molecules ranked by docking score across all targets, satisfying the constraints QED > 0.5, SA < 5, and a maximum Tanimoto similarity to the training set of < 0.4
+
+.ID Similarity Docking Score ↑ QED ↑ SA ↓
+
+> PARP1
+
+12 0.39 12.60 0.50 3.09 105 0.30 12.50 0.52 4.05 43 0.38 12.40 0.58 3.08 107 0.38 12.40 0.57 3.63 30 0.36 12.40 0.67 3.44 FA7  25 0.38 10.60 0.67 3.75 43 0.27 10.40 0.51 3.33 64 0.33 10.20 0.51 4.02 70 0.37 10.20 0.51 3.30 91 0.38 10.10 0.68 3.23 5HT1B  14 0.35 13.30 0.56 3.12 29 0.38 12.30 0.60 3.45 39 0.33 12.20 0.52 2.98 142 0.37 12.20 0.63 3.76 83 0.36 12.20 0.58 3.21 BRAF  9 0.29 12.90 0.57 3.46 17 0.36 12.80 0.52 3.53 107 0.34 12.40 0.78 4.12 128 0.39 12.30 0.67 3.42 99 0.32 12.30 0.57 2.63 JAK2  13 0.36 12.00 0.53 4.25 46 0.31 11.70 0.56 3.03 65 0.39 11.50 0.51 2.48 93 0.38 11.40 0.62 3.93 116 0.36 11.30 0.53 2.83 we evaluate a single-stage variant of PhAME on FA7: training only with the stage-1 threshold (50th percentile) and skipping the bootstrapped stage-2 and stage-3 fine-tuning. As can be seen in Figure 9, the single-stage variant achieves a novel hit ratio of 0.05 % (vs. 5.75 % for three-stage PhAME), confirming that the curriculum is the primary driver of the improvement. 1 2 3  
+
+> Stage
+> 6.5
+> 7.0
+> 7.5
+> 8.0
+> 8.5
+> 9.0
+> Novel top 5% docking score
+> 123
+> Stage
+> 0
+> 2
+> 4
+> 6
+> Novel hit ratio (%)
+
+Figure 9: Generative Performance Across Training Stages. Novel top 5% docking score and novel hit ratio (%) across training stages. Values denote mean ± standard deviation over 5 runs. 
+
+Quantitative top-5 hits. Table 10 shows the quality metrics for the top five molecules for each hit. We report the QuickVina2 docking score, QED, SA, and the maximum Tanimoto similarity to any molecule in the ZINC250k training set. 17 D Details of Transcriptomic Guided Generation 
+
+Model. For this task, we used the c-CFG implementation of PhAME with condition guidance 
+
+wc = 1 and molecular-alignment guidance wa = 1 . Training was performed on the MCF7 dataset using five random seeds {0, 1, 2, 3, 4}. For each molecule, up to three matched training pairs were used, selected with a minimum expression cosine distance of 0.5/. For testing 10% of the data was held out. The model was optimized for 4000 epochs with a learning rate of 1 × 10 −4, batch size 512 , 1000 
+
+diffusion steps, and Lalign = 0 .01 . Gene-expression conditions and molecular-alignment embeddings were projected into the latent conditioning space before being concatenated with the noisy latent representation and the time embedding. Specifically, the gene-expression condition was mapped from the full 978 -dimensional input space to the latent dimension using a linear projection layer, while the molecular embedding was projected through a two-layer MLP with a SiLU activation. As a seed molecule, we selected one of the ten most similar molecules based on cosine similarity between its gene expression and the target expression from the training set. During benchmarking, 
+
+100 molecules were generated for each target. Each of the ten seed molecules was used 10 times. 
+
+Data leakage handling. While largely following the original setup of Li & Yamanishi [ 22 , 26 ], we introduce a minor but important modification to prevent potential data leakage. Specifically, we identify a subset of molecules that appear both in the training set and among the reference ligands used for evaluation. These overlapping molecules are removed from the training data to ensure a strict separation between training and evaluation. This filtering reduces the training set size from 13,755 to 13,432 molecules (less than 3% of the data). 
+
+Dataset creation. We construct a paired compound–transcriptome dataset as described in Sec-tion 3.4. Unlike the property-based setting, transcriptomic data does not admit a natural threshold for partitioning, and we therefore adopt a similarity-based pairing strategy. Specifically, we compute cosine similarity between normalized gene expression profiles. For each molecule, we select the most structurally similar candidates based on Tanimoto similarity over ECFP fingerprints, while enforcing transcriptomic dissimilarity, cos( gi, g j ) < 0.5, where g denotes the gene expression profile. This results in training pairs that are structurally similar but induce distinct transcriptional responses. 
+
+## E Details of Cell Phenotype Guided Generation 
+
+Dataset. PhAME was trained via a two-stage strategy that uses distinct threshold parameters to construct both the general and the fine-tuning datasets. For the general dataset, the threshold was set to τcos = −0.3. For fine-tuning, we selected a much stricter threshold: τcos = −0.6. In both stages, we first isolated all candidates whose phenotypic cosine similarity fell below τcos (computed on features extracted from CellProfiler). Among these, we selected the pair with the highest Tanimoto similarity. This protocol is crucial because mining a sufficiently large dataset of highly divergent biological responses and strongly similar chemical structures is difficult. The proposed regime provides the volume needed for stable pre-training and then strictly fine-tunes the model on the desired dataset. As outlined, the dataset was created from the CP-JUMP database, with features extracted from CellProfiler. The test set was generated using the CP-JUMP database and intersected with ChEMBL2K and the Broad Drug Repurposing Hub. Crucially, to ensure a perfectly balanced and unbiased evaluation (without intersection of MoA classes), we restricted our focus to seven distinct MoA classes comprising exactly 8 representative molecules per class: acetylcholine receptor antagonist , adrenergic receptor agonist , adrenergic receptor antagonist , cyclooxygenase inhibitor ,
+
+dopamine receptor antagonist , histamine receptor antagonist , and serotonin receptor antagonist .
+
+Feature provenance. At inference, PhAME is conditioned on the per-MoA centroid (mean over the 8 reference compounds in each class) of CellProfiler [ 3] morphological features computed on each compound’s CP-JUMP [ 4] profiles. We use the specific preprocessed feature flavor distributed by the InfoAlign authors [ 24 ] on their public HuggingFace repository, which we denote CellProfiler 
+
+in our ablations. A head-to-head comparison of CellProfiler against two alternative cellular feature extractors ( DeepProfiler and uniDino ) is reported in the Morphology Representation ablation below. 18 Training details and baselines. For the training of the other baselines CPMolGAN and GFlowNet, we strictly follow their originally proposed training procedures and hyperparameter configurations. We omit the recent method MGMG [ 47 ] from our evaluation framework, as its codebase is not publicly available. PhAME was optimized for 2000 epochs with a learning rate of 1 × 10 −5 in fine-tune stage and 1 × 10 −3 in general stage, batch size 512 , 1000 diffusion steps, with early stopping for 
+
+50 epochs, warmup 200 epochs, dropout 0.1. However, because this specific evaluation focuses on de novo generation rather than localized structural optimization, we adjusted the training and inference parameters accordingly. During training, we incorporated EMA (decay factor of 0.999) optimization to stabilize training and reduced the structural-alignment weight γ to 0.00001. We set the structural guidance scale to wa = 0 to allow unconstrained exploration, and the conditioning scale to wc = 34 
+
+to enforce a strong cellular signal, a value determined empirically to yield the highest biological fidelity. Specifically, for each of the 7 MoA classes, the generative process was conditioned directly on the pre-computed biological centroid of that specific class. To ensure statistical robustness in our evaluation, we conducted sampling across 5 independent random seeds, generating 10 valid compound samples per representative molecule, yielding 80 generated molecules per MoA class in total. 
+
+Metrics. Let ˆm ∈ M denote a generated molecule with target MoA C∗ ∈ Y = {C1, . . . , C 7},and let RC ⊂ M collect the reference compounds annotated with MoA C (|R C |=8 in our balanced benchmark). All three metrics below share a representation-specific pairwise similarity s(·, ·) ∈ [0 , 1] 
+
+between two molecules: for the ECFP space, s is Tanimoto similarity over Morgan fingerprints; for the learned spaces (CLOOME, InfoAlign), s is cosine similarity over the corresponding embeddings of the two molecules. • Top-1 Cluster Accuracy scores each class by measuring the mean similarity between the generated molecule and all individual members of reference class in evaluation representa-tion, 
+
+σ( ˆ m, C ) = 1
+
+|R C |
+
+X
+
+> r∈R C
+
+s( ˆ m, r ) ,
+
+and reports the fraction of generations for which the target attains the highest score, i.e. 
+
+C∗ = arg max C∈Y σ( ˆ m, C ).• MoA Retrieval Rate @ k relaxes Top-1 to admit the target anywhere in the top k ranked classes, and replaces the centroid-based score above with a top-n mean of pairwise similari-ties that focuses on each class’s most similar references: 
+
+ρ( ˆ m, C ) = 1
+
+n
+
+X  
+
+> r∈Top n( ˆ m, RC)
+
+s( ˆ m, r ), n = 3 .
+
+Sorting classes by ρ( ˆ m, ·) in descending order yields rank( C∗); the metric is the fraction of generations with rank( C∗) ≤ k.• kNN Accuracy @ k discards the per-class structure and runs a k-nearest-neighbour classifier over the pooled reference set R = S 
+
+> C∈Y
+
+RC . It takes the k references most similar to ˆm
+
+under s and assigns the majority MoA among them as the predicted label; the metric is the fraction of generations whose prediction equals C∗.
+
+Extended Results Table 11 demonstrates a contrast in performance across the three representation spaces. Both DGVAE and CPMolGAN achieve results near a random-guess baseline ( ∼14.3% Top-1 Cluster Accuracy) regardless of the embedding used. Although GFlowNet performs well within CLOOME, its performance drops when evaluated in InfoAlign and ECFP spaces. PhAME is the 
+
+only method that clears chance in all three spaces simultaneously, and the gap is largest exactly where the biological signal is richest: +68% relative over GFlowNet on InfoAlign Top-1 Cluster Accuracy ( 0.287 vs. 0.171 ) and +60% on ECFP ( 0.272 vs. 0.170 ), with similar gains reflected in MoA Retrieval Rate @ k and kNN Accuracy @ k. On CLOOME, PhAME trails GFlowNet on Top-1 (0.178 vs. 0.212 ); PhAME’s lead reappears once we move to deeper metrics (MoA Retrieval Rate @1/2/3, kNN Accuracy @1/3/5). Because the InfoAlign and ECFP advantages hold across two structurally unrelated representations, the improvements reflect a true understanding of structure-activity relationships rather than merely adapting to a single representational topology. 19 Table 11: MoA classification of de novo generated molecules across three representation spaces. 
+
+Values are percentages (mean ±std over 5 seeds). Best in bold, second-best underlined. PhAME achieves the best performance in 20 out of the 21 evaluated combinations of metrics and representa-tion spaces.                                                                                                                                                                                     
+
+> Top-1 MoA Retrieval Rate @ k↑kNN Accuracy @ k↑
+> Model Cluster Acc ↑@1 @2 @3 @1 @3 @5
+> CLOOME  DGVAE 14.6 ±1.2 13.7 ±1.8 29.1 ±2.0 42.9 ±2.5 13.6 ±2.0 14.0 ±2.7 14.4 ±1.5
+> CPMolGAN 15.4 ±1.5 14.8 ±1.4 28.8 ±1.8 42.4 ±2.2 14.9 ±1.3 15.2 ±1.3 15.2 ±1.8
+> GFlowNet 21.2 ±1.2 19.4 ±2.5 34.4 ±2.1 51.5 ±2.2 18.0 ±1.1 18.6 ±1.1 19.3 ±1.2
+> PhAME 17.8 ±1.1 19.4 ±0.5 38.2 ±0.9 53.6 ±2.1 20.5 ±1.2 20.4 ±1.0 20.4 ±0.7
+> InfoAlign  DGVAE 13.4 ±0.5 14.4 ±1.0 28.6 ±1.9 43.2 ±3.2 14.0 ±1.7 14.3 ±1.8 14.2 ±1.3
+> CPMolGAN 13.1 ±0.9 13.5 ±1.2 26.9 ±0.7 39.6 ±1.0 13.5 ±1.2 13.1 ±1.1 13.6 ±0.8
+> GFlowNet 17.1 ±0.7 16.3 ±1.3 32.4 ±0.8 50.1 ±1.7 14.6 ±0.5 15.7 ±0.6 15.9 ±1.3
+> PhAME 28.7 ±1.7 28.7 ±2.7 45.2 ±1.8 58.0 ±1.0 25.4 ±2.2 27.0 ±1.8 28.3 ±1.4
+> ECFP  DGVAE 14.0 ±0.9 14.2 ±2.0 28.5 ±1.1 42.7 ±2.1 14.5 ±0.6 14.6 ±1.0 13.7 ±1.6
+> CPMolGAN 14.3 ±1.0 13.4 ±1.3 28.8 ±2.4 42.0 ±0.9 12.9 ±1.2 13.5 ±1.4 14.1 ±1.4
+> GFlowNet 17.0 ±1.8 15.1 ±1.3 29.0 ±1.6 46.1 ±2.1 12.7 ±1.1 14.4 ±1.3 15.3 ±1.6
+> PhAME 27.2 ±1.8 23.0 ±1.6 40.4 ±2.3 56.2 ±2.9 20.6 ±1.2 21.2 ±1.6 23.0 ±2.2
+
+Table 12: Evaluation of quality and diversity generated molecules for Cell Phenotype task. 
+
+Average metrics for cell-phenotype-guided generation, evaluated across five distinct seed molecules. Method QED ↑ SA ↓ Uniqueness ↑ Novelty ↑
+
+DGVAE 0.797 ±0.001 2.515 ±0.014 1.000 ±0.000 1.000 ±0.001 
+
+CPMolGAN 0.607 ±0.010 3.042 ±0.037 1.000 ±0.000 1.000 ±0.000 
+
+GFlowNet 0.649 ±0.005 4.457 ±0.024 0.999 ±0.002 1.000 ±0.000 
+
+PhAME 0.674 ±0.003 3.233 ±0.027 0.960 ±0.007 1.000 ±0.001 
+
+For completeness, Table 12 reports extended statistics on molecular quality and diversity metrics (QED, SA, Uniqueness and Novelty). These results should be contextualized with the primary Table 11. While baselines like DGVAE and CPMolGAN achieved slightly better QED or SA, they do not perform effectively on the actual MoA retrieval task. Importantly, PhAME still outperforms its primary competitor, GFlowNet, in both QED and SA. 
+
+Qualitative MoA guided molecules Figure 12 shows selected molecules conditioned by cell morphology described in Section 4.4. To analyze the structural relevance, we visualize the nearest generated molecules based on Tanimoto similarity to any of the molecules from each MoA. 
+
+## F Details of Cell Phenotype Optimization 
+
+Setup and target selection. To evaluate the capacity of H2L optimization, we formulated a recovery task of drugs. We selected three different molecules with known MoAs. The selected target therapeutics and their respective MoAs are as follows: • Aspirin: Cyclooxygenase inhibitor 
+
+• Clofibrate: PPAR receptor agonist 
+
+• Dyphylline: Adenosine receptor antagonist 
+
+For each target therapeutic, we selected a set of structurally similar "hit" molecules to serve as starting seeds in order to evaluate the model’s performance across varying levels of optimization difficulty. Crucially, to strictly prevent data leakage, the target molecule was entirely removed from the reference dataset prior to inference. Specifically, when constructing the conditioning signal, the target MoA centroid was computed exclusively from the phenotypic representations of the remaining class members, ensuring the model had no direct access to the target drug’s biological signature. 20 Evaluation. PhAME was evaluated using the configuration from Appendix E, with guidance scales specifically tuned for structural editing wa = 1 and wc = 14 . Unlike de novo generation, which starts from pure Gaussian noise, we start the process from a noised seed molecule at the corresponding timesteps T = 400 and T = 500 . We found that each seed has a different optimal initial noise level: the level of noise depends on the structural similarity between lead and hit. For instance, among our visualized examples, only one seed molecule (the aspirin hit presented in row 2, column 2) required a significantly higher initial noise level ( T = 700 ) to successfully bridge the structural gap. For this evaluation, we generated a total of 100,000 candidate samples. On the same setup, we conducted tests with the GFlowNet model. For the seed molecules presented in Figure 7 conditioned with the proper morphology, we could not recover any of the drugs. To illustrate PhAME’s structural editing capabilities, we present extended qualitative visualizations in Figures 13, 14, 15. We provide comprehensive trajectories for each of the three targeted therapeutics: aspirin, clofibrate, and dyphylline. For each target lead, we display successful recoveries starting from six distinct hit molecules. These examples have varying complexity in the required transformation, ranging from minimal, straightforward functional-group edits to more advanced ones. 
+
+## G Ablations 
+
+G.1 Morphology Representation 
+
+To evaluate the robustness of our model to different conditioning representations from different biological manifolds, we conducted an ablation study comparing various cellular representations. Specifically, we selected three different types of feature representations extracted from the CP-JUMP dataset. Our primary cell morphology signal, denoted CellProfiler , corresponds to the exact same CellProfiler features utilized by InfoAlign. We compared it against two alternative representations: 
+
+DeepProfiler [33 ] features extracted from a CNN-based model, retrieved from the official CP-JUMP repository and uniDino [32 ] representations extracted from the uniDino model vision transformer. Crucially, to ensure a fair comparison across these three modalities, we restricted this study to a single experimental source ( Source 2 from CP-JUMP), which reduces the dataset size by approximately 50% compared to our main experiments. Figure 10 highlights the advantage of our chosen representation. It shows that CellProfiler achieves the highest overall performance on the Top-1 Cluster Accuracy and MoA Retrieval Rate@k metrics, averaged across all evaluation spaces (CLOOME, InfoAlign, and ECFP). 
+
+Figure 10: Performance of Phenotypic Feature Extractors . Comparison of cell phenotypic repre-sentations across different feature extractors: CellProfiler, UniDino and DeepProfiler. Performance is evaluated using the Top-1 Cluster Accuracy and MoA Retrieval Rate, metrics described in Ap-pendix E. The CellProfiler representation achieves the best results across its head-to-head competitors as a signal for conditioning ( wc). 21 G.2 Structural Alignment Representation 
+
+To validate our choice of structural alignment representation zalign in Equations 5, 6, we evaluated PhAME on three distinct molecular representation embedding spaces: Morgan Fingerprint (ECFP), DGVAE latent space and InfoAlign embeddings in the setup of logP optimization described in Appendix B, with limited dataset to 20% of original size. As shown in Figure 11, InfoAlign slightly decreases similarity alignment to achieve superior property-target alignment. We accept a minor, negligible trade-off in structural similarity because InfoAlign offers a much richer representation. 0.15 0.20 0.25 0.30 0.35 0.40 
+
+Similarity to Seed Molecule 
+
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Target Success
+
+Encoder 
+
+> InfoAlign
+> DGVAE
+> ECFP
+
+Figure 11: Impact of Representations on Controllable Generation. Trade-off between Target Success and Similarity to Seed Molecule under varying guidance strengths for different type encoded representation for conditioning wa. Increasing property guidance ( wc) improves target success, while increasing seed guidance ( wa) enhances similarity to the input molecule. InfoAlign achieves the highest Target Success, showing only a marginal decrease in Similarity to Seed Molecule relative to DGVAE, which excels in seed similarity but struggles with Target Success. In contrast, ECFP shows weak performance across both criteria, further highlighting the advantage of InfoAlign. The layout and interpretation of this plot are identical to those of Figure3 
+
+## H Limitations and Broader Impact 
+
+Limitations. While PhAME mitigates the trade-offs in standard classifier-free guidance, the frame-work remains sensitive to extreme guidance scales, where overly strong structural guidance can degrade the chemical validity of the generated molecules. Additionally, the model’s performance re-lies on the availability and quality of high-dimensional paired data, such as Cell Painting morphologies and L1000 transcriptomic profiles. 
+
+Broader impact. PhAME represents an advancement in machine learning-driven drug design, directly supporting the pharmaceutical industry’s shift from single-target assays toward system-level phenotypic drug discovery. By effectively guiding molecules toward complex biological signatures while anchoring them to known chemical seeds, this framework directly addresses the bottlenecks of Hit-to-Lead (H2L) and Lead Optimization (LO) pipelines. Accelerating this iterative refinement process has the potential to significantly reduce the computational and financial costs associated with reshaping screening hits into potent and safe drug candidates. 22 Figure 12: Qualitative Assessment of PhAME-Generated molecules. Qualitative examples of molecules generated by PhAME, conditioned by MoA embedding centroids. Each row presents a different Mode of Action. The first column captioned as Reference represents one of the selected molecules from our dataset with a known MoA, while the remaining columns visualize the nearest generated molecules based on Tanimoto similarity to any molecule in the MoA cluster. Each class contains specific, distinct molecular structures. 23 Figure 13: Recovery of Aspirin. Qualitative examples of PhAME recovering Aspirin Lead (Gener-ated Analog). Six distinct Hits (Seed molecule) were evaluated using structural anchor and biological conditioning of cyclooxygenase inhibitor. 
+
+Figure 14: Recovery of Dyphylline. Qualitative examples of PhAME recovering Dyphylline Lead (Generated Analog). Six distinct Hits (Seed molecule) were evaluated using structural anchor and biological conditioning of adenosine receptor antagonist. 24 Figure 15: Recovery of Clofibrate. Qualitative examples of PhAME recovering Clofibrate Lead (Generated Analog). Six distinct Hits (Seed molecule) were evaluated using structural anchor and biological conditioning of PPAR receptor agonist. 25

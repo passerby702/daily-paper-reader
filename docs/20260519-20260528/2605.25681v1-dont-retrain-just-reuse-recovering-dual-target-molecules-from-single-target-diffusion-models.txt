@@ -1,0 +1,2662 @@
+Title: Don't Retrain, Just Reuse: Recovering Dual-Target Molecules from Single-Target Diffusion Models
+
+URL Source: https://arxiv.org/pdf/2605.25681v1
+
+Published Time: Tue, 26 May 2026 02:06:43 GMT
+
+Number of Pages: 43
+
+Markdown Content:
+# Don’t Retrain, Just Reuse: Recovering Dual-Target Molecules from Single-Target Diffusion Models 
+
+Qingyuan Zeng 1 Pengxiang Cai 1 Zixin Guan 2 Ziyang Chen 1
+
+Anglin Liu 1 Lang Qin 1 Xinyao LAI 1 Jintai Chen 11The Hong Kong University of Science and Technology (Guangzhou) 
+
+> 2
+
+Guangzhou University of Chinese Medicine 
+
+## Abstract 
+
+Designing a single molecule that modulates two targets is a promising strategy for polypharmacology, but it remains substantially harder than standard single-target generation because one candidate must satisfy two binding requirements while preserving drug-likeness and synthesizability. Existing dual-target generative methods typically introduce dual-target capability by either retraining the gener-ator or intervening in the diffusion process during sampling. The former can be costly and difficult to stabilize when dual-target supervision is sparse, while the latter may be sensitive to denoising-time target balancing and competing update directions. These limitations motivate a generator-preserving alternative that keeps the pretrained prior intact: can dual-target candidates instead be recovered from the input space of a frozen single-target diffusion model, without modifying its parameters or denoising dynamics? We formulate this task as a constrained multi-objective optimization problem and propose REUSE, a hierarchical evolutionary input-space search framework that combines pair-conditioned exploration with structured multi-stage selection to enforce dual-target affinity, chemical quality, and diversity. Experiments show that, compared with methods that modify the diffusion process, REUSE consistently improves dual-target affinity and balance, achieving a 20.9-percentage-point gain in Dual High Affinity over the strongest prior baseline while maintaining competitive molecular quality. 
+
+## 1 Introduction 
+
+Designing a single molecule that can modulate two targets is an important goal in drug discovery, especially for complex diseases where pathway redundancy, compensatory signaling, and acquired resistance often limit the effectiveness of single-target therapies [ 1, 2, 3]. Compared with combination therapy, a dual-target molecule can coordinate activity at both targets within one chemical entity, potentially reducing mismatched pharmacokinetics, drug-drug interactions, and treatment complexity [ 1, 2, 3]. In the structure-based setting, however, this problem is substantially harder than standard single-target generation: one molecule must be compatible with two binding sites while remaining drug-like and synthesizable [ 4, 5]. Recent diffusion models have become powerful generative priors for 3D structure-based molecular design, but most existing methods still focus on one target at a time, leaving dual-target design comparatively underexplored [6, 7]. Existing dual-target generative methods usually introduce dual-target capability in two ways: either by adapting the generator toward multi-target objectives or by intervening in the diffusion process during sampling. The former can be costly and difficult to scale when reliable target-pair training data is limited [ 5, 8]. The latter avoids retraining, but it injects target-coupled control into the denoising trajectory, where competing update directions may bias generation toward one target and weaken balanced dual-target recovery [ 4]. This raises a natural question: can we preserve the 
+
+> Preprint.
+> arXiv:2605.25681v1 [cs.LG] 25 May 2026
+
+pretrained single-target prior and its denoising dynamics, and instead recover dual-target candidates by searching only the input space of the frozen model? 
+
+As single-target diffusion models are pretrained on diverse protein-ligand complexes, they have learnt a broad structure-based molecular prior that can be reusable beyond standard single-target generation. This raises the possibility that, for a given target pair, useful cross-target candidates may be recovered from the input space of a frozen model without changing its parameters or denoising dynamics [ 9, 10 , 11 ]. However, realizing this possibility is challenging: such candidates are expected to occupy sparse and highly constrained regions of the input space, making them difficult to locate by naive sampling; moreover, they must simultaneously balance affinity to both targets, chemical quality, and structural diversity [10, 11, 12, 13]. Motivated by this, this paper formulates dual-target molecular design as a constrained multi-objective optimization problem over the input space of a frozen single-target diffusion model. To solve it, we propose REUSE, a hierarchical evolutionary input-space search framework for RE Using frozen 
+
+Single-target g Enerators to recover dual-target candidates. REUSE operates as an iterative recovery loop: it maintains a population of input-space search states, decodes them through the frozen generator into molecular families, and uses family-level evidence to update the next search population. To make iterative search practical, REUSE couples this loop with a cost-aware multi-stage selection funnel: inexpensive affinity and chemistry proxies first prune large candidate pools, while expensive high-fidelity evaluation is reserved for a reduced frontier. This design progressively concentrates computation on candidates that are balanced across both targets, chemically qualified, and structurally diverse. The final output is a compact candidate panel rather than a single top-ranked molecule [10, 11]. Our contributions are as follows: • We present the first formulation of dual-target molecular design as constrained multi-objective search over the input space of a frozen single-target diffusion model. This de-couples dual-target optimization with the diffusion process, reducing retraining cost and denoising-time balancing sensitivity while enabling explicit control over affinity, chemistry, and diversity. • We propose REUSE, a hierarchical evolutionary input-space search framework that couples closed-loop population refinement with cost-aware multi-stage selection, enabling efficient recovery of balanced and chemically qualified candidates from sparse input-space regions. • Extensive experiments show that, compared with methods that modify the diffusion pro-cess, REUSE recovers stronger and more balanced dual-target candidates, achieving a 20.9-percentage-point gain in Dual High Affinity over the strongest prior baseline while maintaining competitive molecular quality. 
+
+## 2 Related work 
+
+Single-target structure-based molecular generation. Recent advances in structure-based molecu-lar generation have substantially improved pocket-conditioned 3D design for single targets [ 14 , 15 , 16 ]. Pocket2Mol generates ligands autoregressively inside protein pockets under geometric constraints [17 ]. TargetDiff and DiffSBDD introduce equivariant diffusion frameworks for target-aware, pocket-conditioned molecule generation [ 18 , 6 ]. DecompDiff further improves diffusion-based SBDD with decomposed priors, bond diffusion, and validity guidance [ 19 ], while MolDiff addresses atom– bond inconsistency in 3D molecular diffusion [ 20 ]. DrugGPS improves generalization by learning subpocket prototypes and structural motifs for structure-based design [ 21 ]. Despite their strong performance, these methods are developed for the standard single-target setting and therefore do not directly address dual-target molecular design, where one ligand must simultaneously satisfy two distinct binding pockets. 
+
+Dual-target molecular generation. Recent dual-target generative methods mainly follow two directions. One line adapts the generator itself, for example through reinforcement-learning-based optimization or latent-space optimization for multi-target objectives [ 5 , 8, 22 ]. However, such adaptation can be costly and unstable when reliable target-pair supervision is sparse. The other line preserves a pretrained generator but injects target-coupled control into sampling, such as composed drifts, guidance signals, or other denoising-time interventions [ 4]. Although this avoids retraining, competing target-induced updates may require delicate balancing and can bias generation toward 2Best -so -far 
+
+> archive S'
+
+updated each 
+
+generation Search  input  noise 
+
+space instead 
+
+> Frozen
+> No retraining
+> No diffusion modification
+
+Target A 
+
+Frozen 
+
+single -Target 
+
+diffusion generator 
+
+Target B  
+
+> Final
+> candidate panel
+> (dual -target molecules)
+> ...
+> Strong
+> Balanced
+> Chemically feasible
+> Diverse
+> ...
+
+Evolution across generations in  input noise space P0
+
+P1
+
+PT   
+
+> Pt
+> Input -noise operators
+> Mutation
+> Crossover
+> Immigration
+> (from prior)
+> prior
+> •
+> •
+> •
+> Frozen
+> generator
+> Input -space elites → Population
+
+Pt+1              
+
+> (next generation)
+> Input -noise vectors (population) Offspring input -noise vectors Candidate molecules Prior / external source
+> ...
+> Coarse screening
+> dual -target affinity
+> feasibility -first
+> cheap
+> Refined evaluation
+> refined affinity
+> chemistry -first
+> Diversity -aware
+> selection
+> Panel construction
+> medium
+> expensive
+> Candidate pool
+> (survivors) Decoded families
+> (molecules per searched input)
+> Offspring O t
+> (searched inputs)
+> Parent selection Population
+> Constraint -aware screening
+> （Multi -stage selection)
+> Decode candidate families
+> (decode searched inputs)
+> Population evolution
+> (in input noise space)
+
+One evolutionary iteration  Pt
+
+￫ Pt+1 (repeat for t = 0, 1, …… , T )
+
+Each transition  Pt
+
+￫ Pt+1  in the top trajectory is produced by the iteration below 
+
+> 1
+
+1 12 13Figure 1: Overview of REUSE. REUSE keeps the single-target diffusion generator frozen and recovers dual-target candidates by evolutionary search over its input noise space, followed by feasibility-first multi-stage selection and panel construction. one target. These drawbacks motivate a generator- and sampling-preserving alternative: recovering dual-target molecules by searching the input space of a frozen single-target diffusion model. 
+
+## 3 Methodology 
+
+3.1 Problem Formulation 
+
+Let Gϕ denote a pretrained single-target diffusion generator with fixed parameters ϕ. Given a dual-target pair p = ( ta, t b), REUSE keeps Gϕ fixed and searches over the input noise space of the generator to recover dual-target candidates under the task defined by p. Let z ∈ Z denote an input noise realization supplied to the generator. For a fixed task context p and noise input z, the frozen generator induces a distribution over decoded molecules, from which we draw a finite family 
+
+M(z, p ) = {m1, . . . , m K }. (1) Operationally, REUSE explores multiple noise inputs during search. For any finite searched input set 
+
+Q ⊆ Z , define the pooled decoded candidate universe 
+
+M(Q, p ) = [
+
+z∈Q 
+
+M(z, p ). (2) Our goal is not to return a single molecule, but to recover a candidate panel S ⊆ M (Q, p ) with 
+
+|S| = N that is jointly strong in dual-target affinity, chemically admissible, and structurally diverse. At the conceptual level, we formulate this as a constrained multi-objective optimization problem: 
+
+min 
+
+Q⊆Z , |Q| <∞, S ⊆M (Q,p ), |S|=N
+
+
+
+Faff (S; p), −Fchem (S), −Fdiv (S)
+
+
+
+s.t. c(m, p ) = 1 , ∀m ∈ S, 
+
+(3) where Faff measures dual-target affinity and balance, Fchem chemical quality, Fdiv set-level diversity, and c(m, p ) hard feasibility constraints. Eq. (3) defines the panel-level objective, but REUSE does not optimize it directly because the search variables are noise inputs, not molecules. Each noise input is decoded into a molecular family and assigned a family-level score: 
+
+F(z; p) = Ψ  M(z, p ); p, (4) 3where Ψ summarizes the family’s dual-target affinity, chemical feasibility, and diversity. This score is then used to rank and evolve noise inputs before final panel construction. This formulation casts dual-target design as input-side capability recovery: REUSE probes a frozen single-target prior through its input noise space, rather than introducing dual-target behavior by retraining the model or modifying its inference dynamics. 
+
+3.2 Overview of REUSE 
+
+Figure 1 illustrates the overall framework. At iteration t, REUSE maintains a population of noise-space individuals 
+
+Pt = {z(1)  
+
+> t
+
+, . . . , z (B) 
+
+> t
+
+}, z(i) 
+
+> t
+
+∈ Z , (5) and evolves this population toward regions of the frozen prior that reliably decode to strong dual-target candidates. For each individual z ∈ P t, the frozen generator produces a decoded family M(z, p )
+
+for the target-pair design task p. Rather than judging a noise input by a single decoded molecule, which is highly sensitive to sampling stochasticity, REUSE evaluates each noise input through the phenotypic evidence provided by its decoded molecular family: 
+
+F(z; p) = Ψ  M(z, p ); p. (6) Parent selection is then utility-driven: 
+
+At = Top Bpar 
+
+ Pt−1; F(·; p), (7) where Top B (X ; f ) returns the top-B elements of X ranked by scalar score f . This encourages the search to favor regions of the input noise space that consistently yield high-quality candidates, rather than isolated outliers. In our instantiation, Ψ ranks each decoded family using the first-stage feasibility-first ordering ≻1 defined later in Eq. (16) , and averages the corresponding top-ranked 
+
+h1(m; p) scores to reduce sensitivity to a single stochastic decode; see Appendix A.3. Operationally, each iteration of REUSE consists of four steps: (i) generate offspring in the input noise space from the selected parents, (ii) decode the offspring and pool the resulting molecules, (iii) apply constrained multi-stage environmental selection to the pooled candidates, and (iv) construct a feasible diverse panel from the terminal survivor pool while updating the noise-space population by elitist survival. Across iterations, REUSE tracks the best-so-far panel under the set-level utility Jp
+
+and returns the final incumbent after T iterations. The full procedure is summarized in Algorithm 1 in Appendix A.2. Thus, F(z; p) serves as a noise-space proxy for the panel-level objective in Eq. (3) ,while environmental selection and panel construction convert high-fitness decoded families into the final set-level output S⋆. Further details are provided in Appendix A.7. 
+
+3.3 Variation Operators in Noise Space 
+
+Given a selected parent set At ⊆ P t−1, REUSE generates offspring according to the mixture proposal 
+
+qoff (z′ | A t, p ) = αmut qmut (z′ | A t, p ) + αcross qcross (z′ | A t, p ) + αimm π0(z′ | p), (8) where αmut + αcross + αimm = 1 . Here, π0(· | p) denotes a pair-aware noise prior that seeds and refreshes the evolutionary search for the target pair p. It provides task-conditioned exploration without modifying the frozen generator or injecting guidance into its denoising trajectory. The offspring set at iteration t is then sampled as 
+
+Ot = {z′
+
+> 1
+
+, . . . , z ′ 
+
+> Boff
+
+}, z′ 
+
+> i
+
+∼ qoff (· | A t, p ), (9) where Boff is offspring budget. A continuous-space instantiation used in our experiments is 
+
+z′ 
+
+> mut
+
+= z + ϵ, ϵ ∼ N (0 , σ 2mut I), (10) for mutation, 
+
+z′ 
+
+> cross
+
+= λz i + (1 − λ)zj , λ ∼ U (0 , 1) , zi, z j ∈ A t, (11) for crossover between two selected parents, and 
+
+z′ 
+
+> imm
+
+∼ π0(· | p) (12) for immigration. Thus, mutation performs local exploration around promising inputs, crossover recombines successful parent lineages, and immigration samples fresh pair-aware noise inputs from 
+
+π0(· | p) to refresh the population and mitigate premature concentration. All operators act directly in the input noise space and therefore leave the frozen generator unchanged. Additional implementation details are given in Appendix A.4. 43.4 Constraint-Aware Multi-Stage Environmental Selection 
+
+Let Ot denote the offspring set sampled from Eq. (8) . The decoded offspring induce a pooled candidate set 
+
+C(0)  
+
+> t
+
+= [
+
+> z∈O t
+
+M(z, p ). (13) REUSE then applies stage-wise environmental selection to this pool. We index stage pools by 
+
+s = 0 , . . . , S , where stage s maps C(s−1)  
+
+> t
+
+to C(s) 
+
+> t
+
+. At stage s, each candidate m ∈ C (s−1)  
+
+> t
+
+is assigned a scalar score 
+
+hs(m; p) = f (s)aff (m; p) + βchem qchem (m) + βdiv qdiv 
+
+
+
+m; C(s−1) 
+
+> t
+
+
+
+, (14) where f (s)aff is a stage-specific dual-target affinity term, qchem is a soft chemistry-quality term, and 
+
+qdiv is a redundancy-reduction term. In our implementation, f (s)aff is instantiated by progressively higher-fidelity docking-derived signals (e.g., transitioning from rapid pose refinement to full 3D docking searches), qchem (m) is instantiated from standard molecular quality indicators including QED and SA, and qdiv is based on fingerprint-level structural dissimilarity [ 23 , 24 , 25 ]; concrete definitions are given in Appendix A.5 and Appendix A.6. Here, As(m, t ) denotes the stage-s affinity estimate of molecule m against target t, represented on a common larger-is-better utility scale. A simple balance-aware instantiation is 
+
+f (s)aff (m; p) = waAs(m, t a) + wbAs(m, t b) − λbal As(m, t a) − As(m, t b) , (15) so that candidates strong on only one target are down-weighted. When a stage uses raw docking scores, we convert them to this utility scale by sign flip (or an equivalent monotone transformation) before applying Eq. (15) . Selection is feasibility-first. Let c(m, p ) ∈ { 0, 1} indicate whether candidate 
+
+m satisfies the hard admissibility checks used by the pipeline. Stage-wise preference is defined lexicographically as 
+
+mi ≻s mj ⇐⇒  c(mi, p ), h s(mi; p) >  c(mj , p ), h s(mj ; p), (16) where > denotes lexicographic comparison. Thus, feasible candidates always dominate infeasible ones, and within the same feasibility class larger hs is preferred. Accordingly, stage s produces the top Bs survivors under ≻s:
+
+C(s) 
+
+> t
+
+= Top Bs
+
+ C(s−1)  
+
+> t
+
+; ≻s
+
+, s = 1 , . . . , S, (17) and we write C(final)  
+
+> t
+
+:= C(S) 
+
+> t
+
+. Finally, REUSE constructs the output at the set level: 
+
+St ∈ arg max   
+
+> S⊆C (final)
+> t,|S|=N
+
+Jp(S) s.t. c(m, p ) = 1 , ∀m ∈ S, ∆( mi, m j ) ≥ τ, ∀mi̸ = mj ∈ S, 
+
+(18) where Jp(S) is a set-level utility that trades off dual-target strength, chemical quality, and diversity within the final panel. If no feasible N -subset exists, the current iteration simply yields St = ∅.In such cases, the global search does not terminate; instead, the algorithm safely falls back to the best-so-far panel tracked from previous iterations. To drive the search forward into the next generation, the noise-space population is updated via elitist survival: 
+
+Pt = Top B
+
+ Pt−1 ∪ O t; F(·; p). (19) This updated population Pt retains the most promising latent signals and acts as the parent pool for the next iteration’s variation and reproduction steps, thereby closing the evolutionary loop. Upon completing all T iterations, REUSE returns the final best-so-far balanced and diverse candidate panel 
+
+S⋆, rather than a winner-take-all molecule. Concrete instantiations of Ψ, hs, and Jp are given in Appendix A.3, Appendix A.5, and Appendix A.6, respectively. 
+
+## 4 Experiments 
+
+4.1 Experimental Setup 
+
+We adopt the dual-target benchmark of Zhou et al. [ 4 ] and evaluate on the full benchmark following the same protocol. Rather than pairing targets randomly, this benchmark is constructed from drug 5Target A Target B              
+
+> Early
+> weak / imbalanced
+> Middle
+> improved
+> Late
+> strong / balanced
+> Vina dock: -7.056 Vina dock: -8.956 Vina dock: -11.062
+> Vina dock: -5.561 Vina dock: -9.073 Vina dock: -11.123
+> Representative optimization
+> trajectory in input noise space
+> Stage -wise candidate
+> distribution in objective space
+> Input -space PCA 1
+> Input -space PCA 2
+> Target A vina dock
+> Target B vina dock
+
+Figure 2: Visualization of the stage-wise search and optimization process in REUSE. (Left) Optimiza-tion trajectory in the input noise space. (Middle) Stage-wise candidate distribution in the objective space. (Right) Evolution of molecular binding poses across early, middle, and late stages. Table 1: Quantitative comparison of REUSE and baselines on dual-target molecule generation.                                                                                                                                                                                                                                
+
+> Method P-1 Vina Dock ↓P-2 Vina Dock ↓Max Vina Dock ↓Dual High Aff. ↑QED ↑SA ↑Diversity ↑Feasible Dual-hit Rate ↑
+> Avg. Med. Avg. Med. Avg. Med. Avg. Med. Avg. Med. Avg. Med. Avg. Med. Avg. Med. Reference -7.60 -7.80 -6.02 -7.30 -5.46 -7.09 --0.53 0.54 0.74 0.77 ----Pocket2Mol -4.71 -4.66 -4.64 -4.65 -4.42 -4.41 0.2% 0.0% 0.48 0.49 0.86 0.88 0.83 0.81 0.1% 0.0% TargetDiff -8.61 -8.65 -6.96 -7.45 -6.43 -7.21 28.6% 20.1% 0.52 0.53 0.56 0.57 0.71 0.71 27.4% 18.6% DiffLinker -7.01 -7.75 -7.24 -7.87 -5.83 -7.11 24.5% 0.0% 0.44 0.45 0.31 0.27 0.51 0.52 22.8% 0.0% LinkerNet -8.16 -8.35 -8.11 -8.35 -7.15 -7.66 35.4% 0.0% 0.59 0.61 0.71 0.71 0.35 0.33 33.8% 0.0% ComPDIFF -8.25 -8.34 -8.29 -8.41 -7.45 -7.73 35.5% 29.8% 0.54 0.53 0.54 0.55 0.72 0.72 34.2% 28.7% DualDiff -8.36 -8.48 -8.42 -8.51 -7.63 -7.81 36.1% 30.1% 0.53 0.52 0.54 0.55 0.65 0.67 34.9% 29.2% MDRL -8.34 -8.43 -8.48 -8.67 -7.93 -8.12 37.4% 31.7% 0.78 0.78 0.86 0.86 0.75 0.74 37.8% 30.5% w/o search -8.02 -8.11 -7.94 -8.06 -7.35 -7.48 31.8% 26.4% 0.56 0.58 0.55 0.56 0.45 0.44 30.9% 25.7% w/o balance -9.14 -9.26 -9.02 -9.26 -8.41 -8.62 55.2% 50.8% 0.61 0.63 0.56 0.55 0.44 0.43 48.3% 47.7% w/o chemctrl -9.60 -9.55 -8.81 -8.92 -8.47 -8.32 54.5% 54.5% 0.52 0.52 0.51 0.51 0.47 0.51 51.5% 53.7% ours -9.41 -9.38 -9.26 -9.64 -8.64 -8.58 58.3% 57.3% 0.62 0.67 0.57 0.56 0.48 0.46 50.1% 48.8%
+
+combinations with significant synergistic effects [ 26 ], making the resulting dual-target tasks pharma-cologically meaningful. It contains 12,917 target pairs over 438 unique targets, with one reference molecule associated with each target. The benchmark also provides pocket-level protein–ligand complex structures: available complexes are taken from PDBBind, while missing structures are collected from PDB or AlphaFold DB and combined with P2Rank and AutoDock Vina to derive binding-pocket complexes [ 27 , 28 , 29 , 30 , 31 ]. Our comparisons include single-target generative baselines (Pocket2Mol and TargetDiff), linker-design baselines (DiffLinker and LinkerNet) [ 32 , 33 ], dual-target baselines (ComPDIFF, DualDiff, and MDRL) [ 4, 5], and ablated variants of REUSE. The Reference row reports benchmark-associated reference ligands and is not treated as a generative baseline. Unless otherwise stated, REUSE uses TargetDiff as the frozen single-target backbone; we further evaluate transfer to other frozen diffusion generators in Appendix C.9. For each target pair, every method returns a fixed-size candidate panel. We evaluate these panels using docking-based affinity metrics, including P-1/P-2 Vina Dock, Max Vina Dock, and Dual High Affinity, as well as molecular quality metrics, including QED, SA, Diversity, and Feasible Dual-hit Rate [ 23 , 24 ]. We report both average and median performance over the benchmark. For the cheap-vs-full evaluator analysis, we report top-k frontier overlap (Ov@k), ranking or score agreement (Spearman, Pearson, and Kendall), per-molecule cost (s/mol), and end-to-end runtime ratio (full/cheap) [ 34 , 35 , 36 ]. This follows common multi-fidelity molecular discovery settings, where cheap proxy evaluations prioritize a small frontier before expensive oracle evaluation [ 34 , 37 , 38 ]. Since the main benchmark metrics are docking-centered, we also provide complementary computational sanity checks in Appendix C.1, including cross-scorer consistency, reference-ligand checks, relaxed-pose and geometry validation, and residue-level interaction-overlap analysis. 
+
+4.2 Main Quantitative Results 
+
+Table 1 reports the main quantitative comparison, and REUSE delivers the strongest overall perfor-mance in the dual-target setting. It achieves the best average P-2 Vina Dock score (-9.26), the best Max Vina Dock score (-8.64), and the highest Dual High Aff. rate (58.3%). The strongest prior baselines are MDRL and DualDiff: MDRL reaches -8.48 / -7.93 / 37.4% on these three metrics, and 6Time –Quality Trade -off Across Methods  
+
+> Wall -Clock Time (second)
+> Dual -Target Quality
+> ours
+> 52.2 min | 18.68
+> Search Improves Candidate Quality and Recovery
+> Search Budget
+> Best Candidate  Quality  Score
+> Final Outputs Remain Chemistry -Feasible
+> SA
+> QED
+> minutes -scale hours -scale
+> dualdiff
+> 27.5 min | 16.78
+> MDRL
+> 12.4 h | 16.82
+
+Figure 3: Comparison of recovery efficiency, search dynamics, and final chemical profile. Our method achieves a favorable time–quality trade-off; increasing search budget improves candidate quality and chemistry-feasible recovery; and final outputs are mostly concentrated in the chemistry-feasible region (QED >= 0.5, SA >= 0.5). DualDiff reaches -8.42 / -7.63 / 36.1%. Relative to MDRL, REUSE improves average P-2 Vina Dock by 0.78, Max Vina Dock by 0.71, and Dual High Aff. by 20.9 points, with similarly clear gains over DualDiff. These results suggest that REUSE recovers not only stronger binders, but also more bal-anced dual-target candidates. These gains do not come at the expense of molecular quality: REUSE remains competitive with QED/SA of 0.62/0.57 and a Feasible Dual-hit Rate of 50.1%. By contrast, single-target baselines deteriorate substantially in the dual-target regime; for example, TargetDiff drops from -8.61 on P-1 to -6.96 on P-2, while Pocket2Mol performs poorly on both targets (-4.71 and -4.64). Taken together, the results support our central claim that strong dual-target molecules can be recovered from a frozen single-target prior through structured input-space search, without modifying the diffusion process itself. Additional computational sanity checks in Appendix C.1 further suggest that these gains are not merely artifacts of a single docking scorer or receptor-preparation pipeline: the recovered candidates remain consistent under independent rescoring, preserve plausible relaxed poses without severe geometry artifacts, and share substantial residue-level contact patterns with reference ligands. 
+
+4.3 Ablation Study 
+
+We ablate three key components of REUSE: balance-aware selection, input-space search, and chemical control. Table 1 shows a distinct failure mode for each one. Removing search ( w/o search ) causes the most severe degradation, with P-1/P-2 Vina Dock worsening from -9.41/-9.26 to -8.02/-7.94, Max Vina Dock worsening from -8.64 to -7.35, Dual High Aff. dropping from 58.3% to 31.8%, and Feasible Dual-hit Rate falling from 50.1% to 30.9%. This confirms that structured exploration in the frozen input space is the main mechanism for recovering strong dual-target candidates. Removing balance ( w/o balance ) primarily weakens cross-target consistency, lowering Dual High Aff. from 58.3% to 55.2% and degrading P-2 Vina Dock from -9.26 to -9.02; in other words, the model still finds strong binders, but less reliably balances performance across the two targets. Removing chemical control ( w/o chemctrl ) yields a different trade-off. Although P-1 Vina Dock slightly improves from -9.41 to -9.60, the chemical profile deteriorates markedly, with QED dropping from 0.62 to 0.52 and SA from 0.57 to 0.51. Taken together, the ablations indicate that input-space search drives recovery of strong candidates, balance-aware selection stabilizes dual-target consistency, and chemical control keeps the final outputs chemically qualified rather than merely better on a single docking score. 
+
+4.4 Search Dynamics Over Iterations 
+
+Figure 2 presents the iterative behavior of REUSE from three aligned perspectives. In the input space (left), the trajectory departs from the initial region and progressively concentrates in a smaller set of more promising areas, indicating that search over the input space is gradually identifying and retaining favorable regions rather than repeatedly discovering isolated good points by chance. In the objective space (middle), the population shifts toward the lower-left region over time, showing that the search is improving the two target objectives jointly instead of trading one target off against the other in a purely one-sided manner. In the molecular view (right), representative candidates evolve from weak or imbalanced binding at early stages to stronger and more balanced binding at later 7Enrichment over random   
+
+> Neighborhood rank (k -NN)
+> Top 25% high -quality
+> Top 10 % very high -quality
+> random baseline
+> High -quality regions show local enrichment Local neighborhood views
+
+Figure 4: Local neighborhood structure in the frozen input space. Left: enrichment of high-quality neighbors around high-quality anchors. Right: representative anchor-centered neighborhoods. Overlap@5 Overlap@8  Cheap Full 
+
+> Frontier overlap (%)
+> Median time (s/mol)
+> 88.7%
+> 99.2%
+> 85
+> 90
+> 95
+> 100
+> 11.09
+> 15.93
+
+Group Metric Value Preservation Ov@5 ↑ 0.887 Preservation Ov@8 ↑ 0.992 Agreement Spearman ↑ 0.356 Agreement Pearson ↑ 0.428 Agreement Kendall ↑ 0.302 Efficiency Cheap s/mol ↓ 11.09 Efficiency Full s/mol ↓ 15.93 Efficiency Runtime ratio ↑ 2.17 
+
+Figure 5: Cheap-to-full evaluator consistency for stage-1 frontier filtering. Left: overlap with the full-evaluator top-k frontier. Right: preservation, agreement, cost, and runtime-efficiency statistics. stages. This molecular-level progression is consistent with the movement observed in input space and objective space, so the three panels together support the view that the search process is meaningful, cumulative, and not merely a by-product of stochastic sampling. 
+
+4.5 Efficiency, Search Progression, and Chemical Validity 
+
+Figure 3 offers a complementary view of REUSE in terms of efficiency, search progression, and chemical validity. In the left panel, REUSE achieves a favorable time–quality trade-off: it obtains higher dual-target quality than MDRL with much lower runtime, and also outperforms the faster DualDiff in quality. For context, the reported MDRL runtime reflects a separate reinforcement-learning optimization for each target pair, so the 12.4-hour cost should be interpreted as per-pair optimization rather than one-time training amortized across pairs. DualDiff is faster, about 27.5 minutes, but its sampling-time dual-target guidance can be sensitive to competing target-induced updates, which may limit balanced recovery. REUSE runs in about 52 minutes; it also performs pair-specific search, but keeps the generator and denoising dynamics fixed and searches only the input space. This avoids the retraining or policy-update cost of generator adaptation, while also sidestepping the denoising-time target-balancing sensitivity introduced by sampling-time intervention. A numeric runtime summary is given in Appendix Table 13, with additional diagnostics in Appendix Tables 7 and 8. The middle panel shows that increasing the search budget consistently improves both the best lightweight search score and the fraction of cases with at least one chemistry-feasible recovered molecule, suggesting cumulative rather than random exploration. The right panel further shows that most final outputs fall in the chemistry-feasible region defined by QED ≥ 0.5 and SA 
+
+≥ 0.5. Overall, REUSE provides stronger dual-target recovery than DualDiff at moderate additional inference cost, while remaining far cheaper than the per-pair RL optimization used by MDRL. 
+
+4.6 Local Neighborhood Structure in the Frozen Input Space 
+
+Figure 4 examines local neighborhood structure in the frozen input space from two complementary views. Here, an anchor is a point selected by its quality and used as the center for inspecting 8whether its local neighborhood also contains additional good points. In the left panel, neighborhoods centered at high-quality anchors contain more high-quality neighbors than would be expected from randomly chosen centers, indicating that favorable solutions are not merely isolated outliers caused by noise. The enrichment is strongest for the top 10% anchors, which further suggests that the best regions of the frozen input space tend to form exploitable local basins rather than single exceptional samples. The right panel makes the same pattern concrete through representative anchor-centered neighborhoods: higher-quality anchors are more often embedded among similarly strong neighbors, whereas lower-quality anchors are typically surrounded by more ordinary ones, consistent with the aggregate trend in the left panel rather than being an artifact of averaging alone. Taken together, these results suggest that good points cluster locally in the frozen input space, which in turn helps explain why mutation-based local exploration and neighborhood-preserving search can work reliably here instead of reducing to blind trial-and-error. 
+
+4.7 Frontier Filtering with Cheap Evaluation 
+
+We next evaluate whether the cheap evaluator is suitable for frontier filtering in REUSE. From the perspective of stage-wise environmental selection, the first stage does not need to reproduce the full evaluator over the entire candidate pool; instead, it should preserve the high-value frontier so that expensive evaluation can be focused on a much smaller survivor set. Figure 5 supports this use case. The cheap evaluator achieves high frontier preservation, with Ov@5 = 0.887 and Ov@8 = 0.992, while requiring lower per-molecule cost than the full evaluator. Although global agreement remains only moderate (Spearman = 0.356, Pearson = 0.428, Kendall = 0.302), this is less critical for our purpose than retaining the top-ranked frontier. In REUSE, the cheap evaluator is used as a high-recall screening stage rather than as a drop-in replacement for full evaluation. These results support the coarse-to-fine design of REUSE: maximizing recall on promising candidates is more important than reproducing the exact global ranking of the full evaluator, and cheap evaluation can therefore narrow the pool efficiently before full reranking. 
+
+4.8 Further Analyses 
+
+We provide additional analyses beyond aggregate benchmark scores. Appendix C.1 reports oracle and structural sanity checks, covering cross-scorer consistency, reference-ligand validation, relaxed-pose geometry, and residue-level interaction overlap. Appendix C.2 examines local consistency in the shared input space. Appendix C.3 visualizes search trajectories and chemistry progression in the frozen input space. Appendix C.6 shows that best-so-far search score and chemistry-floor recovery improve with increasing search budget. Appendix C.9 evaluates REUSE across different frozen single-target diffusion backbones, showing that the framework is not tied to one generator. Appendix C.4 provides additional pose-level comparisons against DualDiff and MDRL, where REUSE more often yields centered and visually coherent poses across both targets. Appendix C.5 shows that REUSE can recover globally distinct molecules that reuse compact local motifs, suggesting target-pair-specific local chemical preferences rather than whole-molecule template reuse. Appendix C.7 shows that final selection improves the pre-refinement panel, supporting its role as a genuine refinement step. Appendix C.8 makes the efficiency trade-off explicit, showing that REUSE remains much cheaper than adaptation-heavy optimization while achieving the strongest final docking performance. Together, these analyses support the main claim from complementary perspectives on search behavior, chemical validity, structural patterns, final selection, efficiency, and backbone generality. 
+
+## 5 Conclusion 
+
+In this paper, we study whether dual-target capability can be recovered by searching the input space of a frozen single-target diffusion model, rather than by modifying or retraining the generator. We formulate this task as constrained multi-objective optimization and propose a hierarchical evolutionary framework REUSE that combines pair-conditioned exploration with structured multi-stage selection to balance dual-target affinity, chemical quality, and molecular diversity. Extensive experiments show that the proposed framework identifies strong, balanced, and chemically qualified dual-target candidates without modifying the underlying diffusion process. This highlights the untapped potential of single-target generative models for complex multi-objective design and offers an efficient diagnostic paradigm for de novo drug design. 9References 
+
+[1] Sven Marcel Stefan and Muhammad Rafehi. Medicinal polypharmacology—a scientific glossary of terminology and concepts. Frontiers in Pharmacology , 15:1419110, 2024. [2] Piotr Ryszkiewicz, Barbara Malinowska, and Eberhard Schlicker. Polypharmacology: new drugs in 2023–2024. Pharmacological Reports , 77(3):543–560, 2025. [3] Raymond J. Deshaies. How multispecific molecules are transforming pharmacotherapy. Nature Reviews Drug Discovery , 24:945–957, 2025. [4] Xiangxin Zhou, Jiaqi Guan, Yijia Zhang, Xingang Peng, Liang Wang, and Jianzhu Ma. Repro-gramming pretrained target-specific diffusion models for dual-target drug design. In Advances in Neural Information Processing Systems 37 (NeurIPS) , volume 37, pages 87255–87281. Curran Associates, Inc., 2024. [5] Yongna Yuan, Xiaohang Pan, Xiaohong Li, Ruisheng Zhang, and Wei Su. A 3D genera-tion framework using diffusion model and reinforcement learning to generate multi-target compounds with desired properties. Journal of Cheminformatics , 17(1):93, 2025. [6] Arne Schneuing, Charles Harris, Yuanqi Du, Kieran Didi, Arian Jamasb, Ilia Igashov, Weitao Du, Carla Gomes, Tom L. Blundell, Pietro Lio, Max Welling, Michael Bronstein, and Bruno Correia. Structure-based drug design with equivariant diffusion models. Nature Computational Science , 4:899–909, 2024. [7] Xiangru Tang, Howard Dai, Elizabeth Knight, Fang Wu, Yunyang Li, Tianxiao Li, and Mark Gerstein. A survey of generative AI for de novo drug design: new frontiers in molecule and protein generation. Briefings in Bioinformatics , 25(4):bbae338, 2024. [8] Viet Thanh Duy Nguyen, Phuc Pham, and Truong-Son Hy. Enabling multi-target drug discovery through latent evolutionary optimization and synthesis-aware prioritization (EVOSYNTH). 
+
+Communications Chemistry , 9:133, 2026. [9] Rafael Gómez-Bombarelli, Jennifer N. Wei, David Duvenaud, José Miguel Hernández-Lobato, Benjamín Sánchez-Lengeling, Dennis Sheberla, Jorge Aguilera-Iparraguirre, Timothy D. Hirzel, Ryan P. Adams, and Alán Aspuru-Guzik. Automatic chemical design using a data-driven continuous representation of molecules. ACS Central Science , 4(2):268–276, 2018. [10] Robin Winter, Floriane Montanari, Andreas Steffen, Hans Briem, Frank Noé, and Djork-Arné Clevert. Efficient multi-objective molecular optimization in a continuous latent space. Chemical Science , 10(34):8016–8024, 2019. [11] A N M Nafiz Abeer, Nathan M. Urban, M. Ryan Weil, Francis J. Alexander, and Byung-Jun Yoon. Multi-objective latent space optimization of generative molecular design models. Patterns ,5(10):101042, 2024. [12] Laura Isigkeit, Tim Hörmann, Espen Schallmayer, Katharina Scholz, Felix F. Lillich, Johanna H. M. Ehrler, Benedikt Hufnagel, Jasmin Büchner, Julian A. Marschner, Jörg Pabel, Ewgenij Proschak, and Daniel Merk. Automated design of multi-target ligands by generative deep learning. Nature Communications , 15:7946, 2024. [13] Chengwei Ai, Hongpeng Yang, Xiaoyi Liu, Ruihan Dong, Yijie Ding, and Fei Guo. MTMol-GPT: De novo multi-target molecular generation with transformer-based generative adversarial imitation learning. PLOS Computational Biology , 20(6):e1012229, 2024. [14] Lei Huang, Tingyang Xu, Yang Yu, Peilin Zhao, Xingjian Chen, Jing Han, Zhi Xie, Hailong Li, Wenge Zhong, Ka-Chun Wong, and Hengtong Zhang. A dual diffusion model enables 3D molecule generation and lead optimization based on target pockets. Nature Communications ,15:2657, 2024. [15] Yuanyuan Jiang, Guo Zhang, Jing You, Hailin Zhang, Rui Yao, Huanzhang Xie, Liyun Zhang, Ziyi Xia, Mengzhe Dai, Yunjie Wu, Linli Li, and Shengyong Yang. PocketFlow is a data-and-knowledge-driven structure-based molecular generative model. Nature Machine Intelligence ,6:326–337, 2024. 10 [16] Qiaoyu Hu, Changzhi Sun, Huan He, Jiazheng Xu, Danlin Liu, Wenqing Zhang, Sumeng Shi, Kai Zhang, and Honglin Li. Target-aware 3D molecular generation based on guided equivariant diffusion. Nature Communications , 16:7928, 2025. [17] Xingang Peng, Shitong Luo, Jiaqi Guan, Qi Xie, Jian Peng, and Jianzhu Ma. Pocket2Mol: Effi-cient molecular sampling based on 3D protein pockets. In Proceedings of the 39th International Conference on Machine Learning (ICML) , volume 162 of Proceedings of Machine Learning Research , pages 17644–17655. PMLR, 2022. [18] Jiaqi Guan, Wesley Wei Qian, Xingang Peng, Yufeng Su, Jian Peng, and Jianzhu Ma. 3D equivariant diffusion for target-aware molecule generation and affinity prediction. In The Eleventh International Conference on Learning Representations (ICLR) , 2023. [19] Jiaqi Guan, Xiangxin Zhou, Yuwei Yang, Yu Bao, Jian Peng, Jianzhu Ma, Qiang Liu, Liang Wang, and Quanquan Gu. DecompDiff: Diffusion models with decomposed priors for structure-based drug design. In Proceedings of the 40th International Conference on Machine Learning (ICML) , volume 202 of Proceedings of Machine Learning Research , pages 11827–11846. PMLR, 2023. [20] Xingang Peng, Jiaqi Guan, Qiang Liu, and Jianzhu Ma. MolDiff: Addressing the atom-bond inconsistency problem in 3D molecule diffusion generation. In Proceedings of the 40th International Conference on Machine Learning (ICML) , volume 202 of Proceedings of Machine Learning Research , pages 27611–27629. PMLR, 2023. [21] Zaixi Zhang and Qi Liu. Learning subpocket prototypes for generalizable structure-based drug design. In Proceedings of the 40th International Conference on Machine Learning (ICML) ,volume 202 of Proceedings of Machine Learning Research , pages 41382–41398. PMLR, 2023. [22] Brenton P. Munson, Michael Chen, Audrey Bogosian, Jason F. Kreisberg, Katherine Licon, Ruben Abagyan, Brent M. Kuenzi, and Trey Ideker. De novo generation of multi-target compounds using deep generative chemistry. Nature Communications , 15:3636, 2024. [23] G. Richard Bickerton, Gaia V. Paolini, Jérémy Besnard, Sorel Muresan, and Andrew L. Hopkins. Quantifying the chemical beauty of drugs. Nature Chemistry , 4(2):90–98, 2012. [24] Peter Ertl and Ansgar Schuffenhauer. Estimation of synthetic accessibility score of drug-like molecules based on molecular complexity and fragment contributions. Journal of Cheminfor-matics , 1(1):8, 2009. [25] David Rogers and Mathew Hahn. Extended-connectivity fingerprints. Journal of Chemical Information and Modeling , 50(5):742–754, 2010. [26] Shuyu Zheng, Jehad Aldahdooh, Tolou Shadbahr, Yinyin Wang, Dalal Aldahdooh, Jie Bao, Wenyu Wang, and Jing Tang. DrugComb update: a more comprehensive drug sensitivity data repository and analysis portal. Nucleic Acids Research , 49(W1):W174–W184, 2021. [27] Zhihai Liu, Yan Li, Li Han, Jie Li, Jie Liu, Zhixiong Zhao, Wei Nie, Yuchen Liu, and Renx-iao Wang. PDB-wide collection of binding data: current status of the PDBbind database. 
+
+Bioinformatics , 31(3):405–412, 2015. [28] Helen M. Berman, John Westbrook, Zukang Feng, Gary Gilliland, T. N. Bhat, Helge Weissig, Ilya N. Shindyalov, and Philip E. Bourne. The Protein Data Bank. Nucleic Acids Research ,28(1):235–242, 2000. [29] Mihaly Varadi, Stephen Anyango, Mandar Deshpande, Sreenath Nair, Cindy Natassia, Galabina Yordanova, David Yuan, Oana Stroe, Gemma Wood, Agata Laydon, Augustin Žídek, Tim Green, Kathryn Tunyasuvunakool, Stig Petersen, John Jumper, Ellen Clancy, Richard Green, Ankur Vora, Mira Lutfi, Michael Figurnov, Andrew Cowie, Nicole Hobbs, Pushmeet Kohli, Gerard Kleywegt, Ewan Birney, Demis Hassabis, and Sameer Velankar. AlphaFold protein structure database: massively expanding the structural coverage of protein-sequence space with high-accuracy models. Nucleic Acids Research , 50(D1):D439–D444, 2022. 11 [30] Radoslav Krivák and David Hoksza. P2Rank: machine learning based tool for rapid and accurate prediction of ligand binding sites from protein structure. Journal of Cheminformatics ,10(1):39, 2018. [31] Oleg Trott and Arthur J. Olson. AutoDock Vina: improving the speed and accuracy of docking with a new scoring function, efficient optimization, and multithreading. Journal of Computa-tional Chemistry , 31(2):455–461, 2010. [32] Ilia Igashov, Hannes Stärk, Clément Vignac, Arne Schneuing, Victor Garcia Satorras, Pascal Frossard, Max Welling, Michael Bronstein, and Bruno Correia. Equivariant 3D-conditional diffusion model for molecular linker design. Nature Machine Intelligence , 6:417–427, 2024. [33] Jiaqi Guan, Xingang Peng, Peiqi Jiang, Yunan Luo, Jian Peng, and Jianzhu Ma. LinkerNet: Fragment poses and linker co-design with 3D equivariant diffusion. In Advances in Neural Infor-mation Processing Systems 36 (NeurIPS) , volume 36, pages 77503–77519. Curran Associates, Inc., 2023. [34] Alex Hernández-García, Nikita Saxena, Moksh Jain, Cheng-Hao Liu, and Yoshua Bengio. Multi-fidelity active learning with GFlowNets. Transactions on Machine Learning Research ,2024. [35] Peter Eckmann, Dongxia Wu, Germano Heinzelmann, Michael K. Gilson, and Rose Yu. MF-LAL: Drug compound generation using multi-fidelity latent space active learning. In Pro-ceedings of the 42nd International Conference on Machine Learning (ICML) , volume 267 of 
+
+Proceedings of Machine Learning Research , pages 14972–14988. PMLR, 2025. [36] Jeff Guo, Junwu Chen, Anthony GX-Chen, and Philippe Schwaller. Sample-efficient generative molecular design using memory manipulation. Nature Machine Intelligence , 8:449–460, 2026. [37] Hyeonah Kim, Minsu Kim, Sanghyeok Choi, and Jinkyoo Park. Genetic-guided GFlowNets for sample efficient molecular optimization. In Advances in Neural Information Processing Systems 37 (NeurIPS) , volume 37, pages 42618–42648. Curran Associates, Inc., 2024. [38] Michał Koziarski, Andrei Rekesh, Dmytro Shevchuk, Almer M. van der Sloot, Piotr Gai´ nski, Yoshua Bengio, Cheng-Hao Liu, Mike Tyers, and Robert A. Batey. RGFN: Synthesizable molecular generation using GFlowNets. In Advances in Neural Information Processing Systems 37 (NeurIPS) , volume 37, pages 46908–46955. Curran Associates, Inc., 2024. [39] Guy W. Bemis and Mark A. Murcko. The properties of known drugs. 1. molecular frameworks. 
+
+Journal of Medicinal Chemistry , 39(15):2887–2893, 1996. 12 Overview 
+
+In this appendix, we provide additional details and supplementary analyses for REUSE, our frame-work for recovering dual-target molecules by searching the input space of a frozen single-target diffusion model. The appendix is organized into four parts. First, we present additional method-ological details, including notation, family-level utility, evolutionary search operators, stage-wise environmental selection, and set-level panel construction. Second, we summarize implementation and reproducibility details, including the concrete experimental instantiation, hyperparameter settings, and runtime environment. Third, we provide supplementary experimental analyses and visualizations that further examine oracle and structural sanity checks, search dynamics, chemistry progression, local input-space structure, structural patterns, and qualitative properties of the recovered candidate sets. Fourth, we present mathematical properties and proofs for the exact-selector instantiation analyzed in this paper. 
+
+## Reproducibility 
+
+To support reproducibility, we provide the concrete settings used in all reported experiments, including the pretrained frozen generator, input-space search hyperparameters, docking configuration, chemistry thresholds, diversity constraints, and hardware environment. The source code, processed data, and supplementary assets are included in the supplemental material submitted with the paper. We will also release the code publicly upon acceptance. In addition, we give the explicit definitions of the operational quantities used by REUSE, such as the family-level search utility, stage-wise selection score, and set-level panel utility, so that the reported procedure can be reproduced as faithfully as possible. 
+
+## Contents 
+
+1 Introduction 12 Related work 23 Methodology 3
+
+3.1 Problem Formulation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33.2 Overview of REUSE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 43.3 Variation Operators in Noise Space . . . . . . . . . . . . . . . . . . . . . . . . . . 43.4 Constraint-Aware Multi-Stage Environmental Selection . . . . . . . . . . . . . . . 5
+
+4 Experiments 5
+
+4.1 Experimental Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 54.2 Main Quantitative Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 64.3 Ablation Study . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 74.4 Search Dynamics Over Iterations . . . . . . . . . . . . . . . . . . . . . . . . . . . 74.5 Efficiency, Search Progression, and Chemical Validity . . . . . . . . . . . . . . . . 84.6 Local Neighborhood Structure in the Frozen Input Space . . . . . . . . . . . . . . 84.7 Frontier Filtering with Cheap Evaluation . . . . . . . . . . . . . . . . . . . . . . . 94.8 Further Analyses . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 9
+
+5 Conclusion 9
+
+13 A Method Details 15 
+
+A.1 Notation Summary . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 A.2 Overall Procedure . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 A.3 Family-Level Utility in Noise Space . . . . . . . . . . . . . . . . . . . . . . . . . 16 A.4 Evolutionary Search Operators . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 A.5 Stage-Wise Environmental Selection . . . . . . . . . . . . . . . . . . . . . . . . . 17 A.6 Set-Level Final Panel Construction . . . . . . . . . . . . . . . . . . . . . . . . . . 18 A.7 Conceptual Objective vs. Operational Procedure . . . . . . . . . . . . . . . . . . . 18 
+
+B Implementation and Reproducibility 19 
+
+B.1 Implementation Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19 B.2 Experimental Instantiation and Reproducibility Details . . . . . . . . . . . . . . . 20 
+
+C Additional Experiments and Analyses 22 
+
+C.1 Additional Oracle and Structural Sanity Checks . . . . . . . . . . . . . . . . . . . 22 C.2 Local Consistency in the Shared Input Space . . . . . . . . . . . . . . . . . . . . . 23 C.3 Iterative Search Trajectory and Chemistry Progression in the Frozen Input Space . 24 C.4 Additional Pose-Level Comparisons . . . . . . . . . . . . . . . . . . . . . . . . . 25 C.5 Context-flexible recurrence of compact local motifs within a target pair . . . . . . 26 C.6 Budget Sensitivity . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29 C.7 Effect of Final Selection . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29 C.8 Time–Performance Summary and Runtime Decomposition . . . . . . . . . . . . . 29 C.9 Backbone Transfer Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 C.10 Limitations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 32 C.11 Broader Impacts . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 32 
+
+D Mathematical Properties and Proofs for REUSE 32 
+
+D.1 Assumptions and auxiliary definitions . . . . . . . . . . . . . . . . . . . . . . . . 32 D.2 Basic structural properties . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 34 D.3 Monotonicity of the incumbent under the update rule . . . . . . . . . . . . . . . . 36 D.4 Sampling reachability guarantee induced by immigration . . . . . . . . . . . . . . 36 D.5 From latent reachability to threshold attainment . . . . . . . . . . . . . . . . . . . 38 D.6 Algorithm-specific strengthening via stage-wise ranking preservation . . . . . . . . 41 D.7 A simple property of the local-consistency statistics . . . . . . . . . . . . . . . . . 42 D.8 Summary . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 43 14 A Method Details 
+
+A.1 Notation Summary 
+
+Table 2 summarizes the main mathematical symbols used in REUSE. Table 2: Mathematical notation used in REUSE. Symbol Meaning 
+
+Gϕ Pretrained frozen single-target diffusion generator with fixed parameters ϕp = ( ta, t b) Dual-target pair 
+
+Z Input noise space searched by REUSE 
+
+z ∈ Z Input noise realization 
+
+Pt Population of noise-space individuals at iteration t
+
+At Selected parent set at iteration t
+
+Ot Offspring set at iteration t
+
+M(z, p ) Decoded molecular family generated from noise input z under target pair p
+
+M(Q, p ) Pooled decoded candidate universe induced by a searched input set QF(z; p) Family-level utility assigned to input z
+
+C(s) 
+
+> t
+
+Candidate pool after stage s of iteration tf (s)aff (m; p) Stage-s dual-target affinity score 
+
+qchem (m) Soft chemistry-quality term 
+
+qdiv (m; C(s−1)  
+
+> t
+
+) Diversity / redundancy-reduction term evaluated relative to the incoming pool at stage shs(m; p) Stage-s scalar score for candidate mc(m, p ) Hard feasibility indicator 
+
+≻s Stage-s feasibility-first preference relation 
+
+λbal Balance-penalty weight in the affinity score 
+
+Jp(S) Set-level utility for the final candidate panel 
+
+∆( mi, m j ) Pairwise dissimilarity between molecules mi and mj
+
+τ Minimum diversity threshold for the final panel 
+
+B Population size 
+
+Bpar Number of selected parents 
+
+Boff Number of offspring sampled per iteration 
+
+S Number of environmental-selection stages 
+
+Bs Survivor budget at stage sN Final panel size, assumed to satisfy N ≥ 2
+
+For clarity, Top B (X ; f ) denotes the top-B elements of a set X ranked by scalar score f , and 
+
+Top B (X ; ≻) denotes the top-B elements ranked by preference relation ≻. We also set Jp(∅) := −∞ 
+
+for the empty panel. 
+
+A.2 Overall Procedure 
+
+Algorithm 1 summarizes the overall procedure of REUSE in operational form. Starting from an initialized population in the input noise space, the method alternates between parent selection, off-spring generation, decoding, stage-wise environmental selection, and set-level panel construction, while maintaining a best-so-far incumbent across iterations. The algorithm is intended as a compact procedural summary of the main-text methodology rather than a replacement for the formal problem formulation in Section 3. The components used in Algorithm 1 are instantiated in the subsequent ap-pendix sections: Appendix A.3 defines the family-level utility, Appendix A.4 details the evolutionary operators, Appendix A.5 specifies stage-wise environmental selection, and Appendix A.6 gives the final panel-construction rule. 15 Algorithm 1 REUSE: Evolutionary Search in the Input Noise Space of a Frozen Single-Target Diffusion Model 
+
+Require: Frozen generator Gϕ, target pair p, pair-aware noise prior π0(· | p), population size B,offspring size Boff , parent size Bpar , number of stages S, stage budgets {Bs}Ss=1 , iterations T ,final panel size N , diversity threshold τ
+
+Ensure: Best-so-far candidate panel S⋆ 
+
+> 1:
+
+Initialize P0 = {z(i)0 }Bi=1 with z(i)0 ∼ π0(· | p); S⋆ ← ∅  
+
+> 2:
+
+for t = 1 to T do  
+
+> 3:
+
+Select parents At = Top Bpar 
+
+ Pt−1; F(·; p) Eq. (7)  
+
+> 4:
+
+Sample offspring Ot = {z′
+
+> i
+
+}Boff  
+
+> i=1
+
+, z′ 
+
+> i
+
+∼ qoff (· | A t, p ) Eq. (8)  
+
+> 5:
+
+Decode offspring to obtain families {M (z, p )}z∈O t and evaluate F(z; p) 
+
+> 6:
+
+Form pooled set C(0)  
+
+> t
+
+= S 
+
+> z∈O t
+
+M(z, p ) Eq. (13)  
+
+> 7:
+
+for s = 1 to S do  
+
+> 8:
+
+C(s) 
+
+> t
+
+= Top Bs
+
+ C(s−1)  
+
+> t
+
+; ≻s
+
+ Eqs. (14), (16), (17)  
+
+> 9:
+
+end for  
+
+> 10:
+
+Construct panel St from C(S) 
+
+> t
+
+by Eq. (18)  
+
+> 11:
+
+Update population Pt = Top B
+
+ Pt−1 ∪ O t; F(·; p) Eq. (19)  
+
+> 12:
+
+if Jp(St) > J p(S⋆) then  
+
+> 13:
+
+S⋆ ← St 
+
+> 14:
+
+end if  
+
+> 15:
+
+end for  
+
+> 16:
+
+return S⋆
+
+A.3 Family-Level Utility in Noise Space 
+
+REUSE searches over the input noise space Z while keeping the generator Gϕ frozen. For each input 
+
+z ∈ Z , the decoded family is denoted by 
+
+M(z, p ) = {m1, . . . , m K }. (20) The family-level search utility is defined as 
+
+F(z; p) = Ψ( M(z, p ); p). (21) To reduce sensitivity to stochastic decoding, Ψ is instantiated as an aggregation over the strongest portion of the decoded family rather than over a single best molecule. Let 
+
+r1 ≻1 r2 ≻1 · · · ≻ 1 rK (22) denote the ranking of molecules in M(z, p ) under the stage-1 feasibility-first ordering. When this ordering is used inside Ψ, the diversity term is evaluated relative to the decoded family itself, i.e., 
+
+qdiv (m; M(z, p )) . A practical instantiation is 
+
+Ψ( M(z, p ); p) = 1
+
+L
+
+> L
+
+X
+
+> ℓ=1
+
+h1(rℓ; p), 1 ≤ L ≤ K, (23) where L controls how much of the high-quality tail is used to score a family. This scoring rule favors noise inputs whose decoded families are robustly strong rather than accidentally good. 
+
+A.4 Evolutionary Search Operators 
+
+At iteration t, parent selection is performed from the previous population Pt−1 according to family-level utility: 
+
+At = Top Bpar 
+
+ Pt−1; F(·; p), (24) where F(z; p) = Ψ( M(z, p ); p).Variation is implemented through mutation, crossover, and random injection in the input noise space. A conceptual mixture-based view is 
+
+qoff (z′ | A t, p ) = αmut qmut (z′ | A t, p ) + αcross qcross (z′ | A t, p ) + αimm π0(z′ | p), (25) 16 with αmut + αcross + αimm = 1 . In our implementation, the pair-aware prior is not a learned module. For a target pair p = ( ta, t b), we construct π0(· | p) from anchor-guided noise seeds associated with the two pockets, together with Gaussian perturbations around these seeds. When anchor information is available, ligand size, initial coordinates, and preserved anchor atoms are initialized from the corresponding anchor prior; otherwise, we fall back to a pocket-size prior with coordinates sampled around the pocket center. Thus, target-pair information biases only the initialization and random injection distribution, while the frozen denoising model remains unchanged. In the final implementation, this variation step is instantiated by crossover with rate αcross , Gaussian mutation with scale σmut and decay γmut , and nimm random injections per generation; see Table 3. A continuous-space instantiation is: 
+
+qmut : z′ = z + ϵ, ϵ ∼ N (0 , σ 2mut I), (26) 
+
+qcross : z′ = λz i + (1 − λ)zj , λ ∼ U (0 , 1) , zi, z j ∼ A t, (27) 
+
+qimm : z′ ∼ π0(· | p). (28) Let Ot denote the offspring set sampled at iteration t from this variation step. Decoding all offspring yields the pooled candidate set 
+
+C(0)  
+
+> t
+
+= [
+
+> z∈O t
+
+M(z, p ). (29) After panel construction, the next noise-space population is updated by elitist survival: 
+
+Pt = Top B
+
+ Pt−1 ∪ O t; F(·; p). (30) This yields a standard population-based evolutionary loop in the input noise space. 
+
+A.5 Stage-Wise Environmental Selection 
+
+We index candidate pools by s = 0 , . . . , S , where stage s maps C(s−1)  
+
+> t
+
+to C(s) 
+
+> t
+
+. At stage s, each candidate is assigned a scalar score 
+
+hs(m; p) = f (s)aff (m; p) + βchem qchem (m) + βdiv qdiv (m; C(s−1)  
+
+> t
+
+). (31) 
+
+Balance-aware affinity term. Let As(m, t a) and As(m, t b) denote stage-s affinity estimates for the two targets, represented on a common larger-is-better utility scale. We instantiate 
+
+f (s)aff (m; p) = waAs(m, t a) + wbAs(m, t b) − λbal As(m, t a) − As(m, t b) , (32) where λbal > 0 penalizes asymmetric candidates. When a stage is based on raw docking scores, these scores are first converted to the same utility scale by sign flip (or an equivalent monotone transformation). In our implementation, the stage-specific estimators {As}Ss=1 are organized as a coarse-to-fine docking pipeline. Early stages use inexpensive docking-derived surrogates, including rapid docking-score evaluation and local pose refinement, while the final stage uses a full docking search on the reduced frontier. Thus, REUSE allocates high-fidelity evaluation only to a compact set of survivors selected by evolution. 
+
+Chemistry term. The chemistry term qchem (m) is a soft quality term that rewards chemically desirable outputs. In our experimental instantiation, it is computed from standard molecular quality indicators, specifically QED and SA [ 23 , 24 ]. Before aggregation, these quantities are transformed to a common larger-is-better scale so that candidates with better drug-likeness and synthetic accessibility receive larger scores. 
+
+Diversity term. A simple diversity instantiation is 
+
+qdiv (m; C(s−1)  
+
+> t
+
+) = min  
+
+> m′∈C (s−1)
+> t\{ m}
+
+∆( m, m ′). (33) If |C (s−1)  
+
+> t
+
+| = 1 , we set qdiv (m; C(s−1)  
+
+> t
+
+) = 0 . In our implementation, the pairwise dissimilarity is defined by Morgan-fingerprint distance, 
+
+∆( mi, m j ) = 1 − Tan  FP( mi), FP( mj ), (34) where FP( ·) denotes the Morgan fingerprint and Tan( ·, ·) is Tanimoto similarity [25]. 17 Feasibility-first preference. Selection at stage s is lexicographic: 
+
+mi ≻s mj ⇐⇒  c(mi, p ), h s(mi; p) >  c(mj , p ), h s(mj ; p), (35) where > denotes lexicographic comparison. Thus feasible candidates always dominate infeasible ones, and within the same feasibility class larger hs is preferred. In our implementation, c(m, p )
+
+includes molecular validity and chemistry-admissibility checks, together with the availability of valid affinity estimates required at the corresponding stage. For candidates arising from local noise-space perturbations, feasibility additionally enforces bounded structural deviation relative to the corresponding parent molecule, implemented through similarity- and size-based constraints, so that the search remains local and chemically controlled. The survivor set is therefore 
+
+C(s) 
+
+> t
+
+= Top Bs
+
+ C(s−1)  
+
+> t
+
+; ≻s
+
+, s = 1 , . . . , S. (36) 
+
+A.6 Set-Level Final Panel Construction 
+
+The final output is selected from the terminal pool C(final)  
+
+> t
+
+:= C(S) 
+
+> t
+
+at the set level. We define a panel utility 
+
+Jp(S) = 1
+
+|S|
+
+X
+
+> m∈S
+
+h
+
+ηaff f (S)aff (m; p) + ηchem qchem (m)
+
+i
+
++ ηdiv D(S), (37) where 
+
+D(S) = 1
+
+|S|(|S| − 1) 
+
+X  
+
+> mi̸=mj∈S
+
+∆( mi, m j ) (38) is the average pairwise dissimilarity within the panel, with ∆ instantiated as the Morgan-fingerprint distance in Eq. (34). Define the feasible panel family 
+
+FN
+
+
+
+C(final)  
+
+> t
+
+; p, τ 
+
+
+
+:= 
+
+n
+
+S ⊆ C (final)  
+
+> t
+
+|S| = N, c(m, p ) = 1 ∀m ∈ S, 
+
+∆( mi, m j ) ≥ τ ∀mi̸ = mj ∈ S
+
+o
+
+.
+
+(39) If FN (C(final)  
+
+> t
+
+; p, τ )̸ = ∅, the final panel is given by 
+
+St ∈ arg max    
+
+> S∈FN(C(final)
+> t;p,τ )
+
+Jp(S). (40) If FN (C(final)  
+
+> t
+
+; p, τ ) = ∅, we set St = ∅ and use the convention Jp(∅) = −∞ .In practice, the nonempty case can be solved greedily or by exact subset search when the terminal pool is sufficiently small. 
+
+A.7 Conceptual Objective vs. Operational Procedure 
+
+Eq. (3) in the main text defines the conceptual constrained multi-objective optimization target over a searched input set Q and a final panel S drawn from the pooled decoded universe M(Q, p ). REUSE approximates this target through four coupled components: 1. Noise-space family optimization: score each searched input z using Ψ( M(z, p ); p);2. Variation in noise space: generate new offspring from selected parents through mutation, crossover, and immigration; 3. Environmental selection: filter decoded molecules under feasibility, affinity, chemistry, and diversity criteria; 4. Panel construction and incumbent tracking: select a feasible and diverse subset maximiz-ing Jp(S) and keep the best-so-far panel across iterations. Operationally, REUSE does not perform a single global panel optimization over the union of all decoded molecules seen across the entire run. Instead, it constructs a panel from the current iteration’s terminal survivor pool and approximates the conceptual objective through best-so-far incumbent tracking across iterations. This decomposition preserves the multi-objective optimization perspective while avoiding direct optimization over the stochastic decoding map of the frozen generator. 18 Table 3: Key hyperparameters and implementation settings used in the final implementation of REUSE. Unless otherwise noted, the symbols below refer to the concrete instantiation used in all reported experiments. 
+
+Symbol / setting Meaning Value 
+
+B population size 4
+
+Bpar parent pool size 3
+
+T latent generations 3
+
+dz latent dimensionality 10 
+
+αcross crossover rate 0.35 
+
+σmut mutation scale 0.42 
+
+γmut mutation decay 0.82 
+
+nimm random injections per generation 1
+
+Meval latent evaluation samples 2
+
+Boff offspring size per generation 4
+
+S number of selection stages 2
+
+B1 stage-1 survivor budget 40 
+
+B2 final-stage survivor budget 20 
+
+βsearch chem search-stage chemistry weight 0.40 
+
+βrerank chem rerank chemistry weight 0.60 
+
+βsubset div subset diversity weight 0.05 
+
+βsubset bal subset balance weight 0.02 
+
+λproxy bal balance proxy weight 0.25 
+
+τ hard QED hard QED floor 0.50 
+
+τ hard SA hard SA floor 0.50 
+
+τ good QED good QED floor 0.55 
+
+τ good SA good SA floor 0.55 
+
+ρmax maximum pairwise Tanimoto 0.85 
+
+Ttrain diffusion horizon during training 1000 
+
+Tinfer reverse denoising steps during inference 100 
+
+## B Implementation and Reproducibility 
+
+B.1 Implementation Details 
+
+Unless otherwise stated, we instantiate REUSE on top of a frozen pretrained single-target diffusion generator, TargetDiff [ 18 ], and keep the generator fixed throughout the main experiments. The model is loaded from a pretrained checkpoint and reconstructed from the checkpoint-embedded training configuration. The diffusion horizon is 1000 during training, while inference uses 100 reverse denoising steps. For search in the input-noise space, we use a population-based latent evolutionary procedure with mutation, crossover, and random injection. The latent search is run for a small number of generations, with multiple evaluation samples per latent program, and maintains an archive of high-quality candi-dates throughout the run. The final panel size is fixed to N = 10 . The initial population combines anchor-guided seeds with Gaussian latent perturbations, providing both structured initialization and exploratory coverage of the search space. For candidate generation, the ligand size is initialized from the anchor prior when available and from a pocket-size-based prior otherwise. Initial coordinates are sampled around the pocket center with Gaussian perturbations, and atom types are initialized from categorical noise; when an anchor prior is used, anchor atoms are preserved and the remaining atoms are padded before diffusion-based refinement. Environmental selection follows a coarse-to-fine docking pipeline. An initial screening stage uses fast docking-based signals for both targets, followed by full docking on a reduced shortlist. An optional rescue stage adds a small number of additional fully docked candidates when necessary. The final panel is selected by reusing the previously computed docking results rather than launching 19 an additional docking round. Unless otherwise stated, the final evaluation stages use docking exhaustiveness 32. For chemistry-aware ranking, we use a weighted chemistry-control score built from QED and SA together with auxiliary medicinal-chemistry penalties and rewards. For final panel construction, we additionally enforce hard chemistry admissibility thresholds and a maximum pairwise Tanimoto similarity of 0.85. Following the main text, structural diversity is measured using fingerprint-level molecular dissimilarity. All experiments are run in the dual_target environment with fixed runtime settings for repro-ducibility. Our main runs are conducted on a server with 8 NVIDIA RTX 4090 GPUs. 
+
+B.2 Experimental Instantiation and Reproducibility Details 
+
+For reproducibility, we summarize here the concrete experimental instantiation of REUSE. The frozen generator Gϕ, the pair-aware noise prior π0(· | p), the stage-wise docking pipeline, and all optimization hyperparameters are fixed throughout each experiment and reported explicitly in the corresponding experimental subsection or summary table. 
+
+Benchmark protocol. We follow the dual-target benchmark protocol of Zhou et al. [ 4] and evaluate on the full set of 12,917 target pairs over 438 unique targets. We do not subsample target pairs for the main benchmark. Each target pair is associated with two pocket-level protein–ligand complex contexts and one reference or anchor molecule for each target, as provided by the benchmark construction. Available complex structures are taken from curated protein–ligand complexes, while missing structures are completed by the benchmark using PDB or AlphaFold DB structures together with pocket detection and docking-based pocket construction. For each target in a pair, the corresponding reference ligand or benchmark-provided pocket complex is used only to define the binding site and docking region, not as a template that the generated molecule must reproduce. In particular, the docking box is centered on the benchmark pocket/reference-ligand region for each target, and all generated candidates are independently docked or rescored against both target pockets under the same receptor preparation and scoring pipeline. This ensures that performance reflects dual-target compatibility of the generated molecules rather than privileged access to the reference ligand geometry. All methods are evaluated under the same fixed-size panel protocol. For each target pair, a method is expected to return a candidate panel of size N = 10 . If a method produces more than 10 valid candidates, the reported panel is selected using the common feasibility, dual-target affinity, chemistry, and diversity criteria described in the main text and Appendix A.5. If a method produces fewer than 10 valid candidates, we retain all valid candidates and treat the missing panel slots as unsuccessful recoveries for panel-level feasibility and dual-hit statistics. Target pairs for which docking or molecule validity fails are not silently removed from the benchmark; instead, invalid or unevaluable candidates receive failed feasibility status. Thus, all reported averages and medians are computed over the same benchmark task set, and differences between methods reflect recovery quality rather than changes in evaluation coverage. 
+
+Frozen generator and pair-aware noise prior. In each experiment, REUSE operates on a fixed pretrained single-target generator Gϕ without any retraining or modification of its denoising dynamics. The search prior π0(· | p) denotes the initialization distribution in the input noise space. Depending on the experimental setting, it may be unconditional or pair-conditioned, but once specified it remains fixed during the entire run. 
+
+Evolutionary hyperparameters. The final implementation instantiates the latent search with population size B, parent pool size Bpar , number of generations T , latent dimensionality dz , crossover rate αcross , mutation scale σmut , mutation decay γmut , and random injections per generation nimm .Additional implementation settings include the number of latent evaluation samples, chemistry weights used during search and reranking, subset-level diversity and balance weights, chemistry admissibility thresholds, and the final diversity threshold. All concrete values used in the reported experiments are summarized in Table 3. 20 Ablation configurations. All ablated variants use the same frozen generator, target-pair inputs, candidate-panel size, docking pipeline, and evaluation metrics as the full REUSE configuration. They differ only in the component being ablated. In w/o search , we remove evolutionary feedback in the input-noise space: parent selection, mutation, crossover, and elitist population update are disabled, and the same candidate budget is instead obtained by drawing independent noise inputs from the pair-aware initialization prior π0(· | p). The resulting decoded candidates are still processed by the same stage-wise environmental selection and final panel-construction procedure. This variant tests whether structured input-space search is necessary beyond budget-matched sampling from the frozen generator. In w/o balance , we keep input-space search, chemistry control, diversity control, and all docking stages unchanged, but remove explicit cross-target balance penalties by setting the balance weights to zero, including λproxy bal = 0 in the stage-wise affinity score and βsubset bal = 0 in final panel construction. The variant still evaluates both targets, but no longer penalizes asymmetric candidates that bind strongly to only one target. This isolates the contribution of balance-aware selection. In w/o chemctrl , we keep the search procedure and balance-aware affinity terms unchanged, but remove chemistry-control terms from ranking and selection by setting the chemistry weights to zero and disabling the hard QED/SA admissibility floors during panel construction. Validity checks and docking-result availability are still enforced, and the same diversity constraint is retained. This variant tests whether the chemistry-control component is needed to maintain drug-like and synthetically accessible candidates, rather than merely improving docking scores. 
+
+Baseline reproduction protocol. We evaluate all baselines under a common panel-level protocol on the same dual-target benchmark. For methods and candidate outputs covered by the released benchmark of Zhou et al. [ 4], we use the official benchmark protocol and released evaluation pipeline whenever available. For methods that require generation under our local environment, we use the public implementations and recommended pretrained checkpoints or default hyperparameters from the original papers, without tuning them on the evaluation target pairs. All generated molecules, including those from baselines and REUSE, are re-evaluated using the same docking-based scoring pipeline and the same molecular-quality metrics described in the main text. To ensure a fair comparison, every method is converted to the same fixed-size candidate-panel setting. Each baseline first produces an overcomplete candidate pool for each target pair under its native generation procedure. The pool is then scored against both targets using the common evaluation pipeline, and a fixed-size panel of N = 10 candidates is selected using the same feasibility, dual-target affinity, and diversity criteria used for reporting. If a method produces fewer than N valid candidates for a target pair, all valid candidates are retained and the missing slots are treated as failures for panel-level feasibility and dual-hit statistics. This avoids giving an advantage to methods that generate many invalid or one-sided candidates. For single-target structure-based generators such as Pocket2Mol and TargetDiff, we follow the standard dual-target evaluation protocol by generating candidates conditioned on each pocket and then re-evaluating the pooled candidates against both targets. For linker-design baselines such as DiffLinker and LinkerNet, we use the same pocket/reference information provided by the benchmark and apply the common dual-target rescoring and panel-selection procedure after generation. For dual-target baselines such as ComPDIFF, DualDiff, and MDRL, we use their dual-target generation outputs or reproduce their generation procedure following the released settings, and then apply the same downstream scoring and fixed-panel reporting protocol. Thus, the comparison isolates the quality of the generated candidate pools while keeping docking, chemistry assessment, diversity filtering, and panel-size reporting consistent across methods. 
+
+Stage-wise docking pipeline. The stage-specific affinity estimators {As}Ss=1 are instantiated by a fixed coarse-to-fine docking pipeline. Early stages use inexpensive docking-derived surrogates for rapid screening, intermediate stages apply lightweight structural refinement when used, and the final stage applies a full docking search on the reduced frontier. The number of stages S, the associated software configuration, and the corresponding runtime settings are reported together with the experimental protocol. 
+
+Chemistry and diversity metrics. The chemistry term qchem (m) is instantiated from QED and SA after transformation to a common larger-is-better scale. The diversity measure is based on 21 Table 4: Cross-scorer consistency for the recovered candidate panel. We compare the original Vina ranking with two independent empirical rescoring checks: Vinardo and the Vina-like affinity reported internally by GNINA. Higher rank agreement and top-k overlap indicate that the selected candidates are not artifacts of a single Vina scoring parameterization or implementation-specific preparation.                         
+
+> Comparison Target Spearman ρKendall τOverlap at k= 5
+> Vina vs. Vinardo T1 0.959 0.883 100% Vina vs. Vinardo T2 0.994 0.967 100% Vina vs. GNINA-internal Vina T1 0.997 0.983 100% Vina vs. GNINA-internal Vina T2 0.985 0.950 80%
+
+Morgan-fingerprint dissimilarity, 
+
+∆( mi, m j ) = 1 − Tan  FP( mi), FP( mj ).
+
+Feasibility checks. The hard feasibility indicator c(m, p ) includes molecular validity, chemistry-admissibility checks, and the availability of valid stage-specific affinity estimates. For candidates arising from local noise-space perturbations, feasibility may additionally enforce bounded structural deviation relative to the corresponding parent molecule so as to keep the search chemically controlled. For clarity, the key numerical values used in the reported experiments are summarized in Table 3. 
+
+## C Additional Experiments and Analyses 
+
+C.1 Additional Oracle and Structural Sanity Checks 
+
+To further examine whether the recovered molecules are merely artifacts of the primary Vina scoring pipeline, we performed additional oracle and structural sanity checks on the recovered candidate panel. These analyses are not intended as experimental validation, but rather as focused checks of scorer consistency, docking setup validity, and residue-level binding-site plausibility. First, we rescored the recovered candidates with independent empirical scoring functions. As shown in Table 4, the original Vina ranking is highly consistent with Vinardo, with Spearman correlations of 0.959 and 0.994 on the two targets and 100% overlap at k = 5 on both targets. We further compared the original Vina scores with the Vina-like affinity reported internally by GNINA, which again produced high agreement (Spearman ρ = 0 .997 and 0.985 on the two targets). These results indicate that the recovered ranking is not specific to a single Vina scoring parameterization or an implementation-specific preparation artifact. Second, we evaluated the reference or anchor ligand for each target under the same docking setup. The T1 anchor ligand receives favorable Vina and Vinardo scores of −10 .960 and −7.331 , respectively, and forms 13 residue-level contacts in the pocket. The T2 reference ligand similarly receives Vina and Vinardo scores of −5.483 and −4.907 , respectively, with 11 detected pocket contacts. This check supports that the docking boxes and receptor preparations are reasonable for the corresponding reference ligands. Third, we compared the highest-ranked recovered candidates against within-pool background candi-dates. The selected candidates outperform this background under independent empirical rescoring: their mean conservative dual Vinardo strength is 2.780, compared with −2.944 for the background candidates, and their mean conservative dual GNINA-internal Vina strength is 5.206, compared with 0.832 for the background. The selected candidates also form more balanced pocket contacts, with a higher mean minimum contact count across the two targets (8.600 vs. 6.273). These comparisons are summarized in Table 5 and Figure 6. Fourth, we evaluated whether favorable scores are preserved after local pose relaxation and whether the resulting poses exhibit severe geometric artifacts. The selected candidates preserve favorable relaxed-pose scores, maintain pocket contacts, and show no severe protein–ligand clashes under conservative geometry checks. These results are summarized in Table 6 and Figure 7. Finally, we compared residue-level interaction fingerprints between the selected candidates and the corresponding reference or anchor ligands. The selected candidates share substantial pocket-level 22 Table 5: Reference and background sanity checks for the recovered candidate panel. Reference ligands are evaluated under the same docking setup as generated molecules. For the background com-parison, high-ranked recovered candidates are compared against within-pool background candidates. Larger values are better for the dual-strength and contact-count metrics.                                     
+
+> Check Metric Selected/reference Background Evidence T1 reference ligand Vina / Vinardo / contacts -10.960 / -7.331 / 13 –reasonable reference binding T2 reference ligand Vina / Vinardo / contacts -5.483 / -4.907 / 11 –reasonable reference binding Selected vs. background Dual Vinardo strength 2.780 -2.944 p= 0 .0005
+> Selected vs. background Dual GNINA-internal Vina strength 5.206 0.832 p= 0 .0005
+> Selected vs. background Dual minimum contacts 8.600 6.273 p= 0 .0111
+> Selected vs. background Total contacts 26.400 22.182 p= 0 .0230
+> Reference overlap Mean residue-level Jaccard 0.763 –shared pocket residues
+
+Figure 6: Selected recovered candidates outperform within-pool background molecules under independent empirical rescoring and contact-based structural plausibility metrics. contact patterns with the reference ligands, with a mean residue-level Jaccard overlap of 0.763 across the two targets (Figure 8). Taken together, these checks support that the favorable scores of the recovered candidates correspond to interpretable binding-site contacts and are not solely due to nonspecific pocket filling. We emphasize that this analysis remains a computational structural plausibility check rather than wet-lab validation of dual-target activity. 
+
+C.2 Local Consistency in the Shared Input Space 
+
+Figure 9 visualizes local organization in the shared input space. In the left panel, we project multi-stage trajectories onto a global PCA view of the pooled latent representations. The gray points show the pooled background distribution over all candidates, while the colored arrows trace trajectory directions across stages. The plot shows how the search paths move relative to the overall candidate distribution. The right panel quantifies this local structure. Let xi ∈ Rd denote the latent representation of candidate i, and let Nk(i) denote its k nearest neighbors in input noise space. Each candidate is associated with a structural-group label ci from the preprocessing family assignment, and with a binary objective-region label 
+
+yi = 1[oi ≥ τ ],
+
+where oi is the pooled objective score and τ is the fixed threshold used to define the high-objective region. For each candidate i, we define structural consistency at neighborhood size k as 
+
+S(k) 
+
+> i
+
+= 1
+
+k
+
+X 
+
+> j∈N k(i)
+
+1[cj = ci],
+
+and objective consistency as 
+
+O(k) 
+
+> i
+
+= 1
+
+k
+
+X 
+
+> j∈N k(i)
+
+1[yj = yi].
+
+Thus, S(k) 
+
+> i
+
+measures how often nearby candidates belong to the same structural group, whereas O(k)
+
+> i
+
+measures how often nearby candidates lie in the same objective region. To obtain the case-level summaries shown in the boxplots, we first average these quantities over all candidates within each evaluation case, and then average over a predefined range of neighborhood 23 Table 6: Relaxed-pose and geometry sanity checks for the recovered candidate panel. Scores are evaluated after local Vina pose relaxation, and contact and clash statistics are computed from the resulting protein–ligand geometries. Larger values are better for relaxed strength and contact metrics; lower values are better for severe clashes. 
+
+Check Metric Selected Background Evidence Relaxed scoring Dual relaxed Vina strength 6.215 5.101 p = 0 .0343 
+
+Pose geometry Severe protein–ligand clashes 0.000 0.000 no severe clashes Pocket contacts Dual minimum relaxed contacts 8.600 6.273 p = 0 .0111 
+
+Pocket contacts Mean contact retention 0.863 0.694 p = 0 .0045 
+
+Pocket contacts Relaxed/raw contact ratio 1.095 0.894 p = 0 .0043 
+
+Figure 7: Relaxed-pose and geometry sanity checks for selected recovered candidates against within-pool background molecules. The selected candidates preserve favorable relaxed-pose scores and pocket contacts without severe protein–ligand clashes. sizes: 
+
+¯Sm = 1
+
+|K| 
+
+X
+
+> k∈K
+
+1
+
+|I m|
+
+X
+
+> i∈I m
+
+S(k)
+
+> i
+
+!
+
+, ¯Om = 1
+
+|K| 
+
+X
+
+> k∈K
+
+1
+
+|I m|
+
+X
+
+> i∈I m
+
+O(k)
+
+> i
+
+!
+
+,
+
+where Im denotes the set of candidates in evaluation case m, and K denotes the neighborhood sizes included in the summary. The two boxplots in the right panel show the distributions of ¯Sm and ¯Om
+
+across evaluation cases. Nearby points are therefore not arranged arbitrarily: local neighborhoods tend to be coherent both structurally and in terms of objective-region membership. Overall, Figure 9 suggests that favorable regions in the shared input space are not randomly scattered. Instead, they appear as locally organized neighborhoods, which helps explain why search can benefit from local exploration in the frozen latent space. 
+
+C.3 Iterative Search Trajectory and Chemistry Progression in the Frozen Input Space 
+
+Figure 10 visualizes the search trajectory, chemistry progression, and entry into the chemistry-feasible region in the frozen input space. The left panel places the trajectory in an input-space PCA view, with other sampled cases shown in gray for reference. The colored markers denote three milestone budgets. Although this is only a two-dimensional projection of a higher-dimensional process, the trajectory is still informative: it follows a structured path through the frozen input space, moving from an earlier region associated with weaker chemistry toward later regions containing stronger and more qualified candidates. The right panel tracks chemistry as the search budget increases. At each budget, we report both the raw chemistry of the current candidate and the best-so-far chemistry accumulated up to that point. This distinction matters because the chemistry of individual candidates is not monotonic. Intermediate steps can temporarily weaken one aspect even when the search is improving overall. The best-so-far curves therefore give the more relevant view of progression, showing that deeper search increases the chance of recovering candidates with stronger chemistry profiles. The chemistry-feasible transition makes this progression concrete. The horizontal dashed line marks the chemistry floor used in our analysis, and the vertical dashed line marks the first budget at which the trajectory enters this chemistry-feasible region. Additional search budget therefore does not 24 Figure 8: Pocket-interaction overlap between selected generated candidates and the corresponding reference or anchor ligands. The selected candidates share residue-level contact patterns with the reference ligands on both targets. Representative local trajectories in input space   
+
+> Input -space PCA 1
+> Input -space PCA 2
+> Local consistency
+> Neighborhood consistency
+> Structure Objective
+
+Figure 9: Local consistency in the shared input space. Left: multi-stage trajectories projected onto a shared PCA view of the pooled latent representations. Right: distributions of case-level structural consistency and objective-region consistency across local neighborhoods. Higher values indicate stronger local coherence in the frozen input space. only improve the proxy search path; it also enables the recovery of candidates that satisfy the basic chemistry criterion that earlier budgets failed to reach. Overall, Figure 10 is consistent with the aggregate results in the main text. The trajectory shows progressive movement toward better regions in the frozen input space, and the budget curve shows how that movement can translate into stronger chemistry and eventual entry into the chemistry-feasible regime. 
+
+C.4 Additional Pose-Level Comparisons 
+
+Figure 12 gives three additional qualitative comparisons on representative dual-target pairs. For each pair, we compare molecules from REUSE, DualDiff, and MDRL, and visualize their poses on both targets under a matched viewing angle for each target. The same pattern appears across all three pairs. REUSE more often achieves favorable docking scores on both targets at the same time, which is the key requirement in the dual-target setting. Its poses are also more often centered within the pocket and better situated in the binding region, whereas the 25 Table 7: Stage-wise wall-clock decomposition of REUSE under the official timed evaluation setting used in the main paper. The stage split follows the paper-level operational procedure rather than implementation-specific profiler boundaries.                      
+
+> Stage Median wall-clock time (min) Mean wall-clock time (min) IQR (min) Share of total runtime (%) Search, Decoding, and Rapid Screening 40.8 40.3 17.9 77.2 Reduced-Frontier Full Docking 11.3 11.8 3.4 22.6 Final Panel Construction and Incumbent Update 0.1 0.1 0.0 0.2 Total 52.2 52.2 21.3 100.0 budget 1
+> budget 4
+> budget 8
+> Best -so -far QED
+> Best -so -far SA
+> Raw QED
+> Raw SA
+> Chemistry floor (0.5)
+> First chemistry
+> feasible budget
+> Chemistry Progress over Search Budget Representative Search Trajectory in Input Space
+> Input -space PCA 1
+> Input -space PCA 2
+> Chemistry  score
+> Search budget
+
+Figure 10: Search trajectory and chemistry progression in the frozen input space. Left: trajectory in the frozen input-space PCA view, with gray points showing other sampled cases and colored markers denoting milestone budgets. Right: raw and best-so-far chemistry scores (QED and SA) over search budget. The horizontal dashed line indicates the chemistry floor (0.5), and the vertical dashed line marks the first chemistry-feasible budget. baseline molecules more frequently appear shifted, partially buried, or less stably aligned with the pocket geometry. This contrast is especially clear in the first and third target pairs. These examples are useful because they show how the quantitative advantage appears at the pose level. Even when the gap on one target is only moderate, the REUSE pose still tends to look more coherent across the pair, consistent with better cross-target compatibility rather than one-sided improvement. Overall, Figure 12 supports the main quantitative results by showing that REUSE more reliably produces favorable and visually plausible binding configurations on both targets. 
+
+C.5 Context-flexible recurrence of compact local motifs within a target pair 
+
+Figure 11 highlights a specific qualitative pattern within the candidate panels produced by our method. In each row, the three molecules are distinct candidates for the same target-pair design problem, yet they share one compact exact motif, shown in blue, while differing visibly in their larger architectures, ring organizations, and substituent layouts. The central observation is local reuse despite global diversity: for a fixed target pair, the same small motif can recur across otherwise different molecules. The six rows are representative examples for structural inspection. The recurring motifs include both ring-based and non-ring fragments, so the effect is not tied to a single motif class. What matters is that the same compact motif remains recognizable even when the surrounding molecular context changes substantially. This is more consistent with local motif reuse within one target-pair candidate panel than with repetition of a single molecular template. 26 (A) Phenyl Motif 
+
+(B) Pyridyl Motif 
+
+(C) Small Unsaturated Ring 
+
+(D) Conjugated Chain Motif 
+
+> (E) Aminoalkyl Chain Motif
+> (F) Aryl -linked N Motif
+
+Figure 11: Representative rows illustrating local motif recurrence among globally distinct molecules. Each row contains three molecules from the same candidate pool. Although the overall molecular structures differ at the whole-molecule level, a compact shared motif recurs within the row and is highlighted in blue. The six rows include both ring-like and non-ring motifs, indicating that the phenomenon is not restricted to a single motif class. Row-level structural summaries and molecule-level SA/QED values are reported in Tables 9 and 10. 27 Target A Target B 
+
+Vina dock: -10.586 
+
+Vina dock: -9.467 
+
+Vina dock: -8.775 
+
+Vina dock: -7.549 
+
+Vina dock: -8.108 
+
+Vina dock: -7.422 
+
+> Target A Target B
+
+Vina dock: -11.832 
+
+Vina dock: -9.972 
+
+Vina dock: -7.979 
+
+Vina dock: -10.226 
+
+Vina dock: -7.617 
+
+Vina dock: -9.876 
+
+> Target A Target B
+
+Vina dock: -12.673 
+
+Vina dock: -10.884 
+
+Vina dock: -10.057 
+
+Vina dock: -9.201 
+
+Vina dock: -8.312 
+
+Vina dock: -8.317 
+
+## ours  dualdiff  MDRL Figure 12: Qualitative comparison of binding poses on three representative dual-target pairs. For each pair, the left, middle, and right columns show molecules from REUSE, DualDiff, and MDRL, respectively; the top and bottom rows correspond to Target A and Target B. The reported value under each panel is the Vina docking score for the corresponding target, where lower is better. Across all three pairs, REUSE consistently yields more favorable docking scores on both targets and produces poses that are more stably centered within the binding pocket, while the baseline molecules more often appear less optimally positioned or less balanced across the two targets. 28 Table 8: Runtime and intermediate set sizes under the official timed evaluation setting used in the main paper. This table complements Table 7 by reporting the candidate pool sizes at different stages of the pipeline.      
+
+> Decoded candidate budget Reduced frontier Fully evaluated set Reported output panel Total wall-clock time (min) Full-docking wall-clock time (min) 100 32 23 10 52.2 11.8
+
+Table 9: Row-level structural summary for the six illustrative molecule trios shown in Figure 11. Whole-molecule similarity is measured by Morgan fingerprint Tanimoto similarity [ 25 ]. ‘Murcko scaf.’ counts the number of distinct Bemis–Murcko scaffolds among the three molecules in each row [39 ]. ‘Motif frac.’ denotes the range of shared-motif atoms divided by heavy-atom count across the three molecules in the row.                                                         
+
+> Row Shared motif Atoms Rings Min sim Avg sim Max sim Murcko scaf. Motif frac. APhenyl ring 610.076 0.084 0.098 30.214–0.222 BPyridyl ring 610.106 0.117 0.126 30.194–0.211 CSmall unsaturated ring 510.064 0.082 0.103 30.200–0.208 DConjugated chain motif 500.076 0.082 0.092 30.185–0.192 EAminoalkyl chain motif 700.070 0.083 0.108 30.280–0.292 FAryl-linked N motif 600.074 0.081 0.090 30.214–0.222
+
+Table 9 supports the same reading quantitatively. Across all six rows, whole-molecule Morgan fingerprint similarity remains low, each row contains three distinct Bemis–Murcko scaffolds, and the shared motif occupies only a limited fraction of heavy atoms in the full molecules. In other words, what recurs is a small local fragment, while the larger molecular frameworks remain diverse. Table 10 records the 18 displayed structures explicitly, including canonical SMILES together with SA and QED values. This table mainly serves as a molecule-level record of the examples shown in the figure. Overall, this analysis points to a target-pair-specific pattern in which our method recovers multiple globally distinct candidate molecules that nevertheless reuse the same compact local motif. A natural interpretation is that the search process identifies local chemical preferences that can be realized in several different larger molecular contexts for the same target pair. 
+
+C.6 Budget Sensitivity 
+
+Table 11 shows how REUSE progresses as the search budget increases from 1 to 8. The trend is clear in both summaries: the best-so-far search score rises from 0.437 at budget 1 to 0.869 at budget 8, with the interquartile range shifting upward as well, and the cumulative chemistry-floor recovery rate increases from 0.056 to 0.500. This means that larger budgets more reliably surface stronger candidates under the internal search score and more often reach chemically acceptable regions, consistent with the search-progression evidence in the main text. 
+
+C.7 Effect of Final Selection 
+
+Table 12 compares the candidate panel immediately before the last refinement step with the final reported set under the main configuration used in the paper. The final selection step improves feasible dual-hit rate from 0.418 to 0.501 and dual-hit rate from 0.501 to 0.583, while also improving Max Vina Dock from −8.270 to −8.635 . This comparison shows that the last stage is not merely shrinking the panel; it is a meaningful refinement step that concentrates stronger dual-target candidates into the final output set. 
+
+C.8 Time–Performance Summary and Runtime Decomposition 
+
+Table 13 gives the numeric counterpart to the left panel of Figure 3. REUSE achieves the strongest final docking performance, but now incurs a moderate runtime increase relative to DualDiff because 29 Table 10: Molecule-level details for the 18 molecules shown in Figure 11. Molecules are listed in the same row-wise order as in the figure.                                                                             
+
+> Row Mol. SMILES SA QED A1N=C1CC(C(=O)C2OC(c3ccccc3)CNCCC(=O)OCC2O)CC1=N 0.57 0.57
+> A2Cc1cc(N)c2c(c1)N(CC1=POONC1=N)CCC2C1=C(F)CC=C(F)C1 0.54 0.40
+> A3CON(c1ccccc1)N1Nc2ccccc2N2NCN2C2C=C[C]=CN21 0.58 0.81
+> B1N=c1[nH]c2c(c(=O)o1)OCCC1N(c3ccccc3)C(C3NOc4ccncc43)CN1 0.59 0.67
+> B2O=C1ONCC2(c3ccncc3)NN3CN4CCN2N1C43 0.50 0.51
+> B3CC(=O)NC1=CC(c2ccncc2)CC(CS(=O)N2C(CO)CCC2CC2CCOC2)N1 0.52 0.53
+> C1CC1CNC(C2=CCCC2)CC2CC(Cl)C(CN3CCCC3(C)C)C21 0.46 0.70
+> C2OC1N(CC2=CCCC2)C(F)=NC2CCCCC2NC1=S 0.51 0.57
+> C3FC1=CC=C(C2Cc3ccccc3C3CCN4C=CC=C4N23)C(F)=C1 0.56 0.74
+> D1OC1CN2C=CC3=C2C2=C(NC=C2)C2N=CC=C2OC13 0.49 0.79
+> D2CC(=O)C1=CC(=O)NCC=C(C(=O)O)SCCO=N1 0.56 0.33
+> D3NCC1=CC(F)=C(CO)C2OC(c3ccccc3)NC12 0.51 0.50
+> E1CC1(F)CC(=O)N2C(CCNC(N)=O)SC(CNCC3=CC(F)=CC(F)=C3)C2=N1 0.60 0.78
+> E2CC1(F)COC(CCCCN2C(=O)NCC2C2CCC3C(C2)SC3N)=N1 0.49 0.29
+> E3S=C1NC(c2ccccc2)C2CCN(CCc3ccncc3)C2C1CCNC1CCNC=C1 0.60 0.83
+> F1O[S](F)(F)=O.C1=CC=C2NC(C3CCNNC3c3ncccc3)CCC2=C1 0.44 0.62
+> F2Cc1cc2c(c1)c1ccccc1N(CC1=POONC1=N)CCC2 0.55 0.56
+> F3Nc1cccc2c1N1NC(c3ccccc3)NN(C(=O)OCc3ccccc3)C1CC2 0.60 0.68
+
+Table 11: Budget sensitivity for Full REUSE. We report the best-so-far search score and the cumulative chemistry-floor recovery rate as the search budget increases. 
+
+Budget Search score mean Search score P25 Search score P75 Chem-floor recovery 1 0.437 0.193 0.750 0.056 2 0.519 0.261 0.873 0.111 3 0.638 0.321 1.012 0.222 4 0.703 0.591 1.139 0.222 5 0.731 0.600 1.157 0.333 6 0.801 0.643 1.245 0.444 7 0.844 0.643 1.245 0.444 8 0.869 0.643 1.256 0.500 
+
+of the added search overhead. Even so, it remains vastly cheaper than MDRL, which operates in a full adaptation regime rather than frozen-prior reuse. To make this runtime profile more concrete, Tables 7 and 8 provide a finer-grained breakdown under the same official timed evaluation setting used in the main paper. The two tables describe the same setting from complementary perspectives. Table 7 reports the stage-wise wall-clock decomposition, while Table 8 reports the corresponding intermediate candidate-set sizes together with the total runtime and the full-docking runtime. Several points are worth highlighting. First, most of the runtime is spent in the search, decoding, and rapid-screening stage rather than in the reduced-frontier full-docking stage. This is consistent with the design of REUSE: the method invests computation in iterative exploration of the frozen input space, while reserving the most expensive high-fidelity evaluation for a much smaller shortlist. Second, the reduced-frontier full-docking stage still accounts for a substantial but clearly smaller portion of total runtime, which shows that stage-wise pruning is effective in containing the cost of full evaluation. Third, the final panel-construction and incumbent-update step contributes negligibly to the total wall-clock time, indicating that the dominant cost comes from candidate generation and evaluation rather than from the final subset-selection logic itself. The comparison with DualDiff mainly comes down to where computation is spent. DualDiff performs target-coupled sampling-time intervention followed by dual-target evaluation, and therefore remains relatively lightweight at inference time. REUSE, by contrast, explicitly searches the frozen input space over multiple iterations, which introduces additional runtime beyond one-shot generation. At the same time, REUSE still uses a coarse-to-fine evaluation pipeline and applies the most expensive full docking only to a reduced frontier, which keeps the overall cost far below adaptation-heavy optimization. 30 Table 12: Effect of the final selection step under the main REUSE configuration. We compare the candidate panel immediately before the last refinement step with the final selected set.                               
+
+> Stage Feasible Dual-hit Rate Dual-hit Rate Max Vina Dock ↓
+> Mean P25 P75 Mean P25 P75 Mean P25 P75 Pre-refinement set 0.418 0.000 0.865 0.501 0.198 0.917 -8.270 -8.987 -7.801 Final selected set 0.501 0.000 1.000 0.583 0.333 1.000 -8.635 -9.266 -8.087
+
+Table 13: Numeric summary of the time–performance trade-off in Figure 3. Wall-clock time reports the overall method cost, and Combined Dock denotes the official combined full docking score, where lower is better.              
+
+> Method Wall-clock time Combined Dock ↓Relative cost Ours 52.2 min -18.678 1.90 ×
+> DualDiff 27.5 min -16.806 1.00 ×
+> MDRL 12.4 h -16.828 27.05 ×
+
+MDRL is expensive for a different reason. Unlike REUSE and DualDiff, it does not only run inference with a fixed generator; it also performs a full adaptation procedure. In the full proxy-RL configuration, it first builds an initial population and then alternates between large-batch molecule generation and policy updates over many epochs. The dominant cost is therefore the repeated sample–train loop itself, which is substantially more expensive than frozen-prior reuse. This places MDRL in a much higher cost regime even though its final docking quality remains below REUSE. Table 14: Backbone transfer results on the dual-target benchmark. REUSE is applied with three different frozen single-target diffusion backbones. Frozen Backbone P-1 Vina ↓ P-2 Vina ↓ Max Vina ↓ Dual High ↑ QED ↑ SA ↑
+
+TargetDiff -9.41 -9.26 -8.64 58.3% 0.62 0.57 DiffSBDD -9.57 -8.75 -8.44 61.7% 0.50 0.55 DecompDiff -8.47 -8.44 -7.88 43.3% 0.52 0.56 
+
+C.9 Backbone Transfer Analysis 
+
+To examine whether REUSE is tied to a particular frozen generator or can be applied more generally across single-target diffusion backbones, we further evaluate REUSE with three frozen pretrained backbones: TargetDiff, DiffSBDD, and DecompDiff. The results are reported in Table 14. In all cases, the backbone parameters and diffusion sampling process are kept fixed; only the input-space search and selection procedure of REUSE is applied. The results show that REUSE can recover non-trivial dual-target candidates from all three frozen backbones, but the final performance depends on the quality and structure of the underlying single-target prior. With TargetDiff as the frozen backbone, REUSE achieves strong and balanced dual-target performance, reaching P-1/P-2 Vina scores of −9.41 and −9.26 , a Max Vina score of −8.64 , and a Dual High rate of 58 .3% . DiffSBDD yields the highest Dual High rate among the three backbones (61 .7% ) and the strongest P-1 Vina score ( −9.57 ), although its P-2 and Max Vina scores are slightly weaker than those obtained with TargetDiff. This suggests that DiffSBDD can expose a large number of dual-high candidates under REUSE, but with somewhat less balanced worst-target affinity. DecompDiff remains usable but performs worse overall, with a lower Dual High rate of 43 .3% and weaker docking scores, indicating that the reachable dual-target region is less favorable for this backbone under the same search procedure. Overall, these results support the backbone-transferability of the proposed framework: REUSE is not specific to a single frozen generator, but can be instantiated on top of different single-target diffusion backbones without retraining or modifying their denoising dynamics. At the same time, the observed variation across backbones indicates that REUSE inherits the strengths and limitations of the frozen prior it searches over. This is consistent with our formulation of dual-target design as 31 capability recovery from a pretrained single-target model: the search procedure can reveal dual-target candidates when they are present in the reachable input space, but the quality of the recovered panel remains bounded by the expressiveness and chemical coverage of the underlying backbone. 
+
+C.10 Limitations 
+
+Our evaluation emphasizes docking-based affinity, chemical quality, and structural diversity, but does not include wet-lab validation. To partially mitigate the reliance on docking-centered evaluation, we include additional computational sanity checks in Appendix C.1, including cross-scorer consistency, relaxed-pose validation, geometry checks, and residue-level interaction overlap. Accordingly, the recovered molecules should be interpreted as computational candidates rather than experimentally confirmed dual-target binders. In addition, REUSE is designed as a search-based recovery framework over a frozen generator, and its performance may depend on the quality of the underlying pretrained single-target prior as well as the search budget allocated at inference time. Finally, although the method remains substantially cheaper than adaptation-heavy alternatives in our experiments, it still introduces nontrivial iterative search overhead relative to one-shot generation or lighter sampling-time intervention methods, which may limit throughput in large-scale screening settings. 
+
+C.11 Broader Impacts 
+
+This work may have positive impact on computational drug discovery by providing a more efficient and diagnostic way to explore whether complex multi-target behavior can already be recovered from existing generative priors, potentially reducing the need for repeated retraining and lowering the iteration cost of early-stage molecular design. More broadly, the perspective developed here may help researchers better understand what capabilities are already encoded in pretrained scientific generative models. At the same time, methods for molecular generation can have dual-use implications. In particular, algorithms that improve the recovery of biologically active molecules could in principle be misused to accelerate the design of harmful compounds. Our work does not include experimental validation, does not release a curated set of hazardous molecules, and is evaluated in a standard research setting focused on benchmarked dual-target design. We believe responsible use of such methods should remain subject to existing institutional, legal, and domain-specific safety oversight. Future releases of code or generated assets should take into account appropriate safeguards and usage restrictions where necessary. 
+
+## D Mathematical Properties and Proofs for REUSE 
+
+In this appendix we formalize several basic mathematical properties of REUSE. The results are intentionally conservative: they establish well-posedness of the algorithmic objects, preservation of feasibility/diversity constraints, monotonicity of the incumbent set under the update rule in Algorithm 1, and a sampling-reachability guarantee induced by the immigration component in the offspring proposal. Whenever a statement depends on the exact panel-construction or incumbent-comparison rule, it is understood to refer only to the deterministic exact-selector instantiation introduced below. We do not claim global optimality of the frozen generator or of the overall search procedure. 
+
+D.1 Assumptions and auxiliary definitions 
+
+Fix a target pair p = ( ta, t b) throughout this appendix. Recall that the frozen generator induces a decoded molecular family M(z, p ) for each z ∈ Z . We denote the candidate universe for target pair 
+
+p by 
+
+Xp := [
+
+> z∈Z
+
+M(z, p ).
+
+Assumption D.1 (Measurable latent space and prior) . The latent/input space Z is equipped with a 
+
+σ-algebra A , and for each target pair p the initialization prior π0(· | p) is a probability measure on 
+
+(Z, A ).
+
+32 Assumption D.2 (Deterministic finite offspring budgets and finite decoded families) . For each iteration t, the offspring population Ot is finite with deterministic cardinality 
+
+nt := |O t| ∈ N.
+
+Moreover, for every z ∈ Z ,
+
+|M (z, p )| < ∞.
+
+Hence every pooled candidate set induced by finitely many offspring is finite. 
+
+Assumption D.3 (Subset-valued stage-selection operators) . For each stage s ∈ { 1, . . . , S } and each finite candidate pool C ⊆ X p, the operator 
+
+Top Bs (C; ≻s)
+
+returns a subset of C with cardinality 
+
+Top Bs (C; ≻s) = min {| C|, B s}.
+
+Definition D.4 (Feasible and τ -diverse set family) . For any candidate pool C ⊆ X p, define 
+
+FN (C; p, τ ) := {S ⊆ C : |S| = N, c (m, p ) = 1 ∀m ∈ S, ∆( mi, m j ) ≥ τ ∀mi̸ = mj ∈ S} .
+
+Thus FN (C; p, τ ) is the family of all N -element subsets of C that are feasible for the target pair p
+
+and pairwise τ -diverse. 
+
+Definition D.5 (Global feasible-set family) . Define 
+
+Fall  
+
+> N
+
+(p, τ ) := {S ⊆ X p : |S| = N, c (m, p ) = 1 ∀m ∈ S, ∆( mi, m j ) ≥ τ ∀mi̸ = mj ∈ S} .
+
+Assumption D.6 (Exact-selector instantiation of panel construction and incumbent comparison) .
+
+For the results in this appendix involving the panel-construction and incumbent-update steps of Algorithm 1, we analyze the following deterministic instantiation. There exists a deterministic real-valued set utility 
+
+Jp : Fall  
+
+> N
+
+(p, τ ) ∪ {∅} → R ∪ {−∞} , Jp(∅) := −∞ .
+
+At iteration t, if FN (C(S) 
+
+> t
+
+; p, τ )̸ = ∅, the panel-construction step returns an element of 
+
+arg max    
+
+> S∈FN(C(S)
+> t;p,τ )
+
+Jp(S).
+
+If FN (C(S) 
+
+> t
+
+; p, τ ) = ∅, it returns ∅.The incumbent update is 
+
+S⋆t ∈ arg max  
+
+> S∈{ S⋆t−1, S t}
+
+Jp(S), S⋆ 
+
+> 0
+
+:= ∅.
+
+Remark D.7 . The main method remains multi-objective. Assumption D.6 does not replace the multi-objective formulation in the main text; it only specifies one deterministic instantiation of the final panel-selection/comparison step so that the incumbent update rule can be analyzed formally. Accordingly, every result below that invokes Assumption D.6 is an exact-selector statement: it applies to the analyzed exact feasible-panel maximization instantiation and need not extend to arbitrary heuristic or greedy implementations of the final panel-construction step. Equivalently, one may replace Jp by any deterministic total preorder over feasible candidate panels; the statements below then hold after replacing “ arg max ” by the corresponding maximal-set selection operator. 
+
+Assumption D.8 (Offspring mixture with immigration) . For each iteration t, conditional on the selected parent set At, the mutation and crossover kernels 
+
+qmut (· | A t, p ), qcross (· | A t, p )
+
+are probability measures on (Z, A ), and the offspring proposal distribution is 
+
+qoff (z′ | A t, p ) = αmut qmut (z′ | A t, p ) + αcross qcross (z′ | A t, p ) + αimm π0(z′ | p),
+
+where 
+
+αmut , α cross , α imm ≥ 0, αmut + αcross + αimm = 1 , αimm > 0.
+
+Hence qoff (· | A t, p ) is also a probability measure on (Z, A ).
+
+33 Assumption D.9 (Conditional independence within iteration) . Conditional on the history available at the beginning of iteration t, the nt offspring latent points sampled in iteration t are independent draws from qoff (· | A t, p ).
+
+Definition D.10 (Good latent region) . For any threshold η ∈ R, define 
+
+Aη,N,τ (p) := {z ∈ Z : ∃ S ⊆ M (z, p ) such that S ∈ FN (M(z, p ); p, τ ) and Jp(S) ≥ η} .
+
+Thus Aη,N,τ (p) is the set of latent points whose decoded families already contain at least one feasible, 
+
+τ -diverse N -set with utility at least η.Remark D.11 . Definition D.10 is intentionally conservative. It characterizes latent points for which a single decoded family M(z, p ) already contains a good feasible witness set. Since REUSE operationally constructs panels from the pooled set C(0)  
+
+> t
+
+= S 
+
+> z∈O t
+
+M(z, p ), good panels may also arise from combining candidates originating from multiple latent points. Accordingly, the reachability results below should be interpreted as sufficient-condition guarantees rather than as a characterization of all possible successful pooled outcomes. 
+
+Assumption D.12 (Measurability of good latent regions) . For every threshold η ∈ R, the set 
+
+Aη,N,τ (p) belongs to A .
+
+D.2 Basic structural properties Lemma D.13 (Finiteness of all candidate pools) . For every iteration t and every stage s = 0 , . . . , S ,the candidate pool C(s) 
+
+> t
+
+appearing in Algorithm 1 is finite. Proof. By Assumption D.2, the offspring population Ot is finite, with cardinality nt < ∞. For each 
+
+z ∈ O t, the decoded family M(z, p ) is finite. Therefore 
+
+C(0)  
+
+> t
+
+= [
+
+> z∈O t
+
+M(z, p )
+
+is a finite union of finite sets, hence finite. We now argue by induction over the stage index. Assume C(s−1)  
+
+> t
+
+is finite for some s ∈ { 1, . . . , S }.By Assumption D.3, 
+
+C(s) 
+
+> t
+
+= Top Bs
+
+ C(s−1)  
+
+> t
+
+; ≻s
+
+ ⊆ C (s−1)  
+
+> t
+
+,
+
+so C(s) 
+
+> t
+
+is finite. Thus all stage-wise candidate pools are finite. 
+
+Proposition D.14 (Nestedness of stage-wise candidate pools) . For every iteration t and every stage 
+
+s = 1 , . . . , S ,
+
+C(s) 
+
+> t
+
+⊆ C (s−1)  
+
+> t
+
+.
+
+Consequently, 
+
+C(S) 
+
+> t
+
+⊆ C (S−1)  
+
+> t
+
+⊆ · · · ⊆ C (0)  
+
+> t
+
+.
+
+Hence every molecule in the panel selected at iteration t belongs to C(0)  
+
+> t
+
+.Proof. For each s ∈ { 1, . . . , S }, Assumption D.3 gives 
+
+C(s) 
+
+> t
+
+= Top Bs
+
+ C(s−1)  
+
+> t
+
+; ≻s
+
+ ⊆ C (s−1)  
+
+> t
+
+.
+
+Chaining these inclusions yields 
+
+C(S) 
+
+> t
+
+⊆ C (S−1)  
+
+> t
+
+⊆ · · · ⊆ C (0)  
+
+> t
+
+.
+
+Since the panel-construction step selects St from C(S) 
+
+> t
+
+, we also have 
+
+St ⊆ C (S) 
+
+> t
+
+⊆ C (0)  
+
+> t
+
+.
+
+34 Theorem D.15 (Well-definedness of the panel-construction step under the exact-selector instantiation) .
+
+Fix an iteration t. Under Assumption D.6, if FN (C(S) 
+
+> t
+
+; p, τ )̸ = ∅, then the panel-construction step in Algorithm 1 is well-defined and returns some 
+
+St ∈ FN (C(S) 
+
+> t
+
+; p, τ ).
+
+If FN (C(S) 
+
+> t
+
+; p, τ ) = ∅, then it returns ∅.Proof. By Lemma D.13, the set C(S) 
+
+> t
+
+is finite. Hence its power set is finite, and therefore the subfamily 
+
+FN (C(S) 
+
+> t
+
+; p, τ ) is also finite. If this family is nonempty, Assumption D.6 states that the panel-construction step returns an element of 
+
+arg max    
+
+> S∈FN(C(S)
+> t;p,τ )
+
+Jp(S).
+
+Since the domain is finite and nonempty, the maximum exists. Thus the step is well-defined and the returned set belongs to FN (C(S) 
+
+> t
+
+; p, τ ).If the family is empty, the same assumption states that the step returns ∅.
+
+Remark D.16 . Theorem D.15 and the subsequent utility-comparison results in this subsection analyze only the exact-selector instantiation from Assumption D.6. They do not establish corresponding optimality guarantees for arbitrary heuristic solvers of the final panel-construction problem. 
+
+Corollary D.17 (Constraint preservation of the returned panel under the exact-selector instantiation) .
+
+If St̸ = ∅, then 
+
+|St| = N, c(m, p ) = 1 ∀m ∈ St, ∆( mi, m j ) ≥ τ ∀mi̸ = mj ∈ St.
+
+Proof. This follows immediately from Theorem D.15 and Definition D.4. 
+
+Proposition D.18 (Recovery from the terminal survivor pool under the exact-selector instantiation) .
+
+Fix an iteration t and a threshold η ∈ R. If there exists 
+
+bS ∈ FN (C(S) 
+
+> t
+
+; p, τ ) such that Jp( bS) ≥ η, 
+
+then the panel selected at iteration t satisfies 
+
+Jp(St) ≥ η. 
+
+Proof. Because bS ∈ FN (C(S) 
+
+> t
+
+; p, τ ), the feasible family FN (C(S) 
+
+> t
+
+; p, τ ) is nonempty. By Assump-tion D.6, the panel-construction step returns 
+
+St ∈ arg max    
+
+> S∈FN(C(S)
+> t;p,τ )
+
+Jp(S).
+
+Therefore 
+
+Jp(St) ≥ Jp( bS) ≥ η. 
+
+Remark D.19 . Proposition D.18 is a terminal-pool statement. It says that once a good feasible witness set is already present in C(S) 
+
+> t
+
+, the exact final selector cannot return a strictly worse utility value. It does not assert that the preceding stage-wise filtering must preserve every witness set that may exist in the larger pooled family C(0)  
+
+> t
+
+.
+
+Corollary D.20 (Constraint preservation of the incumbent under the exact-selector instantiation) .
+
+For every iteration t, if S⋆t̸ = ∅, then 
+
+|S⋆t | = N, c(m, p ) = 1 ∀m ∈ S⋆t , ∆( mi, m j ) ≥ τ ∀mi̸ = mj ∈ S⋆t .
+
+Proof. We argue by induction on t. At t = 0 , we have S⋆ 
+
+> 0
+
+= ∅, so the claim is vacuous. Assume the statement holds for t − 1. By Assumption D.6, the incumbent at iteration t is chosen from 
+
+{S⋆t−1, S t}.
+
+If S⋆t = S⋆t−1, the induction hypothesis implies the claim. If S⋆t = St, then Corollary D.17 implies the claim. Thus the statement holds for iteration t.35 D.3 Monotonicity of the incumbent under the update rule Theorem D.21 (Monotonicity of incumbent utility under the exact-selector instantiation) . For every iteration t ≥ 1,
+
+Jp(S⋆t ) ≥ Jp(S⋆t−1).
+
+Hence the sequence {Jp(S⋆t )}t≥0 is nondecreasing. Proof. By Assumption D.6, 
+
+S⋆t ∈ arg max  
+
+> S∈{ S⋆t−1, S t}
+
+Jp(S).
+
+Therefore, 
+
+Jp(S⋆t ) = max {Jp(S⋆t−1), J p(St)} ≥ Jp(S⋆t−1).
+
+This proves the one-step inequality. Applying it recursively yields that the sequence {Jp(S⋆t )}t≥0 is nondecreasing. 
+
+Corollary D.22 (Persistence after recovery under the exact-selector instantiation) . If for some iteration t0 there exists 
+
+bS ∈ FN (C(S) 
+
+> t0
+
+; p, τ ) such that Jp( bS) ≥ η, 
+
+then 
+
+Jp(S⋆t ) ≥ η for all t ≥ t0.
+
+Proof. By Proposition D.18, 
+
+Jp(St0 ) ≥ η. 
+
+By Assumption D.6, 
+
+Jp(S⋆t0 ) = max {Jp(S⋆t0−1), J p(St0 )} ≥ η. 
+
+The conclusion for all t ≥ t0 follows from Theorem D.21. 
+
+Remark D.23 . Theorem D.21 is an incumbent monotonicity result. It does not assert that every intermediate population, frontier, or selected set must improve at every iteration. It only states that once the algorithm stores the best-so-far panel, the utility of that incumbent cannot decrease under the exact-selector incumbent-update rule specified in Assumption D.6. 
+
+D.4 Sampling reachability guarantee induced by immigration 
+
+We next formalize the role of the immigration component αimm π0(· | p) in the offspring mixture. The results in this subsection are sampling statements in latent space: they quantify the probability of visiting specified measurable regions of Z. By themselves, they do not imply that decoded witness sets from such regions survive later stage-wise filtering or are returned by the final panel-construction step. 
+
+Lemma D.24 (Uniform lower bound from immigration) . For any measurable set A ∈ A , any iteration t, and any selected parent set At,
+
+qoff (A | A t, p ) ≥ αimm π0(A | p).
+
+Proof. By Assumption D.8, 
+
+qoff (A | A t, p ) = αmut qmut (A | A t, p ) + αcross qcross (A | A t, p ) + αimm π0(A | p).
+
+Each term on the right-hand side is nonnegative because it is a nonnegative weight times a probability measure evaluated on A. Therefore, 
+
+qoff (A | A t, p ) ≥ αimm π0(A | p).
+
+36 Theorem D.25 (Finite-horizon hitting probability) . Let A ∈ A be any measurable subset of Z,and let ET (A) denote the event that at least one offspring latent point sampled during the first T
+
+iterations belongs to A. Then 
+
+P ET (A) ≥ 1 −
+
+> T
+
+Y
+
+> t=1
+
+(1 − αimm π0(A | p)) nt .
+
+In particular, if the offspring budget is constant, nt ≡ n, then 
+
+P ET (A) ≥ 1 − (1 − αimm π0(A | p)) nT .
+
+Proof. Set 
+
+rA := αimm π0(A | p).
+
+By Assumption D.8, we have rA ∈ [0 , 1] .Let Ht denote the full history available at the beginning of iteration t, before the nt offspring are drawn. For any offspring draw z(i) 
+
+> t
+
+in iteration t, Lemma D.24 gives 
+
+P z(i) 
+
+> t
+
+∈ A | H t
+
+ = qoff (A | A t, p ) ≥ rA.
+
+Hence 
+
+P z(i) 
+
+> t
+
+/∈ A | H t
+
+ ≤ 1 − rA.
+
+By Assumption D.9, conditional on Ht the nt offspring draws in iteration t are independent. There-fore, if we define the event 
+
+Mt(A) := 
+
+> nt
+
+\
+
+> i=1
+
+{z(i) 
+
+> t
+
+/∈ A},
+
+then 
+
+P Mt(A) | H t
+
+ =
+
+> nt
+
+Y
+
+> i=1
+
+P z(i) 
+
+> t
+
+/∈ A | H t
+
+ ≤ (1 − rA)nt .
+
+Now note that 
+
+ET (A)c =
+
+> T
+
+\
+
+> t=1
+
+Mt(A).
+
+We prove by induction on T that 
+
+P
+
+> T
+
+\
+
+> t=1
+
+Mt(A)
+
+!
+
+≤
+
+> T
+
+Y
+
+> t=1
+
+(1 − rA)nt .
+
+For T = 1 , this follows by taking expectation of P(M1(A) | H 1) ≤ (1 − rA)n1 .Assume the claim holds for T − 1. Then, by the tower property, 
+
+P
+
+> T
+
+\
+
+> t=1
+
+Mt(A)
+
+!
+
+= E
+
+h
+
+1∩T −1  
+
+> t=1 Mt(A)
+
+P MT (A) | H T
+
+i
+
+≤ (1 − rA)nT P 
+
+> T−1
+
+\
+
+> t=1
+
+Mt(A)
+
+!
+
+≤ (1 − rA)nT 
+
+> T−1
+
+Y
+
+> t=1
+
+(1 − rA)nt =
+
+> T
+
+Y
+
+> t=1
+
+(1 − rA)nt .
+
+This completes the induction. Finally, 
+
+P ET (A) = 1 − P ET (A)c = 1 − P
+
+> T
+
+\
+
+> t=1
+
+Mt(A)
+
+!
+
+≥ 1 −
+
+> T
+
+Y
+
+> t=1
+
+(1 − rA)nt ,
+
+which is the desired bound. The constant-budget form follows immediately when nt ≡ n.37 Corollary D.26 (Asymptotic hitting guarantee) . If π0(A | p) > 0 and 
+
+> ∞
+
+X
+
+> t=1
+
+nt = ∞,
+
+then 
+
+lim   
+
+> T→∞
+
+P ET (A) = 1 .
+
+Proof. By Theorem D.25, 
+
+P ET (A)c ≤
+
+> T
+
+Y
+
+> t=1
+
+(1 − rA)nt , rA = αimm π0(A | p).
+
+Because αimm > 0 and π0(A | p) > 0, we have rA ∈ (0 , 1] . If rA = 1 , then the product is identically zero and the conclusion is immediate. If rA ∈ (0 , 1) , then 0 < 1 − rA < 1 and 
+
+> T
+
+Y
+
+> t=1
+
+(1 − rA)nt = (1 − rA)PTt=1 nt .
+
+Since P∞ 
+
+> t=1
+
+nt = ∞, the exponent diverges to +∞, so 
+
+(1 − rA)PTt=1 nt → 0.
+
+Hence P(ET (A)c) → 0, equivalently P(ET (A)) → 1.
+
+Corollary D.27 (Sampling of good latent regions) . For any threshold η ∈ R,
+
+P(ET (Aη,N,τ (p))) ≥ 1 −
+
+> T
+
+Y
+
+> t=1
+
+(1 − αimm π0(Aη,N,τ (p) | p)) nt .
+
+Therefore, if 
+
+π0(Aη,N,τ (p) | p) > 0 and 
+
+> ∞
+
+X
+
+> t=1
+
+nt = ∞,
+
+then with probability tending to one, REUSE eventually samples an offspring latent point whose decoded family contains a feasible, τ -diverse N -molecule witness set with utility at least η.Proof. By Assumption D.12, the set Aη,N,τ (p) is measurable. Apply Theorem D.25 and Corol-lary D.26 with 
+
+A = Aη,N,τ (p).
+
+Remark D.28 . Corollary D.27 is a sampling/reachability result. It shows that immigration prevents the search from assigning zero probability to any good latent region that already has positive prior mass under π0(· | p). It does not, by itself, imply that every such witness set must survive stage-wise selection, nor that the final returned panel must attain the same utility level as the witness set, nor does it imply global optimality. 
+
+D.5 From latent reachability to threshold attainment 
+
+The preceding reachability results establish that immigration can eventually sample latent regions whose decoded families contain good witnesses. The missing step is algorithmic: such witnesses must still survive the downstream decode-plus-selection pipeline before the exact final selector can recover them. We therefore introduce a conservative iteration-level bridge assumption. It should be interpreted as an abstract threshold-attainment assumption rather than as a mechanistic description of REUSE. 
+
+Definition D.29 (Iteration-level sampled-good event) . For any measurable set A ∈ A and iteration 
+
+t, define 
+
+Gt(A) := 
+
+n
+
+∃ i ∈ { 1, . . . , n t} : z(i) 
+
+> t
+
+∈ A
+
+o
+
+.
+
+Thus Gt(A) is the event that iteration t samples at least one offspring latent point in A.
+
+38 Assumption D.30 (Iteration-level survivability bridge) . Fix a threshold η ∈ R. There exists a measurable set 
+
+Asurv  
+
+> η,N,τ
+
+(p) ∈ A
+
+and a constant ρη ∈ (0 , 1] such that for every iteration t,
+
+P
+
+
+
+∃ bS ∈ FN (C(S) 
+
+> t
+
+; p, τ ) with Jp( bS) ≥ η Ht, G t
+
+ Asurv  
+
+> η,N,τ
+
+(p)
+
+≥ ρη
+
+almost surely on the event Gt(Asurv  
+
+> η,N,τ
+
+(p)) .Remark D.31 . Assumption D.30 is the conservative bridge that lifts latent-space sampling to algorithm-level attainment. It does not attempt to prove, from first principles, why stage-wise selection preserves a witness. Instead, it isolates the weakest additional statement needed to turn latent reachability into threshold attainment by the exact-selector incumbent. Accordingly, it should be read as an abstract bridge assumption rather than as an explanation of the internal selection mechanics of REUSE. 
+
+Definition D.32 (Terminal witness event and finite-horizon attainment event) . For any threshold 
+
+η ∈ R and iteration t, define 
+
+Bt(η) := 
+
+n
+
+∃ bS ∈ FN (C(S) 
+
+> t
+
+; p, τ ) with Jp( bS) ≥ η
+
+o
+
+.
+
+For any horizon T ≥ 1, define 
+
+FT (η) := 
+
+> T
+
+[
+
+> t=1
+
+Bt(η).
+
+Lemma D.33 (Iteration-level sampled-good probability) . For any measurable set A ∈ A and iteration t,
+
+P Gt(A)c | H t
+
+ ≤ (1 − αimm π0(A | p)) nt .
+
+Equivalently, 
+
+P Gt(A) | H t
+
+ ≥ 1 − (1 − αimm π0(A | p)) nt .
+
+Proof. By Lemma D.24, each offspring draw in iteration t satisfies 
+
+P z(i) 
+
+> t
+
+∈ A | H t
+
+ ≥ αimm π0(A | p).
+
+Therefore 
+
+P z(i) 
+
+> t
+
+/∈ A | H t
+
+ ≤ 1 − αimm π0(A | p).
+
+By Assumption D.9, conditional on Ht the offspring draws are independent. Hence 
+
+P Gt(A)c | H t
+
+ = P
+
+> nt
+
+\
+
+> i=1
+
+{z(i) 
+
+> t
+
+/∈ A} Ht
+
+!
+
+≤ (1 − αimm π0(A | p)) nt .
+
+The complementary lower bound follows immediately. 
+
+Theorem D.34 (Finite-horizon threshold-attainment guarantee under the survivability bridge) . Fix a threshold η ∈ R and suppose Assumption D.30 holds. Then for every iteration t,
+
+P Bt(η) | H t
+
+ ≥ ρη
+
+1 −  1 − αimm π0
+
+ Asurv  
+
+> η,N,τ
+
+(p) | p nt  .
+
+Consequently, for every T ≥ 1,
+
+P FT (η) ≥ 1 −
+
+> T
+
+Y
+
+> t=1
+
+ 1 − ρη
+
+1 −  1 − αimm π0
+
+ Asurv  
+
+> η,N,τ
+
+(p) | p nt  .
+
+Proof. By Assumption D.30, 
+
+P Bt(η) | H t, G t(Asurv  
+
+> η,N,τ
+
+(p))  ≥ ρη
+
+39 almost surely on Gt(Asurv  
+
+> η,N,τ
+
+(p)) . Therefore 
+
+P Bt(η) | H t
+
+ ≥ P Bt(η) ∩ Gt(Asurv  
+
+> η,N,τ
+
+(p)) | H t
+
+
+
+= P Bt(η) | H t, G t(Asurv  
+
+> η,N,τ
+
+(p)) P Gt(Asurv  
+
+> η,N,τ
+
+(p)) | H t
+
+
+
+≥ ρη P Gt(Asurv  
+
+> η,N,τ
+
+(p)) | H t
+
+.
+
+Applying Lemma D.33 with A = Asurv  
+
+> η,N,τ
+
+(p) gives the one-step lower bound. Define 
+
+qt(η) := ρη
+
+1 −  1 − αimm π0
+
+ Asurv  
+
+> η,N,τ
+
+(p) | p nt  .
+
+Then 
+
+P Bt(η)c | H t
+
+ ≤ 1 − qt(η).
+
+Using the tower property iteratively, 
+
+P FT (η)c = P
+
+> T
+
+\
+
+> t=1
+
+Bt(η)c
+
+!
+
+= E
+
+h
+
+1∩T −1  
+
+> t=1 Bt(η)c
+
+P BT (η)c | H T
+
+i
+
+≤ (1 − qT (η)) P 
+
+> T−1
+
+\
+
+> t=1
+
+Bt(η)c
+
+!
+
+.
+
+Induction on T yields 
+
+P FT (η)c ≤
+
+> T
+
+Y
+
+> t=1
+
+(1 − qt(η)) ,
+
+which proves the claim. 
+
+Corollary D.35 (Finite-horizon incumbent threshold attainment under the exact-selector instantiation) .
+
+Fix a threshold η ∈ R and suppose Assumption D.30 and Assumption D.6 hold. Then for every 
+
+T ≥ 1,
+
+P(∃ t ≤ T : Jp(S⋆t ) ≥ η) ≥ P FT (η).
+
+In particular, 
+
+P(∃ t ≤ T : Jp(S⋆t ) ≥ η) ≥ 1 −
+
+> T
+
+Y
+
+> t=1
+
+ 1 − ρη
+
+1 −  1 − αimm π0
+
+ Asurv  
+
+> η,N,τ
+
+(p) | p nt  .
+
+Proof. On the event Bt(η), the terminal survivor pool contains a feasible witness set bS satisfying 
+
+Jp( bS) ≥ η. By Proposition D.18, this implies Jp(St) ≥ η. Theorem D.21 then implies Jp(S⋆t ) ≥ η
+
+for all later iterations. Therefore the event FT (η) implies {∃ t ≤ T : Jp(S⋆t ) ≥ η}.
+
+Corollary D.36 (Asymptotic incumbent threshold attainment under the survivability bridge) . Fix a threshold η ∈ R and suppose Assumption D.30 and Assumption D.6 hold. If 
+
+π0
+
+ Asurv  
+
+> η,N,τ
+
+(p) | p > 0 and 
+
+> ∞
+
+X
+
+> t=1
+
+nt = ∞,
+
+then 
+
+lim   
+
+> T→∞
+
+P(∃ t ≤ T : Jp(S⋆t ) ≥ η) = 1 .
+
+Proof. Let 
+
+rη := αimm π0
+
+ Asurv  
+
+> η,N,τ
+
+(p) | p .
+
+Because rη > 0 and nt ≥ 1 for every iteration, 
+
+1 − (1 − rη )nt ≥ rη .
+
+Therefore the one-step lower bounds from Theorem D.34 satisfy 
+
+qt(η) ≥ ρη rη for every t. 
+
+40 Since ρη rη > 0, we obtain 
+
+> T
+
+Y
+
+> t=1
+
+(1 − qt(η)) ≤ (1 − ρη rη )T → 0.
+
+The claim now follows from Corollary D.35. 
+
+Remark D.37 . Theorem D.34 and Corollaries D.35–D.36 form the conservative theorem chain for this appendix. They provide a genuine threshold-attainment guarantee, but only after adding the abstract bridge Assumption D.30. This is the safest upgrade path for the paper because it closes the logical gap from latent reachability to incumbent quality without introducing stage-wise independence claims or heuristic-selector approximations. 
+
+D.6 Algorithm-specific strengthening via stage-wise ranking preservation 
+
+We next record a stronger, more algorithm-specific refinement that makes the role of REUSE’s stage-wise feasibility-first selection explicit. The main theorem in this subsection is deterministic: once a good witness set lies in the pooled set and its members remain sufficiently highly ranked under every stage-wise operator Top Bs (·; ≻s), the witness must survive to the terminal pool. 
+
+Definition D.38 (Strict dominator set at stage s). Fix an iteration t, a stage s ∈ { 1, . . . , S }, and a molecule m. Define 
+
+Dt,s (m) := {m′ ∈ C (s−1)  
+
+> t
+
+: m′ ≻s m}.
+
+Assumption D.39 (Exact stage-truncation consistency within the stronger refinement) . For each iteration t, stage s ∈ { 1, . . . , S }, finite pool C = C(s−1)  
+
+> t
+
+, and molecule m ∈ C, if 
+
+{m′ ∈ C : m′ ≻s m} ≤ Bs − 1,
+
+then 
+
+m ∈ Top Bs (C; ≻s).
+
+Assumption D.40 (Stage-wise witness feasibility preservation) . Fix an iteration t, a threshold η ∈ R,and a witness set W ⊆ C (0)  
+
+> t
+
+. For every stage s ∈ { 1, . . . , S } and every molecule m ∈ W , the quantity hs(m; p) is well-defined and m remains feasible for the stage-s ordering. 
+
+Assumption D.41 (Stage-wise dominator-count bound) . Fix an iteration t, a threshold η ∈ R, and a witness set W ⊆ C (0)  
+
+> t
+
+. For every stage s ∈ { 1, . . . , S } and every molecule m ∈ W ,
+
+|Dt,s (m)| ≤ Bs − 1.
+
+Theorem D.42 (Deterministic stage-wise survival of a ranking-preserving witness) . Fix an iteration 
+
+t and a threshold η ∈ R. Suppose there exists a witness set 
+
+W ∈ FN (C(0)  
+
+> t
+
+; p, τ ) such that Jp(W ) ≥ η. 
+
+If Assumptions D.40 and D.41 hold for W , and Assumption D.39 holds, then 
+
+W ⊆ C (S) 
+
+> t
+
+.
+
+In particular, 
+
+W ∈ FN (C(S) 
+
+> t
+
+; p, τ ).
+
+Under Assumption D.6, this further implies 
+
+Jp(St) ≥ η. 
+
+Proof. We prove by induction on the stage index that W ⊆ C (s) 
+
+> t
+
+for all s = 0 , . . . , S . The base case 
+
+s = 0 holds by assumption. Now assume W ⊆ C (s−1)  
+
+> t
+
+for some s ∈ { 1, . . . , S }. Fix any molecule m ∈ W . By Assumption D.41, the strict dominator set Dt,s (m) contains at most Bs − 1 molecules. Therefore Assumption D.39 implies 
+
+m ∈ Top Bs (C(s−1)  
+
+> t
+
+; ≻s) = C(s) 
+
+> t
+
+.
+
+41 Because m ∈ W was arbitrary, we obtain W ⊆ C (s) 
+
+> t
+
+.By induction, W ⊆ C (S) 
+
+> t
+
+. Since W itself is unchanged, its feasibility, cardinality, and pairwise τ -diversity are preserved, so W ∈ FN (C(S) 
+
+> t
+
+; p, τ ). Proposition D.18 now implies Jp(St) ≥ Jp(W ) ≥
+
+η.
+
+Remark D.43 (Margin-plus-capacity as a sufficient condition) . Assumption D.41 can be justified by a more interpretable margin-style condition tied to the stage scores. For example, suppose that at stage s every witness molecule satisfies hs(m; p) ≥ θs,η + δs,η for some threshold θs,η and margin 
+
+δs,η > 0, and that the number of feasible molecules in C(s−1)  
+
+> t
+
+with score at least θs,η + δs,η is at most Bs. Then every witness molecule automatically satisfies the dominator-count bound at stage s.Thus the theorem above can be read as a formal version of the intuitive claim that REUSE preserves a high-scoring frontier when the stage budgets are large enough relative to the number of genuinely competitive molecules. 
+
+Definition D.44 (Ranking-preserving witness event) . For any threshold η ∈ R and iteration t, define 
+
+E(0)  
+
+> t
+
+(η) := 
+
+n
+
+∃ W ∈ FN (C(0)  
+
+> t
+
+; p, τ ) such that Jp(W ) ≥ η, W satisfies Assumptions D.40 and D.41 
+
+o
+
+.
+
+Assumption D.45 (Latent-to-ranking bridge) . Fix a threshold η ∈ R. There exists a measurable set 
+
+Arank  
+
+> η,N,τ
+
+(p) ∈ A
+
+and a constant ρrank  
+
+> η
+
+∈ (0 , 1] such that for every iteration t,
+
+P
+
+
+
+E(0)  
+
+> t
+
+(η) Ht, G t
+
+ Arank  
+
+> η,N,τ
+
+(p)
+
+≥ ρrank 
+
+> η
+
+almost surely on the event Gt(Arank  
+
+> η,N,τ
+
+(p)) .
+
+Theorem D.46 (Finite-horizon threshold attainment under ranking-preserving witnesses) . Fix a threshold η ∈ R and suppose Assumption D.45 and Assumption D.6 hold. Then for every T ≥ 1,
+
+P(∃ t ≤ T : Jp(S⋆t ) ≥ η) ≥ 1 −
+
+> T
+
+Y
+
+> t=1
+
+
+
+1 − ρrank 
+
+> η
+
+h
+
+1 −  1 − αimm π0
+
+ Arank  
+
+> η,N,τ
+
+(p) | p nt
+
+i 
+
+.
+
+Proof. By Assumption D.45, 
+
+P E(0)  
+
+> t
+
+(η) | H t
+
+ ≥ ρrank  
+
+> η
+
+P Gt(Arank  
+
+> η,N,τ
+
+(p)) | H t
+
+.
+
+Applying Lemma D.33 with A = Arank  
+
+> η,N,τ
+
+(p) yields 
+
+P E(0)  
+
+> t
+
+(η) | H t
+
+ ≥ ρrank 
+
+> η
+
+h
+
+1 −  1 − αimm π0
+
+ Arank  
+
+> η,N,τ
+
+(p) | p nt
+
+i
+
+.
+
+On the event E(0)  
+
+> t
+
+(η), Theorem D.42 implies Jp(St) ≥ η, and therefore Theorem D.21 yields 
+
+Jp(S⋆t ) ≥ η. The same tower-property argument used in Theorem D.34 then gives the stated finite-horizon product bound. 
+
+Remark D.47 . Theorem D.46 is the stronger conditional refinement in this appendix. Unlike the conservative bridge theorem, it explains success in terms of the actual REUSE mechanism: feasibility-first ordering, stage scores, top-Bs truncation, and the size of the competitive frontier. The tradeoff is that its assumptions are correspondingly stronger and more algorithm-specific. In particular, Assumption D.39 is part of this stronger refinement only; it is not claimed as a property of every possible implementation of the stage-selection operator. 
+
+D.7 A simple property of the local-consistency statistics 
+
+For completeness, we also record a basic bound for the local-consistency quantities used in the appendix analysis of the shared input space. 42 Proposition D.48 (Range of the local-consistency statistics) . Suppose that K̸ = ∅, that |I m| ≥ 2,and that for every neighborhood size k ∈ K one has 
+
+1 ≤ k ≤ |I m| − 1.
+
+Then the local-consistency statistics defined in the appendix satisfy 
+
+0 ≤ S(k) 
+
+> i
+
+≤ 1, 0 ≤ O(k) 
+
+> i
+
+≤ 1, 0 ≤ ¯Sm ≤ 1, 0 ≤ ¯Om ≤ 1.
+
+Proof. By definition, 
+
+S(k) 
+
+> i
+
+= 1
+
+k
+
+X 
+
+> j∈N k(i)
+
+1[cj = ci], O(k) 
+
+> i
+
+= 1
+
+k
+
+X 
+
+> j∈N k(i)
+
+1[yj = yi].
+
+Each summand is an indicator variable and therefore belongs to {0, 1}. Hence each average lies in the interval [0 , 1] , which proves 
+
+0 ≤ S(k) 
+
+> i
+
+≤ 1, 0 ≤ O(k) 
+
+> i
+
+≤ 1.
+
+Now ¯Sm and ¯Om are averages of the quantities S(k) 
+
+> i
+
+and O(k) 
+
+> i
+
+, respectively, over indices i ∈ I m and 
+
+k ∈ K . An average of numbers in [0 , 1] also lies in [0 , 1] . Therefore 
+
+0 ≤ ¯Sm ≤ 1, 0 ≤ ¯Om ≤ 1.
+
+D.8 Summary 
+
+The results proved above provide two layers of guarantees for REUSE. At the conservative level: (i) all stage-wise candidate pools are finite and therefore well-defined; (ii) under the exact-selector instantiation of Assumption D.6, any nonempty returned panel and any nonempty incumbent panel satisfy the stated feasibility and diversity constraints; (iii) under the same exact-selector instantiation, if the terminal survivor pool already contains a good feasible witness set, then the panel-construction step returns a set with at least the same utility, and the incumbent-update step preserves that quality thereafter; (iv) under the exact-selector incumbent-update rule, the incumbent utility is monotone nondecreasing; and (v) any measurable good latent region with positive prior mass remains sampling-reachable with nonzero probability at every iteration and is hit with probability tending to one under an unbounded total search budget, but this reachability statement alone does not imply survival through stage-wise filtering or exact recovery by the final panel; and (vi) after adding the abstract survivability bridge Assumption D.30, the incumbent reaches any fixed utility threshold η with explicitly controlled finite-horizon probability and, under unbounded total search budget, with probability tending to one. At the stronger algorithm-specific level: (vii) if a witness set in the pooled candidate family remains sufficiently highly ranked under every stage-wise feasibility-first selection operator Top Bs (·; ≻s),then that witness survives deterministically to the terminal pool and is recovered by the exact final selector; and (viii) after adding the latent-to-ranking bridge Assumption D.45, this ranking-preservation mechanism yields a stronger conditional finite-horizon threshold-attainment guarantee for the best-so-far incumbent. Thus the appendix now separates a safest threshold-attainment theorem chain from a harder, more algorithm-specific refinement. Neither layer claims global optimality, and neither should be inter-preted as proving that latent reachability alone implies final recovery. 43

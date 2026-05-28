@@ -1,0 +1,507 @@
+Title: AtomComposer: Discovering Chemical Space from First Principles with Reinforcement Learning
+
+URL Source: https://arxiv.org/pdf/2605.28287v1
+
+Published Time: Thu, 28 May 2026 01:17:02 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# AtomComposer: Discovering Chemical Space from First Principles with Reinforcement Learning 
+
+Bjarke Hastrup 1, François Cornet 1,2 , Tejs Vegge 1,3 , Arghya Bhowmik 1,3 ∗
+
+{bjaha, frjc, teve, arbh}@dtu.dk  
+
+> 1
+
+Dept. of Energy Conversion and Storage, Technical University of Denmark, Denmark  
+
+> 2
+
+Dept. of Applied Mathematics and Computer Science, Technical University of Denmark, Denmark  
+
+> 3
+
+Pioneer Center for Accelerating P2X Materials Discovery (CAPeX), Kgs. Lyngby, Denmark 
+
+# Abstract 
+
+Discovering novel stable molecules without training data remains a grand scientific challenge. Current molecular generative models are trained on large, pre-curated datasets, which introduce biases and limit exploration of novel chemistry. In contrast, we propose a new paradigm: autonomous, generalized agents capable of mapping vast, unknown chemical spaces without any pretraining. For the first time, we present AtomComposer, a self-guided agent that autonomously constructs valid 3D isomers under stoichiometric constraints and is trained exclusively online using reinforcement learning. Unlike existing approaches that generally overfit to a specific chemical formula, we establish a multi-composition training scheme that enables a broad generalization across diverse chemistry, guided by energy-and validity-based rewards. Our agent can discover up to an order of magnitude more valid isomers on unseen test formulas than existing single-composition reinforcement-learning baselines trained with per-step energy rewards. These results fulfill the promise of online reinforcement learning as a powerful paradigm for scalable, from-scratch exploration of chemical configuration space. 
+
+# 1 Introduction 
+
+Autonomous discovery of novel molecules with bespoke properties is the new frontier in computa-tional chemistry. Effectively navigating the vast chemical space requires innovative and data-efficient search strategies, and has motivated the development of a broad range of methodologies including quantum-mechanical property-guided machine learning, inverse molecular design, and automated chemical space exploration frameworks (von Lilienfeld et al., 2020; Kalikadien et al., 2022; Ioannidis et al., 2016; Khalak et al., 2022; Sandonas et al., 2023; Fallani et al., 2024). Generative models have emerged as a particular promising avenue for this task (Anstine and Isayev, 2023), yet their performance often hinges on the availability of suitable training data. Large public datasets are rarely curated with specific property optimization in mind, and the relevant property regimes may lie at the fringes—or entirely outside—the observed data distribution (Brown et al., 2019). This poses a fundamental challenge: models must not only interpolate but also extrapolate beyond known examples (Schrier et al., 2023). Constructing task-specific datasets is likewise non-trivial and, even when feasible, introduces chemical and structural biases that may limit exploration of novel chemical spaces. Reinforcement learning (RL) (Sutton and Barto, 2018) is a computational framework in which an autonomous agent learns to make sequential decisions by interacting with an environment and receiving feedback in the form of rewards. Rather than learning from a fixed dataset of examples, the agent improves its behavior through trial and error, gradually discovering strategies that maximize 
+
+> ∗
+
+Corresponding author: arbh@dtu.dk 
+
+> arXiv:2605.28287v1 [cs.LG] 27 May 2026
+
+cumulative reward. In the context of molecular discovery, the agent can be thought of as a chemist constructing molecules atom by atom, guided not by prior knowledge of what good molecules look like, but purely by evaluating the quality of the structures it produces. This makes RL particularly well suited to exploring regions of chemical space that are poorly represented in existing datasets, where data-driven generative models would struggle to extrapolate reliably (Sridharan et al., 2024). Beyond mitigating dataset-induced bias, tabula rasa RL (learning entirely from scratch without pretraining on existing molecular data) is well aligned with the sequential and long-horizon nature of atom-by-atom molecular construction. In this setting, chemically meaningful objectives such as stability and chemical validity are only available once a full 3D structure has been assembled, resulting in sparse and delayed reward signals (Sutton and Barto, 2018). Classical and more recent online structure-search approaches—including genetic algorithms, basin-hopping, minima-hopping, and their machine-learning-accelerated variants—have been successfully applied across a wide range of molecular, cluster, and materials discovery problems (Johnston, 2003; Jensen, 2019; Wales and Doye, 1997; Goedecker, 2004; Meldgaard et al., 2018; Christiansen et al., 2022). These methods are typically formulated as stochastic global optimizers, in which domain knowledge is encoded through fixed proposal mechanisms (e.g., mutation, crossover, or displacement moves), while the search itself does not adapt through learned, parametric decision policies. In this sense, and analogous to deep generative models whose outputs reflect biases in their training data, these approaches—and more broadly human intuition-driven motif design—are constrained by existing chemical knowledge. More generally, such biases arise from the design of the generative process itself (e.g., choice of move sets or construction rules), which implicitly defines the accessible search space. In contrast, reinforcement learning explicitly learns a construction policy from online interaction, enabling a less prescriptive mode of exploration in which structure-building strategies are discovered rather than fixed a priori. This allows chemical design principles to be represented, updated, and reused across tasks, thereby offering a complementary paradigm for composition-generalizable molecular discovery (Schulman et al., 2017; Jørgensen et al., 2019; Mortensen et al., 2020; Meldgaard et al., 2020; Simm et al., 2020). However, although the learning policy can flexibly adapt within this space, the underlying construction framework ( action space in RL terminology) still imposes inductive biases, such that the degree of open-ended exploration ultimately depends on the expressiveness of this construction formulation. A substantial body of RL research has employed two alternative molecular representations: SMILES strings and 2D molecular graphs (Weininger, 1988). Pioneered by Olivecrona et al. (2017) and Popova et al. (2018) and further developed in REINVENT 2.0 (Blaschke et al., 2020), SMILES-based RL agents learn to generate molecules as character sequences and can be efficiently fine-tuned toward diverse property objectives. Graph-based RL approaches such as MolDQN (Zhou et al., 2019) and GCPN (You et al., 2018) instead operate directly on molecular connectivity graphs, adding or modifying atoms and bonds as discrete actions. Both SMILES and graph representations encode molecular topology—which atoms are bonded to which—but omit explicit 3D geometry (Elton et al., 2019). As a consequence, a single SMILES string or connectivity graph may correspond to multiple distinct three-dimensional structures: different conformers arising from rotatable bonds, as well as stereoisomers (including enantiomers and diastereomers) arising from chiral centers or restricted rotation (Hawkins, 2017). This representational ambiguity has important practical consequences: a conformational search must be performed post hoc to enumerate the relevant candidate geometries and evaluate their relative stabilities. For larger molecules or those with multiple chiral centers, the number of distinct structures grows combinatorially, making exhaustive conformer search a challenging problem in its own right (Leach and Gillet, 2007). Automated conformer generators such as ETKDG (Riniker and Landrum, 2015) provide a practical approximation, but tend to undersample higher-energy conformers and may miss the most stable or most functionally relevant geometry entirely (Friedrich et al., 2017; Hawkins, 2017). Since many molecular properties depend sensitively on shape (von Lilienfeld et al., 2020), generating molecules directly in 3D avoids this post-processing bottleneck and ensures that property evaluations are grounded in explicit, physically meaningful atomic coordinates from the outset. In the supervised setting, some of the most promising directions for molecule generation in 3D are either based on denoising diffusion (Hoogeboom et al., 2022; Le et al., 2024; Cornet et al., 2024a), flow matching (Song et al., 2023; Irwin et al., 2025), or auto-regressive models that build molecules 2in an fragment-by-fragment or atom-by-atom fashion (Gebauer et al., 2019; 2022; Roney et al., 2022; Daigavane et al., 2023; Ochoa et al., 2024). Although diffusion models could potentially be integrated into a pretraining-finetuning framework (Black et al., 2024), it remains unclear whether they can effectively be used for tabula rasa learning for navigating a 3N dimensional energy surface. In the purely online setup, RL has been used for conformer (Jiang et al., 2022; Volokhova et al., 2024) and isomer (Simm et al., 2020; 2021) generation. Flam-Shepherd et al. (2022) extended MOL GYM to place fragments instead of individual atoms, improving scalability and the size of the generated molecules. Meldgaard et al. (2021) used online RL but only after an offline pretraining phase. Whereas their pretraining was multi-compositional, their online finetuning was for single compositions only and further relied on result aggregation from 64 parallel fine-tunings spawned after pertaining. As a result, a general and scalable demonstration of Reinforcement Learning (RL) for tabula rasa 3D molecular structure discovery remains lacking. Existing results show only limited success on simple organic molecules (Simm et al., 2020; 2021; Meldgaard et al., 2021) or metal clusters of fixed composition (Elsborg and Bhowmik, 2023; Modee et al., 2023), with poor generalization across stoichiometries. A key reason is that most prior approaches rely on training regimes with limited compositional diversity, in which the policy and value function are optimized for a single fixed composition at a time. This leads to overfitting to composition-specific construction strategies rather than policies that transfer across chemical space. The evaluation of RL algorithms for molecular structure discovery presents a fundamental challenge. In the standard generative modeling paradigm, where models are trained via supervised learning to approximate the training distribution, performance is typically assessed through stochastic rollouts at a single final checkpoint, reflecting how well the converged model captures the underlying data (Gómez-Bombarelli et al., 2018; Gebauer et al., 2019; Cornet et al., 2024b). In contrast, performance evaluation in RL is considerably more nuanced (Henderson et al., 2018; Dulac-Arnold et al., 2020). The performance of an RL agent can vary significantly depending on the checkpoint selected, as the underlying policy evolves throughout training (Islam et al., 2017). A single-checkpoint evaluation, though convenient and widely used (Xia et al., 2022), often fails to capture the broader behavioral dynamics and exploration strategies adopted at different training stages (Colas et al., 2019). This evolving behavior, combined with the open-ended nature of RL tasks, renders traditional metrics, such as distance to a reference dataset, largely inadequate. Instead, a meaningful evaluation often requires the direct involvement of a chemist to quantify the utility of individually generated structures through score/reward functions (Brown et al., 2019; Polykovskiy et al., 2020; Schwalbe-Koda and Gómez-Bombarelli, 2020). This reliance on task-specific metrics complicates automation and has hindered the establishment of universally recognized benchmark tasks, making it difficult to objectively compare algorithms and slowing methodological convergence in the field (Olivecrona et al., 2017; Xie et al., 2021; Nie et al., 2024). A core challenge in online RL for 3D molecular discovery in particular, is balancing the delicate trade-off between exploration and physical stability. While policy stochasticity is essential for escaping locally optimal behavior (Haarnoja et al., 2018; Schulman et al., 2017), excessive spatial noise can corrupt energy based evaluations, which depend sensitively on the atomic coordinates (Smith et al., 2017; Gastegger et al., 2021). This degrades the reward signals and destabilizes the learning. The problem is compounded in 3D atomistic environments, where high-reward actions lie in a multimodal and discontinuous space. Here, small perturbations rarely improve the objective, but often disrupt chemically valid structures, rendering local exploration ineffective (Rose et al., 2021). A true paradigm shift in molecular discovery requires the ability to explore the full chemical space from first principles—without relying on hand-crafted rules, curated datasets, or preconceived feature biases. Such an approach would learn viable chemistry entirely through exploration of chemical motifs leading to possible discovery beyond current human knowledge and intuition. As a key step toward this grand vision, we have been successful in training composition-generalizable RL agents capable of discovering stable 3D molecules across diverse chemical formulas. Inspired by the M OL GYM (Simm et al., 2020; 2021) framework, we take a significant step forward toward training self-guided RL agents that can generalize across chemical space. Specifically, we introduce AtomComposer, a framework for isomer discovery in which an agent learns to generate stable 3D molecular structures given a pre-specified chemical composition, with no access to reference geometries during training. 3Figure 1: The AtomComposer multi-composition training and evaluation workflow. AtomCom-poser constructs isomer generation tasks by extracting chemical formulas from a reference dataset and introduces new terminal rewards based on validity and total energy. We evaluate the RL agents’ isomer discovery capabilities at just a single checkpoint, as well as cumulatively across the entire discovery campaign. Crucially, no 3D structures are shown to the agent during training. 
+
+Our success originated from a novel multi-composition training scheme and new reward schemes. We demonstrate that RL can be effectively applied to isomer discovery, without overfitting to a fixed set of atoms as in prior work (Simm et al., 2020; 2021). A visual abstract of the AtomComposer is provided in Fig. 1. This resolves long-standing limitations and stagnation in RL for tabula rasa 3D atomic structure discovery and we summarize our main contributions as follows: • We introduce new terminal rewards based on energy and chemical validity, thereby training the agent to build stable and valid molecules. • We propose a groundbreaking multi-composition training setup based on chemical com-positions drawn from a broad chemical space derived from the QM7 reference dataset, facilitating generalization across stoichiometries. • We design a broader multi-bag evaluation scheme to facilitate benchmarking of online isomer discovery agents and assess various combinations of the proposed reward terms. 
+
+# 2 Results 
+
+2.1 RL environment: Isomer search 
+
+We trained the AtomComposer RL agent to build stable and valid isomers (i.e. different molecules with the same pre-specified chemical formula) autoregressively (atom-by-atom), using a linear combination of reward terms based on quantum chemical energy evaluations and cheminformatics validity checks. The training framework is illustrated in Fig. 1, along with the two separate evaluation schemes. 
+
+Multi-composition training We leveraged the QM7 dataset (Blum and Reymond, 2009; Rupp et al., 2012) as a reference dataset , and used it solely to derive a bag set 2, B, of chemically valid molecular compositions for multi-composition training; the agent is never exposed to any reference geometries or structural information. In this role, QM7 provides an exhaustive enumeration of chemically feasible molecular formulas up to seven heavy atoms for the chosen element types, defining a well-controlled domain for studying composition-generalizable, purely online reinforcement learning in 3D. We find that this set already provides sufficient compositional diversity to learn the desired multi-bag behavior. Since all such formulas are enumerated at this scale, explicitly generating compositions on-the-fly, such as the stochastic bag sampling employed in Simm et al. (2021), is unnecessary. Moreover, restricting to this regime enables reliable evaluation against known isomer spaces without   
+
+> 2Notice that "formula" and "bag" are used interchangeably throughout this article, as they carry the same physical meaning. So, to clarify, a bag set ,B, is simply a collection of chemical formulas. Similarly, to describe how our agent generalizes across chemical formulas, we use words such as "multi-bag", "multi-composition", "stoichiometry-agnostic", etc., depending on the context.
+
+4the ambiguity and computational overhead that would arise for substantially larger datasets such as QM9 (Ruddigkeit et al., 2012; Ramakrishnan et al., 2014). In practice, training rollouts are performed synchronously by a collection of Nw workers, each endowed with a uniquely randomized iterable of the bag set Bw = permutation w(B). When worker 
+
+w has generated a molecule for a particular bag (or failed to do so), it simply proceeds to the next bag in its bag set. 
+
+Autoregressive molecule sampling The molecule construction process is framed as a sequential decision-making task, where, after sampling an initial bag of atoms B0, an agent iteratively selects and places atoms in 3D space to incrementally build the molecule. In RL terms, the agent observes the state st = ( Ct, Bt) consisting of the current molecular canvas Ct (i.e. the molecule built so far) and the remaining atom bag Bt. The agent’s action at = ( et, x t) involves choosing an atom 
+
+et ∈ B t and assigning its 3D position xt ∈ R3 leading to the deterministic transition to the next state 
+
+st+1 = ( Ct+1 , Bt+1 ), where 
+
+Ct+1 = Ct ∪ { (et, x t)}, Bt+1 = Bt \ { et}.
+
+This process continues until the bag is empty and a complete molecule CT has been formed. The distribution over molecules constructed in this autoregressive process is given by 
+
+p(CT |B 0) =  
+
+> T−1
+
+Y
+
+> t=0
+
+πθ (at|st), (1) where πθ (at|st) is the agent’s probabilistic policy governing the placement of atom et at position xt,given the current molecular state st. This formulation captures the conditional nature of molecule construction starting from the initial bag B0.Notably, in this environment, the agent must implicitly learn to construct valid molecules, as no explicit validity constraints are imposed during generation. Also, atoms are sampled without replace-ment, and their positions remain fixed after placement. The randomness in the generation process comes solely from the agent’s policy, as the environment transitions are fully deterministic. As such, the molecule-building task can be formulated as a fully observable, finite-horizon Markov Decision Process (MDP) with a hybrid discrete-continuous action space, where the episode length is determined by bag size. 
+
+Reinforcement Learning objective The agent’s stochastic policy πθ (at|st) is optimized in search of the optimal parameters θ that maximize the expected discounted sum of future rewards (known as 
+
+return ) from any given state, 
+
+V π (st) = Eπθ
+
+" TX
+
+> t′=t
+
+γt′
+
+r(st′ , a t′ )
+
+#
+
+, (2) where γ ∈ (0 , 1] is the discount factor and r(st, a t) is the reward received at time step t for taking action at in state st. So starting with an empty canvas at t = 0 , the agent must learn to maximize 
+
+J(θ) = Es0∼μ0 [V π (s0)] with μ0 denoting the distribution over bags. 
+
+A new terminal reward structure In RL, reward design is often the single most critical factor determining success or failure. Whereas the original M OL GYM frameworks use per-step rewards as shown in Box 2.1b, we train agents which only receive reward at the terminal state, i.e. when the molecule is completed (Box 2.1a). These rewards are determined based on quantum mechanical energies computed with the semiempirical method GFN2-xTB (Bannwarth et al., 2019) and chemical valency checks via xyz2mol (Kim and Kim, 2015). GFN2-xTB provides a favorable balance between computational efficiency and physically grounded energy estimates, enabling the large number of energy evaluations required for online reinforcement learning. Policy-gradient reinforcement learning does not require perfectly calibrated reward magnitudes; rather, the reward signal primarily needs to correlate with the underlying objective so that lower-energy configurations receive higher rewards on average. Previous studies have shown that GFN2-xTB does preserve relative energy rankings for organic molecules in many cases (Seumer et al., 2023), making it well suited to guide exploration of molecular configuration space within the QM7-derived organic domain considered here. Furthermore, the use of a physics-based energy evaluation avoids additional modeling assumptions introduced by 5learned neural surrogate models. Note that all molecular and atomic reference energies entering the atomization reward are computed consistently within the same GFN2-xTB framework. In practice, the calculations correspond to the default electronic states of the respective species within the method (closed-shell singlet molecules and the ground-state configurations of isolated atoms). Since the reinforcement learning objective relies primarily on consistent relative energy ranking rather than absolute thermochemical accuracy, this choice provides a stable and internally consistent reward signal for the organic systems considered here. The choice of terminal rewards stems from the fact that the temporal structure of our RL episodes is an artificial construct, introduced solely to enable the factorization of the agent’s molecular sampling policy (Eq. (1)), and the intermediate molecular states {C t}t<T visited during the episode are not necessarily chemically or energetically meaningful. To prevent training from being obscured by misleading or noisy signals from these partial, often non-physical intermediates, we introduce new terminal rewards that are only queried once the molecule is fully constructed, as shown in Box 2.1a. The validity reward presented here was introduced to stabilize learning under the stochastic con-struction policy. Because atomic coordinates are sampled with exploration noise and without prior knowledge of optimal geometries, intermediate distortions can lead to artificially high energies even for otherwise chemically sensible bonding patterns. The validity term therefore provides a geometry-agnostic structural signal that encourages chemically consistent connectivity before ener-getic refinement. This operational definition of validity reflects the valence conventions encoded in xyz2mol/RDKit and is therefore most appropriate for the organic chemistry regime considered here. It should not be interpreted as a universal chemical validity criterion for systems with non-standard bonding patterns (e.g., many organometallic or inorganic complexes). Importantly, this limitation arises from the specific validity signal used in the AV/AFV reward formulations rather than from the underlying reinforcement learning framework itself. 
+
+Box 2.1a: Terminal Rewards (ours) 
+
+In this work, we introduce the following two terminal rewards: • Atomization energy ( A): This reward is based on the negative difference between the potential energy of the final molecule CT and the sum of potential energies of each of its constituent atoms in isolation: 
+
+∆E =
+
+> T
+
+X
+
+> t=1
+
+E(et)
+
+!
+
+− E(CT ), rA(sT ) = 
+
+∆E + 12 (∆ E)2 if ∆E > 0,
+
+∆E if ∆E < 0, (3) where ∆E is the binding strength (positive is better) and the polynomial transforma-tion provides extra resolution around high scoring molecules, as this allows the agent to differentiate between "good" and "really good" molecules. • Validity ( V): A boolean validity check based on whether the generated 3D structure can be successfully converted into a chemically consistent molecular graph using the 
+
+xyz2mol procedure, which infers bond connectivity and bond orders from Cartesian coordinates and returns an rdkit Mol object (Landrum, 2024): 
+
+rV (sT ) = 
+
+1 if CT is a valid molecule ,
+
+0 else . (4) A structure is counted as valid if (i) the xyz2mol conversion succeeds, (ii) the resulting molecule forms a single connected component (i.e., is not fragmented), and (iii) no atom carries a formal charge. 
+
+Box 2.1b: Baseline Reward 
+
+For comparison, the M OL GYM baseline used the following reward: • Per-step Formation energy ( F): In contrast to the terminal reward, reward can be assigned at every step throughout the episode and is given by the negative difference in energy between the resulting molecule Ct+1 and the sum of energies of the previous 6molecule Ct and a new atom of element et
+
+rF (st, a t) = ( E(Ct) + E(et)) − E(Ct+1 ), t = 0 , ..., T − 1. (5) 
+
+Penalization of unrealistic molecules Whenever an atom is positioned unphysically close to any existing canvas atom, the episode is terminated prematurely and the agent receives a fixed failure penalty Rkill . In the current implementation, termination is triggered when any interatomic distance falls below a fixed, element-independent threshold. This deliberately simple cutoff provides a robust safeguard against catastrophic overlaps while avoiding additional element-specific heuristics in the environment; nevertheless, a more chemically resolved alternative would define atom-type–dependent exclusion radii from van der Waals or covalent radii to better reflect steric differences across elements. This use of early termination of unpromising rollouts combined with purely terminal rewards (at-omization and validity) can cause an untrained agent to struggle to obtain any reward whatsoever. Following standard practice in sparse-reward reinforcement learning, we therefore include a small constant positive per-step shaping reward to incentivize reaching the end of the episode, at which point the energy- and validity-dependent terminal reward is evaluated, although in principle this shaping term is unnecessary when Rkill < 0 and the discount factor satisfies γ < 1.
+
+2.2 Experiments 
+
+Figure 2 illustrates our training and evaluation scheme. Through linear combinations of the 3 fundamental reward components ( A, V, F) introduced in Box 2.1(a+b), we define 5 distinct reward functions A, AV , F, FV , and AFV , each corresponding to a separate agent that is trained independently three times using different random seeds (the linear coefficients are shown in Table 3 in the Appendix). Generally, our analysis places particular emphasis on the agents A and AV , as these incorporate our newly proposed terminal rewards A and V. Specifically, we address the following research questions: • Q1: Comparison to previous work. How do our agents ( A & AV ) perform in comparison to previous work in online molecular discovery in 3D? This initial experiment evaluates their discovery capabilities in the single-bag generation paradigm where baselines are available. • Q2: Generalization ability. Which reward functions generalize to our multi-bag setting and to out-of-sample (unseen chemical composition) generation in particular? Here we broaden the evaluation scope relative to Q1 by aggregating results across a random held-out split of bags represented in QM7 (see Fig. 2b), enabling a comprehensive comparison of reward signals at various stages of training. • Q3: Exploration of chemical space. Did our tabula rasa agents rediscover the molecules from the QM7 reference dataset? Did they go beyond and even expand on this dataset? Here we will interpret the training run as a discovery campaign and examine the complete pool of molecules obtained. • Q4: Property-directed finetuning. Can the energy guided multi-bag agent be finetuned toward a specific molecular property — here the dipole moment — as a proof-of-concept for targeted molecular discovery? 
+
+Figure 2: Overview of experiments. (a) Agents are defined in terms of the reward functions with which they are trained. (b) Training data comprises 156 QM7 bags, with 20 remaining bags held out for evaluation. During training (green) we save 4 checkpoints for each seed and perform out-of-sample evaluations (blue) for all checkpoints (5 agents, 3 seeds, 4 ckpts ⇒ 60 evaluations in total). 7While Sections 2.3, 2.4 and 2.6 ( Q1 +Q2 +Q4 ) focus on evaluating single checkpoints, Section 2.5 (Q3 ) examines agent performance throughout the entire training process. Despite these differences in evaluation scope, all sections are based on the same training runs visualized in Fig. 3. Notice that agent 
+
+A, which is trained solely with an energy-based terminal reward, consistently generates chemically valid molecules, with approximately 85% validity during training rollouts (and >90% validity on the 20 out-of-sample evaluation formulas presented in Section 2.4, Fig. 5). This demonstrates that Agent A’s discovery of lower-energy isomers is not driven by the systematic generation of chemically non-viable structures. 
+
+Figure 3: Learning Curves (in-sample). (a) Validity and (b) unrelaxed Relative Atomic Energy (RAE) of continuously collected training rollouts, plotted against total number of single-atom placements (environment steps). The RAE metric quantifies the excess energy relative to the average energies of QM7 molecules with the same chemical formula (see page 26 for detailed metric definitions). Shading represents ±1 standard deviation between the 3 seeds. Notably, our newly introduced terminal reward terms, A and V, enable significantly more stable training dynamics. 2.3 Q1: Comparison againts previous work - Single-bag discovery task 
+
+Table 1: Q1: Single-bag discovery. Our AV agent outperforms previous work (numbers taken from Simm et al. (2021)) by discovering an order of magnitude more valid isomers for evaluation bags 
+
+beyond its training set. In contrast, the baseline agents were trained explicitly on the presented bags. 
+
+Training type: Single-bag training (on eval bag) QM7 multibag 
+
+Collection type: Cumulative argmax × 10 seeds Single CP stochastic 
+
+Bag: \ Agent: INTERNAL COVARIANT A (ours) AV (ours) 
+
+IN QM7 C3H8O 4† 8† 3.0 ± 0.0 3.0 ± 0.0 (TRAIN ) C4H7N 18 25 13.0 ± 0.8 36.7 ± 1.3  
+
+> BEYOND
+
+C3H5NO 3 35 65 49.0 ± 7.5 544 ± 46 
+
+QM7 C7H10 O2 21 85 198.0 ± 24.9 808 ± 122  
+
+> DATASET
+
+C7H8N2O2 58 118 145.7 ± 39.7 1213 ± 212 
+
+> †
+
+C3H8O is a small and fully saturated chemical formula and we only see 3 feasible positions for an oxygen atom on a 3-membered carbon chain: an OH group on the first carbon atom, an OH group on the central carbon atom, or an O between carbon atoms 1 and 2. Since both baseline agents reportedly discovered strictly more than 3 isomers without providing code for their uniqueness check, we suspect their numbers are mistakenly reported in all 5 cases, which only further emphasizes the improved discovery capabilities of our approach. We adopt the evaluation protocol from Simm et al. (2021), counting the number of valid constitutional isomers 3 discovered by our agents ( A and AV ) when deployed on a single bag. Table 1 compares our results with those reported in prior work. Notably, although AV is not explicitly trained on certain   
+
+> 3Isomer counts are determined following the standard convention: unique SMILES strings are generated using RDKit (Landrum, 2024), expressed in canonical form, and exclude isomeric information. Canonical SMILES is agnostic to the atom indexing. Tautomers are treated as distinct structures, whereas stereochemical variants are not differentiated. Thus, uniqueness is defined purely by the molecular connectivity graph. Note that InChI/InChIKey identifiers can be a complementary representation for database-level comparisons but were not used in this study.
+
+8formulas, it consistently discovers up to an order of magnitude more constitutional isomers than baseline agents on the last three formulas that exceed the scope of QM7, containing more than seven heavy atoms. In contrast, the A agent performs comparably to the baselines in terms of isomer count. 
+
+Figure 4: Q1 visualizations. Histograms of formation energy per atom (center column) together with top 3 best scoring molecules (lowest energy) after structural relaxation for Agent A on the left and Agent AV on the right. Agent A samples molecules of significantly lower energies. 
+
+In Fig. 4, we visualize the high reward molecules, ranked by formation energy per atom after structural relaxation, and compare their energy distributions in the center column. While the AV excelled in breadth of discovery, the A agent - trained solely with energy-based rewards - tends to sample molecules with significantly better formation energies. While the discovery statistics in Table 1 highlight the effectiveness of our training setup, reward formulation, and data collection strategy, it is important to note several key differences between our approach and the baseline methods: 
+
+Baselines: The INTERNAL and COVARIANT agents from M OL GYM use a single-bag training paradigm. This is a costly approach that requires a separate training run for each conceivable molecular formula (bag). Additionally, the discovered isomer count is aggregated over 10 independent runs using different seeds. The molecules used for isomer counting are collected throughout the training (referred to here as cumulative data collection), and the molecules are always generated by selecting the most likely action (i.e. arg max {at} πθ (at|st)), resulting in just a single molecule at every checkpoint during training, thus relying solely on the gradual drift of the agent policy to achieve diverse sampling. 
+
+Proposed scheme: We adopt a multi-bag training strategy, using compositions derived from molecules in the QM7 reference dataset, and evaluate discovery performance on the same test bags used by the baseline methods. Unlike the baselines however, we report results based on molecules sampled stochastically from the learned agent policy at a single checkpoint (CP). Concretely, we use the third checkpoint—taken after 15 million training steps—and sample 10,000 molecules per random seed for each test-time formula listed in Table 1 and Fig. 4. 9While RL policies may evolve over training, we find that the reported discovery count statistics are not highly sensitive to checkpoint selection. In particular, the multi-bag aggregated evaluation in 2.4 (Q2) shows consistent performance across checkpoints for all successfully trained agents, indicating that the single-checkpoint results reported here are representative. 
+
+2.4 Q2: Reward term comparison - Multi-bag aggregated evaluation 
+
+While the previous experiment demonstrated the superior discovery capabilities of our agents, a much broader evaluation scheme is necessary for a robust comparison of reward signals. To achieve this, we carry out the experiment that was outlined in Fig. 2b (blue). Here, we aggregate results from a random split of 20 holdout formulas in the QM7 dataset, offering a more comprehensive assessment compared to single-bag evaluation. For each test bag Bi, i = 1 , 2, ..., 20 we now sample Ni = P · N ref  
+
+> i
+
+molecules, where N ref  
+
+> i
+
+is the number of isomers in the reference dataset for Bi, and P = 100 is a proportionality factor. This scaling ensures that the number of sampled molecules reflects the expected isomer diversity for each bag. In practice this corresponds to several thousand sampled molecules per formula, which we found sufficient for stable discovery statistics while keeping evaluation computationally tractable. The results, including standard deviations across three seeds, are presented in Fig. 5. Note that to obtain these metrics we first calculated these statistics for each bag individually and then aggregated across all hold-out bags using a weighted average according to Ni.
+
+Figure 5: Q2: Out-of-sample agent comparison. We report discovery metrics (top row) and geometry metrics (bottom row) in the multi-bag evaluation setting outlined in Fig. 2b (see page 26 for detailed metric definitions). Each point reflects a weighted average across 20 test bags. Error bars denote standard deviation across three random seeds. Results show that agent A consistently outperforms on 3D metrics, while AV and AFV perform identically—highlighting the redundancy of F in our setup. Agent F fails to discover valid molecules due to excessive intra-episode rewards. Flat rediscovery and expansion metrics suggest no mode collapse, but agents fail to turn this into continued improvement toward more stable molecules. From Fig. 5 we make the following observations: • >90% validity for agents that use either A or V, with only FV being slow to reach these levels. This level of validity is more than sufficient in an online reinforcement-learning context, where exploratory actions are essential for discovery and perfect validity would likely reflect overly conservative policies. Despite these high validities, we note that only 
+
+60% − 70% of the generated molecules were "Relax Stable" (bottom right), meaning that relaxation did not alter the geometries significantly enough to change their bond connectivity and thus their SMILES representation. • Agent A dominates on 3D metrics (same as Q1). This confirms our observation from 
+
+Q1 that the terminal atomization energy signal, A, best facilitates discovery of low energy 10 structures. In fact, not only is it better than all other agents across all checkpoints, it is also better than the molecules present in the QM7 reference dataset on average .• Agent F does not learn to create valid molecules. The per-step formation-energy reward provides strong local signals at each atomic placement, encouraging the agent to greedily stabilize intermediate structures without considering whether the resulting partial geometry can ultimately yield a chemically valid molecule once the bag is exhausted. Because valid molecules are only evaluated at the terminal state, these strong intra-episode rewards effectively bias the agent toward locally favorable but globally inconsistent construction strategies, preventing successful completion of full molecules. • AV and AFV perform identically. This shows that the per-step formation energy, F, is a redundant signal in our setup and does not contribute significantly to justify the increase in energy queries within each episode. • Relaxed energy metrics don’t improve (rRAE). While the raw energies of the generated molecules do improve during training (not shown here), this effect is washed out upon relaxation as shown in the rRAE plot. Despite the generated molecules becoming less noisy, as seen from the RMSD and Relax Stability curves, the agents’ abilities to select low-energy isomers appears stagnant. And while it seems positive that the RMSD continues decreasing throughout training, this is merely a bi-product of the gradual narrowing of the width of the univariate Gaussians in their action policies from Eq. (6) (recall that in order to facilitate exploration, the agents add Gaussian noise to the three spherical coordinates (r, α, ψ ) as they sample the 3D position of the new atom). This narrowing improves geometric precision but does not alter the underlying isomer connectivity and therefore does not change the relaxed energy ranking. • Rediscovery & Expansion metrics are flat. On the positive side, this means that the agents don’t display severe mode collapse, which would cause these numbers to decrease during training. The sustained discovery is likely a consequence of the entropy regularization term (Eq. (12)) on the two discrete actions that ultimately determine the connectively and hence the SMILES object. Furthermore, while Agent A excels at discovering lower-energy conformations, its main trade-off relative to AV is reduced structural diversity rather than chemical viability. The strong energy bias of agent A favors a narrower subset of low-energy isomers, whereas AV balances energy optimization with broader exploration. 
+
+2.5 Q3: Chemical space exploration - Training as a discovery campaign 
+
+In the previous experiments, we evaluated agent performance based on stochastic rollouts from a single checkpoint - a simple and general scheme widely used in generative modeling (e.g., supervised distribution learning) - but one that overlooks the evolving nature of an RL agent’s policy and introduces arbitrariness due to checkpoint selection. To fully leverage this behavioral drift over the course of training, we instead store every molecule generated in a cumulative storage buffer as illustrated in Fig. 1 (blue), which allows us to track the discovery process across time. The cumulative discovery campaign is summarized in Fig. 6. During training, each agent discovers between 10,000 and 45,000 unique SMILES strings across the 156 training formulas (Fig. 6a). For comparison, the QM7 training subset contains only 6,465 molecules, so the number of generated molecules far exceeds the number of known reference structures. This relationship is captured by the expansion ratio shown in Fig. 6c, quantifying how many novel molecules the agent generates relative to the original QM7 set. To assess the agent’s ability to reproduce known chemistry, we also count how many of the original QM7 molecules were rediscovered during training (Fig. 6b), with final rediscovery statistics shown in Fig. 6d. The rediscovery curves clearly plateau, indicating that further training does not yield additional rediscovered molecules. This plateau behavior across agents raises an important question: 
+
+Are there particular molecular substructures that our agents systematically fail to learn or explore? 
+
+To investigate this, we analyze the rediscovery performance of our two most promising agents, A
+
+and AV , by comparing the sets of rediscovered molecules to the full QM7 training subset. We first pool rediscoveries across all three seeds to ensure robust statistics. Then, using the exmol package 11 Figure 6: Q3. Cumulative discovery campaign. (a) Number of novel SMILES discovered during training. (b) Number of QM7 SMILES rediscovered. (c)-(d) Total expansion and rediscovery relative 
+
+to the size of QM7. Although the agents are able to discover many novel molecules and expand on the QM7 dataset by several multiples, their rediscovery ratios are remarkably consistently capped around 40% , thus indicating a subclass of molecular structures inaccessible to our RL agents. (Gandhi and White, 2022), we extract the most frequent functional groups in QM7 and compare their occurrence in rediscovered molecules vs. the full dataset. The results are shown in Fig. 7 where several key trends emerge. Among the most strongly underrepresented functional groups, we find • Heterocycles and aromatic systems (e.g., heterocyclic , heteroaromatic , aromatic , an-nelated rings ): These involve complex ring topologies and delocalized bonding, which are difficult to construct via sequential atom placement. • Strained and fused rings (e.g., cyclopropane , cyclobutane , cyclopentane , bridged rings ,
+
+nH aziridine ): Geometrically strained or topologically complex rings are less favored due to their instability and the precise coordination required to assemble them. • Heteroatoms and functionalized amines (e.g., hetero N nonbasic , hetero S , hetero O ,
+
+amine , primary/secondary aliphatic amine , oximether ): These groups introduce electronic and geometric diversity, making them harder to learn and reproduce, especially when their placement significantly affects molecular stability. In contrast, several functional groups are overrepresented, indicating that the agents preferentially discover molecules with these features: • Simple alkyl groups (e.g., methyl , ethyl , n-propyl , iso-propyl , primary carbon ): These groups are structurally simple and frequently encountered in organic molecules, making them easy for the agent to generate and overrepresented in the rediscovered set. • Carbonyl-containing groups (e.g., carbonyl , amide ): These planar, well-defined functional groups may be favored by the energy model used during training, and are commonly found in stable molecules. • Unsaturated hydrocarbons (e.g., alkene ): These motifs are structurally simple and ener-getically favorable, leading to their frequent appearance in generated molecules. Overall, these observations suggest that the agent’s discovery policy is biased toward constructing small, aliphatic, and less topologically complex fragments. Meanwhile, more exotic, strained, or electronically diverse motifs are significantly underexplored. Finally, in Fig. 8, we examine the distribution of formation energies for the rediscovered molecules. Despite recovering less than 50% of the QM7 training set, both agents preferentially rediscover molecules with lower-than-average (i.e., more negative) formation energies. Notice again that this comparison is restricted to molecules within QM7, despite the agents having vastly expanded beyond it. 12 Figure 7: Functional group analysis. Normalized frequency difference of the 50 most common functional groups in the QM7 dataset between rediscovered molecules and the full QM7 reference set. To avoid rare functional groups dominating the extremes of the distribution, we report the normalized frequency difference ˜∆if = ( f i 
+
+> RL
+
+− f i
+
+> QM7
+
+)/
+
+q
+
+f i 
+
+> QM7
+
+where f i 
+
+> D
+
+denotes the fraction of molecules in dataset D that contain at least one instance of functional group i. Each molecule contributes at most once per functional group, regardless of fragment multiplicity within the same molecule. Positive values indicate overrepresentation in the rediscovered set relative to QM7, while negative values indicate underrepresentation. 
+
+2.6 Q4: Property-directed finetuning 
+
+Liquid electrolytes are a critical component of lithium-ion batteries, where the ability of the solvent to dissolve lithium salts—governed in part by its dielectric constant—directly influences electrochemical performance. The molecular dipole moment is a key contributor to the dielectric response of a solvent, and carbonate-based solvents such as ethylene carbonate (EC) and propylene carbonate (PC) are favored in part due to their high dipole moments and correspondingly high dielectric constants. Discovering novel isomers of electrolyte-relevant molecular families with enhanced dipole moments could therefore be a useful proxy objective in the search for next-generation electrolyte solvents. 
+
+Training To demonstrate that our framework can be directed toward such a practically relevant objective, we performed a finetuning experiment in which a pretrained A agent checkpoint (taken at 13 15 million environment steps, corresponding to the third checkpoint used in Q1 ) was further trained with an additional dipole moment reward term. We deliberately finetune the energy-only agent (A) rather than AV , as thermodynamic stability is a primary design criterion for battery electrolyte solvents — candidate molecules must remain chemically intact across wide electrochemical potential windows and over repeated charge-discharge cycles. This contrasts with applications such as drug discovery, where broader structural exploration may be prioritized over strict energetic stability, making the validity-augmented agent (AV) a more natural starting point. The dipole moment 
+
+Figure 8: Rediscovery energy distributions. The figure shows the formation energy distribution of all QM7 training molecules (grey), together with the energy distribution of rediscovered molecules for the two agents A and AV , with mean values shown vertically. Despite rediscovering less than 
+
+50% , the RL rediscovered energies are actually better (more negative) than the QM7 average. 
+
+Figure 9: Q4. Property-directed finetuning. (a) Validity and (b) dipole moment magnitude of training rollouts during finetuning, plotted against environment steps. A reward coefficient schedule gradually introduces the dipole moment reward alongside the existing atomization energy term. The red cross marks the evaluation checkpoint selected prior to significant validity collapse. (c) Relaxed dipole moment distributions for the pre- and post-finetuning agents on the two formulas where finetuning improved performance (H4C3O3 and H6C4O3), together with the top 3 highest-dipole molecules discovered by each agent. 14 magnitude, computed via GFN2-xTB , was incorporated as a scalar reward to be maximized alongside the existing atomization energy reward, requiring no modification to the underlying environment or policy architecture. To avoid destabilizing the critic, which must remain calibrated to predict total episode returns, we introduced a reward coefficient schedule that linearly ramps the dipole moment coefficient from 0 to 2 over 2,500 training iterations, corresponding to approximately 1.28 million environment steps. This is equivalent to the full x-axis in Fig. 9(a+b) which illustrate the finetuning dynamics. The dipole moment of generated molecules increases steadily throughout finetuning, confirming that the agent successfully learns to optimize for this new objective. However, chemical validity degrades sharply as finetuning progresses, eventually collapsing almost entirely. We attribute this to the dipole moment reward dominating the atomization energy signal at later stages of finetuning; a more conservative reward coefficient cap would likely mitigate this issue. The post-finetuning evaluation checkpoint was therefore selected prior to significant validity collapse (red cross in the figure). 
+
+Evaluation We evaluated the finetuned agent on a set of 10 carbonate and ether formulas represen-tative of known battery electrolyte solvents, sampling 500 molecules per formula from both the pre-and post-finetuning checkpoints and performing structural relaxation on all generated structures. For 2 out of 10 formulas (H4C3O3 and H6C4O3, corresponding to ethylene carbonate and propylene carbonate), the finetuned agent discovered molecules with notably higher dipole moments than the baseline agent, as shown in Fig. 9(c). Complete evaluation results for all 10 formulas are provided in Appendix C. These results serve as a proof-of-concept that the proposed RL framework can be directed toward technologically relevant molecular discovery objectives through reward finetuning alone. In a more complete materials discovery pipeline, the dipole moment reward could be complemented by additional objectives such as electrochemical stability window, viscosity proxies, or synthetic accessibility scores, enabling multi-objective optimization across competing electrolyte design criteria — all within the same terminal reward formulation and without modifying the underlying environment or policy structure. The observed validity degradation at later finetuning stages highlights the importance of careful reward coefficient scheduling in multi-objective settings. A thorough investigation of such trade-offs is beyond the scope of the present study; we refer the reader to the broader multi-objective reinforcement learning literature for best practices in balancing competing reward signals (Hayes et al., 2022; Dai et al., 2023). 
+
+# 3 Discussion 
+
+We presented AtomComposer, an autoregressive, multi-composition reinforcement learning (RL) agent for 3D isomer discovery, trained purely online across a large set of molecular formulas derived from the QM7 dataset. This represents a significant advancement over composition-specific RL agents for 3D structure discovery that have been developed in recent years. Our method enables, for the first time, the autonomous exploration of broad chemical spaces without reliance on curated datasets, paving the way for serendipitous molecular discoveries. Beyond improved quantitative performance, the present work represents a conceptual shift from previous MOLGYM-style approaches: although we build upon the same actor–critic backbone, the learning objective and training regime are fundamentally restructured rather than merely reweighted or retuned. In particular, the shift from per-step formation-energy rewards to purely terminal reward evaluation fundamentally alters the credit-assignment structure of the task. In the original formulation, intermediate energy differences guide local atomic placements, encouraging myopic improvements that do not necessarily support coherent full-molecule assembly. In contrast, our terminal reward scheme requires the agent to plan across the entire episode horizon, as reward is obtained only once the complete molecular structure has been constructed. This transforms the learning problem from incremental local stabilization into a genuinely global structure-generation task. Furthermore, the explicit integration of chemical validity into the terminal reward does not act as a post hoc filter, but reshapes the effective reward landscape during learning. While the energy-only agent (A) already produces a high fraction of valid molecules—since grossly unphysical structures tend to incur large energetic penalties—the validity term plays a distinct role. By providing a geometry-agnostic structural signal, it reduces the risk that moderate spatial noise obscures chemically meaningful configurations through overly harsh energy penalties. As a result, validity shaping supports broader 15 exploration of structurally diverse isomers, rather than restricting the policy to a narrow subset of extremely low-energy configurations. The observed failure of the purely per-step agent (F) in our multi-bag evaluation highlights that intermediate reward shaping does not merely introduce noise, but can actively impede the coordinated long-horizon planning required for valid molecule completion. Our method used smaller learning rates, higher entropy coefficients, and a multi-bag training scheme that improved chemical and geometric diversity to achieve generalization unlike previous meth-ods. Crucially, the introduction of multi-composition training changes the learning regime from composition-specific optimization to policy generalization across stoichiometries. Whereas single-bag agents learn a construction strategy tailored to one predefined formula, our agent must develop transferable placement heuristics that operate across diverse chemical compositions. These design choices prevented premature convergence to locally optimal policies and enabled broader exploration of molecular space. As a result, the agent learned to generate a diverse set of valid isomers—even for unseen formulas—and significantly outperformed single-bag agents. Notably, we found that terminal rewards yielded more stable learning than per-step rewards, despite common assumptions favoring the latter for improved credit assignment. This likely stems from the chemical implausibility of intermediate structures in an autoregressive construction process, which renders stepwise energy signals noisy or misleading. However, a major limitation of terminal rewards—and of the current RL formulation more broadly—is the sparse and delayed nature of the learning signal, which leads to inefficient training and diminishing returns with extended optimization. These effects point to a fundamental scalability bottleneck in the present setup. This scalability bottleneck is not accidental, but rather reflects a deliberate tradeoff in the present study. Specifically, we restrict the agent to a fixed atom-bag formulation, such that each episode terminates only once all atoms in the bag have been placed. While this strictly atom-by-atom construction process limits flexibility, it enables a well-defined task with an exhaustively characterizable reference space, which is essential for quantitatively assessing discovery, rediscovery, and expansion in a tabula rasa reinforcement-learning setting. A natural extension of the present AtomComposer formulation would be hybrid reward shaping, in which intermediate rewards are provided only when partial structures satisfy coarse chemical plausibility constraints (e.g., bond consistency or steric feasibility), thus yielding a potentially more sample efficient hybrid between AtomComposer (terminal rewards) and M OL GYM (per-step rewards). However, even chemically informed intermediate rewards do not address the fundamental constraint of the current AtomComposer setup; the strictly append-only and irreversible construction process. While reward shaping may guide local decisions, it does not permit correction of earlier suboptimal placements once committed. The irreversible nature of the current action space prevents the agent from revising or removing poorly placed atoms. As a result, partially constructed molecules that contain suboptimal early decisions cannot be recovered, forcing the agent to abandon potentially high-reward rollouts and restart from scratch. This limitation becomes increasingly restrictive for larger systems and helps explain both the observed plateau in rediscovery rates and the systematic under-representation of topologically complex motifs such as aromatic and heterocyclic rings. These challenges are further compounded by a fundamental tradeoff between exploration and validity. While stochastic spatial noise is essential for promoting diversity and escaping local optima, energy-based reward signals are highly sensitive to geometric perturbations, such that excessive noise degrades both chemical validity and reward fidelity. From a computational perspective, longer episode horizons, sparser rewards, and increasingly costly quantum chemical evaluations collectively limit scalability to larger molecules and materials systems. Addressing these issues will require more flexible and expressive action spaces and representations, such as reversible or graph-level editing operations, fragment- or motif-based construction schemes, and policy parameterizations that reduce reliance on raw spatial noise. Complementary strategies, including mechanisms to discourage structural redundancy across rollouts or the incorporation of pretrained components that are subsequently refined through online interaction, could also substantially improve sample efficiency. Especially when extending the framework to broader element sets beyond QM7, a practical direction is to initialize atom-type representations using pretraining on less open-ended objectives, such as property prediction or offline RL constructed from existing molecular datasets, and subsequently refine them through online interaction. Such approaches would allow chemically meaningful atom embeddings to be acquired in a data-efficient manner, while still allowing the full 3D construction policy to be optimized purely through terminal reward signals. Together, these directions provide clear 16 pathways toward broader and more efficient coverage of complex chemical spaces, while preserving the principled, first-principles nature of the proposed RL framework. As discussed in the Methods Section 4.1 ( Hierarchical action scheme ), the current policy samples the internal spherical placement coordinates using a factorized parameterization, which limits its ability to explicitly represent correlated geometric relationships between atomic positions. This design choice favors a minimal and scalable action space, but constrains the expressiveness of atom-by-atom placement decisions, particularly for topologically complex or highly coordinated motifs. Importantly, overcoming this limitation does not require imposing empirical chemical rules or bond statistics; rather, increasing policy expressiveness—through jointly or conditionally parameterized spatial actions, reversible placement operations, or higher-level construction primitives—would allow such correlations to be learned directly from terminal reward signals while preserving the generality and first-principles nature of AtomComposer as a scalable platform for autonomous chemical discovery. A design choice in our formulation is that the agent explicitly places all atoms, including hydrogens, as it operates directly on 3D atomic point clouds without predefined bond orders. While many cheminformatics pipelines generate heavy-atom backbones first and subsequently add hydrogens using standard valence rules, such approaches rely on explicit bond type information and are therefore not directly compatible with our setting. Incorporating explicit bond information could enable post-hoc hydrogen placement and reduce the action-space complexity, and we leave this as an interesting direction for future work. As demonstrated in Section 2.6 ( Q4 ), the modular and terminal reward formulation adopted here is naturally extensible to property-directed molecular discovery. The dipole moment finetuning experiment shows that additional property-based objectives can be incorporated alongside stability without altering the underlying environment or policy architecture. More ambitious objectives— such as solubility, toxicity, or synthetic accessibility—could be incorporated in the same manner, supporting future exploration of trade-offs between competing molecular objectives. 
+
+# 4 Methods 
+
+4.1 Agent policy Hierarchical action scheme We parametrize the agent’s neural network policy following the 
+
+internal agent structure in previous work Simm et al. (2020), where at each decision step the agent breaks its action up into a hierarchical cascade of subactions, with each selected subaction being explicitly used as condition for the following. The three subactions are as follows: • a) selection of focal atom on the current canvas, around which a new atom will be placed, • b) selection of an element from the remaining bag, • c) 3D placement of the new atom using a spherical coordinate system (d, ψ, α ), where the coordinate axes are derived from distance vectors from the focal atom to - and among - its nearest neighbors. In summary, the total agent policy is represented by the following factorization 
+
+πθ (d, α, ψ, e, f |s) = p(d, α, ψ |e, f, s )p(e|f, s )p(f |s), (6) where the element e and focal atom f are sampled from categorical distributions and each of the coordinates (ψ, α, d ) (which together define a unique mapping to a 3D location for the new atom) are sampled from continuous distributions (univariate Gaussians). While not immediately evident from the equations above, we must highlight the following potential conceptual flaws in the specific code implementation of this policy: • a) The 3D position distribution p(d, α, ψ |e, f, s ) from Eq. (6) actually imposes an assump-tion of independence between the internal spherical coordinates: 
+
+p(d, α, ψ |e, f, s ) = p(d|e, f, s )p(α|e, f, s )p(ψ|e, f, s ), (7) since these variables are sampled independently rather than sequentially with mutual condi-tioning. 17 • b) Even an infinitesimally small change in atomic positions can cause permutations in the nearest-neighbor ordering, thereby altering how prediction spherical coordinates (ψ, α, d )
+
+map to Cartesian canvas space. In combination, these issues limit the agent’s ability to make intentional and coordinated placement decisions with predictable outcomes. However, despite their potential significance, we proceed with this baseline implementation and leave the development of mitigation strategies for these policy limitations to future work. 
+
+Backbone message passing Instead of the invariant backbone (Schütt et al., 2017) used in the baseline work Simm et al. (2020), we use its equivariant counterpart (Schütt et al., 2021), which additionally propagates vectorial features through its message-passing layers. Although the spatial actions themselves only need rotational invariance , given the nearest-neighbor-based internal co-ordinate system, invariant GNN architectures are known to have limited spatial and orientational awareness compared to equivariant architectures. This limitation has been underscored in subsequent work (Simm et al., 2021) that demonstrated that equivariant architectures more effectively capture geometric relationships. Thus, enhancing the message-passing backbone by adopting the equivariant PAI NN architecture is well justified. Note, however, that within the neural network computation graph, the agent’s spatial subactions (d, α, ψ ) remain dependent exclusively on the invariant scalar tensor outputs rather than directly utilizing equivariant vectorial features. 
+
+Proximal Policy Optimization As shown in Eq. (6), action probabilities are explicitly modeled through a stochastic policy, making the framework amenable to the broader class of policy gradient methods (Williams, 1992; Sutton et al., 1999). These methods optimize the expected return by following the gradient of the policy’s parameters and are particularly effective when combined with a learned value function to form an Actor-Critic architecture (Konda and Tsitsiklis, 1999), which maintains both a stochastic policy (the actor) and a value function Vθ (st) (the critic). Specifically, we employ Proximal Policy Optimization (PPO) (Schulman et al., 2017), a widely used Actor-Critic algorithm designed to stabilize learning by preventing excessively large policy updates, as we shall see shortly. At each iteration of PPO training, the agent first samples molecules according to its current action policy, i.e. we record trajectory rollouts consisting of transition tuples (st, a t, r t, s t+1 ) ∼ πθ . Based on this data buffer of freshly sampled rollouts, Bθ , PPO then enters a sequence of optimization steps, 
+
+k = 1 , 2, 3.., K , where it performs gradient ascent on the following combined objective: 
+
+LPPO (θ) = LCL (θ) − c1LV(θ) + c2LH(θ), c1, c 2 ≥ 0, (8) where LCL denotes the PPO clipped surrogate objective, LV is the value function loss, and LH
+
+represents the entropy regularization term. The first objective term, LCL (θ), plays a central role in policy optimization, as it directly guides the policy toward selecting high-scoring actions. Rather than naïvely maximizing raw returns, PPO uses the Generalized Advantage Estimator (GAE) (Schulman et al., 2015) to compute a smoothed signal of how advantageous an action was, relative to the expected value: 
+
+ˆAt = 
+
+> T−t−1
+
+X
+
+> k=0
+
+(γλ )kδt+k, with δt = rt + γV θ (st+1 ) − Vθ (st), (9) where γ ∈ [0 , 1] is the discount factor and λ ∈ [0 , 1] is a smoothing parameter that controls the bias-variance trade-off. The resulting advantage term ˆAt captures the degree of positive surprise , i.e. how much better (or worse) the observed return was compared to what the critic predicted. After a few policy updates, the optimized policy πθ can deviate significantly from the original policy that generated the data, which we from now on denote πθold . This mismatch can lead to unstable learning, as the objective is now being evaluated under a different distribution. To mitigate this, PPO introduces a clipped surrogate objective that limits how much the policy is allowed to change in a single update. The objective is defined as: 
+
+LCL (θ) = E
+
+> (st,a t)∼B θold
+
+h
+
+min 
+
+
+
+r♠ 
+
+> t
+
+(θ) ˆAt; clip (r♠ 
+
+> t
+
+(θ), 1 − ϵ, 1 + ϵ) ˆAt
+
+i 
+
+, r♠ 
+
+> t
+
+(θ) = πθ (at|st)
+
+πθold (at|st) .
+
+(10) 18 Here, the policy ratio r♠ 
+
+> t
+
+(θ) quantifies how the probability of taking action at under the updated policy compares to that under the old policy. The clip operation ensures that this ratio stays within a trust region defined by [1 − ϵ, 1 + ϵ], where ϵ is a small constant (commonly 0.2). This conservative update rule prevents excessively large policy shifts, thereby improving training stability. Intuitively, it balances learning progress - encouraging updates when ˆAt is large - with policy trustworthiness, by suppressing updates that would cause the policy to change too aggressively. Next, the value loss term LV is implemented as the mean squared error (MSE) between the predicted state-value estimates Vθ (st) and the empirical returns Rt. This term ensures that the critic network effectively predicts future returns, enabling more accurate advantage estimation in future iterations, while simultaneously distilling better representations into the shared backbone: 
+
+LV(θ) = E
+
+> st∼B θold
+
+h
+
+(Vθ (st) − Rt)2i
+
+. (11) Finally, the entropy term encourages exploration by penalizing overly certain action distributions: 
+
+LH(θ) = H[πθ (et, f t|st)] = E
+
+> (st,f t,e t)∼B θold
+
+[− log πθ (et, f t|st)] . (12) Note that entropy maximization is applied only to the two categorical subactions : choosing the focal atom f and selecting a new element e. The continuous spatial subactions (d, α, ψ ), parameter-ized as univariate Gaussians, are exempt from entropy regularization to avoid inadvertently disrupting precise spatial predictions. Furthermore, to prevent premature convergence and encourage sustained exploration, we linearly increase the entropy coefficient, c2, during training from 0.15 to 0.25. 
+
+# Data and code availability 
+
+The AtomComposer code, data, and instructions are available at https://github.com/bhastrup/ atomcomposer. 
+
+# Acknowledgements 
+
+We acknowledge financial support from the Independent Research Fund Denmark with project DE-LIGHT, Grant No. 0217-00326B, and the Pioneer Center for Accelerating P2X Materials Discovery (CAPeX), DNRF grant number P3. We also acknowledge support from the Novo Nordisk Foundation Data Science Research Infrastructure 2022 Grant: A high-performance computing infrastructure for data-driven research on sustainable energy materials, Grant No. NNF22OC0078009. Finally, we thank Jan Jensen and Magnus Strandgaard for useful discussions on molecular scoring using 
+
+xTB-GFN2 and xyz2mol .
+
+# References 
+
+O Anatole von Lilienfeld, Klaus-Robert Müller, and Alexandre Tkatchenko. Exploring chemical compound space with quantum-based machine learning. Nature Reviews Chemistry , 4(7):347–358, 2020. Adarsh V Kalikadien, Evgeny A Pidko, and Vivek Sinha. Chemspax: exploration of chemical space by automated functionalization of molecular scaffold. Digital Discovery , 1(1):8–25, 2022. Efthymios I Ioannidis, Terry ZH Gani, and Heather J Kulik. molsimplify: A toolkit for automating discovery in inorganic chemistry, 2016. Yuriy Khalak, Gary Tresadern, David F Hahn, Bert L De Groot, and Vytautas Gapsys. Chemical space exploration with active learning and alchemical free energies. Journal of Chemical Theory and Computation , 18(10):6259–6270, 2022. Leonardo Medrano Sandonas, Johannes Hoja, Brian G Ernst, Álvaro Vázquez-Mayagoitia, Robert A DiStasio, and Alexandre Tkatchenko. “freedom of design” in chemical compound space: towards rational in silico design of molecules with targeted quantum-mechanical properties. Chemical Science , 14(39):10702–10717, 2023. 19 Alessio Fallani, Leonardo Medrano Sandonas, and Alexandre Tkatchenko. Inverse mapping of quantum properties to structures for chemical space of small organic molecules. Nature Communi-cations , 15(1):6061, 2024. Dylan M Anstine and Olexandr Isayev. Generative models as an emerging paradigm in the chemical sciences. Journal of the American Chemical Society , 145(16):8736–8750, 2023. Nathan Brown, Marco Fiscato, Marwin HS Segler, and Alain C Vaucher. Guacamol: benchmarking models for de novo molecular design. Journal of chemical information and modeling , 59(3): 1096–1108, 2019. Joshua Schrier, Alexander J Norquist, Tonio Buonassisi, and Jakoah Brgoch. In pursuit of the exceptional: research directions for machine learning in chemical and materials science. Journal of the American Chemical Society , 145(40):21699–21716, 2023. Richard S Sutton and Andrew G Barto. Reinforcement learning: An introduction . MIT press, 2018. Bhuvanesh Sridharan, Animesh Sinha, Jai Bardhan, Rohit Modee, Masahiro Ehara, and U Deva Priyakumar. Deep reinforcement learning in chemistry: A review. Journal of Computational Chemistry , 2024. Roy L Johnston. Evolving better nanoparticles: Genetic algorithms for optimising cluster geometries. 
+
+Dalton Transactions , (22):4193–4207, 2003. Jan H Jensen. A graph-based genetic algorithm and generative model/monte carlo tree search for the exploration of chemical space. Chemical science , 10(12):3567–3572, 2019. David J Wales and Jonathan PK Doye. Global optimization by basin-hopping and the lowest energy structures of lennard-jones clusters containing up to 110 atoms. The Journal of Physical Chemistry A, 101(28):5111–5116, 1997. Stefan Goedecker. Minima hopping: An efficient search method for the global minimum of the potential energy surface of complex molecular systems. The Journal of chemical physics , 120(21): 9911–9917, 2004. Søren A Meldgaard, Esben L Kolsbjerg, and Bjørk Hammer. Machine learning enhanced global optimization by clustering local environments to enable bundled atomic energies. The Journal of chemical physics , 149(13), 2018. Mads-Peter V Christiansen, Nikolaj Rønne, and Bjørk Hammer. Atomistic global optimization x: A python package for optimization of atomistic structures. The Journal of Chemical Physics , 157(5), 2022. John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. Mathias S Jørgensen, Henrik L Mortensen, Søren A Meldgaard, Esben L Kolsbjerg, Thomas L Jacobsen, Knud H Sørensen, and Bjørk Hammer. Atomistic structure learning. The Journal of Chemical Physics , 151(5), 2019. Henrik Lund Mortensen, Søren Ager Meldgaard, Malthe Kjær Bisbo, Mads-Peter V Christiansen, and Bjørk Hammer. Atomistic structure learning algorithm with surrogate energy model relaxation. 
+
+Physical Review B , 102(7):075427, 2020. Søren A Meldgaard, Henrik L Mortensen, Mathias S Jørgensen, and Bjørk Hammer. Structure pre-diction of surface reconstructions by deep reinforcement learning. Journal of Physics: Condensed Matter , 32(40):404005, 2020. Gregor Simm, Robert Pinsler, and José Miguel Hernández-Lobato. Reinforcement learning for molecular design guided by quantum mechanics. In International Conference on Machine Learning ,pages 8959–8969. PMLR, 2020. David Weininger. Smiles, a chemical language and information system. 1. introduction to methodol-ogy and encoding rules. Journal of chemical information and computer sciences , 28(1):31–36, 1988. 20 Marcus Olivecrona, Thomas Blaschke, Ola Engkvist, and Hongming Chen. Molecular de-novo design through deep reinforcement learning. Journal of cheminformatics , 9:1–14, 2017. Mariya Popova, Olexandr Isayev, and Alexander Tropsha. Deep reinforcement learning for de novo drug design. Science advances , 4(7):eaap7885, 2018. Thomas Blaschke, Josep Arús-Pous, Hongming Chen, Christian Margreitter, Christian Tyrchan, Ola Engkvist, Kostas Papadopoulos, and Atanas Patronov. Reinvent 2.0: an ai tool for de novo drug design. Journal of chemical information and modeling , 60(12):5918–5922, 2020. Zhenpeng Zhou, Steven Kearnes, Li Li, Richard N Zare, and Patrick Riley. Optimization of molecules via deep reinforcement learning. Scientific reports , 9(1):10752, 2019. Jiaxuan You, Bowen Liu, Zhitao Ying, Vijay Pande, and Jure Leskovec. Graph convolutional policy network for goal-directed molecular graph generation. Advances in neural information processing systems , 31, 2018. Daniel C Elton, Zois Boukouvalas, Mark D Fuge, and Peter W Chung. Deep learning for molecular design—a review of the state of the art. Molecular Systems Design & Engineering , 4(4):828–849, 2019. Paul CD Hawkins. Conformation generation: the state of the art. Journal of chemical information and modeling , 57(8):1747–1756, 2017. Andrew R Leach and Valerie J Gillet. An introduction to chemoinformatics . Springer, 2007. Sereina Riniker and Gregory A Landrum. Better informed distance geometry: using what we know to improve conformation generation. Journal of chemical information and modeling , 55(12): 2562–2574, 2015. Nils-Ole Friedrich, Agnes Meyder, Christina de Bruyn Kops, Kai Sommer, Florian Flachsenberg, Matthias Rarey, and Johannes Kirchmair. High-quality dataset of protein-bound ligand conforma-tions and its application to benchmarking conformer ensemble generators. Journal of chemical information and modeling , 57(3):529–539, 2017. Emiel Hoogeboom, Vıctor Garcia Satorras, Clément Vignac, and Max Welling. Equivariant diffusion for molecule generation in 3d. In International conference on machine learning , pages 8867–8887. PMLR, 2022. Tuan Le, Julian Cremer, Frank Noe, Djork-Arné Clevert, and Kristof T Schütt. Navigating the design space of equivariant diffusion-based generative models for de novo 3d molecule generation. In The Twelfth International Conference on Learning Representations , 2024. URL https:// openreview.net/forum?id=kzGuiRXZrQ .François Cornet, Grigory Bartosh, Mikkel Schmidt, and Christian Andersson Naesseth. Equivariant neural diffusion for molecule generation. Advances in Neural Information Processing Systems , 37: 49429–49460, 2024a. Yuxuan Song, Jingjing Gong, Minkai Xu, Ziyao Cao, Yanyan Lan, Stefano Ermon, Hao Zhou, and Wei-Ying Ma. Equivariant flow matching with hybrid probability transport for 3d molecule generation. In Thirty-seventh Conference on Neural Information Processing Systems , 2023. URL 
+
+https://openreview.net/forum?id=hHUZ5V9XFu .Ross Irwin, Alessandro Tibo, Jon Paul Janet, and Simon Olsson. Semlaflow – efficient 3d molecular generation with latent attention and equivariant flow matching. In The 28th International Confer-ence on Artificial Intelligence and Statistics , 2025. URL https://openreview.net/forum? id=bee2G6pEh0 .Niklas Gebauer, Michael Gastegger, and Kristof Schütt. Symmetry-adapted generation of 3d point sets for the targeted discovery of molecules. In Advances in Neural Information Processing Systems , volume 32, 2019. Niklas WA Gebauer, Michael Gastegger, Stefaan SP Hessmann, Klaus-Robert Müller, and Kristof T Schütt. Inverse design of 3d molecular structures with conditional generative neural networks. 
+
+Nature communications , 13(1):973, 2022. 21 James P. Roney, Paul Maragakis, Peter Skopp, and David E. Shaw. Generating realistic 3d molecules with an equivariant conditional likelihood model, 2022. URL https://openreview.net/ forum?id=Snqhqz4LdK .Ameya Daigavane, Song Kim, Mario Geiger, and Tess Smidt. Symphony: Symmetry-equivariant point-centered spherical harmonics for molecule generation. arXiv preprint arXiv:2311.16199 ,2023. Raul Ortega Ochoa, Tejs Vegge, and Jes Frellsen. Molminer: Transformer architecture for fragment-based autoregressive generation of molecular stories. arXiv preprint arXiv:2411.06608 , 2024. Kevin Black, Michael Janner, Yilun Du, Ilya Kostrikov, and Sergey Levine. Training diffusion models with reinforcement learning. In The Twelfth International Conference on Learning Representations ,2024. URL https://openreview.net/forum?id=YCWjhGrJFD .Runxuan Jiang, Tarun Gogineni, Joshua Kammeraad, Yifei He, Ambuj Tewari, and Paul M Zimmer-man. Conformer-rl: A deep reinforcement learning library for conformer generation. Journal of Computational Chemistry , 43(27):1880–1886, 2022. Alexandra Volokhova, Michał Koziarski, Alex Hernández-García, Cheng-Hao Liu, Santiago Miret, Pablo Lemos, Luca Thiede, Zichao Yan, Alán Aspuru-Guzik, and Yoshua Bengio. Towards equilibrium molecular conformation generation with gflownets. Digital Discovery , 3:1038–1047, 2024. Gregor Simm, Robert Pinsler, Gábor Csányi, and José Miguel Hernández-Lobato. Symmetry-aware actor-critic for 3d molecular design. In International Conference on Learning Representations ,2021. Daniel Flam-Shepherd, Alexander Zhigalin, and Alán Aspuru-Guzik. Scalable fragment-based 3d molecular design with reinforcement learning. arXiv preprint arXiv:2202.00658 , 2022. Søren Ager Meldgaard, Jonas Köhler, Henrik Lund Mortensen, Mads-Peter V Christiansen, Frank Noé, and Bjørk Hammer. Generating stable molecules using imitation and reinforcement learning. 
+
+Machine Learning: Science and Technology , 3(1):015008, 2021. Jonas Elsborg and Arghya Bhowmik. Equivariant graph-representation-based actor–critic reinforce-ment learning for nanoparticle design. Journal of Chemical Information and Modeling , 63(12): 3731–3741, 2023. Rohit Modee, Ashwini Verma, Kavita Joshi, and U Deva Priyakumar. Megen-generation of gallium metal clusters using reinforcement learning. Machine Learning: Science and Technology , 4(2): 025032, 2023. Rafael Gómez-Bombarelli, Jennifer N Wei, David Duvenaud, José Miguel Hernández-Lobato, Benjamín Sánchez-Lengeling, Dennis Sheberla, Jorge Aguilera-Iparraguirre, Timothy D Hirzel, Ryan P Adams, and Alán Aspuru-Guzik. Automatic chemical design using a data-driven continuous representation of molecules. ACS central science , 4(2):268–276, 2018. François Cornet, Bardi Benediktsson, Bjarke Hastrup, Mikkel N Schmidt, and Arghya Bhowmik. Om-diff: inverse-design of organometallic catalysts with guided equivariant denoising diffusion. 
+
+Digital Discovery , 3(9):1793–1811, 2024b. Peter Henderson, Riashat Islam, Philip Bachman, Joelle Pineau, Doina Precup, and David Meger. Deep reinforcement learning that matters. In Proceedings of the AAAI conference on artificial intelligence , volume 32, 2018. Gabriel Dulac-Arnold, Nir Levine, Daniel J Mankowitz, Jerry Li, Cosmin Paduraru, Sven Gowal, and Todd Hester. An empirical investigation of the challenges of real-world reinforcement learning. 
+
+arXiv preprint arXiv:2003.11881 , 2020. Riashat Islam, Peter Henderson, Maziar Gomrokchi, and Doina Precup. Reproducibility of bench-marked deep reinforcement learning tasks for continuous control. arXiv preprint arXiv:1708.04133 ,2017. 22 Jun Xia, Yanqiao Zhu, Yuanqi Du, and Stan Z Li. A systematic survey of chemical pre-trained models. arXiv preprint arXiv:2210.16484 , 2022. Cédric Colas, Olivier Sigaud, and Pierre-Yves Oudeyer. A hitchhiker’s guide to statistical comparisons of reinforcement learning algorithms. arXiv preprint arXiv:1904.06979 , 2019. Daniil Polykovskiy, Alexander Zhebrak, Benjamin Sanchez-Lengeling, Sergey Golovanov, Oktai Tatanov, Stanislav Belyaev, Rauf Kurbanov, Aleksey Artamonov, Vladimir Aladinskiy, Mark Veselov, et al. Molecular sets (moses): a benchmarking platform for molecular generation models. 
+
+Frontiers in pharmacology , 11:565644, 2020. Daniel Schwalbe-Koda and Rafael Gómez-Bombarelli. Generative models for automatic chemical design. In Machine Learning Meets Quantum Physics , pages 445–467. Springer, 2020. Yutong Xie, Chence Shi, Hao Zhou, Yuwei Yang, Weinan Zhang, Yong Yu, and Lei Li. Mars: Markov molecular sampling for multi-objective drug discovery. arXiv preprint arXiv:2103.10432 , 2021. Dou Nie, Huifeng Zhao, Odin Zhang, Gaoqi Weng, Hui Zhang, Jieyu Jin, Haitao Lin, Yufei Huang, Liwei Liu, Dan Li, et al. Durian: A comprehensive benchmark for structure-based 3d molecular generation. Journal of Chemical Information and Modeling , 65(1):173–186, 2024. Tuomas Haarnoja, Aurick Zhou, Pieter Abbeel, and Sergey Levine. Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. In International conference on machine learning , pages 1861–1870. Pmlr, 2018. Justin S Smith, Olexandr Isayev, and Adrian E Roitberg. Ani-1, a data set of 20 million calculated off-equilibrium conformations for organic molecules. Scientific data , 4(1):1–8, 2017. Michael Gastegger, Kristof T Schütt, and Klaus-Robert Müller. Machine learning of solvent effects on molecular spectra and reactions. Chemical science , 12(34):11473–11483, 2021. Dominic C Rose, Jamie F Mair, and Juan P Garrahan. A reinforcement learning approach to rare trajectory sampling. New Journal of Physics , 23(1):013013, 2021. L. C. Blum and J.-L. Reymond. 970 million druglike small molecules for virtual screening in the chemical universe database GDB-13. J. Am. Chem. Soc. , 131:8732, 2009. M. Rupp, A. Tkatchenko, K.-R. Müller, and O. A. von Lilienfeld. Fast and accurate modeling of molecular atomization energies with machine learning. Physical Review Letters , 108:058301, 2012. Lars Ruddigkeit, Ruud van Deursen, Lorenz C. Blum, and Jean-Louis Reymond. Enumeration of 166 billion organic small molecules in the chemical universe database gdb-17. Journal of Chemical Information and Modeling , 52(11):2864–2875, 2012. doi: 10.1021/ci300415d. URL 
+
+https://doi.org/10.1021/ci300415d . PMID: 23088335. Raghunathan Ramakrishnan, Pavlo O Dral, Matthias Rupp, and O Anatole von Lilienfeld. Quantum chemistry structures and properties of 134 kilo molecules. Scientific Data , 1, 2014. Christoph Bannwarth, Sebastian Ehlert, and Stefan Grimme. Gfn2-xtb—an accurate and broadly parametrized self-consistent tight-binding quantum chemical method with multipole electrostatics and density-dependent dispersion contributions. Journal of chemical theory and computation , 15 (3):1652–1671, 2019. Yeonjoon Kim and Woo Youn Kim. Universal structure conversion method for organic molecules: from atomic connectivity to three-dimensional geometry. Bulletin of the Korean Chemical Society ,36(7):1769–1777, 2015. Julius Seumer, Jonathan Kirschner Solberg Hansen, Mogens Brøndsted Nielsen, and Jan H Jensen. Computational evolution of new catalysts for the morita–baylis–hillman reaction. Angewandte Chemie International Edition , 62(18):e202218565, 2023. Greg Landrum. RDKit: Open-source cheminformatics , 2024. URL https://www.rdkit.org/ .23 Heta A. Gandhi and Andrew D. White. Explaining molecular properties with natural language. 
+
+ChemRxiv , 2022. doi: 10.26434/chemrxiv-2022-v5p6m-v3. Conor F Hayes, Roxana R˘ adulescu, Eugenio Bargiacchi, Johan Källström, Matthew Macfarlane, Mathieu Reymond, Timothy Verstraeten, Luisa M Zintgraf, Richard Dazeley, Fredrik Heintz, et al. A practical guide to multi-objective reinforcement learning and planning: Cf hayes et al. 
+
+Autonomous Agents and Multi-Agent Systems , 36(1):26, 2022. Josef Dai, Xuehai Pan, Ruiyang Sun, Jiaming Ji, Xinbo Xu, Mickel Liu, Yizhou Wang, and Yaodong Yang. Safe rlhf: Safe reinforcement learning from human feedback. arXiv preprint arXiv:2310.12773 , 2023. Kristof Schütt, Pieter-Jan Kindermans, Huziel Enoc Sauceda Felix, Stefan Chmiela, Alexandre Tkatchenko, and Klaus-Robert Müller. Schnet: A continuous-filter convolutional neural network for modeling quantum interactions. Advances in neural information processing systems , 30, 2017. Kristof Schütt, Oliver Unke, and Michael Gastegger. Equivariant message passing for the prediction of tensorial properties and molecular spectra. In International Conference on Machine Learning ,pages 9377–9388. PMLR, 2021. Ronald J Williams. Simple statistical gradient-following algorithms for connectionist reinforcement learning. Machine learning , 8:229–256, 1992. Richard S Sutton, David McAllester, Satinder Singh, and Yishay Mansour. Policy gradient methods for reinforcement learning with function approximation. Advances in neural information processing systems , 12, 1999. Vijay Konda and John Tsitsiklis. Actor-critic algorithms. Advances in neural information processing systems , 12, 1999. John Schulman, Philipp Moritz, Sergey Levine, Michael Jordan, and Pieter Abbeel. High-dimensional continuous control using generalized advantage estimation. arXiv preprint arXiv:1506.02438 ,2015. 24 A Training details 
+
+A.1 Hyper parameters 
+
+In Table 2 we show the hyper parameters used for model training. Additionally, we highlight the individual hyper parameters whose values most crucially facilitated the training of a generalizable 
+
+agent (multi-component agent), as well as those unique to our setup . In addition to our new reward structures and training schemes, the most noticeable difference from previous work is the use of larger data collections, smaller learning rates and higher exploration factors. Table 2: Hyperparameters. The neural agent policy consists of 242,351 parameters in total. Category Hyperparameter Value Code variable name Range [dmin , d max ] (Å) [0.8, 1.8] [min,max ]_mean_distance 
+
+ROLLOUT Workers 8 num_envs 
+
+Env steps per PPO batch 512 num_steps_per_iter 
+
+Fail reward -3 min_reward 
+
+Discount factor γ 1.0 discount 
+
+GAE parameter λ 0.97 lam 
+
+Value coefficient 0.5 vf_coef 
+
+Advantage clipping ϵ 0.2 clip_ratio 
+
+OPTIMIZATION Gradient Clipping 0.5 gradient_clip 
+
+Learning rate (PPO-Adam) 5e-5 learning_rate 
+
+Minibatch size 256 mini_batch_size 
+
+Entropy coef iter start 0 start_entropy_iter 
+
+Entropy coef value start 0.15 start_entropy 
+
+Entropy coef iter end 30,000 final_entropy_iter 
+
+Entropy coef value end 0.25 final_entropy 
+
+Layers 3 num_interactions 
+
+PAI NN EMBEDDING Network width 128 network_width 
+
+rcutoff (Å) 5.0 cutoff 
+
+QM7 SPLITS Num training bags 156 .. 
+
+Num eval bags 20 n_test 
+
+Dipole coef iter start 30,000 DIPOLE REWARD Dipole coef value start 0.0 COEF . S CHEDULE Dipole coef iter end 32,500 final_entropy_iter 
+
+Dipole coef value end 2.0 final_entropy 
+
+A.2 Reward coefficients 
+
+For each trained agent presented in Section 2.2, we used the reward coefficients listed in Table 3. As shown in the table, we assigned a higher coefficient to validity compared to energy based reward components. This was decided based on the observed magnitude and variance of the reward components. Table 3: Coefficients used to construct the reward functions (agents) as linear combinations of the basic reward components A, F and V. Empty corresponds to zero. 
+
+Agents \ Components A F V
+
+A 1
+
+AV 1 3
+
+F 1
+
+FV 1 3
+
+AFV 1 1 325 A.3 Hardware and compute budget Training time All training runs were performed on a single NVIDIA RTX 3090 GPU with 8 CPU cores. A full (single seed) agent training, consisting of 20 million environment steps (incl. energy and validity metrics calculated for all generated molecules), took approximately 129 hours (5 days, 9 hours). For this paper, we trained 5 agents × 3 seeds = 15 training runs in total on the cluster. 
+
+Sampling time For Q1 specifically, we sampled molecules from a single model checkpoint at a rate of 32.5 molecules per second on a NVIDIA RTX A2000 8GB Laptop GPU. For 10,000 molecules this corresponds to roughly 5 minutes per seed per agent. 
+
+# B Metric definitions 
+
+We split the evaluation metrics of Fig. 5 into two distinct categories. The discovery metrics are purely count-based and contain the following metrics: • Validity : Validity is not directly built into the molecular generation procedure used in our framework 4. Instead we incentivize the agent to create valid molecules based on a simple discrete reward term rvalid = 1 if valid and rvalid = 0 if invalid. The validity metric is straightforwardly defined as Validity = #valid molecules 
+
+#sampled molecules . (13) • Rediscovery & Expansion Ratios :Relating the discovery counts to our reference dataset (QM7) helps to probe whether the agent explores broadly or if there are large gaps in its exploration. For each formula, we therefore construct the set of uniquely discovered SMILES from the RL generated molecules. Each discovered SMILES will then either be in the reference set already or correspond to a "novel" molecule, i.e. N gen unique = Nrediscovered + Nnovel . The rediscovery and expansion ratios are calculated by relating Nrediscovered and Nnovel to the number of reference molecules Rediscovery Ratio = Nrediscovered 
+
+N QM7 unique 
+
+, Expansion Ratio = Nnovel 
+
+N QM7 unique 
+
+. (14) The energy metrics pertain to the quality of the discovered geometries rather than their sheer quantity .Since our agent was trained on energy based reward terms, it should be able to generate low energy isomers. However, as our PPO agent uses 3D-spatial noise on the atomic positions in order to facilitate exploration, we must first perform structural relaxation on the generated molecules using the same xTB-GFN2 calculator that was employed for reward calculations during training. Specifically, we calculate the following energy based metrics: • Relaxed Relative Atomic Energy (rRAE) : This measure is defined w.r.t. our reference dataset QM7 and is calculated (at the individual molecule level) as the energy difference between our RL generated molecule and the mean energy of all the QM7 molecules of the same chemical formula (bag) 
+
+∆ErRAE (CT ) = E(CT ) − ¯EB(CT ) 
+
+> QM7
+
+= E(C) − 1
+
+|B (CT )| 
+
+> |B (CT)|
+
+X
+
+> i=1
+
+E(CQM7  
+
+> i
+
+). (15) It measures the agent’s joint ability to discover both low energy isomers (2D connectivity) as well as sampling low energy conformers (3D positions) for the connectivity matrix of that isomer.    
+
+> 4A word on uniqueness : The typically reported uniqueness measure which relates the number of unique molecules to the number of sampled molecules would be a misleading metric to use in our case, since we are sampling molecules constrained to yield a pre-specified chemical formula, thereby increasing the probability of generating identical molecules compared to unconstrained sampling. As an example, we found just 3 isomers out of 10,000 generated molecules for C3H8Oin Table 1 (3 is actually the maximal number of unique molecules for this particular chemical formula). Thus, we decided to leave out this metric from Fig. 5.
+
+26 • Root-Mean-Square Deviation (RMSD): To quantify how far the generated 3D structures deviate from their corresponding relaxed geometries, we compute the Root-Mean-Square Deviation (RMSD) between each generated molecule and its structure after geometry optimization using the xTB-GFN2 method. This metric measures the average atomic dis-placement required to reach a local energy minimum and is defined as: RMSD (CT ) = 
+
+vuut 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+xi − xrelaxed 
+
+> i
+> 2
+
+, (16) where xi and xrelaxed  
+
+> i
+
+denote the 3D positions of atom i before and after end-of-episode re-laxation, and N is the number of atoms. A low RMSD indicates that the generated geometry was already close to a local minimum, suggesting a physically meaningful placement of atoms by the agent. In contrast, a high RMSD implies the presence of significant strain or artifacts in the initial structure that required substantial correction during optimization. 
+
+# C Supplementary results of dipole finetuning (Q4) 
+
+This section provides complete evaluation results for all 10 carbonate and ether formulas assessed in Q4, including the 2 formulas highlighted in the main text (H4C3O3 and H6C4O3) and the 8 formulas omitted for brevity. The finetuning setup follows the description in Section 2.6: the dipole moment reward coefficient was linearly ramped from 0 to 2 over 2,500 training iterations (approximately 1.28 million environment steps), and the post-finetuning evaluation checkpoint was selected prior to significant validity collapse. Note that this experiment was conducted with a single random seed, as it is intended as a proof-of-concept demonstration rather than a primary result. The results are shown in Fig. 10, where each row corresponds to one evaluation formula and each column presents a different view of the dipole moment distribution: (left) unrelaxed dipoles of all sampled molecules, (center) relaxed dipoles of all valid molecules, and (right) the best dipole moment achieved per unique isomer across all samples. For the 8 formulas not highlighted in the main text, the finetuned agent does not yield a meaningful improvement in dipole moment relative to the baseline agent. We identify two contributing factors: • Narrow dipole moment distributions: For several formulas, the intrinsic diversity of dipole moments accessible within the given isomer space is limited — the formula simply does not contain high-dipole structures, and finetuning therefore cannot discover what does not exist within that compositional space. • Reduced valid sampling: For some formulas, the ongoing validity collapse had reduced the pool of valid molecules available for comparison. However, the best-dipole-per-isomer column (right) provides a complementary view that is robust to this effect: even when the finetuned agent generates fewer valid molecules overall, it typically retains the ability to discover comparable unique isomers. This suggests that validity collapse primarily affects sampling reliability rather than the underlying learned policy. Together, these factors explain why the finetuning improvement is formula-dependent rather than universal. Formulas with a broader accessible dipole moment distribution and sufficient valid sampling budget are naturally more amenable to property-directed finetuning. These observations suggest that a more targeted finetuning strategy, such as selecting evaluation formulas based on the known diversity of their isomer spaces or applying a more conservative reward coefficient cap to preserve validity throughout finetuning, could yield more consistent improvements across a wider range of molecular families. 27 Figure 10: Q4. Complete finetuning evaluation results. Each row corresponds to one of the 10 evaluated carbonate and ether formulas, with the two formulas highlighted in the main text (H4C3O3 and H6C4O3) shown the first and third row. For each formula, three columns are shown: (left) unrelaxed dipole moment distributions of all sampled molecules, (center) relaxed dipole moment distributions of all valid molecules, and (right) the distribution of best dipole moments per unique isomer. In each panel, the baseline agent (pre-finetuning checkpoint) is shown alongside the finetuned agent (post-finetuning checkpoint). Although the finetuned agent generates fewer valid molecules overall for several formulas due to validity collapse, the best-dipole-per-isomer column demonstrates that it retains the ability to discover comparable or improved unique isomers across most formulas. 28

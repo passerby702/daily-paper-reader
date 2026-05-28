@@ -1,0 +1,1150 @@
+Title: Drifting Objectives for Refining Discrete Diffusion Language Models
+
+URL Source: https://arxiv.org/pdf/2605.19470v1
+
+Published Time: Wed, 20 May 2026 00:58:09 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Drifting Objectives for Refining Discrete Diffusion Language Models 
+
+Daisuke Oba 1 Hiroki Furuta Naoaki Okazaki 1,2,3 
+
+> 1
+
+Institute of Science Tokyo 2AIST 3NII LLMC 
+
+{daisuke.oba@nlp.,okazaki@}comp.isct.ac.jp 
+
+## Abstract 
+
+Discrete diffusion language models (DDLMs) generate text by iteratively denoising categorical token sequences, while recent drifting methods for continuous gener-ators suggest that part of this sampling-time correction can instead be absorbed into training through an anti-symmetric fixed-point objective. We study how to transfer this principle to DDLMs, where the main challenge is the interface with discrete text: hard token samples are non-differentiable, and categorical predictions do not directly provide continuous samples to drift. We formulate T OKEN DRIFT , a drifting objective that lifts categorical predictions to soft-token features, applies anti-symmetric drifting in a frozen semantic space, and backpropagates the result-ing stop-gradient feature target to DDLM logits. In controlled continual-training experiments with masked and uniform-state diffusion backbones, T OKEN DRIFT 
+
+improves fixed-NFE generation quality over matched continuation baselines, re-ducing Gen.-PPL at 4 NFEs by 89% on MDLM and 86% on DUO. These results suggest that drifting can provide a practical refinement objective for DDLMs. Project page: https://daioba.github.io/tokendrift/ 
+
+## 1 Introduction 
+
+Discrete diffusion language models (DDLMs) provide a non-autoregressive alternative to left-to-right generation by iteratively denoising corrupted token sequences [ 1 – 10 ]. Their practical behavior is therefore governed not only by the learned denoiser, but also by the quality achieved under a fixed number of denoising steps. While many works improve sampling by designing new schedules, samplers, or distilled generators, we ask a complementary question: can the training objective itself refine an existing DDLM so that the same sampler produces better samples at the same inference budget? 
+
+Recent drifting-based methods for continuous generative models offer a promising training-side perspective for this question [ 11 ]. They replace part of the iterative correction normally performed during sampling with a fixed-point training objective (Fig. 1; left): generated samples are moved along an attraction–repulsion field, toward nearby data samples and away from nearby model samples. This is appealing for DDLM refinement because it targets the generated samples themselves, rather than only the reconstruction of corrupted tokens, and therefore provides a direct objective for improving sample quality under a fixed inference budget. However, transferring drifting to DDLMs is not a direct substitution. In continuous drifting, generated samples or their feature representations can be nudged along a drift direction and used as stop-gradient training targets. For text, the generator instead produces categorical distributions over tokens. If these distributions are collapsed to hard tokens before feature extraction, the resulting feature-space loss no longer provides a useful gradient to the model logits. Thus, applying drifting to DDLMs requires a differentiable bridge from categorical predictions to the continuous feature space where the drift is defined. 
+
+> Preprint.
+> arXiv:2605.19470v1 [cs.CL] 19 May 2026 discrete
+> diffusion
+> language
+> model
+
+ℓ 𝑝 = 𝑠𝑜𝑓𝑡𝑚𝑎𝑥 (ℓ)                 
+
+> argmax /
+> sample
+> soft -token
+> lift: 𝒑𝑬
+> frozen
+> encoder
+> 𝝓 𝒉 −𝒉 ∗𝟐 ℎ
+> 𝒉 ∗=𝒔𝒈 (𝒉 +𝜶 𝑽 )
+> feature -
+> space loss
+> ✘Gradient stop!
+> ℎ
+> 𝒉 ∗=𝒔𝒈 (𝒉 +𝜶 𝑽 )
+> 𝑦 "
+> 𝑦 #
+> 𝑦 $…
+> 0.2
+> 0.5
+> 0.1
+> 𝑦 #
+> ,𝑝 *𝐸 *
+> backprop to logits
+> real -features
+> gen. -features
+> attraction
+> repulsion
+> drift
+
+Continuous Drifting Discrete Drifting for DDLMs Figure 1: Overview of our drifting formulation for discrete diffusion language models. Original drifting constructs a stop-gradient target h⋆ by moving the generated feature h along a drift field 
+
+V . For discrete text, hard token sampling blocks gradients, so we lift token probabilities to soft embeddings, compute the drift target in feature space, and backpropagate the loss to logits. We formulate T OKEN DRIFT , a drifting objective for refining DDLMs through soft-token features (Fig. 1; right). Rather than sampling hard tokens, T OKEN DRIFT feeds the frozen semantic encoder with expected token embeddings computed from the model’s categorical predictions. This creates a differentiable path from the feature-space drifting loss back to the DDLM logits. In that feature space, we estimate the same attraction–repulsion drift as in continuous drifting and train the generator toward a stop-gradient drifted feature target. A central part of our study is formulation. There are several plausible ways to connect a feature-space drift to a categorical generator: one can match the drifted target directly in feature space, convert the drift into a mirror teacher in logit space, or combine either objective with the original denoising loss. We compare these alternatives under matched budgets in Section 4.3, and find that direct feature-space drifting provides the most stable trade-off between likelihood-based quality and entropy. We further show that the soft-token lift is essential: replacing it with a hard straight-through token surrogate [ 12 ]severely degrades generation quality, indicating that preserving predictive uncertainty in the semantic feature space is important for effective drifting. In controlled continual-training experiments on OpenWebText (OWT) [ 13 ], T OKEN DRIFT substan-tially improves fixed-NFE generation quality over both a pretrained masked diffusion language model, MDLM [ 3 ], and ordinary continuation training. The same objective also improves a uniform-state discrete diffusion backbone, DUO [ 5], suggesting that the effect is not specific to masked diffusion. Together, these results position T OKEN DRIFT as a refinement objective for existing DDLMs: rather than designing a new sampler or distilling a low-NFE student, we keep the model class and sampler fixed and improve the generator through the training objective. 
+
+Contributions. In summary, we formulate drifting as a trainable refinement objective for DDLMs, identify the design choices needed to make it effective for discrete text, and show controlled improve-ments on both masked and uniform-state diffusion language models. 
+
+## 2 Preliminaries 
+
+We briefly review the ingredients needed to formulate drifting objectives for refining DDLMs: categorical denoising models, drifting-based fixed-point learning, and the difficulty of applying continuous drifting directly to text. 
+
+2.1 Discrete Diffusion Language Models 
+
+Let V be a vocabulary and let x = ( x1, . . . , x L) ∈ V L be a token sequence. A DDLM parameterized by θ defines a corruption process over token sequences and trains a denoiser fθ to predict clean tokens from corrupted inputs. At each denoising step, the model outputs logits ℓθ = fθ (xt) ∈ RL×|V| ,
+
+which induce position-wise categorical distributions pθ,t = softmax( ℓθ,t ) ∈ ∆|V|− 1.
+
+2Different DDLMs instantiate the corruption process differently: masked diffusion corrupts tokens toward a mask state, while uniform-state diffusion corrupts tokens toward a uniform distribution over the vocabulary. In both cases, the denoiser predicts categorical token distributions and generation proceeds by applying the denoiser for a chosen number of steps. 
+
+2.2 Drifting-Based Fixed-Point Learning 
+
+Drifting defines a fixed-point training rule for continuous generators [ 11 ]. For a generated sample or feature y, let V (y; Pdata , P θ ) be a drift field estimated by attraction toward nearby data samples and repulsion from nearby model samples. Drifting forms a stop-gradient target 
+
+y⋆ = sg( y + αV (y; Pdata , P θ )) ,
+
+and trains the generator to match this target. When raw sample-space distances are not meaningful, the same construction can be applied in a frozen feature space. A key structural property is anti-symmetry: swapping the attractive and repulsive distributions reverses the drift direction. Thus, if the model and data distributions coincide, then attraction and repulsion cancel and V (·; P, P ) = 0 , so the drift signal vanishes at equilibrium. We aim to preserve this fixed-point structure for DDLMs. 
+
+2.3 The Discrete-Text Interface 
+
+Continuous drifting assumes generated samples or features that can be additively shifted and differ-entiated through. DDLMs instead output categorical token distributions: hard tokenization breaks gradients to logits, while direct probability updates must respect the simplex. Thus, applying drifting to DDLMs requires a differentiable bridge from categorical predictions to the continuous feature space where drift is defined. 
+
+## 3 TOKEN DRIFT 
+
+We formulate drifting as a refinement objective for DDLMs. Given categorical token predictions, TOKEN DRIFT lifts them to soft-token features, computes an anti-symmetric attraction–repulsion drift in a frozen semantic space, and trains the generator toward a stop-gradient drifted feature target. This makes feature-space drifting differentiable with respect to token logits. 
+
+Notation. We use i for samples, t for token positions, and v for vocabulary indices. For sample i, the generator outputs logits ℓi ∈ RL×|V| and distributions pi=softmax( ℓi) ∈ RL×|V| , with pi,t ∈ ∆|V|− 1.
+
+3.1 Soft-Token Feature Lift 
+
+Let E ∈ R|V|× d be the embedding matrix used by a frozen semantic encoder ϕ, and x(i)0 be a clean sequence and ¯x(i) its corrupted input. Given ¯x(i), the generator outputs distributions pi. We form encoder inputs by setting ˜ei,t = pi,t E for predicted positions t ∈ M i and ˜ei,t = E[¯ x(i) 
+
+> t
+
+]
+
+otherwise, where Mi is defined by the underlying diffusion backbone. The generated feature and the corresponding real feature are 
+
+hi = ϕ(˜ ei) ∈ Rm, ui = ϕ(E[x(i)0 ]) ∈ Rm.
+
+Thus, hi is the feature of the model-completed sequence, while ui is the feature of the corresponding clean sequence. Because ˜ei depends on ℓi through pi on predicted positions, feature-space drifting losses can backpropagate to the logits. For backbones without observed-token positions, such as uniform-state diffusion, we set Mi = {1, . . . , L } and use soft embeddings at all positions. 
+
+3.2 Anti-Symmetric Drift Estimation 
+
+For each generated feature hi, we build a positive reference set Pi from real data features and a negative reference set Ni from generated features. The drift follows the attraction–repulsion structure of drifting models [ 11 ]: positives pull the sample toward the data distribution, while negatives push it away from the current model distribution. 3For uj ∈ P i and vk ∈ N i, we compute temperature-scaled affinities s+ 
+
+> ij
+
+= −∥ hi − uj ∥22/τ and 
+
+s− 
+
+> ik
+
+= −∥ hi − vk∥22/τ . Following the original drifting construction, we jointly normalize positive and negative affinities to obtain weights W + 
+
+> ij
+
+and W − 
+
+> ik
+
+. The corresponding positive and negative barycenters define the temperature-τ drift field: 
+
+b+ 
+
+> i
+
+= X 
+
+> j
+
+W + 
+
+> ij
+
+uj , b− 
+
+> i
+
+= X 
+
+> k
+
+W − 
+
+> ik
+
+vk, V (τ ) 
+
+> i
+
+= b+ 
+
+> i
+
+− b− 
+
+> i
+
+.
+
+Thus, the drift points from nearby model features toward nearby data features. 
+
+Multi-temperature drift. We compute V (τ ) 
+
+> i
+
+for each τ ∈ T , normalize each temperature by a scalar batch-level RMS scale, and average: 
+
+s(τ ) =
+
+q
+
+mean i ∥V (τ ) 
+
+> i
+
+∥22 + ϵ, Vi = 1
+
+|T | 
+
+X 
+
+> τ∈T
+
+V (τ )
+
+> i
+
+s(τ ) .
+
+This prevents any single temperature scale from dominating the final drift. 
+
+3.3 Feature-Space Fixed-Point Objective 
+
+Our main objective is a direct feature-space fixed-point loss. Given the current generated feature hi
+
+and drift Vi, we form the stop-gradient target h⋆i = sg( hi + αV i) , where α > 0 is a drift scale. The drifting objective is 
+
+Ldrift = 12B
+
+XBi=1 ∥hi − h⋆i ∥22 .
+
+Because h⋆i is frozen, the feature-space gradient is proportional to −Vi, so minimizing this loss pushes hi in the drift direction. Through the soft-token lift, this feature-space signal backpropagates to the token logits. 
+
+Relation to the base objective. The drifting objective can be used either alone or in combination with the original discrete diffusion training objective. Unless otherwise stated, our main method uses the drifting objective as the primary training signal, while the combined variant is evaluated as an ablation (Sec. 4.3). 
+
+3.4 Alternative Formulation via Mirror Teacher 
+
+As an alternative to direct feature-space matching, we also consider converting the feature-space drift into a token-level teacher distribution. Let hi = h(ℓi) be the feature induced by the logits. We define 
+
+gi = ∇ℓi
+
+ h(ℓi)⊤sg( Vi) , ℓ⋆i = sg( ℓi + ηg i), p⋆i = softmax( ℓ⋆i ).
+
+The softmax maps the updated logits back to valid categorical distributions, yielding a simplex-aware mirror teacher. We evaluate two matching losses on predicted positions Mi: distributional KL and logit-space MSE: 
+
+Lmirror -KL = 1
+
+B
+
+X
+
+> i
+
+X
+
+> t∈M i
+
+KL( p⋆i,t ∥pi,t ), Lmirror -MSE = 1
+
+B
+
+X
+
+> i
+
+X
+
+> t∈M i
+
+∥ℓ⋆i,t − ℓi,t ∥22.
+
+We use these mirror objectives as alternative formulations in the study of Sec. 4.3. Appendix D provides the corresponding theoretical justification: the mirror teacher is the KL-proximal simplex update induced by the logit-space direction (Prop. D.1), this direction locally improves alignment with the feature-space drift (Prop. D.2), and the construction preserves the equilibrium property of anti-symmetric drifting (Prop. D.3). 
+
+3.5 Algorithm 
+
+Algo. 1 summarizes one training step of T OKEN DRIFT , our main feature-space drifting objective. This applies to different DDLM backbones; the corruption process and the set of predicted positions 
+
+Mi are backbone-specific. Here gather( ·) denotes cross-device feature gathering when enabled. 4Algorithm 1 One training step of T OKEN DRIFT 
+
+Require: clean mini-batch x1: B 
+
+> 0
+
+, corruption process q(¯ x|x0), frozen encoder ϕ, queues Qreal , Qgen  
+
+> 1:
+
+sample corrupted inputs ¯x(i) ∼ q(¯ x | x(i)0 ) for all i = 1 , . . . , B  
+
+> 2:
+
+compute logits ℓi = fθ (¯ x(i)) and distributions pi = softmax( ℓi) for all i 
+
+> 3:
+
+form encoder inputs ˜ei using pi,t E for t ∈ M i and E[¯ x(i) 
+
+> t
+
+] otherwise  
+
+> 4:
+
+compute generated and real features hi = ϕ(˜ ei) and ui = ϕ(E[x(i)0 ]) for all i 
+
+> 5:
+
+form current feature sets Ucur = gather( {ui}Bi=1 ) and Hcur = gather( {hi}Bi=1 ) 
+
+> 6:
+
+build references U = Ucur ∪ Q real and H = Hcur ∪ Q gen  
+
+> 7:
+
+compute Vi = Drift T (hi, sg( U), sg( H \ { hi})) for all i 
+
+> 8:
+
+construct feature targets h⋆i = sg( hi + αV i) for all i 
+
+> 9:
+
+compute Ldrift = 12B
+
+PBi=1 ∥hi − h⋆i ∥22 
+
+> 10:
+
+backpropagate through Ldrift and update θ 
+
+> 11:
+
+push detached current features sg( {ui}Bi=1 )/sg( {hi}Bi=1 ) into Qreal /Qgen , evicting the oldest entries 
+
+Inference At inference time, T OKEN DRIFT simply uses the original DDLM sampler. All drift-related components are training-time only and add no sampling-time cost. 
+
+3.6 Theoretical Properties of the T OKEN DRIFT Objective 
+
+We summarize the main properties of the proposed objective; formal statements and proofs are given in Appendix C. First, the soft-token lift makes the feature-space loss trainable for categorical generators (Prop. C.1). Since ℓi → pi = softmax( ℓi) → ˜ei = piE → hi = ϕ(˜ ei) is differentiable on predicted positions, gradients from the drifting loss can backpropagate to the logits. Hard token selection (e.g., 
+
+argmax ) would break this path and turn the feature-space target into a non-differentiable signal. Second, the fixed-point loss does more than match features: it induces the drift-following update prescribed by the computed field (Prop. C.2). For the target h⋆i = sg( hi + αV i),
+
+∇hi
+
+12 ∥hi − h⋆i ∥22 = −αV i, ∇ℓi Ldrift = −αJ hi (ℓi)⊤Vi.
+
+Thus, the continuous feature-space drift is pulled back through the soft-token feature map to produce a logit-space update direction for the DDLM. Third, the objective inherits the equilibrium structure of drifting. If the attraction–repulsion field is anti-symmetric, then the drift vanishes when the data and model feature distributions match (Cor. C.3). These properties do not imply global convergence of the nonconvex generator, but they show that the proposed objective is differentiable, drift-following, and fixed-point consistent in the geometry where the drift is defined. 
+
+## 4 Experiments 
+
+We evaluate whether drifting objectives improve discrete diffusion language models under matched training and inference budgets. We conduct continual training on OpenWebText (OWT) [ 13 ] across two DDLM parameterizations: masked diffusion and uniform-state diffusion. For each parameteriza-tion, we start from a released checkpoint and compare against ordinary continuation training while keeping the backbone, initialization, data, additional compute budget, and inference budget matched. Our experiments focus on two questions: whether drifting improves generation quality beyond extra optimization alone, and which discrete adaptation of drifting is most effective. 
+
+4.1 Experimental Setup 
+
+We provide full implementation details in Appendix F; here we summarize the controlled setup used in the main experiments. 
+
+Benchmarks and backbones. Our main benchmark is OpenWebText (OWT) [ 13 ], where we perform continual training from released DDLM checkpoints. We consider two discrete diffusion parameterizations: masked diffusion, MDLM [ 3], using the released 170M MDLM checkpoint, and uniform-state diffusion, DUO [ 5], using the released checkpoint. In all controlled comparisons, 5Table 1: OWT few-step generation results for masked diffusion (MDLM) at ckpt. 13k. Non-gray rows are controlled comparisons using the same additional training budget; values are mean ±SD 
+
+over 3 seeds. Gray rows provide contextual results from distillation methods and are not controlled baselines. Entropy is reported as a diversity diagnostic, and bold denotes the best Gen.-PPL per NFE. 
+
+NFE = 4 NFE = 8 NFE = 16 
+
+Method Gen.-PPL ↓ Entropy ↑ Gen.-PPL ↓ Entropy ↑ Gen.-PPL ↓ Entropy ↑
+
+MDLM [3] 1942 .33 ±66 .80 5.95 ±0.02 799 .52 ±24 .28 5.88 ±0.02 338 .81 ±15 .71 5.82 ±0.02 
+
+Cont. learning 1943 .95 ±86 .65 5.92 ±0.02 787 .24 ±4.18 5.85 ±0.01 337 .85 ±11 .45 5.78 ±0.02 
+
+TOKEN DRIFT 208 .87 ±11 .51 5.41 ±0.01 55 .04 ±1.96 5.30 ±0.02 27 .35 ±0.20 5.16 ±0.02 
+
+Distillation 
+
+SDTT [15] 358 .67 ±17 .14 6.30 ±0.04 127 .64 ±4.41 6.41 ±0.02 65 .91 ±6.91 6.42 ±0.06 
+
+Di4C [16] 246 .89 ±8.98 6.32 ±0.03 84 .20 ±3.14 6.41 ±0.00 44 .66 ±5.19 6.35 ±0.08 
+
+DiDi-Inst. [17] 357 .39 ±18 .92 5.24 ±0.04 83 .65 ±8.94 4.99 ±0.03 33 .23 ±2.14 4.75 ±0.04 
+
+Table 2: OWT few-step generation results for uniform-state diffusion (DUO) at ckpt. 13k. 
+
+Non-gray rows are controlled comparisons using the same additional training budget; values are mean ±SD over 3 seeds. The gray row provides a contextual DCD reference and is not a controlled baseline. Entropy is reported as a diversity diagnostic, and bold denotes the best Gen.-PPL per NFE. 
+
+NFE = 4 NFE = 8 NFE = 16 
+
+Method Gen.-PPL ↓ Entropy ↑ Gen.-PPL ↓ Entropy ↑ Gen.-PPL ↓ Entropy ↑
+
+DUO [5] 508 .96 ±40 .38 5.54 ±0.05 196 .94 ±10 .79 5.57 ±0.02 114 .84 ±5.84 5.58 ±0.02 
+
+Cont. learning 539 .28 ±43 .97 5.54 ±0.05 199 .31 ±14 .61 5.57 ±0.01 114 .55 ±3.59 5.58 ±0.03 
+
+TOKEN DRIFT 76 .17 ±3.18 5.40 ±0.05 54 .98 ±1.40 5.42 ±0.05 47 .36 ±0.94 5.43 ±0.04 
+
+Distillation : DCD [5] 299 .67 ±28 .79 5.51 ±0.04 123 .48 ±1.79 5.55 ±0.03 81 .27 ±3.75 5.54 ±0.02 
+
+methods within the same backbone start from the same checkpoint and use the same data, additional training budget, and evaluation protocol. 
+
+Controlled comparisons. For each backbone, we compare the released checkpoint, ordinary continuation training with the original DDLM objective, and T OKEN DRIFT . These baselines isolate whether improvements come from the drifting objective rather than from additional optimization alone. We also evaluate key components of drifting formulations (Sec. 3.4), including mirror-teacher variants, to study which discrete adaptation of drifting is most effective. 
+
+Drifting implementation. TOKEN DRIFT uses a frozen copy of the same pretrained backbone check-point as the semantic encoder ϕ to compute pooled sequence features. It estimates an anti-symmetric attraction–repulsion drift from real and generated references built from the current distributed micro-batch and FIFO queues of detached features; unless otherwise stated, the default queue size is 1024 
+
+for both real and generated features. The generator is trained with the feature-space drifting objective, and the drift is estimated using the multi-temperature scheme of the original drifting method [ 11 ]with T = {0.02 , 0.05 , 0.2}.
+
+Evaluation. We focus on unconditional text generation and report generative perplexity (Gen.-PPL) computed by GPT-2 Large [ 14 ]. We also report entropy as a diagnostic for diversity and degeneration. All main comparisons use matched numbers of function evaluations (NFEs). 
+
+4.2 Main Results Masked diffusion. Table 1 reports controlled OWT continual-training results on top of MDLM in the few-step regime, using 4, 8, and 16 NFEs. The controlled block keeps the checkpoint, backbone, data, training budget, and evaluation protocol fixed across MDLM, ordinary continuation training, and TOKEN DRIFT . Under this matched setting, T OKEN DRIFT substantially improves Gen.-PPL at every reported NFE. Ordinary continuation training barely changes the original checkpoint, indicating that the gains come from the drifting objective rather than extra optimization alone. Within this few-step range, entropy decreases moderately but remains far from the severe collapse. 64 8 16 32 64 128 256       
+
+> NFE
+> 10 1
+> 10 2
+> 10 3
+> Gen. PPL  ↓
+> Base: MDLM
+> SDTT
+> Di4C
+> DiDi-Inst.
+> Pretrained (MDLM)
+> 4816 32 64 128 256
+> NFE
+> 10 2
+> Base: DUO
+> DCD
+> Pretrained (DUO)
+> TokenDrift-2k
+> TokenDrift-4k
+> TokenDrift-6k
+> TokenDrift-8k
+> TokenDrift-10k
+> TokenDrift-12k
+> Cont. Learn-2k
+> Cont. Learn-4k
+> Cont. Learn-6k
+> Cont. Learn-8k
+> Cont. Learn-10k
+> Cont. Learn-12k
+> Cont. Learn-2k
+> TokenDrift-2k
+> Cont. Learn-4k
+> TokenDrift-4k
+> Cont. Learn-6k
+> TokenDrift-6k
+> Cont. Learn-8k
+> TokenDrift-8k
+> Cont. Learn-10k
+> TokenDrift-10k
+> Cont. Learn-12k
+> TokenDrift-12k
+
+Figure 2: Training dynamics from released MDLM [ 3] and DUO [ 5] checkpoints. As drifting training progresses, Gen.-PPL decreases across the NFEs, showing that our drifting objective progres-sively improves fixed-budget generation quality rather than merely selecting a better final checkpoint. Table 3: Ablation on the input to the encoder ϕ for T OKEN DRIFT on top of MDLM at ckpt 13k. 
+
+Soft feeds the expected embedding ptE (continuous mixture over the vocabulary), while Hard feeds the embedding of the argmax token E[arg max pt]. ∗default configuration used in the main table. 
+
+NFE = 4 NFE = 8 NFE = 16 
+
+Input of ϕ Gen.-PPL ↓ Entropy ↑ Gen.-PPL ↓ Entropy ↑ Gen.-PPL ↓ Entropy ↑
+
+Soft: ptE∗ 208 .87 ±11 .51 5.41 ±0.01 55 .04 ±1.96 5.30 ±0.02 27 .35 ±0.20 5.16 ±0.02 
+
+Hard: yST  
+
+> t
+
+E 6464 .88 ±3398 .77 1.56 ±0.03 1036 .62 ±862 .46 1.37 ±0.12 447 .63 ±200 .38 1.61 ±0.11 
+
+Uniform-state diffusion. Table 2 evaluates the same few-step regime on DUO, a uniform-state discrete diffusion backbone. Starting from the released DUO checkpoint and using the same additional training budget, T OKEN DRIFT again improves Gen.-PPL over both the original checkpoint and ordinary continuation training at every reported NFE. The entropy values remain close to the original DUO and continuation baselines in this range, suggesting that the quality gains do not come from an obvious diversity collapse. Together with the MDLM results, this shows that the drifting objective is effective across both masked and uniform-state DDLM parameterizations. 
+
+Progressive improvement from drifting. Figure 2 tracks Gen.-PPL during the optimization. As the drifting objective is optimized, Gen.-PPL decreases across the evaluated NFEs, and the gap to both the original checkpoint and ordinary continuation training widens over time. This is the key empirical signal: a drifting loss consistently translates into better token-level sample quality under fixed decoding budgets via T OKEN DRIFT .
+
+Contextual distillation references. The gray rows in Tables 1 and 2 provide contextual comparisons to specialized distillation methods. These methods use different objectives, training pipelines, and sometimes different teachers or students, so they are not controlled baselines for our claims. Nevertheless, T OKEN DRIFT achieves lower Gen.-PPL than the reported references at all listed NFEs. 
+
+4.3 Formulation Study: How should Drifting Be Applied to Discrete Diffusion LMs? Soft-token lift is essential. We explore whether our soft-token lift can be replaced by a hard-token straight-through estimator [ 12 ]. The soft variant feeds the encoder the expected embedding ptE,while the hard variant uses the argmax embedding in the forward pass and passes gradients through 
+
+yST  
+
+> t
+
+= yhard  
+
+> t
+
+− sg( pt) + pt. yhard  
+
+> t
+
+= onehot(arg max  
+
+> v
+
+pt,v ).
+
+Table 3 shows that, despite this surrogate gradient path, the hard variant performs much worse and collapses entropy. Thus, differentiability alone is not sufficient: effective drifting requires exposing the semantic encoder to the model’s soft predictive distribution. 
+
+Target space: feature or logit? We compare three drift objectives: direct feature-space L2 matching, and its alternatives, i.e., logit-space L2/KL matching through a mirror teacher (Sec. 3.4). Table 4 (upper) shows that all three variants are effective, indicating that the main gain comes from the drifting 7Table 4: Design choices ablation of T OKEN DRIFT at ckpt 13k. Space: “ feature ” compares teacher–student hidden representations; “ logit ” compares output distributions in the mirror space. Dist.: L2/KL means the matching metrics between anchor and teacher point. Values are mean ±SD 
+
+over 3 seeds. Bold = best Gen.-PPL per NFE. ∗default configuration used in the main table. 
+
+Configuration NFE = 4 NFE = 8 NFE = 16 
+
+Space Dist. Base Loss Gen.-PPL ↓ Entropy ↑ Gen.-PPL ↓ Entropy ↑ Gen.-PPL ↓ Entropy ↑
+
+Feature ∗ L2 ∗ w/o ∗ 208 .87 ±11 .51 5.41 ±0.01 55 .04 ±1.96 5.30 ±0.02 27 .35 ±0.20 5.16 ±0.02 
+
+Logit L2 w/o 495 .64 ±24 .43 5.84 ±0.02 84 .66 ±5.53 5.42 ±0.02 26 .72 ±1.65 4.96 ±0.06 
+
+Logit KL w/o 295 .96 ±16 .73 5.56 ±0.02 61 .37 ±2.23 5.20 ±0.04 21 .70 ±1.12 4.75 ±0.07 
+
+Feature L2 w/ 502 .75 ±22 .49 5.62 ±0.01 96 .07 ±6.56 5.23 ±0.02 33 .92 ±5.82 4.91 ±0.02 
+
+Logit L2 w/ 1962 .85 ±52 .81 5.93 ±0.02 786 .83 ±5.14 5.85 ±0.01 361 .85 ±22 .07 5.80 ±0.03 
+
+Logit KL w/ 1943 .95 ±86 .65 5.92 ±0.02 787 .24 ±4.18 5.85 ±0.01 283 .49 ±10 .61 5.75 ±0.02 
+
+Table 5: Queue size ablation for T OKEN DRIFT at ckpt 5k. |Q gen,real | = queue size. Values are mean ±SD over 3 seeds. ∗default configuration used in the main table. 
+
+NFE = 4 NFE = 8 NFE = 16 
+
+|Q gen,real | Gen.-PPL ↓ Entropy ↑ Gen.-PPL ↓ Entropy ↑ Gen.-PPL ↓ Entropy ↑
+
+4 1756 .70 ±130 .91 6.00 ±0.04 428 .03 ±27 .09 5.83 ±0.02 145 .21 ±7.13 5.67 ±0.03 
+
+64 1151 .60 ±105 .96 5.88 ±0.04 261 .55 ±7.82 5.71 ±0.02 96 .61 ±5.44 5.58 ±0.02 
+
+1024 ∗ 729 .17 ±42 .40 5.84 ±0.02 166 .96 ±6.77 5.68 ±0.01 67 .94 ±4.07 5.55 ±0.03 
+
+signal itself rather than a single target construction. However, they trade off likelihood and entropy differently. We therefore use feature-space L2 as the default, stable formulation for T OKEN DRIFT .
+
+Interaction with the base denoising objective. The lower block of Table 4 shows that adding the original MDLM loss is not consistently beneficial. For logit-space objectives, the base loss largely cancels the effect of drifting; for feature-space L2, it remains competitive but does not improve over drift-only training. This suggests that, in our refinement setting, drifting is not merely a regularizer on top of denoising but can serve as the primary training signal. 
+
+4.4 Drift Estimation Ablations Reference-set size. Table 5 varies the number of real and generated reference features used to estimate the drift field. Gen.-PPL improves consistently as the queue size increases: small queues give noisy drift estimates, while the default queue size of 1024 gives the best result at every reported NFE. Entropy stays in a comparable range, suggesting that the gain comes from a better-estimated drift direction rather than from a collapse in output diversity. Thus, sufficiently large reference sets are important for making the attraction–repulsion field reliable. 
+
+Attraction–repulsion balance. Table 6 tests the anti-symmetric structure inherited from drifting [ 11 ]. The balanced field Vi = b+ 
+
+> i
+
+− b− 
+
+> i
+
+, which preserves the feature-space equilibrium property discussed in Corollary C.3, performs best across the evaluated NFEs. Attraction-only or attraction-heavy variants remain usable but are consistently weaker, while repulsion-only or repulsion-heavy variants fail catastrophically with extremely high Gen.-PPL and inflated entropy. This shows that the attraction– repulsion balance is not just a theoretical convenience: it is necessary for a stable and useful drift estimate in discrete diffusion language models. 
+
+4.5 Qualitative Samples 
+
+Figure 3 shows representative generations from MDLM and T OKEN DRIFT at NFE = 16 . The MDLM sample exhibits the typical failure mode of low-budget diffusion decoding, with fragmented phrases, abrupt topic shifts, and weak local coherence. In contrast, T OKEN DRIFT produces a substantially more fluent and document-like continuation with coherent syntax and a plausible news-style structure. This qualitative comparison is consistent with the Gen.-PPL improvements in Tables 1 and 2. 8Table 6: Ablation for attraction–repulsion ratio (i.e., b+ 
+
+> i
+
+vs. b− 
+
+> i
+
+) at ckpt 5k. Values are mean ±SD 
+
+over 3 seeds. ∗default setting carried over from the main table. 
+
+Ratio NFE = 4 NFE = 8 NFE = 16 
+
+b+ 
+
+> i
+
+b− 
+
+> i
+
+Gen.-PPL ↓ Entropy ↑ Gen.-PPL ↓ Entropy ↑ Gen.-PPL ↓ Entropy ↑
+
+1 0 726 .42 ±30 .80 5.74 ±0.03 232 .23 ±8.55 5.66 ±0.01 107 .14 ±4.17 5.60 ±0.01 
+
+2 1 691 .49 ±22 .36 5.82 ±0.02 219 .42 ±4.31 5.74 ±0.00 107 .02 ±3.63 5.69 ±0.01 
+
+0 1 17727 .67 ±368 .66 6.56 ±0.01 20322 .75 ±610 .23 6.65 ±0.01 19778 .34 ±752 .82 6.67 ±0.02 
+
+1 2 16996 .35 ±502 .84 6.53 ±0.01 19553 .59 ±253 .84 6.62 ±0.01 19167 .79 ±143 .71 6.64 ±0.01 
+
+1∗ 1∗ 729 .17 ±42 .40 5.84 ±0.02 166 .96 ±6.77 5.68 ±0.01 67 .94 ±4.07 5.55 ±0.03 
+
+MDLM 
+
+Upon takingHerEven so I was under sprinkler cabin and TommyFire set ablaze fire.There wasMy igies bucket here thaif weand my nose in Pac-Pac, my step ... 
+
+TOKEN DRIFT 
+
+The police were asked to register the case on Thursday after forensic examination showed blood and bruises on the body. File photo: A poison victim was found ... 
+
+Figure 3: A generated example: MDLM (top) and T OKEN DRIFT (bottom) at NFE = 16 .
+
+## 5 Related Work 
+
+Distillation for discrete diffusion language models. Distillation methods such as SDTT [ 15 ], Di4C [ 16 ], and DiDi-Instruct [ 17 ] train DDLM-based models for low-NFE generation using pretrained teachers. They remain closely related to our setting, but solve a different optimization problem: their goal is to distill a teacher into a few-step generator, whereas we refine the same starting DDLM checkpoint with a drifting objective under matched additional training budgets and NFEs. We therefore report distillation results as contextual references rather than controlled baselines. 
+
+Flow-based formulations for discrete sequences. Another line of work studies flow-based formula-tions for discrete or simplex-valued sequence generation [ 18 – 22 ]. Rather than refining an existing denoising model and sampler, they define generation through continuous denoising dynamics, flow maps, simplex-valued probability paths, or discrete flow-matching objectives. We instead keep the DDLM checkpoint and sampler fixed, and test whether a drifting objective improves the same model under matched training budgets and NFEs. 
+
+## 6 Conclusion 
+
+We introduced drifting objectives for refining discrete diffusion language models. By lifting cat-egorical predictions to soft-token features, our formulation makes feature-space drifting trainable for DDLMs while preserving the attraction–repulsion structure of continuous drifting. Controlled experiments with OWT show that this objective improves fixed-NFE generation quality over matched continuation baselines and transfers beyond masked diffusion to a uniform-state backbone. Our results suggest that drifting is a practical training objective for improving existing DDLMs without changing their sampler or relying on specialized distillation. 
+
+Discussions. The main limitation of T OKEN DRIFT is that its effectiveness depends on the quality of the frozen semantic feature space used to estimate drift. In addition, our experiments focus on unconditional generation with DDLM backbones; extending the same objective to conditional generation, instruction-following settings, or larger-scale diffusion language models remains an important direction for future work. 9Acknowledgement 
+
+This work was partially supported by JSPS KAKENHI Grant Number 25H01137 and JST K Program Japan Grant Number JPMJKP24C3. 
+
+## References 
+
+[1] Jacob Austin, Daniel D Johnson, Jonathan Ho, Daniel Tarlow, and Rianne Van Den Berg. Structured denoising diffusion models in discrete state-spaces. Advances in neural information processing systems , 34:17981–17993, 2021. [2] Aaron Lou, Chenlin Meng, and Stefano Ermon. Discrete diffusion modeling by estimating the ratios of the data distribution. In Forty-first International Conference on Machine Learning ,2024. URL https://openreview.net/forum?id=CNicRIVIPA .[3] Subham Sahoo, Marianne Arriola, Yair Schiff, Aaron Gokaslan, Edgar Marroquin, Justin Chiu, Alexander Rush, and Volodymyr Kuleshov. Simple and effective masked diffusion language models. Advances in Neural Information Processing Systems , 37:130136–130184, 2024. [4] Jiaxin Shi, Kehang Han, Zhe Wang, Arnaud Doucet, and Michalis Titsias. Simplified and generalized masked diffusion for discrete data. Advances in neural information processing systems , 37:103131–103167, 2024. [5] Subham Sekhar Sahoo, Justin Deschenaux, Aaron Gokaslan, Guanghan Wang, Justin T Chiu, and Volodymyr Kuleshov. The diffusion duality. In Forty-second International Conference on Machine Learning , 2025. URL https://openreview.net/forum?id=9P9Y8FOSOk .[6] Shen Nie, Fengqi Zhu, Zebin You, Xiaolu Zhang, Jingyang Ou, Jun Hu, Jun Zhou, Yankai Lin, Ji-Rong Wen, and Chongxuan Li. Large language diffusion models, 2025. URL https: //arxiv.org/abs/2502.09992 .[7] Jiacheng Ye, Zhihui Xie, Lin Zheng, Jiahui Gao, Zirui Wu, Xin Jiang, Zhenguo Li, and Lingpeng Kong. Dream 7b: Diffusion large language models. arXiv preprint arXiv:2508.15487 , 2025. [8] Fengqi Zhu, Rongzhen Wang, Shen Nie, Xiaolu Zhang, Chunwei Wu, Jun Hu, Jun Zhou, Jianfei Chen, Yankai Lin, Ji-Rong Wen, et al. Llada 1.5: Variance-reduced preference optimization for large language diffusion models. arXiv preprint arXiv:2505.19223 , 2025. [9] Justin Deschenaux, Caglar Gulcehre, and Subham Sekhar Sahoo. The diffusion duality, chapter II: $\psi$-samplers and efficient curriculum. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview.net/forum?id=RSIoYWIzaP .[10] Subham Sekhar Sahoo, Jean-Marie Lemercier, Zhihan Yang, Justin Deschenaux, Jingyu Liu, John Thickstun, and Ante Jukic. Scaling beyond masked diffusion language models. arXiv preprint arXiv:2602.15014 , 2026. [11] Mingyang Deng, He Li, Tianhong Li, Yilun Du, and Kaiming He. Generative modeling via drifting. arXiv preprint arXiv:2602.04770 , 2026. [12] Yoshua Bengio, Nicholas Léonard, and Aaron Courville. Estimating or propagating gradients through stochastic neurons for conditional computation. arXiv preprint arXiv:1308.3432 , 2013. [13] Aaron Gokaslan and Vanya Cohen. Openwebtext corpus. http://Skylion007.github.io/ OpenWebTextCorpus , 2019. [14] Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, Ilya Sutskever, et al. Language models are unsupervised multitask learners. OpenAI blog , 1(8):9, 2019. [15] Justin Deschenaux and Caglar Gulcehre. Beyond autoregression: Fast LLMs via self-distillation through time. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview.net/forum?id=uZ5K4HeNwd .10 [16] Satoshi Hayakawa, Yuhta Takida, Masaaki Imaizumi, Hiromi Wakaki, and Yuki Mitsufuji. Distillation of discrete diffusion through dimensional correlations. In Forty-second Interna-tional Conference on Machine Learning , 2025. URL https://openreview.net/forum? id=jCEl0aJpF6 .[17] Haoyang Zheng, Xinyang Liu, Xiangrui Kong, Nan Jiang, Zheyuan Hu, Weijian Luo, Wei Deng, and Guang Lin. Ultra-fast language generation via discrete diffusion divergence instruct. In 
+
+The Fourteenth International Conference on Learning Representations , 2026. URL https: //openreview.net/forum?id=mtdyZsa47V .[18] Chanhyuk Lee, Jaehoon Yoo, Manan Agarwal, Sheel Shah, Jerry Huang, Aditi Raghunathan, Seunghoon Hong, Nicholas M Boffi, and Jinwoo Kim. Flow map language models: One-step language modeling via continuous denoising. arXiv preprint arXiv:2602.16813 , 2026. [19] Peter Potaptchik, Jason Yim, Adhi Saravanan, Peter Holderrieth, Eric Vanden-Eijnden, and Michael S Albergo. Discrete flow maps. arXiv preprint arXiv:2604.09784 , 2026. [20] Daan Roos, Oscar Davis, Floor Eijkelboom, Michael Bronstein, Max Welling, ˙ Ismail ˙ Ilkan Ceylan, Luca Ambrogioni, and Jan-Willem van de Meent. Categorical flow maps. arXiv preprint arXiv:2602.12233 , 2026. [21] Hannes Stark, Bowen Jing, Chenyu Wang, Gabriele Corso, Bonnie Berger, Regina Barzilay, and Tommi Jaakkola. Dirichlet flow matching with applications to dna sequence design. In 
+
+Proceedings of the 41st International Conference on Machine Learning , pages 46495–46513, 2024. [22] Amin Karimi Monsefi, Nikhil Bhendawade, Manuel Rafael Ciosici, Dominic Culver, Yizhe Zhang, and Irina Belousova. Fs-dfm: Fast and accurate long text generation with few-step diffusion language models. arXiv preprint arXiv:2509.20624 , 2025. [23] Amir Beck and Marc Teboulle. Mirror descent and nonlinear projected subgradient methods for convex optimization. Operations Research Letters , 31(3):167–175, 2003. [24] Jyrki Kivinen and Manfred K Warmuth. Exponentiated gradient versus gradient descent for linear predictors. Information and computation , 132(1):1–63, 1997. [25] Omer Luxembourg, Haim Permuter, and Eliya Nachmani. Plan for speed–dilated scheduling for masked diffusion language models. arXiv preprint arXiv:2506.19037 , 2025. [26] Daniel Israel, Guy Van den Broeck, and Aditya Grover. Accelerating diffusion llms via adaptive parallel decoding. arXiv preprint arXiv:2506.00413 , 2025. [27] Qingyan Wei, Yaojie Zhang, Zhiyuan Liu, Puyu Zeng, Yuxuan Wang, Biqing Qi, Dongrui Liu, and Linfeng Zhang. Accelerating diffusion large language models with slowfast sampling: The three golden principles. arXiv preprint arXiv:2506.10848 , 2025. [28] Xinyin Ma, Runpeng Yu, Gongfan Fang, and Xinchao Wang. dkv-cache: The cache for diffusion language models. arXiv preprint arXiv:2505.15781 , 2025. [29] Zhiyuan Liu, Yicun Yang, Yaojie Zhang, Junjie Chen, Chang Zou, Qingyuan Wei, Shaobo Wang, and Linfeng Zhang. dllm-cache: Accelerating diffusion large language models with adaptive caching. arXiv preprint arXiv:2506.06295 , 2025. [30] Chengyue Wu, Hao Zhang, Shuchen Xue, Zhijian Liu, Shizhe Diao, Ligeng Zhu, Ping Luo, Song Han, and Enze Xie. Fast-dllm: Training-free acceleration of diffusion llm by enabling kv cache and parallel decoding. arXiv preprint arXiv:2505.22618 , 2025. [31] Daisuke Oba, Danushka Bollegala, Masahiro Kaneko, and Naoaki Okazaki. Stopping computa-tion for converged tokens in masked diffusion-LM decoding. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview.net/forum? id=PzhNnMepgl .11 A Broader Impact 
+
+This work studies training objectives for improving discrete diffusion language models, and therefore shares the broader impacts of generative language modeling. Improved generation quality at fixed inference budgets may make non-autoregressive text generation more practical and efficient, which could benefit applications requiring lower latency or reduced sampling cost. At the same time, stronger language generators can also be misused to produce misleading, low-quality, or harmful text at scale. Our method does not introduce new data sources, deployment mechanisms, or safety filters, and our experiments are limited to standard unconditional generation benchmarks. Responsible deployment of models trained with drifting objectives should therefore follow existing best practices for language-model evaluation, including bias, toxicity, memorization, and misuse assessments before use in user-facing systems. 
+
+## B Licenses 
+
+We use publicly available datasets, checkpoints, and evaluation models in accordance with their released licenses and terms. Table 7 summarizes the main external assets used in this work. We do not redistribute the original datasets or pretrained checkpoints; our release will include only our code, configuration files, and instructions for obtaining the external resources from their original providers. Table 7: Main external assets used in this work. 
+
+Asset Use in this work License / terms OpenWebText [13] continual training and evaluation CC0-1.0 MDLM [3] released masked-diffusion checkpoint and codebase Apache-2.0 DUO [5] released uniform-state diffusion checkpoint and codebase Apache-2.0 GPT-2 Large [14] Gen.-PPL evaluator Modified MIT 
+
+## C Theoretical Analysis of T OKEN DRIFT 
+
+We give three results that justify the feature-space drifting objective used by T OKEN DRIFT . The first shows that the soft-token lift makes drifting differentiable for categorical sequence generators. The second shows that the resulting fixed-point loss directly follows the feature-space drift. The third establishes that the equilibrium property of anti-symmetric drifting is preserved in the discrete setting. We provide formal statements and proofs for the properties summarized in Sec. 3.6. Throughout this section, we omit the sample index when it is clear from context. For logits ℓ ∈
+
+RL×|V| , we write 
+
+p = softmax( ℓ), ˜e = pE, h(ℓ) = ϕ(˜ e),
+
+where the softmax is applied row-wise over the vocabulary dimension, E is the token embedding matrix, and ϕ is a frozen semantic encoder. Given a feature-space drift V , the drifting target and objective are 
+
+h⋆ = sg( h(ℓ) + αV ) , Ldrift (ℓ; V ) = 12 ∥h(ℓ) − h⋆∥22 ,
+
+where α > 0 is the drift scale and sg( ·) denotes stop-gradient. 
+
+C.1 Soft-token features make drifting differentiable 
+
+The first issue in applying drifting to text is that hard token samples are not differentiable with respect to logits. The soft-token lift resolves this by replacing a hard token embedding with the expected embedding under the model distribution. 
+
+Proposition C.1 (Differentiable soft-token lift) . Assume that the frozen encoder ϕ is differen-tiable with respect to its input embeddings. Then 
+
+h(ℓ) = ϕ(softmax( ℓ)E)
+
+12 is differentiable with respect to ℓ. Consequently, for any differentiable feature-space objective 
+
+R(h),
+
+∇ℓR(h(ℓ)) = Jh(ℓ)⊤∇hR(h),
+
+where Jh(ℓ) is the Jacobian of h with respect to ℓ. The Jacobian Jh(ℓ) pulls the feature-space gradient back to logit space. 
+
+Proof. The row-wise softmax map 
+
+ℓ 7 → p = softmax( ℓ)
+
+is differentiable with respect to ℓ. The soft-token embedding map 
+
+p 7 → ˜e = pE 
+
+is linear, and hence differentiable. By assumption, the frozen encoder ϕ is differentiable with respect to its input embeddings. Therefore, the composition 
+
+h(ℓ) = ϕ(softmax( ℓ)E)
+
+is differentiable with respect to ℓ.Now let R be any differentiable objective defined on the feature representation h. Since R(h(ℓ)) is a composition of differentiable maps, the chain rule gives 
+
+∇ℓR(h(ℓ)) = Jh(ℓ)⊤∇hR(h),
+
+where Jh(ℓ) is the Jacobian of h with respect to ℓ. Thus, gradients of feature-space objectives can be pulled back to the generator logits through the soft-token lift. 
+
+Interpretation. Proposition C.1 identifies the key bridge from continuous drifting to discrete text. Although the drift loss is defined in a semantic feature space, the soft-token lift makes this loss differentiable with respect to the generator logits. Thus, the feature-space drift can update a categorical sequence generator by standard backpropagation. In contrast, hard token selection would break this path and turn the drift target into a non-differentiable evaluation signal rather than a trainable objective. 
+
+C.2 Connecting feature-space drifting to logits 
+
+The fixed-point loss below is the same local mechanism used in continuous drifting: a generated feature is trained toward a stop-gradient target shifted by the drift field. The nontrivial point in our setting is that the optimized variables are not continuous samples, but token logits. Using the soft-token lift (Prop. C.1), we show that the feature-space drifting signal induces a well-defined update direction for the logits of a categorical generator. 
+
+Proposition C.2 (Logit-space pullback of the drift) . Fix a drift vector V and define 
+
+h⋆ = sg( h + αV ), Ldrift = 12 ∥h − h⋆∥22.
+
+Then the feature-space gradient is 
+
+∇hLdrift = −αV. 
+
+Moreover, when h = h(ℓ) is the soft-token feature map from Proposition C.1, 
+
+∇ℓLdrift = −αJ h(ℓ)⊤V. 
+
+Thus, the continuous drift field is transferred to the categorical generator as a logit-space update through the Jacobian of the soft-token feature map. 
+
+Proof. Since h⋆ = sg( h + αV ), the target is treated as constant when differentiating with respect to 
+
+h. Therefore, 
+
+∇hLdrift = ∇h
+
+12 ∥h − h⋆∥22 = h − h⋆ = h − sg( h + αV ) = −αV. 
+
+13 Now suppose h = h(ℓ). By Proposition C.1, h(ℓ) is differentiable with respect to ℓ. Applying the chain rule gives 
+
+∇ℓLdrift = Jh(ℓ)⊤∇hLdrift = −αJ h(ℓ)⊤V. 
+
+This proves the stated logit-space pullback of the feature-space drift. 
+
+Local effect on generated features. We next check that pulling the drift back to logits does not destroy its intended feature-space effect. Let ℓ+ = ℓ − γ∇ℓLdrift be one gradient descent step with step size γ > 0. A first-order expansion gives 
+
+h(ℓ+) − h(ℓ), V = γα ∥Jh(ℓ)⊤V ∥22 + O(γ2).
+
+Therefore, for sufficiently small γ, the logit update moves the generated feature in a direction that has positive alignment with the drift, whenever Jh(ℓ)⊤V̸ = 0 .
+
+Interpretation. The identity ∇hLdrift = −αV mirrors the fixed-point construction of continuous drifting. The contribution here is the connection to discrete generators: because the feature map is built from soft token predictions, the same drift-following signal can be pulled back to token logits as 
+
+−αJ h(ℓ)⊤V . In this sense, the objective is not merely a feature-space matching loss; it is a trainable way to apply continuous drifting dynamics to categorical sequence models. 
+
+C.3 Inherited equilibrium under anti-symmetric drift 
+
+The original drifting formulation relies on an anti-symmetric attraction–repulsion field so that the drift vanishes when the data and model distributions match. We here verify that the same fixed-point property is inherited by our discrete objective after replacing continuous samples with soft-token features. Let P ϕ 
+
+> data
+
+denote the distribution of real-text features u = ϕ(E[x]) , and let P ϕ 
+
+> model
+
+denote the distri-bution of generated soft-token features h(ℓ) = ϕ(softmax( ℓ)E). Let ¯V (h; P, Q ) be the population drift field in this frozen feature space. 
+
+Corollary C.3 (No drift signal at feature-space equilibrium) . Assume the feature-space drift operator is anti-symmetric: 
+
+¯V (h; P, Q ) = − ¯V (h; Q, P ) for all h, P, Q. 
+
+If P ϕ 
+
+> data
+
+= P ϕ
+
+> model
+
+, then 
+
+¯V (h; P ϕ
+
+> data
+
+, P ϕ
+
+> model
+
+) = 0 .
+
+Consequently, the stop-gradient target satisfies 
+
+h⋆ = sg( h + α ¯V ) = sg( h),
+
+and therefore 
+
+Ldrift = 12 ∥h − h⋆∥22 = 0 , ∇hLdrift = 0 , ∇ℓLdrift = 0 .
+
+Proof. Since P ϕ 
+
+> data
+
+= P ϕ
+
+> model
+
+, write this common feature distribution as P . By anti-symmetry, 
+
+¯V (h; P, P ) = − ¯V (h; P, P ).
+
+Hence 2 ¯V (h; P, P ) = 0 , so ¯V (h; P, P ) = 0 . Therefore, 
+
+¯V (h; P ϕ
+
+> data
+
+, P ϕ
+
+> model
+
+) = 0 .
+
+Substituting this into the target definition gives 
+
+h⋆ = sg( h + α ¯V ) = sg( h).
+
+Since sg( h) has the same value as h, we have 
+
+Ldrift = 12 ∥h − sg( h)∥22 = 0 .
+
+14 Moreover, using Proposition C.2 with V = 0 ,
+
+∇hLdrift = 0 , ∇ℓLdrift = −αJ h(ℓ)⊤0 = 0 .
+
+Thus, at feature-space equilibrium, the drifting objective injects no feature-space or logit-space learning signal. 
+
+Interpretation. This result is inherited from the equilibrium property of continuous drifting. Its role is to show that our discrete objective does not introduce a spurious learning signal at feature-space equilibrium. The statement is deliberately made in feature space: matching P ϕ 
+
+> data
+
+and P ϕ 
+
+> model
+
+does not imply equality of logits or token distributions, since the feature map may be many-to-one. What it guarantees is that, in the geometry where the drift is defined, the objective stops pushing once the model-induced feature distribution matches the data-induced feature distribution. 
+
+Summary. Together, these results justify the core design of T OKEN DRIFT . The soft-token lift makes feature-space drifting differentiable for categorical generators; the fixed-point loss follows the computed drift direction exactly in feature space; and anti-symmetry ensures that the learning signal vanishes at equilibrium. These results do not claim global convergence of the nonconvex generator, but they characterize the local mechanism and fixed-point structure of the proposed objective. 
+
+## D Theoretical Analysis of Mirror-Teacher Objectives 
+
+We provide the theoretical details for the mirror-teacher alternatives used in Sec. 3.4. The first result shows that the mirror teacher is the KL-proximal simplex update induced by a logit-space direction. The second shows that this direction locally improves alignment with the feature-space drift. The third verifies that the equilibrium property of anti-symmetric drifting is preserved by the mirror-teacher loss. Throughout, for a current logit tensor ℓ, we write 
+
+p = softmax( ℓ), g = ∇ℓ⟨h(ℓ), sg( V )⟩ , p⋆ = softmax(sg( ℓ + ηg )) ,
+
+where h(ℓ) is the soft-token semantic feature, V is the feature-space drift, and sg( ·) denotes stop-gradient. 
+
+D.1 Mirror teacher as a simplex-constrained update 
+
+Our mirror teacher has the closed form 
+
+p⋆v ∝ pv exp( ηg v ),
+
+which is standard in mirror descent and exponentiated-gradient updates on the simplex [ 23 , 24 ]. The following proposition shows that this teacher is not an ad hoc construction: it is the unique KL-regularized update that moves the current distribution in direction g while remaining on the simplex. 
+
+Proposition D.1 (Variational form of the mirror teacher) . Let p ∈ ∆|V|− 1 and g ∈ R|V| . For any η > 0, the distribution 
+
+p⋆v = pv exp( ηg v )
+
+P 
+
+> u
+
+pu exp( ηg u)
+
+is the unique solution of 
+
+arg max 
+
+> q∈∆|V|− 1
+
+
+
+⟨g, q ⟩ − 1
+
+η KL( q ∥ p)
+
+
+
+.
+
+Equivalently, p⋆ = softmax( ℓ + ηg ) whenever p = softmax( ℓ).
+
+Proof. Consider the Lagrangian 
+
+J (q, λ ) = X
+
+> v
+
+qv gv − 1
+
+η
+
+X
+
+> v
+
+qv log qv
+
+pv
+
++ λ X
+
+> v
+
+qv − 1
+
+!
+
+.
+
+15 Differentiating with respect to qv gives 
+
+gv − 1
+
+η
+
+
+
+log qv
+
+pv
+
++ 1 
+
+
+
++ λ = 0 .
+
+Rearranging, 
+
+qv = C p v exp( ηg v ),
+
+where C > 0 is a constant independent of v. Enforcing the simplex constraint P 
+
+> v
+
+qv = 1 yields 
+
+q⋆v = pv exp( ηg v )
+
+P 
+
+> u
+
+pu exp( ηg u) .
+
+Since the objective is linear in q plus the strictly concave term − 1 
+
+> η
+
+KL( q∥p), it is strictly concave on the simplex interior whenever pv > 0 for all v. Hence this stationary point is the unique maximizer. Finally, if p = softmax( ℓ), then 
+
+q⋆v = exp( ℓv ) exp( ηg v )
+
+P 
+
+> u
+
+exp( ℓu) exp( ηg u) = softmax( ℓ + ηg )v .
+
+Therefore p⋆ = softmax( ℓ + ηg ), as claimed. 
+
+Interpretation. Proposition D.1 formalizes the role of the mirror step in this alternative mirror formulation of T OKEN DRIFT . A Euclidean additive update would generally leave the simplex, whereas the mirror teacher is the KL-proximal update naturally associated with categorical outputs. 
+
+D.2 Feature-space drift induces local semantic improvement 
+
+The drift field is computed in semantic feature space, but the generator is updated in logit space. The next result shows that this mismatch is locally well behaved: the logit-space direction used by mirror-formulation of T OKEN DRIFT provably improves alignment with the desired feature-space drift. Define the local alignment objective 
+
+Ψ( ℓ; V ) = ⟨h(ℓ), sg( V )⟩ .
+
+By construction, 
+
+g = ∇ℓΨ( ℓ; V ).
+
+Proposition D.2 (Local ascent in semantic alignment) . Assume that Ψ( ℓ; V ) is L-smooth in ℓ
+
+for fixed V . Let ˜ℓ = ℓ + ηg, g = ∇ℓΨ( ℓ; V ).
+
+Then, for any 0 < η < 2/L ,
+
+Ψ( ˜ℓ; V ) ≥ Ψ( ℓ; V ) + η
+
+
+
+1 − Lη 
+
+2
+
+
+
+∥g∥22.
+
+In particular, if g̸ = 0 , then the teacher logits ˜ℓ strictly improve semantic alignment with the drift direction for sufficiently small η.
+
+Proof. Since Ψ( ·; V ) is L-smooth in ℓ, for any perturbation ∆,
+
+Ψ( ℓ + ∆; V ) ≥ Ψ( ℓ; V ) + ⟨∇ ℓΨ( ℓ; V ), ∆⟩ − L
+
+2 ∥∆∥22.
+
+Set ∆ = ηg , where g = ∇ℓΨ( ℓ; V ). Then 
+
+Ψ( ℓ + ηg ; V ) ≥ Ψ( ℓ; V ) + η ⟨∇ ℓΨ( ℓ; V ), g ⟩ − Lη 2
+
+2 ∥g∥22
+
+= Ψ( ℓ; V ) + η∥g∥22 − Lη 2
+
+2 ∥g∥22
+
+= Ψ( ℓ; V ) + η
+
+
+
+1 − Lη 
+
+2
+
+
+
+∥g∥22.
+
+16 Since 0 < η < 2/L , the coefficient 
+
+η
+
+
+
+1 − Lη 
+
+2
+
+
+
+is positive. Therefore, if g̸ = 0 , the teacher logits ˜ℓ = ℓ + ηg strictly increase Ψ( ℓ; V ).
+
+Feature-space view. Writing Jh(ℓ) for the Jacobian of h with respect to ℓ, we have 
+
+g = Jh(ℓ)⊤V. 
+
+Hence a first-order expansion gives 
+
+⟨h(ℓ + ηg ) − h(ℓ), V ⟩ = η∥Jh(ℓ)⊤V ∥22 + O(η2),
+
+which makes the geometric role of the update explicit: mirror-based formulation of T OKEN DRIFT 
+
+chooses the logit-space direction that increases semantic alignment with the feature-space drift at first order. 
+
+Interpretation. Proposition D.2 is the main justification for transporting drift from feature space to logits. It shows that the mirror teacher is not merely simplex-valid; it is also locally aligned with the semantic correction prescribed by the drift field. 
+
+D.3 Equilibrium preservation under anti-symmetric drift 
+
+A central property of drifting is that the learning signal should disappear once the model and data distributions match [ 11 ]. We now show that this equilibrium property is preserved by mirror-based formulation of T OKEN DRIFT .Let P ϕ 
+
+> data
+
+and P ϕ 
+
+> model
+
+denote the distributions of semantic features induced by the data and the current model under the frozen encoder ϕ. Let ¯V (h; P, Q ) denote the population drift field in feature space, where P supplies the attractive references and Q supplies the repulsive references. 
+
+Proposition D.3 (Equilibrium under anti-symmetric drift) . Assume that the population drift field is anti-symmetric: 
+
+¯V (h; P, Q ) = − ¯V (h; Q, P ) for all h, P, Q. 
+
+Then ¯V (h; P, P ) = 0 for all h. 
+
+Consequently, if P ϕ 
+
+> data
+
+= P ϕ
+
+> model
+
+, then the drift term vanishes, the induced logit-space direction satisfies g = 0 , the mirror teacher reduces to p⋆ = p, and the drift loss is zero: 
+
+KL( p⋆ ∥ p) = 0 .
+
+Proof. Setting Q = P in the anti-symmetry condition gives 
+
+¯V (h; P, P ) = − ¯V (h; P, P ).
+
+Hence 2 ¯V (h; P, P ) = 0 , and therefore 
+
+¯V (h; P, P ) = 0 .
+
+Now suppose P ϕ 
+
+> data
+
+= P ϕ
+
+> model
+
+. Let this common feature distribution be denoted by P . Then the population drift used by the mirror-teacher objective satisfies 
+
+V = ¯V (h; P ϕ
+
+> data
+
+, P ϕ
+
+> model
+
+) = ¯V (h; P, P ) = 0 .
+
+By the definition of the logit-space direction, 
+
+g = ∇ℓ ⟨h(ℓ), sg( V )⟩ ,
+
+and since V = 0 , we have 
+
+g = ∇ℓ ⟨h(ℓ), 0⟩ = 0 .
+
+Therefore the mirror teacher becomes 
+
+p⋆ = softmax(sg( ℓ + ηg )) = softmax(sg( ℓ)) .
+
+17 The stop-gradient operator does not change the value of its argument, so 
+
+p⋆ = softmax( ℓ) = p. 
+
+Thus the mirror KL loss vanishes: 
+
+KL( p⋆∥p) = KL( p∥p) = 0 .
+
+This proves that, at feature-space equilibrium, the mirror-teacher objective injects no drift signal. 
+
+Interpretation. Proposition D.3 shows that the discrete mirror-teacher construction preserves the fixed-point structure of drifting. When the model-induced feature distribution matches the data-induced feature distribution, mirror-based formulation of T OKEN DRIFT injects no spurious learning signal. This is the discrete analogue of the equilibrium property that motivates drifting in the continuous setting. 
+
+D.4 Summary 
+
+Taken together, the three results establish that mirror-based formulation of T OKEN DRIFT is theo-retically well aligned with its design goals: the teacher is the correct simplex-constrained update, the chosen direction improves semantic alignment with the drift field at first order, and the resulting learning signal vanishes at equilibrium. 
+
+## E Additional Related Work 
+
+Inference-time efficiency for discrete diffusion language models. A separate line of work im-proves the decoding efficiency of discrete diffusion language models at inference time. These methods reduce sampling cost by shortening denoising schedules, reusing or skipping computation across denoising steps, or stopping computation once parts of the sequence have converged [ 25 – 31 ]. For example, SureLock [ 31 ] reduces decoding cost by early-stopping token positions whose predictions have stabilized during iterative denoising. These approaches modify the inference procedure or computation schedule of an already trained model. 
+
+Relation to our work. Our work addresses a different part of the pipeline: we study drifting as a training-time objective for refining discrete diffusion language models under matched sampling budgets. The semantic encoder, reference queues, and drift targets used by T OKEN DRIFT are used only during training; at inference time, the underlying DDLM sampler is unchanged. Thus, inference-time acceleration methods are not controlled baselines for our objective-level study. Instead, they represent a distinct direction that improves how a DDLM is sampled, whereas our work improves the model produced before sampling begins. 
+
+## F Additional Experimental Details 
+
+Benchmark and continual-training setup. We use OpenWebText (OWT) [ 13 ] for the main continual-training experiments. Unless otherwise stated, all methods start from a released checkpoint and are trained for 13k additional global steps under the same data and compute budget. We focus on unconditional text generation, following prior work on diffusion language models [ 3], and evaluate all methods with matched numbers of function evaluations (NFEs). 
+
+Backbones. For the masked-diffusion experiments, we use the released 170M-parameter MDLM checkpoint [ 3 ]1. For the uniform-state diffusion experiments, we use the released DUO check-point [ 5]2. Within each backbone, all controlled comparisons share the same architecture, tokenizer, initialization, data, additional training budget, and evaluation protocol. 
+
+Controlled baselines. For each backbone, we compare against two matched baselines. The first is the released checkpoint evaluated without additional training. The second, denoted Continuation ,starts from the same checkpoint and is trained for the same number of additional updates using only the original DDLM objective. These baselines isolate the effect of the drifting objective from improvements due merely to additional optimization.   
+
+> 1Released at https://github.com/kuleshov-group/mdlm .
+> 2Released at https://github.com/s-sahoo/duo .
+
+18 Drifting objective variants. Our default method uses the direct feature-space drifting objective described in Sec. 3.3. We also evaluate variants that add the original denoising objective and mirror-teacher alternatives described in Sec. 3.4. Unless otherwise stated, the default setting uses the drifting objective alone; base-plus-drift and mirror-teacher variants are used for the formulation study. 
+
+Optimization and drift hyperparameters. The drift scale is fixed to α = 1 . We use multi-temperature drift estimation with T = {0.02 , 0.05 , 0.2}. For each temperature, we compute per-sample drift vectors, normalize them by a scalar batch-level RMS scale, and average the normalized drifts following the original drifting implementation [ 11 ]. We optimize with AdamW using a global batch size of 512, learning rate 3 × 10 −5 or 5 × 10 −5.
+
+Feature encoder. For each backbone, the frozen semantic encoder is a frozen copy of the same released checkpoint used to initialize the generator. We extract sequence-level features by mean-pooling the penultimate and final hidden layers and L2-normalizing their concatenation. Concretely, if H(L−1) , H (L) ∈ RT ×d are the penultimate and final hidden states, we define 
+
+h = normalize 
+
+"
+
+1
+
+T
+
+> T
+
+X
+
+> t=1
+
+H(L−1)  
+
+> t
+
+; 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+H(L)
+
+> t
+
+#! 
+
+∈ R2d.
+
+Drift reference sets. To estimate the drift field efficiently, we build positive and negative reference sets from the current distributed micro-batch and feature queues. Each GPU uses a per-device batch size of 2, and training is performed on 4 GPUs of NVIDIA H100 SXM5 94GB, so each micro-step provides 8 fresh examples after cross-device all-gather. Generated features are computed from model predictions on corrupted inputs sampled from the underlying diffusion process, and real features are computed from the corresponding clean texts. For each anchor, we use the current real and generated features together with separate FIFO queues of detached real and generated features. The default queue size is 1024 for both queues. The queues store only pooled sequence-level features, not token-level representations. We compute Ldrift at every micro-step and accumulate gradients to reach the global batch size of 512. 
+
+Evaluation protocol. Following prior work [ 3], we evaluate generated sample quality using gener-ative perplexity (Gen.-PPL) computed by pretrained GPT-2 Large [ 14 ]. We also report entropy as a diagnostic for diversity and degeneration. 19
