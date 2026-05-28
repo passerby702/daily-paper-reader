@@ -1,0 +1,1791 @@
+Title: LineageFlow: Flow Matching for High-Fidelity Family-Aware Protein Sequence Generation
+
+URL Source: https://arxiv.org/pdf/2605.22252v2
+
+Published Time: Mon, 25 May 2026 00:32:46 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# LineageFlow: Flow Matching for High-Fidelity Family-Aware Protein Sequence Generation 
+
+Langzhang Liang 1 2 3 4 Ming Yang 4 5 Yi Feng 3 6 Junfan Li 7 Shirui Pan 4 8 Yinghui Xu 1 Tianlei Ying 3 6 
+
+Yizhen Zheng 4 9 Zenglin Xu 1 2 
+
+## Abstract 
+
+Protein sequence generation for engineering re-quires samples that are biophysically plausible and, when targeting a family/domain, remain recognizable members while exploring within-family diversity. Current discrete generative mod-els typically start from uniform or masked-token noise, which discards strong position-specific con-straints induced by evolution and forces the model to reconstruct conserved residues from scratch, leading to weak family control and low plau-sibility. We propose LineageFlow , a Dirichlet flow-matching model that initializes generation from lineage priors derived from ancestral se-quence reconstruction, turning generation into structured mutation from an evolved scaffold. Across diverse protein families, LineageFlow achieves family validity close to held-out natu-ral sequences and improves predicted structural confidence over uniform-/mask-initialized base-lines while maintaining substantial novelty and diversity. Finally, we introduce rerouting , a sin-gle intermediate-time mutate–select–amplify in-tervention that enables objective-guided sampling without per-step predictor guidance and yields further gains in plausibility, including a zero-shot enzyme generation case study. Code is available at https://github.com/Jinx-byebye/ LineageFlow .
+
+> 1
+
+AI 3 Institute, Fudan University 2Shanghai Academy of AI for Science 3Shanghai Innovation Institute 4Theta Team, Aus-tralia 5School of Information and Communication Engineering, Dalian University of Technology 6School of Basic Medical Sci-ences, Fudan University 7Harbin Institute of Technology, Shen-zhen 8School of Information and Communication Technology, Griffith University 9Department of Cancer Medicine, Monash Uni-versity. Correspondence to: Tianlei Ying <tlying@fudan.edu.cn >,Yizhen Zheng <Yizhen.Zheng@monash.edu >, Zenglin Xu 
+
+<zenglin@gmail.com >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 
+
+## 1. Introduction 
+
+Protein engineering requires searching sequence space for proteins that (i) remain members of a target family/domain and (ii) exhibit favorable properties (Arnold, 1998; Stem-mer, 1994). Deep generative models—ranging from large protein language models (Rives et al., 2021; Elnaggar et al., 2022; Madani et al., 2023) to discrete diffusion and flow-based approaches (Alamdari et al., 2023; Atkinson et al., 2025; Truong Jr & Bepler, 2023)—offer a promising route. Here we study sequence generation under evolutionary con-straints: samples should be biophysically plausible and, when conditioned on a specific family/domain, remain recognizable members while exhibiting nontrivial within-family diversity. These requirements are foundational: evo-lutionary consistency is closely tied to functional relevance, and plausibility (e.g., foldability) is a basic sanity check for protein-like sequences. A key yet underappreciated design choice in discrete genera-tive processes is the initialization (prior / corruption distribu-tion). Common choices—uniform simplex noise or masked-token corruption—are family-agnostic (Stark et al., 2024; Alamdari et al., 2023). However, family membership is characterized by site-specific evolutionary structure: many sites are highly conserved to maintain structural integrity and biochemical function, while others vary to allow for functional adaptation and conformational diversity (Echave et al., 2016; Tokuriki & Tawfik, 2009). Generic priors erase this structure, forcing the denoiser to reconstruct nearly ev-ery residue—including conserved positions—from heavily corrupted states. This “from-scratch synthesis” burden is most severe early in the trajectory. We propose an alternative perspective: generation within a lineage is more naturally formulated as transport from an ancestral distribution rather than synthesis from generic noise. We introduce Lineage-Prior Flow Matching (Lin-eageFlow), which replaces generic priors with phylogeny-informed ancestral priors computed via ancestral sequence reconstruction (ASR). Rather than learning to synthesize a protein from scratch, the model learns to mutate variable positions and preserve conserved scaffolds. 1
+
+> arXiv:2605.22252v2 [cs.CE] 22 May 2026 LineageFlow: High-Fidelity Family-Aware Generation
+
+To support targeted design, we further introduce Rerout-ing, an inference-time steering mechanism. Unlike continu-ous guidance methods that require gradients at every step, Rerouting applies a single , directed-evolution–inspired ”mu-tate–select–amplify” intervention within the flow (Arnold, 1998). This steers the trajectory toward user-specified fitness objectives while empirically preserving family validity un-der our evaluation. Figure 1 provides a schematic overview. Our main contributions and findings are: • Ancestral priors beat generic noise: Rather than gen-erating protein sequences from noisy priors, we encode ancestral information in priors, turning generation from “from-scratch” denoising under uniform/mask noise into structured mutation from an evolved scaffold. • Manifold-preserving guidance via single-step rerouting: Instead of injecting predictor guidance at every Euler step, rerouting applies a single intermediate-time mutate–select–amplify intervention that steers samples toward objectives while empirically preserving family validity. • Near-natural family validity and improved plausi-bility: In large-scale experiments across diverse pro-tein families, LineageFlow achieves family validity close to held-out natural sequences with improved plau-sibility proxies and strong novelty/diversity; rerouting enables a zero-shot enzyme case study on held-out families. 
+
+## 2. Related Work 
+
+Protein sequence generative models. Large protein lan-guage models trained on massive corpora learn rich se-quence regularities and can be used for unconditional gen-eration or prompted design (Rives et al., 2021; Elnaggar et al., 2022; Madani et al., 2023). More recently, generative processes such as diffusion have been adapted to protein sequences (Alamdari et al., 2023), and flow matching has been developed for discrete sequence design via probability-simplex transport (Stark et al., 2024). Protein Bayesian flow networks provide another likelihood-based discrete genera-tive framework (Atkinson et al., 2025). These approaches differ in modeling assumptions and sampling procedures, but many default to generic priors/corruptions (uniform or masked noise), which can make accurate family control challenging when evolutionary constraints are strong. 
+
+Family- and domain-conditioned generation. Condi-tioning mechanisms for protein generation typically provide family information explicitly. One strategy is to attach meta-data/control tokens during training and prompt generation at inference (e.g., family tags) (Madani et al., 2023). An-other strategy conditions on evolutionary context directly, for instance by encoding an input MSA or a set of related sequences and generating new sequences in that context (Ram & Bepler, 2022; Truong Jr & Bepler, 2023). However, our experiments show that such signals do not necessarily translate into accurate family recognition. In contrast, Lin-eageFlow achieves high-fidelity family-aware generation by initializing the generative process from a family-specific ancestral prior without feeding family labels or an MSA prompt into the denoiser. 
+
+Objective-guided generation and directed evolution. 
+
+Beyond matching natural sequence statistics, many pro-tein design tasks aim to optimize external objectives. In protein generation, such objectives are commonly incorpo-rated either by (i) explicit conditioning (e.g., control tags or supervised labels) (Madani et al., 2023), (ii) post-hoc reranking/filtering with learned property predictors (Yang et al., 2019), or (iii) adapting the generator itself via re-inforcement learning or model-based optimization (Lutz et al., 2023; Brookes et al., 2019). These strategies can be effective but may trade off against family fidelity if prop-erty optimization pulls samples off-manifold. Directed evo-lution provides a complementary experimental paradigm, iteratively mutating and selecting a population to improve function (Arnold, 1998). LineageFlow’s rerouting adapts this idea as an intermediate-time inference operator ( mutate– select–amplify ), enabling objective-guided sampling while retaining the family-conditioned generative trajectory. 
+
+## 3. Background: Flow Matching on the Probability Simplex 
+
+Notation. Let K ∈ Z+ be the amino-acid alphabet size and let SK = {x ∈ RK 
+
+> ≥0
+
+: 1⊤x = 1 } denote the probability simplex. We embed a discrete residue y ∈ { 1, . . . , K } as the corresponding vertex ey ∈ SK . Let H denote a col-lection of protein families. For each family h ∈ H with aligned length Lh, define the relaxed sequence space Xh := (SK )Lh . An element X = ( x(1) , . . . , x(Lh)) ∈ X h repre-sents per-position categorical distributions, and a discrete aligned sequence s = ( y(1) , . . . , y (Lh)) ∈ { 1, . . . , K }Lh
+
+corresponds to the vertex X(s) = ( ey(1) , . . . , ey(Lh) ) ∈Xh.
+
+Problem setup: Family-aware generation as flow match-ing on simplex. Let p(h)data denote the empirical distribu-tion on Xh, observed through samples X1 ∼ p(h)data . Our goal is to learn a generator p(h) 
+
+> θ
+
+whose decoded samples match p(h)data ; we do so by introducing a tractable prior q(h)0
+
+and learning a neural time-dependent vector field ˆv(X, t ; θ)
+
+(shared across families) that transports q(h)0 toward p(h)data 
+
+via flow matching. We treat MSA gaps as missing data (excluded from alphabet) and mask gapped positions in the 2LineageFlow: High-Fidelity Family-Aware Generation 
+
+Figure 1. LineageFlow overview. A: with noise/mask initialization, conditioning on only a family label can still require generating sequences from scratch and can fail to yield a recognizable family-domain sequence. B: lineage priors preserve conserved scaffolds, turning generation into structured mutation within a family manifold. C: rerouting applies a single intermediate-time mutate–select– amplify intervention for objective-guided sampling without per-step predictor guidance. 
+
+probability transport and training loss. To enable variable-length generation, we sample a gap mask from empirical gap rates and keep gaps fixed throughout generation. 
+
+Continuous flow matching. Fix a family h. Let X1 ∼
+
+p(h)data be a data sample and X0 ∼ q(h)0 a prior distribu-tion on Xh. Flow matching (Lipman et al., 2023; Al-bergo & Vanden-Eijnden, 2023) constructs a generative model via a time-dependent conditional probability path 
+
+{pt(X | X1)}t∈[0 ,1] satisfying boundary conditions p0(X |
+
+X1) = q(h)0 (X) and p1(X | X1) = δ(X − X1). This path is associated with a conditional vector field ut(X | X1)
+
+solving the continuity equation 
+
+∂tpt(X | X1) + ∇X ·  pt(X | X1) ut(X | X1) = 0 .
+
+The objective is to learn a neural network ˆv(X, t ; θ) by minimizing the loss below: 
+
+LFM (θ) = E t∼U [0 ,1] 
+
+> X1∼p(h)data
+> X∼pt(·| X1)
+
+h
+
+ut(X | X1) − ˆv(X, t ; θ) 22
+
+i
+
+.
+
+Flow matching on the simplex. At the level of a single position, the state is a simplex vector x ∈ SK , and observed residues correspond to vertices ei ∈ SK . This makes the Dirichlet distribution a natural choice for priors and inter-mediate distributions on SK .Dirichlet Flow Matching (DFM) (Stark et al., 2024) de-fines flows directly on the simplex using a Dirichlet base distribution q0(x) = Dir( x; α), with density Dir( x; α) =  
+
+> Γ( α0)
+> QKi=1 Γ( αi)
+
+QKi=1 xαi−1 
+
+> i
+
+on SK (where α0 = PKi=1 αi). For 
+
+α = 1, q0 is uniform over SK , with Eq0 [xi] = 1 /K for all 
+
+i. DFM specifies a conditional path in which the Dirichlet mass becomes increasingly concentrated around the target vertex over time: 
+
+pt(x | x1 = ei) = Dir  x; α + ( tmax t) ei
+
+, t ∈ [0 , 1] .
+
+Here t ∈ [0 , 1] is the normalized flow time and tmax > 0
+
+is a fixed scale parameter controlling the terminal concen-tration (equivalently, one may define an unnormalized time 
+
+s = tmax t). For large tmax , pt=1 (· | ei) becomes sharply concentrated around ei; LineageFlow uses tmax = 6 .
+
+## 4. Method 
+
+Motivation: Phylogeny-Informed Generative Flow. 
+
+Protein sequence space is structured by evolution: modern sequences diverge from shared ancestors, forming distinct family-specific manifolds. Standard phylogenetic theory allows us to infer these ancestral distributions from multiple sequence alignments (MSAs) using statistical models (Eddy, 1998; Yang, 2007). In a discrete generative process, this prior controls how much structure denoising must recon-struct: a uniform or mask prior requires de novo synthesis at every site, whereas an ASR-rooted prior concentrates prob-ability on conserved positions and preserves uncertainty only where the family varies. This reframes generation as structured mutation from an evolved scaffold and provides 3LineageFlow: High-Fidelity Family-Aware Generation 
+
+a natural family-aligned conditioning signal. Building on this idea, we propose Lineage-Prior Flow Matching (Lin-eageFlow), which uses phylogenetically inferred ancestral priors and learns a simplex-valued flow that transports them toward extant sequences. We interpret the normalized flow time t ∈ [0 , 1] as a proxy for progression along this lineage-informed generative trajectory: • At t = 0 (The Root), the prior is an Ancestral Distri-bution : a site-wise posterior over residues at the root of a phylogenetic tree inferred by ancestral sequence reconstruction (ASR) (Yang, 2007). • As t increases toward 1 (The Leaves), the flow models the mutational process that transforms this ancestral root into diverse extant sequences, i.e., the sequences in the dataset. • At an intermediate time tint ∈ (0 , 1] , we apply a directed-evolution rerouting —mutate → select → am-plify —that biases the population toward a user-defined fitness objective, after which we continue the flow to 
+
+t = 1 .
+
+4.1. Flow Matching with Ancestral Prior 
+
+We represent the lth position of a protein sequence as a relaxed categorical vector x(l) ∈ SK . For a family h with alignment length Lh, the state space is the product simplex 
+
+Xh := ( SK )Lh .
+
+Ancestral Initialization (The Prior). We consider pro-tein sequences partitioned into homologous families indexed by h ∈ H (e.g., sequence clusters or domain-based fam-ilies). Given a family h and its sequences, we build an MSA, infer a maximum-likelihood phylogenetic tree and substitution model (e.g., with IQ-TREE (Nguyen et al., 2015)), and then perform marginal ASR at the root to ob-tain a site-wise posterior over residues (e.g., with PAML (Yang, 2007)). Rather than using raw MSA column frequen-cies—which are distorted by phylogenetic redundancy and uneven sampling—or initializing from an extant MSA se-quence—which anchors generation near training examples and reduces novelty and diversity—we initialize from the ASR root posterior. By integrating information over the inferred tree under an explicit substitution model, it yields a phylogeny-corrected ancestral scaffold while preserving uncertainty at genuinely variable sites. We encode this site-wise root posterior as Dirichlet concentration parameters 
+
+α(h,l ) ∈ RK>0 and define the family-specific ancestral prior 
+
+q0(x(l) | h) = Dir  x(l); α(h,l ).
+
+where x(l) ∈ SK denotes the relaxed categorical state at position l. We use α(h) := ( α(h,l ))Lh 
+
+> l=1
+
+to denote the col-lection of site-wise priors for family h. Details of Dirichlet concentration α(h,l ) construction are in Appendix D. Assuming conditional independence across sites given h, the family-specific ancestral distribution over a full sequence 
+
+X = ( x(1) , . . . , x(Lh)) ∈ X h := ( SK )Lh is 
+
+q(h)0 (X) = 
+
+> Lh
+
+Y
+
+> l=1
+
+Dir  x(l); α(h,l ). (1) The global prior over heterogeneous families is a mixture on a disjoint union of state spaces, 
+
+q0(X) = X
+
+> h∈H
+
+πh q(h)0 (X), πh > 0, X
+
+> h
+
+πh = 1 . (2) 
+
+Lineage-Specific Trajectories. For a fixed family h and site l ∈ { 1, . . . , L h}, and for a target residue ei, we define a conditional lineage-specific path that interpolates from the ancestral profile toward the observed data endpoint: 
+
+p(h,l ) 
+
+> t
+
+(x | ei) = Dir  x; α(h,l ) + ( tmax t) ei
+
+, t ∈ [0 , 1] .
+
+(3) We model the continuous transport on the simplex via the vector field: 
+
+u(h,l ) 
+
+> t
+
+(x | ei) = c(l) 
+
+> h
+
+(xi, t ) ( ei − x). (4) To satisfy the continuity equation (conservation of probabil-ity mass along the lineage), the scalar transport speed c(l) 
+
+> h
+
+is derived as (see Appendix B): 
+
+c(l) 
+
+> h
+
+(z, t ) = − tmax ∂aIz
+
+ ah,l (t), b h,l 
+
+ B ah,l (t), b h,l 
+
+
+
+zah,l (t)−1(1 − z)bh,l 
+
+,
+
+(5) where z = xi denotes the probability of the target amino acid, ah,l (t) = α(h,l ) 
+
+> i
+
++ tmax t, and bh,l = P  
+
+> j̸=i
+
+α(h,l ) 
+
+> j
+
+.Here, B(·, ·) is the Beta function and Iz (·, ·) is the regu-larized incomplete beta function. Intuitively, c(l) 
+
+> h
+
+acts as a family- and destination-specific speed: it depends on the family-specific parameters α(h,l ) and the target residue ei.
+
+Training Objective. We learn the drift via a classifier pa-rameterization: we train a neural network ˆpθ (X1 | Xt, t )
+
+that outputs, for each site l, a categorical distribution over the terminal residue x(l)1 ∈ { e1, . . . , eK }, and then recon-struct the drift field via Eq. (7) . Implementation details of the denoiser architecture are provided in Appendix A.2. We minimize the sequence-averaged cross-entropy: 
+
+L(θ) = Eh, X1,t, Xt
+
+− 1
+
+|V (X1)|
+
+X
+
+> l∈V (X1)
+
+log ˆ pθ
+
+
+
+x(l)1 | Xt, t 
+
+
+
+(6) 4LineageFlow: High-Fidelity Family-Aware Generation 
+
+where V(X1) denotes the set of valid alignment positions. In classifier-based flow matching, the resulting drift field is reconstructed via: 
+
+ˆv(h,l )(X, t ; θ) = 
+
+> K
+
+X
+
+> i=1
+
+u(h,l ) 
+
+> t
+
+(x(l) | ei) ˆ pθ
+
+
+
+x(l)1 = ei | X, t 
+
+
+
+.
+
+(7) where x(l) denotes the lth site of X. We define the sequence-level drift by concatenating site drifts, ˆV(h)(X, t ; θ) := 
+
+ ˆv(h,l )(X, t ; θ)Lh
+
+> l=1
+
+. See Appendix A for pseudocode of the training phase (Algorithm 1). 
+
+4.2. Generation and Rerouting 
+
+We split generation into three phases with a rerouting time 
+
+tint ∈ [0 , 1] :• Base flow ( t ∈ [0 , t int ]): lineage-conditioned drift under the learned vector field. • Rerouting ( t = tint ): discrete rounds of mutate →
+
+select → amplify that model artificial selection. • Refinement ( t ∈ [tint , 1] ): continued base-flow inte-gration from a selected particle to obtain a full sample. 
+
+Base flow ( t ∈ [0 , t int ]). Given a trained model, the base flow follows the usual flow-matching recipe. For uncondi-tional sampling, we first draw a lineage index h ∼ π, sample an ancestral sequence X0 ∼ q(h)0 (Eq. (1) ), and integrate the lineage-specific ODE ˙Xt = ˆV(h)(Xt, t ; θ), from t = 0 
+
+to t = tint . Different families can have different lengths and unrelated MSA columns. The drift ˆV(h) here is constructed from the classifier using Eq. (7) and the family-specific fields in Eq. (4) . This procedure defines a baseline distribution at 
+
+tint as the mixture of lineage-specific pushforwards induced by h ∼ π (a distribution over families). 
+
+Rerouting ( t = tint ): mutate → select → amplify . For the sampled lineage h, the base ODE induces a baseline distribution ptint on Xh at the rerouting time. To incorporate a user objective, we treat rerouting as artificial selection 
+
+applied at tint and realized through rounds of mutate →
+
+select → amplify , mirroring directed evolution. Given a mutation/proposal kernel K, a fitness/assay score J(X), and selection stringency β ≥ 0, a single mutate–select round targets the exponentially tilted law 
+
+psel  
+
+> tint
+
+(X) ∝  ptint K(X) exp  β J (X), (8) where ptint K denotes the proposal law after mutation (taking 
+
+K to be the identity kernel recovers the usual exponential tilt of ptint ). In practice, we approximate repeated selection by maintaining a population of particles at time tint and iterating: (i) mutate via a proposal kernel K that injects diversity; (ii) select by reweighting particles proportional to exp( βJ ); and (iii) amplify by resampling according to these weights. psel  
+
+> tint
+
+maximizes expected fitness with min-imal KL change from the proposal law (Proposition B.3). These rounds update the particle population at tint ; after the final round, we select a particle X⋆tint (e.g., the highest-fitness one). See Appendix A.3 for the concrete fitness and mutation implementations. 
+
+Refinement ( t ∈ [tint , 1] ). Starting from the selected par-ticle X⋆tint , we continue integrating the base ODE ˙Xt =ˆV(h)(Xt, t ; θ) up to t = 1 to obtain a full generated sample. See Appendix A for inference and rerouting pseudocode (Algorithm 2). 
+
+## 5. Theoretical Analysis 
+
+We provide theoretical justification for two components of LineageFlow. Proofs are given in Appendix B. 
+
+Proposition 5.1 (Lineage-specific Dirichlet transport) . For any family h, site l, vertex ei, and t ∈ [0 , 1] , the pair 
+
+ p(h,l ) 
+
+> t
+
+(· | ei), u(h,l ) 
+
+> t
+
+(· | ei) satisfies the continuity equa-tion on the simplex SK ,
+
+∂tp(h,l ) 
+
+> t
+
++ ∇x · p(h,l ) 
+
+> t
+
+u(h,l )
+
+> t
+
+ = 0 , (9) 
+
+with zero net boundary flux. Thus the analytic lineage-specific field conserves probability mass and keeps trajecto-ries on the simplex. 
+
+Proposition 5.2 (Rerouting is KL-regularized selection) .
+
+Fix a lineage h and let p be the baseline distribution on 
+
+Xh at tint . Let K be the mutation kernel, pmut := pK the proposal law, and J : Xh → R a measurable fitness score. For β > 0, assume Zβ = EX∼pmut [exp( βJ (X))] < ∞
+
+and define 
+
+qβ (X) = 1
+
+Zβ
+
+exp( βJ (X)) pmut (X). (10) 
+
+Then qβ is the unique maximizer, over q ≪ pmut , of 
+
+max 
+
+> q
+
+n
+
+EX∼q
+
+J(X) − 1 
+
+> β
+
+KL  q ∥ pmut  o
+
+. (11) 
+
+Moreover, the reweight–resample amplification step consis-tently approximates qβ as the population size grows. 
+
+Proposition 5.1 establishes that the lineage-specific analytic field defines a valid simplex flow. Proposition 5.2 formalizes rerouting as principled selection rather than heuristic guid-ance: mutation proposes local variants, selection performs an exponential tilt toward high-J regions, and amplifica-tion gives a particle approximation of the selected law (full statements and proofs in Propositions B.2 and B.3). 
+
+## 6. Experiments 
+
+In this section, we evaluate LineageFlow on large-scale protein-domain families, with focus on the research ques-5LineageFlow: High-Fidelity Family-Aware Generation 
+
+tions in Box 1. 
+
+Box 1. Research questions addressed in Experi-ments. 
+
+• RQ1 (family control): Can LineageFlow generate sequences that are recognized as belonging to the intended family, compared to (i) explicit family-label conditioning and (ii) strong MSA-prompt conditioning? (Sec. 6.1; Table 1). • RQ2 (plausibility): Does replacing generic noise priors (uniform/mask) with lineage priors improve sequence plausibility, including against a large-scale pretrained generator? (Sec. 6.1; Table 1; Fig. 2). • RQ3 (rerouting effects): How does rerouting at tint change the sampling distribution and im-prove plausibility while staying within the family-specific trajectory? (Sec. 6.1; Fig. 3). • RQ4 (downstream utility): Can LineageFlow support zero-shot enzyme-like sequence genera-tion? (Sec. 6.2; Fig. 4). • RQ5 (why lineage priors help): Why do lineage priors beat generic noise priors in protein sequence generation? (Sec. 6.3; Fig. 5). 
+
+Dataset and split. We train and evaluate on Pfam-A RP35 multiple sequence alignments (Mistry et al., 2021; Chen et al., 2011). After preprocessing (Appendix C), we retain 
+
+8,886 families and 8,942 ,518 aligned sequences. We per-form a within-family split, holding out 5% of sequences per family for evaluation. 
+
+Training and generation. We train a single classifier ˆpθ
+
+shared across all families using Algorithm 1, sampling t ∼U[0 , 1] with time scale tmax = 6 . We use 4 NVIDIA RTX 4090 GPUs and train for one epoch (about 26 hours) with learning rate 10 −5 and effective batch size 128 . We sample a target family h ∼ π, initialize from its ancestral prior X0 ∼
+
+q(h)0 , integrate the base flow to t = tint , apply rerouting at tint = 0 .5, refine to t = 1 . See Appendix A.4 for the detailed sampling protocol and the held-out baseline. 
+
+Evaluation protocol. We follow Appendix E. Family va-lidity measures whether generated sequences are recognized as belonging to their intended Pfam family by profile-HMM scanning (HMMER). Foldability reports predicted struc-tural confidence via OmegaFold (Wu et al., 2022) mean pLDDT. Self-consistency scores the generated sequence un-der an inverse folding model (ESM-IF (Hsu et al., 2022)) given its predicted backbone. Novelty measures nearest-neighbor sequence identity to the training corpus using MMseqs2 (Steinegger & S ¨oding, 2017); we report nov-elty among sequences with pLDDT ≥ 70 . Diversity mea-sures within-set diversity by clustering foldable sequences (pLDDT ≥ 70 ) with MMseqs2 at 80% identity (coverage 0.8) and reporting the number of clusters. 
+
+6.1. Main results Baselines and conditioning. We compare against: (i) ASR-PSSM i.i.d. (sampling directly from the ancestral Dirichlet prior, without any learned flow), (ii) DFM (Stark et al., 2024) (uniform-prior flow matching), (iii) EvoD-iff (Alamdari et al., 2023) (mask-based diffusion), and released-weight baselines ProtBFN (Atkinson et al., 2025) and PoET (Truong Jr & Bepler, 2023). We also report a Lin-eageFlow ablation w/o rerouting that integrates the base flow without the intermediate mutate–select–amplify step. PoET is conditioned by providing an MSA prompt derived from the intended family at inference time. For DFM/EvoDiff, we enable family conditioning by supplying the target fam-ily label to the denoiser; LineageFlow instead conditions through the family-specific ancestral prior q(h)0 . Full base-line implementation/training details and external-baseline caveats are provided in Appendix A.5. We generate 1024 
+
+sequences for each method. 
+
+Main outcome. Table 1 shows that initialization largely determines family-conditional generation quality on Pfam. Uniform-/mask-initialized baselines (DFM, EvoDiff) fail to produce family-consistent, plausible sequences ( Acc fam =0; low pLDDT), even when the denoiser receives explicit family labels. This supports our premise that generic noise priors force the model to recover nearly all residues from heavily corrupted states, whereas an ASR-rooted prior starts from a family-specific scaffold. Consistent with this, the ASR-PSSM i.i.d. generator (ancestral prior only) already achieves high family validity and reasonable foldability, in-dicating that the ASR prior carries strong family signal. The base-flow ablation w/o rerouting does not improve plausi-bility over sampling from the ancestral prior, but increases novelty and diversity. Adding rerouting yields near-natural family validity (95.3% vs. 96.6% for held-out natural se-quences), improves foldability. Notably, LineageFlow at-tains higher pLDDT than ProtBFN in our evaluation de-spite ProtBFN being pretrained on an ∼8× larger corpus. For novelty, Novelty@0 .8 captures non-replicas of train-ing sequences, while the more stringent Novelty@0 .6 re-flects deeper novelty while maintaining high family valid-ity; among foldable LineageFlow samples (pLDDT ≥ 70 ), 86.2% satisfy NNId < 0.8 and 48.9% satisfy NNId < 0.6
+
+(Table 1). Finally, the MSA-prompt PoET baseline shows low Pfam family validity under our metric, underscoring that strong family conditioning signals do not necessar-ily translate into accurate family recognition. See Ap-6LineageFlow: High-Fidelity Family-Aware Generation 
+
+Family validity Foldability Self-cons. Novelty & Diversity Method Acc fam ↑ Hit any ↑ pLDDT ↑ scPPL ↓ NNId ↓ Novelty@0 .8 ↑ Novelty@0 .6 ↑ Divers . ↑
+
+Pfam (Held-out) 96.6 100.0 86 .4 ± 10 .2 5.02 ± 2.92 0.846 ± 0.169 33.1 12.6 806 ProtBFN † — — 71 .9 ± 15 .7 5.91 ± 2.75 0.520 ± 0.132 93.0 64.0 604 
+
+PoET ‡ 0.0 15.4 52 .0 ± 13 .5 13 .76 ± 1.85 — — — 47 ASR-PSSM (iid) 92.8 98.2 70 .8 ± 14 .7 7.08 ± 3.18 0.708 ± 0.158 72.6 32.0 378 DFM 0.0 21.9 46 .2 ± 15 .7 12 .62 ± 2.20 — — — 90 EvoDiff 0.0 10.2 45 .4 ± 13 .4 12 .60 ± 2.43 — — — 54 w/o rerouting 93.0 96.9 69 .6 ± 14 .8 7.96 ± 3.50 0.602 ± 0.149 89.6 52.0 440 LineageFlow 95.3 99.0 76 .6 ± 13 .9 6.67 ± 3.31 0.620 ± 0.145 86.2 48.9 587 
+
+Table 1. Quantitative comparison on generated sequences using the protocols in Appendix E. Family-validity reports profile-HMM top-1 accuracy Acc fam and Hit any (fraction of sequences with any HMM hit at τ =10 −3). Foldability is OmegaFold mean pLDDT (mean ±std across sequences), self-consistency is ESM-IF perplexity, and novelty is nearest-neighbor identity to the training corpus with Novelty@ δ
+
+reporting the fraction with NNId < δ , computed over sequences with pLDDT ≥ 70 . Diversity is the number of MMseqs2 clusters at 80% identity (coverage 0.8) computed on the foldable subset. † ProtBFN is evaluated by sampling from released weights only (training code not released), and is pretrained on UniProtCC (71M sequences, ∼8× larger than our Pfam corpus), so it cannot be family-conditioned; we therefore omit family validity and report its foldability, self-consistency, novelty relative to UniProtCC, and diversity for reference only (Appendix C.1). ‡ PoET is evaluated by sampling from released weights only; at inference time we condition it on an MSA prompt from the intended family (Appendix A.5). Because PoET’s training corpus is not released (Appendix C.2), we omit novelty relative to its training corpus. DFM and EvoDiff have no MMseqs hits among the foldable subset, so NNId and Novelty@ δ are undefined and shown as —. 20 66     
+
+> 66 84
+> 84 129
+> 129 174
+> 174 613
+> Length bin
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> Rate
+> Family validity rate
+> 20 66
+> 66 84
+> 84 129
+> 129 174
+> 174 613
+> Length bin
+> 40
+> 60
+> 80
+> 100
+> pLDDT
+> Mean pLDDT
+> 20 66
+> 66 84
+> 84 129
+> 129 174
+> 174 613
+> Length bin
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Novelty
+> Novelty (1 NN identity)
+> lineageflow iid dfm evodiff
+
+Figure 2. Length-stratified performance. Pfam unconditional generation metrics as a function of ungapped sequence length (quantile bins). We report mean family validity (profile-HMM top-1), mean pLDDT (OmegaFold), and novelty (1 −nearest-neighbor identity; computed on the foldable subset, pLDDT ≥ 70 ). 
+
+pendix A.5 for potential explanations and additional caveats for PoET/DFM/EvoDiff under this evaluation. 
+
+Length effects. Figure 2 shows that length is a key driver of generation difficulty: foldability tends to decrease as se-quences get longer for all methods. LineageFlow maintains strong family validity across the full length range and ex-hibits a shallower foldability drop-off than the prior-only baseline, while also producing systematically higher novelty among foldable samples. 
+
+Choosing the rerouting time tint . We find tint is a key control knob for directed-evolution-style rerouting: if tint is too early, the population is highly corrupted and selection acts on unstructured samples; if tint is too late, simplex states are near one-hot and rerouting has little room to mean-ingfully change the sequence. Qualitatively, Figure 3 shows that rerouting at tint can shift the intermediate population toward the region occupied by real family sequences, sug-gesting that intermediate-time intervention provides a useful Before Rerouting Pos t Rerouting 
+
+A B
+
+Figure 3. Rerouting shifts the sampling distribution and im-proves fold confidence (example family PAS 9). (A) Sampling trajectory. We embed generated sequences from four stages of sampling—prior, tint before rerouting, tint after rerouting, and final samples—together with real Pfam sequences from the same family, using a simple 3D PCA embedding of k-mer features. Rerouting moves the population toward the region occupied by real sequences, illustrating how the intervention changes the distri-bution at fixed family prior. (B) Structural effect. Representative predicted 3D structures for sequences sampled at tint before and after rerouting (colored by pLDDT). Mutated positions are high-lighted; rerouting increases predicted confidence (pLDDT). 
+
+trade-off between having enough structure for selection to act on, while still leaving room for the population to move. We therefore use intermediate tint = 0 .5 in experiments. Table 2 shows that rerouting increases sampling time rela-tive to sampling without rerouting due to population-based mutate–select–amplify and repeated fitness scoring, while remaining within the same order of magnitude as other Pfam-trained baselines. ProtBFN is substantially slower under its default long-horizon sampling. 7LineageFlow: High-Fidelity Family-Aware Generation 
+
+Method Time (s) Method Time (s) EvoDiff 352.41 DFM 573.63 LF (w/o rerouting) 759.05 LF (w/ rerouting) 1046.83 PoET 105.32 ProtBFN 3724.00 
+
+Table 2. Wall-clock sampling time (seconds) for generating 512 sequences on 4 × NVIDIA RTX 4090 GPUs. LF denotes Lineage-Flow. 
+
+6.2. Zero-shot enzyme generation 
+
+To probe downstream utility, we study a zero-shot en-zyme setting. We hold out three enzyme families—2OG-FEII O XY , T RP SYNT A, and RN ASE HII—from denoiser training, but still construct their priors q(h)0 from the corre-sponding MSAs and phylogenetic trees (Appendix D). At inference, we generate without fine-tuning: θ is fixed and the only family-specific context is q(h)0 . We compare base-flow sampling (no rerouting) to selection-guided rerouting. We report four family-aware metrics: (i) motif agreement, the fraction of conserved profile-HMM match states (thresh-old τ = 0 .8) matching the family consensus; (ii) novelty, nearest-neighbor identity (MMseqs2) to the Pfam corpus, where NNId < 0.6 indicates deeper novelty among family-recognizable sequences; and (iii–iv) solubility and ther-mostability proxy scores from lightweight ESM-2 (35M) predictors fine-tuned on external datasets (evaluation only): DeepSol and Meltome Atlas.(Khurana et al., 2018; Jarzab et al., 2020) These predictors are imperfect: the solubil-ity predictor achieves strong held-out accuracy, while ther-mostability is only moderately accurate (about 50% for 5-bin prediction), so these trends should be interpreted cautiously. Across all three families, both base-flow and rerouted samples preserve motifs and remain novel (Fig-ure 4A–B). Rerouting increases motif agreement and shifts solubility and thermostability upward (Figure 4C–D), while keeping NN identities well below typical homology cut-offs. Notably, rerouting optimizes only an unsupervised plausibility objective (ESM2 masked pseudo-likelihood), not the solubility/thermostability predictors. Overall, Lin-eageFlow generates enzyme-like sequences that respect con-served motifs including catalytic residues and match sol-ubility/thermostability proxies of held-out real sequences, without fine-tuning on the target families. 
+
+6.3. Ancestral priors raise the denoising ceiling in the hard regime 
+
+Flow matching relies on a denoiser to infer terminal residues from heavily corrupted intermediate states, so early mis-takes propagate through the posterior field used for gener-ation. Figure 5 isolates the effect of initialization by con-trasting our family-specific ASR-rooted priors with the uni-2OG-FeII_Oxy RNase_HII Trp_syntA             
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Motif agreement (↑)
+> AMotif agreement
+> 2OG-FeII_Oxy RNase_HII Trp_syntA
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Identity to Pfam (↓)
+> 0.8
+> 0.6
+> BNovelty (lower identity = more novel)
+> 2OG-FeII_Oxy RNase_HII Trp_syntA
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Solubility (↑)
+> CSolubility
+> 2OG-FeII_Oxy RNase_HII Trp_syntA
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Thermostability (↑)
+> DThermostability
+> Real Base flow Rerouted
+
+Figure 4. Zero-shot enzyme generation with selection-guided rerouting. Three held-out enzyme families; we compare held-out real sequences (Real), base-flow sampling (Base flow), and sampling with selection-guided rerouting at tint (Rerouted). (A) 
+
+conservation/motif agreement to the family profile-HMM; (B) 
+
+nearest-neighbor identity to Pfam (lower is more novel; dashed lines mark identity thresholds); (C) solubility proxy; (D) ther-mostability proxy. 0.0 0.2 0.4 0.6 0.8 1.0      
+
+> Normalized time t/tmax
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Accuracy
+> A
+> hard regime
+> Bayes-oracle denoising accuracy
+> ASR prior (Bayes)
+> Uniform prior (Bayes)
+> ASR uniform gap
+> LF DFM
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Accuracy
+> B
+> 0.57
+> 0.25
+> Hard regime acc
+> LF DFM
+> 0.72
+> 0.35
+> Train acc
+> LF DFM 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Loss 1.25
+> 2.23
+> Train loss
+
+Figure 5. Family-specific ASR priors increase recoverable sig-nal in the hard regime. (A) Bayes-oracle denoising accuracy vs. normalized time t under an ASR prior (LineageFlow) and a uniform prior (DFM). The pink region highlights the early-time 
+
+hard regime (t ≤ 0.2), where xt is most corrupted. (B) Training metrics for LineageFlow (LF) and DFM: hard-regime denoising accuracy (token accuracy in the earliest time bin, t ≤ 0.2), overall training accuracy, and overall training loss. 
+
+form prior used in DFM. In Panel A, the Bayes-optimal decoder is markedly more accurate under ASR priors in the hard regime, indicating a higher recoverable signal in early xt and thus a higher ceiling for any denoiser (see also Appendix B.1). Panel B summarizes training metrics and shows that LineageFlow attains substantially higher de-noising accuracy in the hard regime (token accuracy in the earliest time bin) as well as higher overall training accuracy and lower training loss. Because sampling integrates the learned vector field from t=0 to t=1 , errors made in the hard regime can propagate and dominate final quality even if later-time denoising is strong. Overall, these results sup-port the central mechanism of LineageFlow: family-specific ancestral priors inject phylogenetic context that reduces early-time ambiguity , improving the learned posterior field and stabilizing generation. 8LineageFlow: High-Fidelity Family-Aware Generation 
+
+## 7. Conclusion and Limitations 
+
+We presented LineageFlow, a phylogeny-informed gener-ative model that frames protein sequence generation as continuous-time transport from ASR-derived lineage pri-ors on the simplex. Across diverse Pfam families, this lineage-prior initialization yields strong family validity and improved plausibility proxies relative to uniform-/mask-initialized baselines, while maintaining substantial nov-elty and diversity. Finally, rerouting provides a sim-ple intermediate-time mutate–select–amplify operator for objective-guided sampling without per-step predictor guid-ance, enabling a zero-shot enzyme generation case study. LineageFlow relies on high-quality MSAs and phyloge-netic inference to construct priors, and generation is tied to family-specific alignment coordinates (including gap mask-ing) rather than explicitly modeling indels and variable-length evolution. Our evaluation uses computational prox-ies (e.g., OmegaFold pLDDT) and predictor-based property scores without experimental validation, so real-world func-tion remains to be tested. Finally, rerouting introduces addi-tional computational overhead and its effectiveness depends on the fitness function, motivating more robust objectives. 9LineageFlow: High-Fidelity Family-Aware Generation 
+
+## Impact Statement 
+
+This work develops a generative modeling approach for pro-tein sequences that leverages phylogenetic context and a selection-guided rerouting mechanism to steer generation. If used responsibly, such models could accelerate basic research and protein engineering by improving in silico 
+
+exploration of protein families and reducing wet-lab screen-ing burden for benign targets (e.g., enzymes for industrial biocatalysis). At the same time, protein generation methods can pose dual-use risks: they may lower barriers to designing sequences with harmful properties (e.g., toxins or virulence factors), or be misinterpreted as producing functional proteins with-out adequate validation. Our results are computational and do not constitute evidence of real-world function or safety; any downstream use should follow established biosafety, biosecurity, and dual-use review practices and include ap-propriate experimental validation and screening. We encour-age restricting applications to clearly beneficial settings and incorporating safeguards such as target selection policies, se-quence screening against known hazardous motifs/families. 
+
+## Acknowledgements 
+
+We would like to thank anonymous reviewers for their con-structive feedback. 
+
+## References 
+
+Alamdari, S., Thakkar, N., Van Den Berg, R., Tenenholtz, N., Strome, R., Moses, A. M., Lu, A. X., Fusi, N., Amini, A. P., and Yang, K. K. Protein generation with evolution-ary diffusion: sequence is all you need. bioRxiv , 2023. doi: 10.1101/2023.09.11.556673. Albergo, M. S. and Vanden-Eijnden, E. Building normaliz-ing flows with stochastic interpolants. In International Conference on Learning Representations , 2023. Arnold, F. H. Design by directed evolution. Accounts of Chemical Research , 1998. doi: 10.1021/ar960017f. Atkinson, T., Barrett, T. D., Cameron, S., Guloglu, B., Greenig, M., Tan, C. B., Robinson, L., Graves, A., Copoiu, L., and Laterre, A. Protein sequence modelling with bayesian flow networks. Nature Communications ,2025. doi: 10.1038/s41467-025-58250-2. Brookes, D., Park, H., and Listgarten, J. Conditioning by adaptive sampling for robust design. In Proceedings of the 36th International Conference on Machine Learning ,2019. Chen, C., Natale, D. A., Finn, R. D., Huang, H., Zhang, J., Wu, C. H., and Mazumder, R. Representative proteomes: A stable, scalable and unbiased proteome set for sequence analysis and functional annotation. PLoS ONE , 2011. doi: 10.1371/journal.pone.0018910. Echave, J., Spielman, S. J., and Wilke, C. O. Causes of evolutionary rate variation among protein sites. Nature Reviews Genetics , 2016. doi: 10.1038/nrg.2015.18. Eddy, S. R. Profile hidden markov models. Bioinformatics ,1998. doi: 10.1093/bioinformatics/14.9.755. Eddy, S. R. Accelerated profile hmm searches. PLoS Computational Biology , 2011. doi: 10.1371/journal.pcbi. 1002195. Elnaggar, A., Heinzinger, M., Dallago, C., Rehawi, G., Wang, Y., Jones, L., Gibbs, T., Feher, T., Angerer, C., Steinegger, M., et al. Prottrans: Toward understand-ing the language of life through self-supervised learning. 
+
+IEEE Transactions on Pattern Analysis and Machine In-telligence , 2022. doi: 10.1109/TPAMI.2021.3095381. Finn, R. D., Bateman, A., Clements, J., Coggill, P., Eber-hardt, R. Y., Eddy, S. R., Heger, A., Hetherington, K., Holm, L., Mistry, J., et al. Pfam: the protein fam-ilies database. Nucleic Acids Research , 2014. doi: 10.1093/nar/gkt1223. Hsu, C., Verkuil, R., Liu, J., Lin, Z., Hie, B., Sercu, T., Lerer, A., and Rives, A. Learning inverse folding from millions of predicted structures. In Proceedings of the 39th Inter-national Conference on Machine Learning , 2022. Jarzab, A., Kurzawa, N., Hopf, T., Moerch, M., Zecha, J., Leijten, N., Bian, Y., Musiol, E., Maschberger, M., Stoehr, G., et al. Meltome atlas—thermal proteome stability across the tree of life. Nature Methods , 2020. doi: 10. 1038/s41592-020-0801-4. Khurana, S., Rawi, R., Kunji, K., Chuang, G.-Y., Bensmail, H., and Mall, R. Deepsol: a deep learning framework for sequence-based protein solubility prediction. Bioinfor-matics , 2018. doi: 10.1093/bioinformatics/bty166. Le, S. Q. and Gascuel, O. An improved general amino acid replacement matrix. Molecular Biology and Evolution ,2008. doi: 10.1093/molbev/msn067. Lipman, Y., Chen, R. T., Ben-Hamu, H., Nickel, M., and Le, M. Flow matching for generative modeling. In Interna-tional Conference on Learning Representations , 2023. Lutz, I. D., Wang, S., Norn, C., Courbet, A., Borst, A. J., Zhao, Y. T., Dosey, A., Cao, L., Xu, J., Leaf, E. M., et al. Top-down design of protein architectures with reinforcement learning. Science , 2023. doi: 10.1126/ science.adf6591. 10 LineageFlow: High-Fidelity Family-Aware Generation 
+
+Madani, A., Krause, B., Greene, E. R., Subramanian, S., Mohr, B. P., Holton, J. M., Olmos Jr, J. L., Xiong, C., Sun, Z. Z., Socher, R., et al. Large language models generate functional protein sequences across diverse families. Nature Biotechnology , 2023. doi: 10.1038/s41587-022-01618-2. Mistry, J., Chuguransky, S., Williams, L., Qureshi, M., Salazar, G. A., Sonnhammer, E. L., Tosatto, S. C., Paladin, L., Raj, S., Richardson, L. J., et al. Pfam: The protein families database in 2021. Nucleic Acids Research , 2021. doi: 10.1093/nar/gkaa913. Nguyen, L.-T., Schmidt, H. A., von Haeseler, A., and Minh, B. Q. Iq-tree: A fast and effective stochastic algorithm for estimating maximum-likelihood phyloge-nies. Molecular Biology and Evolution , 2015. doi: 10.1093/molbev/msu300. Ram, S. and Bepler, T. Few shot protein generation. arXiv ,2022. Rives, A., Meier, J., Sercu, T., Goyal, S., Lin, Z., Liu, J., Guo, D., Ott, M., Zitnick, C. L., Ma, J., et al. Biological structure and function emerge from scaling unsupervised learning to 250 million protein sequences. Proceedings of the National Academy of Sciences , 2021. doi: 10.1073/ pnas.2016239118. Stark, H., Jing, B., Wang, C., Corso, G., Berger, B., Barzi-lay, R., and Jaakkola, T. Dirichlet flow matching with applications to DNA sequence design. In Proceedings of the 41st International Conference on Machine Learning ,2024. Steinegger, M. and S ¨oding, J. Mmseqs2 enables sensitive protein sequence searching for the analysis of massive data sets. Nature Biotechnology , 2017. doi: 10.1038/nbt. 3988. Stemmer, W. P. C. Rapid evolution of a protein in vitro by DNA shuffling. Nature , 1994. doi: 10.1038/370389a0. Tokuriki, N. and Tawfik, D. S. Protein dynamism and evolv-ability. Science , 2009. doi: 10.1126/science.1169375. Tria, F. D. K., Landan, G., and Dagan, T. Phylogenetic rooting using minimal ancestor deviation. Nature Ecology & Evolution , 2017. doi: 10.1038/s41559-017-0193. Truong Jr, T. and Bepler, T. Poet: A generative model of protein families as sequences-of-sequences. In Advances in Neural Information Processing Systems , 2023. Wu, R., Ding, F., Wang, R., Shen, R., Zhang, X., Luo, S., Su, C., Wu, Z., Xie, Q., Berger, B., et al. High-resolution de novo structure prediction from primary sequence. bioRxiv ,2022. doi: 10.1101/2022.07.21.500999. Yang, K. K., Wu, Z., and Arnold, F. H. Machine-learning-guided directed evolution for protein engineering. Nature Methods , 2019. doi: 10.1038/s41592-019-0496-6. Yang, Z. Paml 4: phylogenetic analysis by maximum like-lihood. Molecular Biology and Evolution , 2007. doi: 10.1093/molbev/msm088. 11 LineageFlow: High-Fidelity Family-Aware Generation 
+
+## A. Implementation Details 
+
+A.1. Pseudocode 
+
+This subsection provides pseudocode for (i) training the classifier parameterization via supervised flow matching (Algo-rithm 1) and (ii) sampling with optional rerouting (Algorithm 2). Algorithm 2 follows the three-phase procedure in Sec. 4.2 (base flow → rerouting at tint → refinement). 
+
+Algorithm 1 Training Phase (Supervised Lineage-Prior Flow Matching) 
+
+1: Input: 
+
+2: Dataset D = {(Xn, h n)}Nn=1 , where each Xn is an aligned sequence of length Lhn with residues in {1, . . . , K }
+
+and missing symbols (gaps/unknown) 
+
+3: Family-specific PSSMs {α(h,l ) ∈ RK>0}h∈H , l =1 ,...,L h
+
+4: Neural network classifier ˆpθ (X1 | Xt, t ) (sequence in, per-position categorical distribution out) 
+
+5: Time scale tmax (Dirichlet concentration increment) 
+
+6: Learning rate η
+
+7: Output: Trained parameters θ
+
+8: while not converged do 
+
+9: {1. Sample data and interpolation time }
+
+10: Sample a training pair (X, h ) ∼ D 
+
+11: Let Lh be the aligned length of X
+
+12: Sample time t ∼ U [0 , 1] 
+
+13: Let V ⊆ { 1, . . . , L h} be the valid (non-gap/unknown) positions of X
+
+14: Construct one-hot targets only on valid sites: x(l)1 ← one hot (X(l)) ∈ { 0, 1}K for l ∈ V 
+
+15: {2. Sample noisy sequence from family-specific Dirichlet path }
+
+16: for l = 1 to Lh do 
+
+17: If l / ∈ V , set x(l) 
+
+> t
+
+← 1/K and mark it as missing; continue 
+
+18: Compute Dirichlet parameters α(h,l ) 
+
+> t
+
+← α(h,l ) + ( tmax t) x(l)1 {Eq. (3) }
+
+19: Sample noisy site x(l) 
+
+> t
+
+∼ Dir  α(h,l )
+
+> t
+
+
+
+20: end for 
+
+21: Form noisy sequence Xt ← (x(1)  
+
+> t
+
+, . . . , x(Lh) 
+
+> t
+
+)
+
+22: {3. Forward pass and loss }
+
+23: Predict per-position terminal probabilities: ˆP = ˆ pθ (X1 | Xt, t ) { ˆP ∈ [0 , 1] Lh×K }
+
+24: Compute cross-entropy over valid sites: 
+
+L(θ) = − 1
+
+|V| 
+
+X
+
+> l∈V
+
+log ˆ pθ
+
+
+
+x(l)1 | Xt, t 
+
+
+
+(Eq. (6)) 
+
+25: {4. Parameter update }
+
+26: θ ← θ − η∇θ L(θ)
+
+27: end while 
+
+12 LineageFlow: High-Fidelity Family-Aware Generation 
+
+Algorithm 2 Inference and Rerouting 
+
+1: Input: Trained network ˆpθ ; family priors α(h); time scale tmax ; rerouting time tint ∈ [0 , 1] ; steps N =100 (Euler) 
+
+2: Lineage distribution π (or fixed lineage h⋆); fitness/assay score J(X); rounds R; selection strengths {βr }Rr=1 ;population size M
+
+3: Proposal: T OKEN DIRICHLET MUTATION (μ, γ, ρ, τ tok )
+
+4: Output: Full generated sample X1
+
+5: // Phase A: Base Flow to tint 
+
+6: Sample lineage h ∼ π (or set h ← h⋆)
+
+7: Set ∆t ← 1/N 
+
+8: Set Nint ← ⌊ tint /∆t⌋
+
+9: for m = 1 to M do 
+
+10: For each site l = 1 , . . . , L h, sample x(m,l )0 ∼ Dir( α(h,l ))
+
+11: Set X(m) ← (x(m, 1) 0 , . . . , x(m,L h)0 )
+
+12: for n = 0 to Nint − 1 do 
+
+13: Set t ← n ∆t
+
+14: Predict terminal probabilities: ˆP = ˆ pθ (· | X(m), t )
+
+15: Compute drift ˆV(h)(X(m), t ; θ) via Eq. (7) 
+
+16: Update: X(m) ← X(m) + ∆ t · ˆV(h)
+
+17: Clamp and renormalize each site to enforce x(l) ∈ SK ; keep gap/missing sites fixed (Appendix A.4). 
+
+18: end for 
+
+19: end for 
+
+20: // Phase B (optional): R rounds of mutate → select → amplify 
+
+21: for r = 1 to R do 
+
+22: {Mutate / propose (token-Dirichlet) }
+
+23: For each particle m, sample a mutation mask S(m) ⊆ { 1, . . . , L h} (expected fraction μ; entropy-gated with exponent 
+
+γ)
+
+24: For each l ∈ S(m), form q(m,l ) ← ρ ˆpθ (· | X(m), t int ; τtok )+(1 −ρ) α(h,l )/∥α(h,l )∥1, sample y(m,l ) ∼ Cat( q(m,l )),and refresh x(m,l ) ∼ Dir  α(h,l ) + ( tmax tint )ey(m,l )
+
+
+
+25: {Select (reweight) }
+
+26: Compute scores sm ← βr J(X(m)) and weights wm ← exp( sm − max j sj ); normalize wm ← wm/ P 
+
+> j
+
+wj
+
+27: {Amplify (resample) }
+
+28: Draw indices I1, . . . , I M
+
+> i.i.d.
+
+∼ Categorical( w1, . . . , w M ) and set X(m) ← X(Im)
+
+29: end for 
+
+30: Select one particle (e.g., arg max m J(X(m))) and denote it X⋆tint 
+
+31: // Phase C: Refinement to t = 1 
+
+32: Set X ← X⋆tint 
+
+33: for n = Nint to N − 1 do 
+
+34: Set t ← n ∆t
+
+35: Predict terminal probabilities ˆP = ˆ pθ (· | X, t )
+
+36: Compute drift ˆV(h)(X, t ; θ) via Eq. (7) 
+
+37: Update: X ← X + ∆ t · ˆV(h)
+
+38: Clamp and renormalize each site to enforce x(l) ∈ SK ; keep gap/missing sites fixed (Appendix A.4). 
+
+39: end for 
+
+40: return X
+
+A.2. Denoiser architecture and simplex embedding 
+
+Our classifier ˆpθ (X1 | Xt, t ) is implemented as a transformer encoder initialized from the ESM2 checkpoint 
+
+facebook/esm2 t33 650M UR50D . The model consumes a simplex sequence Xt ∈ (SK )Lh (with K=20 ) and outputs per-position logits ℓ(l) ∈ RK , yielding ˆpθ (x(l)1 = ea | Xt, t ) = softmax( ℓ(l))a.To embed continuous simplex inputs, we use the expectation under ESM2’s input embedding table: letting wa denote the 13 LineageFlow: High-Fidelity Family-Aware Generation 
+
+ESM2 input embedding of amino acid a, we form h(l)0 = PKa=1 x(l) 
+
+> a
+
+wa for each position l. Gap/unknown positions are represented by setting x(l) to the uniform vector and passing a boolean gap flag ; these positions are excluded from the loss and their drift is masked to zero (Appendix A.4). Time conditioning uses a sinusoidal embedding followed by an MLP, added as a per-token bias. For DFM/EvoDiff baselines, we optionally add a learned family-ID embedding as a per-sequence bias (broadcast across positions), as described in Appendix A.5. 
+
+A.3. Rerouting implementation Fitness function implementation. For rerouting in Table 1 and Sec. 6.2, we instantiate the fitness objective J(X) as a soft-masked ESM2 plausibility score computed directly on simplex states (dropping gap positions). Let X = ( x(1) , . . . , x(L)) ∈
+
+(SK )L denote an ungapped simplex sequence of length L (with K = 20 ) and let M ⊆ { 1, . . . , L } be a set of masked residue indices. We form ESM2 inputs using the [MASK] embedding at masked positions and the expected amino-acid embedding PKa=1 x(l) 
+
+> a
+
+wa at unmasked positions, where wa is the ESM2 input embedding for amino acid a. If ℓ(l) ∈ RK
+
+are the resulting ESM2 logits and p(l)ESM = softmax( ℓ(l)), we score masked positions by the expected log-probability under 
+
+X,
+
+S(X; M) = 1
+
+|M| 
+
+X
+
+> l∈M
+> K
+
+X
+
+> a=1
+
+x(l) 
+
+> a
+
+log p(l)ESM (a), (12) i.e., a per-residue mean (normalization enabled). We use the hybrid rerouting score J(Xmut ) = Sglobal (Xmut ) + ∆S(Xmut , Xbase ), where Sglobal averages S(·; M) over G random masks with mask fraction pmask , and the local mutation effect is 
+
+∆S = S(Xmut ; C) − S(Xbase ; C), C =
+
+n
+
+l : arg max x(l)̸ = arg max x(l)base or 12 ∥x(l) − x(l)base ∥1 > δ 
+
+o
+
+. (13) We use ESM2 facebook/esm2 t30 150M UR50D with pmask = 0 .15 , G = 8 , and δ = 0 .1.
+
+Mutation operator implementation. The mutation/proposal kernel K in Sec. 4.2 is instantiated as T OKEN DIRICHLET -MUTATION (μ, γ, ρ, τ tok ) (Algorithm 2). Given a lineage h and a simplex state X ∈ X h at tint , we first sample a mutation mask S ⊆ { 1, . . . , L h} over valid (non-gap) positions with expected fraction μ, biased toward high-entropy sites under the prior mean α(h,l )/∥α(h,l )∥1:
+
+pl ∝
+
+ H(α(h,l )/∥α(h,l )∥1)log K
+
+γ
+
+, (14) where H(·) is Shannon entropy and the proportionality constant is chosen so that the average mutation probability over valid sites is approximately μ (with clipping to [0 , 1] ). For each mutated site l ∈ S, we form a token distribution 
+
+q(l) = ρ softmax  ℓ(l)/τ tok 
+
+ + (1 − ρ) α(h,l )/∥α(h,l )∥1, (15) where ℓ(l) are the denoiser logits at (X, t int ), sample y(l) ∼ Cat( q(l)), and refresh the simplex state by 
+
+x(l) ∼ Dir  α(h,l ) + ( tmax tint )ey(l)
+
+. (16) Non-mutated sites are left unchanged. 
+
+Rerouting hyperparameters. Unless otherwise noted, rerouting uses R = 3 rounds with population size M = 8 ,rerouting time tint = 0 .5, and selection strength βr ≡ 4.0. We use T OKEN DIRICHLET MUTATION with mutation fraction 
+
+μ = 0 .25 , entropy-gating exponent γ = 1 .0, posterior mixing ρ = 0 .8, token temperature τtok = 1 .0, and token sampling (rather than argmax), together with systematic resampling. 
+
+A.4. Generation protocol and held-out baseline 
+
+For Table 1, we generate N =1024 sequences. For each sequence, we sample a lineage h ∼ π (Eq. (2) ), where we use a smoothed family-frequency distribution πh ∝ nτh with τ = 0 .5 and nh the number of training sequences in family h. For computational efficiency, we cap the number of distinct sampled families at 128 while preserving the relative weights under 
+
+π. Given h, we sample an ancestral initialization X0 ∼ q(h)0 (Eq. (1) ) and generate using Algorithm 2. Unless otherwise 14 LineageFlow: High-Fidelity Family-Aware Generation 
+
+noted, Table 1 uses rerouting with tint = 0 .5 and the hyperparameters listed in Appendix A.3. We integrate the ODE with a fixed-step Euler solver using 100 total steps over t ∈ [0 , 1] , and decode the final simplex states by per-position argmax (temperature 1). After each Euler step we enforce simplex constraints by clamping and renormalizing x(l) ∈ SK ,and we keep gap positions fixed as uniform. We compute the scalar speed c(l) 
+
+> h
+
+(z, t ) in Eq. (5) using a numerically stable incomplete-beta implementation with z clamped to [ε, 1 − ε]. We model alignment gaps by sampling a family-specific gap mask from empirical gap statistics estimated on the training split, and keep gap positions fixed throughout base-flow integration and selection; for evaluation, we remove gaps to obtain ungapped amino-acid sequences of variable length. 
+
+Gap mask sampling and handling. For each family h and alignment column l, we estimate the per-column missing rate 
+
+m(h) 
+
+> l
+
+on the training split (counting - and X as missing; Appendix C). For each generated sequence, we sample a fixed gap mask independently across columns, gap (l) ∼ Bernoulli( m(h) 
+
+> l
+
+), and keep these positions fixed for the full trajectory. Because our simplex state uses K=20 (no gap token), we represent gap positions by setting x(l) to the uniform vector in SK
+
+and passing the boolean gap mask as a separate gap flag input to the denoiser; we also mask the drift so that gap positions have zero update. At evaluation time, we remove gap positions from the decoded sequence. As a reference baseline, we report the same metrics on an equally sized sample of held-out sequences, drawn to match the generated family distribution under π.
+
+A.5. Baseline implementations and conditioning Pfam-trained baselines. We include an ASR-PSSM i.i.d. baseline that samples each site independently from the family-specific ancestral prior (with the same gap masking), i.e., no denoiser and no learned flow, to isolate the contribution of the prior alone. DFM (Stark et al., 2024) is implemented as a uniform-prior ablation of our pipeline: it uses the same denoiser backbone and training loop as LineageFlow, but replaces the family-specific ancestral prior with a uniform Dirichlet prior and disables rerouting. EvoDiff (Alamdari et al., 2023) is adapted from the official implementation and uses masked-token corruption. To enable family-conditioned generation for DFM and EvoDiff, we provide the target family label to the denoiser during training and inference; concretely, we embed the family ID and add it as a per-sequence bias to token representations (broadcast across positions). In contrast, LineageFlow does not take explicit family labels and instead conditions via the family-specific prior q(h)0 . All Pfam-trained methods are trained on the same Pfam dataset for one epoch; LineageFlow/DFM use ∼650M-parameter denoisers and EvoDiff uses a ∼500M-parameter denoiser. 
+
+Released-weight baselines. We additionally include ProtBFN (Atkinson et al., 2025) by directly sampling from released weights; the official release does not include training code, so we cannot retrain it on Pfam or add family conditioning. ProtBFN is pretrained on UniProtCC (71M sequences; Appendix C.1), so it cannot be family-conditioned; we omit family validity and report novelty relative to UniProtCC for reference (Table 1). We also include PoET (Truong Jr & Bepler, 2023) as an MSA-prompt baseline by sampling from released weights and conditioning on an MSA prompt derived from the intended family. For each target family h, we provide PoET with a prompt formed from the aligned Pfam MSA for h (RP35 filtered) and sample sequences autoregressively conditioned on this prompt. We follow PoET’s default prompt construction and budgets: prompt sequences are selected with the neighbor sampler ( θ = 0 .2) and truncated to at most 128 sequences and 24,576 total prompt tokens per family. We sample with temperature 1 and no top-k/p truncation. Since PoET emits ungapped amino-acid sequences, we set the per-family maximum generation length to the median ungapped length of the family alignment (capped at 1024) to avoid forcing residues into gap-heavy alignment columns. Because PoET’s training code and training corpus are not released (Appendix C.2), we omit novelty relative to its training corpus and report family validity, foldability, self-consistency, and within-set diversity for reference. Note that Pfam-trained methods are generated under the same family sampler h ∼ πh ∝ n0.5 
+
+> h
+
+(Appendix A.4); released-weight baselines are generated with their released inference pipelines, so their length distributions can differ. 
+
+Remark A.1 (Why family-aware baselines can fail at Pfam scale) . Family validity in our setting is a strict evaluation: each sample must place its intended family as the top profile-HMM match among thousands of families, including shallow families and many close neighbors. Under generic noise priors (DFM/EvoDiff), the denoiser must infer conserved motifs and domain signatures from heavily corrupted states; a global family label provides only coarse information and does not supply site-wise evolutionary context, so generation can drift off family manifolds and yield sequences with no Pfam HMM hit. PoET conditions via an MSA prompt, but this is an in-context interface rather than an explicit family prior: generation is not constrained to Pfam’s family-specific coordinate system (domain boundaries, gap patterns), and the model still performs from-scratch synthesis of conserved positions. Moreover, PoET is pretrained on UniRef50-derived homology sets rather 15 LineageFlow: High-Fidelity Family-Aware Generation 
+
+than Pfam domain MSAs (Appendix C.2), so prompting with Pfam alignments can constitute a distribution shift. Consistent with these factors, PoET exhibits low Pfam hit coverage in our experiments, suggesting that strong prompts alone do not guarantee accurate family recognition under profile-HMM evaluation at this scale. 
+
+## B. Proofs 
+
+B.1. Denoising ceiling monotonicity under conditioning Lemma B.1. Let Y ∈ { 1, . . . , K } be a discrete label and let (X, Z ) be any random variables on a common probability space. Define the Bayes-optimal 0–1 accuracies 
+
+A(X) := EX
+
+
+
+max  
+
+> i∈{ 1,...,K }
+
+P(Y = i | X)
+
+
+
+, A(X, Z ) := EX,Z 
+
+
+
+max  
+
+> i∈{ 1,...,K }
+
+P(Y = i | X, Z )
+
+
+
+. (17) 
+
+Then A(X, Z ) ≥ A(X).Proof. By the tower property of conditional expectation, for each i we have 
+
+P(Y = i | X) = EZ
+
+P(Y = i | X, Z )] . (18) Applying Jensen’s inequality conditional on X yields 
+
+max  
+
+> i∈{ 1,...,K }
+
+P(Y = i | X) = max  
+
+> i∈{ 1,...,K }
+
+EZ [P(Y = i | X, Z )] ≤ EZ
+
+
+
+max  
+
+> i∈{ 1,...,K }
+
+P(Y = i | X, Z )
+
+
+
+. (19) Taking expectation over X gives A(X) ≤ A(X, Z ), proving the claim. In our setting, take Y to be the terminal residue identity at a site, X = Xt the corrupted simplex state at time t, and Z the phylogenetic context (lineage and ASR prior parameters). The lemma shows that conditioning on ancestral context cannot decrease the Bayes-optimal denoising accuracy, motivating the hard-regime analysis in Sec. 6.3 (Figure 5). 
+
+B.2. Correctness of lineage-specific transport Proposition B.2. For any family h, site l ∈ { 1, . . . , L h}, vertex ei, and t ∈ [0 , 1] , the pair  p(h,l ) 
+
+> t
+
+(· | ei), u(h,l ) 
+
+> t
+
+(· | ei)
+
+satisfies the continuity equation on the simplex SK :
+
+∂tp(h,l ) 
+
+> t
+
+(x | ei) + ∇x ·
+
+
+
+p(h,l ) 
+
+> t
+
+(x | ei) u(h,l ) 
+
+> t
+
+(x | ei)
+
+
+
+= 0 for all x ∈ SK .
+
+(20) 
+
+Moreover, the net boundary flux on SK vanishes, ensuring that total probability mass is conserved ( R 
+
+> SK
+
+p(h,l ) 
+
+> t
+
+dx = 1 )throughout the process. Proof. Fix a family h, a site l ∈ { 1, . . . , L h}, and a target vertex x1 = ei. Recall the definitions from the main text: 
+
+p(h,l ) 
+
+> t
+
+(x | ei) = Dir  x; α(h,l ) + ( tmax t) ei
+
+, (21) 
+
+u(h,l ) 
+
+> t
+
+(x | ei) = c(l) 
+
+> h
+
+(xi, t ) ( ei − x). (22) The vector field u(h,l ) 
+
+> t
+
+is defined on the simplex SK . To verify the continuity equation 
+
+∂tp(h,l ) 
+
+> t
+
++ ∇x ·  p(h,l ) 
+
+> t
+
+u(h,l )
+
+> t
+
+ = 0 , (23) we first exploit the geometric symmetry of the flow. Observe that the vector field is purely radial centered at the target vertex ei. For any two non-target indices j, k ̸ = i, the equations of motion are ˙xj = −c(l) 
+
+> h
+
+(xi, t )xj and ˙xk = −c(l) 
+
+> h
+
+(xi, t )xk.Consequently, the ratio xj /x k is invariant in time: 
+
+ddt 
+
+ xj
+
+xk
+
+
+
+= ˙xj xk − xj ˙xk
+
+x2
+
+> k
+
+= −c(l) 
+
+> h
+
+xj xk − xj (−c(l) 
+
+> h
+
+xk)
+
+x2
+
+> k
+
+= 0 . (24) 16 LineageFlow: High-Fidelity Family-Aware Generation 
+
+Equivalently, define the normalized non-target proportions rj := xj /(1 − xi) for j̸ = i. Since ˙xj = −c(l) 
+
+> h
+
+(xi, t )xj and  
+
+> ddt
+
+(1 − xi) = − ˙xi = −c(l) 
+
+> h
+
+(xi, t )(1 − xi), we have ˙rj = 0 and thus r = ( rj )j̸ =i is invariant along the flow. Moreover, the Dirichlet distribution admits the standard Beta–Dirichlet factorization: if xi ∼ Beta( ah,l (t), b h,l ) and r ∼ Dir( α(h,l ) 
+
+> −i
+
+)
+
+independently, then x−i = (1 − xi)r has joint law Dir( α(h,l ) + ( tmax t) ei). Therefore only the Beta marginal of xi evolves with t, while the conditional law of r given xi is time-invariant. This justifies reducing the continuity equation on SK to the 1D continuity equation for the marginal density of xi.Let ft(x) denote the marginal density of the i-th coordinate xi under the Dirichlet distribution p(h,l ) 
+
+> t
+
+. The properties of the Dirichlet imply that xi follows a Beta distribution: 
+
+ft(x) = Beta  x; ah,l (t), b h,l 
+
+ = xah,l (t)−1(1 − x)bh,l −1
+
+B ah,l (t), b h,l 
+
+ , (25) where ah,l (t) = α(h,l ) 
+
+> i
+
++ tmax t and bh,l = P  
+
+> j̸=i
+
+α(h,l ) 
+
+> j
+
+. We can express the cumulative distribution function (CDF) using the regularized incomplete beta function Ix(a, b ):
+
+Ft(x) = 
+
+Z x
+
+> 0
+
+ft(z) dz = Ix
+
+ ah,l (t), b h,l 
+
+. (26) The density is the spatial derivative: ft(x) = ∂xIx
+
+ ah,l (t), b h,l 
+
+.The scalar velocity of the coordinate xi induced by the vector field is the projection onto the i-th axis: 
+
+v(x, t ) := [ u(h,l ) 
+
+> t
+
+(x)] i = c(l) 
+
+> h
+
+(x, t )(1 − x). (27) We must satisfy the 1D continuity equation: 
+
+∂tft(x) + ∂x
+
+
+
+ft(x)v(x, t )
+
+
+
+= 0 . (28) First, we compute the time derivative of the density. Since ah,l (t) = α(h,l ) 
+
+> i
+
++ tmax t with da h,l (t)/dt = tmax :
+
+∂tft(x) = ∂t
+
+∂xIx(ah,l (t), b h,l ) = tmax ∂a
+
+∂xIx(a, b h,l )
+
+> a=ah,l (t)
+
+. (29) By Schwarz’s theorem, we interchange the mixed partial derivatives ∂a∂x = ∂x∂a:
+
+∂tft(x) = tmax ∂x
+
+h
+
+∂aIx
+
+ ah,l (t), b h,l 
+
+i
+
+. (30) Comparing this to the continuity equation ∂tft(x) = −∂x(Flux ), we identify the flux term: 
+
+ft(x)v(x, t ) = −tmax ∂aIx
+
+ ah,l (t), b h,l 
+
+. (31) Substituting v(x, t ) = c(l) 
+
+> h
+
+(x, t )(1 − x) and solving for c(l) 
+
+> h
+
+(x, t ):
+
+c(l) 
+
+> h
+
+(x, t ) = −tmax 
+
+∂aIx
+
+ ah,l (t), b h,l 
+
+
+
+ft(x)(1 − x) . (32) Expanding ft(x) explicitly yields the form presented in the main text: 
+
+c(l) 
+
+> h
+
+(x, t ) = −tmax 
+
+∂aIx
+
+ ah,l (t), b h,l 
+
+ B ah,l (t), b h,l 
+
+
+
+xah,l (t)−1(1 − x)bh,l 
+
+. (33) Finally, we check boundary conditions. The flux must vanish at the simplex boundaries ( x = 0 and x = 1 ) for probability to be conserved. The regularized beta function Ix(a, b ) is 0 at x = 0 and 1 at x = 1 for all a, b > 0. Therefore, its derivative with respect to a is: 
+
+∂aI0(a, b ) = 0 , and ∂aI1(a, b ) = ∂a(1) = 0 . (34) Thus, the flux is zero at x = 0 and x = 1 . It remains to check the other simplex faces {xj = 0 } for j̸ = i. On such a face, the outward normal is aligned with −ej and the normal component of the flux is (p(h,l ) 
+
+> t
+
+uj ) xj =0 . Since uj = −c(l) 
+
+> h
+
+(xi, t )xj ,we have (p(h,l ) 
+
+> t
+
+uj ) xj =0 = 0 . More precisely, near xj = 0 the Dirichlet density behaves as p(h,l ) 
+
+> t
+
+(x) = O(xα(h,l )  
+
+> j−1
+> j
+
+) with 
+
+α(h,l ) 
+
+> j
+
+> 0, hence xj p(h,l ) 
+
+> t
+
+(x) → 0 and the flux vanishes on that boundary as well. Therefore the net boundary flux on ∂S K
+
+is zero and mass is conserved. 17 LineageFlow: High-Fidelity Family-Aware Generation 
+
+B.3. Rerouting as KL-regularized selection Proposition B.3. Fix a lineage h and let p denote the baseline distribution on Xh at time tint induced by the base flow. Let 
+
+K be a Markov kernel on Xh (mutation/proposal) and define the mutated proposal law pmut := pK. Let J : Xh → R be measurable and assume Zβ := EX∼pmut 
+
+ exp( βJ (X))  < ∞ for some β > 0. Define 
+
+qβ (X) := 1
+
+Zβ
+
+exp( βJ (X)) pmut (X). (35) 
+
+Then: For convenience, we restate the KL-regularized selection objective (Eq. (11) ): 
+
+max 
+
+> q
+
+n
+
+EX∼q
+
+J(X) − 1 
+
+> β
+
+KL  q ∥ pmut  o
+
+.
+
+(i) (Select ) qβ is the unique maximizer of the KL-regularized objective in Eq. (11) over probability measures q on Xh with 
+
+q ≪ pmut . In particular, if K is the identity kernel (no mutation), then qβ coincides with the selection tilt in Eq. (8) .
+
+(ii) (Amplify ) Let X(1) , . . . , X(M ) i.i.d. 
+
+∼ pmut and define normalized weights ¯wm := exp( βJ (X(m))) / PMj=1 exp( βJ (X(j))) . If eX(1) , . . . , eX(M ) are obtained by multinomial resampling, i.e. in-dices I1, . . . , I M
+
+> i.i.d.
+
+∼ Categorical( ¯ w1, . . . , ¯wM ) and eX(m) := X(Im), then for any bounded measurable test function 
+
+f ,
+
+1
+
+M
+
+> M
+
+X
+
+> m=1
+
+f ( eX(m)) in probability 
+
+−−−−−−−→  
+
+> M→∞
+
+EX∼qβ
+
+f (X). (36) 
+
+Proof. We prove parts (i) and (ii) in order. 
+
+Part (i): KL-regularized selection yields the exponential tilt. For brevity, write pmut := pmut  
+
+> tint
+
+and psel := psel  
+
+> tint
+
+, and fix 
+
+β > 0. Define psel by Eq. (35), so that for pmut -almost every X,
+
+log psel (X)
+
+pmut (X) = βJ (X) − log Zβ . (37) For any q ≪ pmut with KL( q∥pmut ) < ∞, we expand the KL divergence to psel :
+
+KL( q∥psel ) = 
+
+Z
+
+q(X) log q(X)
+
+psel (X) dX =
+
+Z
+
+q(X) log q(X)
+
+pmut (X) dX −
+
+Z
+
+q(X) log psel (X)
+
+pmut (X) dX
+
+= KL( q∥pmut ) − β EX∼q
+
+J(X) + log Zβ , (38) where we used Eq. (37). Rearranging Eq. (38) gives 
+
+EX∼q [J(X)] − 1 
+
+> β
+
+KL( q∥pmut ) = 1 
+
+> β
+
+log Zβ − 1 
+
+> β
+
+KL( q∥psel ). (39) Since KL( q∥psel ) ≥ 0 with equality iff q = psel , the objective in Eq. (11) is maximized uniquely at psel .
+
+Part (ii): resampling consistency. Let X(1) , . . . , X(M ) i.i.d.
+
+∼ pmut and define weights ¯wm as in the statement. Conditional on the sampled particles, multinomial resampling satisfies 
+
+E
+
+"
+
+1
+
+M
+
+> M
+
+X
+
+> m=1
+
+f ( eX(m)) X(1: M )
+
+#
+
+=
+
+> M
+
+X
+
+> m=1
+
+¯wmf (X(m)), (40) and 
+
+Var 1
+
+M
+
+> M
+
+X
+
+> m=1
+
+f ( eX(m)) X(1: M )
+
+!
+
+= 1
+
+M Var I∼Categorical( ¯ w)
+
+ f (X(I)) ≤ ∥f ∥2
+
+> ∞
+
+M , (41) 18 LineageFlow: High-Fidelity Family-Aware Generation 
+
+where ∥f ∥∞ := sup X |f (X)| < ∞.Next, write the weighted average in Eq. (40) as a self-normalized importance sampling estimator: 
+
+> M
+
+X
+
+> m=1
+
+¯wmf (X(m)) = 
+
+> 1
+> M
+
+PMm=1 f (X(m)) eβJ (X(m))1
+
+> M
+
+PMm=1 eβJ (X(m)) . (42) By the law of large numbers and the assumption Zβ < ∞, the numerator and denominator in Eq. (42) converge in probability to Epmut [f (X)eβJ (X)] and Epmut [eβJ (X)] = Zβ , respectively, hence the ratio converges in probability to 
+
+Epmut [f (X)eβJ (X)]
+
+Zβ
+
+= Epsel [f (X)] . (43) Finally, Eq. (41) implies that the empirical average over resampled particles concentrates around its conditional mean at rate 
+
+1/√M . Combining this concentration with the convergence of the conditional mean to Eq. (43) yields Eq. (36). 
+
+## C. Dataset and Preprocessing 
+
+We train and evaluate on Pfam-A multiple sequence alignments (MSAs) (Mistry et al., 2021) using the RP35 (representative proteome) filtered alignment set. Pfam families are curated protein-domain families represented by seed alignments and profile HMMs; full alignments are obtained by searching a sequence database with HMMER. Pfam also distributes reduced-redundancy alignments based on representative proteome sets (RP15/RP35/RP55/RP75), which we use to control alignment size while retaining broad sequence diversity. 
+
+Raw source. The raw input is the Pfam-A RP35 full-alignment flatfile distributed by Pfam in Stockholm format, which contains one aligned block per family. In the version used here, the raw file contains 15 ,952 Pfam-A families and 12 ,937 ,286 
+
+aligned sequences (as indicated by the Stockholm annotations). 
+
+Preprocessing workflow. We use a two-stage preprocessing pipeline to produce a cleaned per-family aligned FASTA corpus. Let A denote the 20 standard amino acids. First, we convert the Stockholm file into per-family aligned FASTA files, preserving Pfam-provided alignment columns. We map . and - to a gap symbol -, uppercase all letters, and map any non-standard residue to X. Second, for each family we apply: (i) a length filter that discards families with alignment length outside [20 , 2000] columns; (ii) a depth cap that uniformly subsamples to at most 5000 sequences per family; (iii) a column filter that drops alignment columns with gap/unknown fraction > 0.95 (counting - and X as gap/unknown); and (iv) a minimum-depth filter that discards families with fewer than 100 remaining sequences. The resulting aligned sequences are over the alphabet A ∪ { -, X}, where - denotes alignment gaps and X denotes unknown/non-canonical residues. In training and evaluation, we treat both - and X as missing data and mask them out; in generation, gap positions are kept fixed using a per-family gap mask (Sec. 6). 
+
+Processed dataset statistics. After preprocessing, we retain 8,886 families and 8,942 ,518 aligned sequences. Family depths range from 100 to 5000 sequences (median 405 ), and cleaned alignment lengths range from 20 to 1486 columns (median 159 ). 
+
+Train/test split. For each family, we perform a deterministic within-family split, holding out 5% of sequences (at least 1
+
+and at most Nh−1) for testing and using the remaining sequences for training. 
+
+C.1. ProtBFN pretraining data (UniProtCC) 
+
+ProtBFN (Atkinson et al., 2025) is pretrained on a curated UniProtKB corpus rather than Pfam domain MSAs. Specifically, it uses the January 2024 UniProtKB release filtered to high-confidence proteins (Protein Existence PE ∈ { 1, 2, 3}, excluding hypothetical/unknown) and length < 512 , yielding 71M sequences (“UniProtCC”). The official release provides model weights but not training code, so we cannot retrain ProtBFN on Pfam or add family conditioning; in Table 1 we therefore report ProtBFN only as an unconditional reference baseline (foldability, self-consistency, within-set diversity, and novelty relative to UniProtCC), and omit family validity. 19 LineageFlow: High-Fidelity Family-Aware Generation 126 263    
+
+> 263 549
+> 549 1146
+> 1146 2394
+> 2394 4999
+> Family depth (bin; # training sequences)
+> 0
+> 2000
+> # families  1969 1950
+> 1230 918 643
+
+A
+
+> 126 263
+> 263 549
+> 549 1146
+> 1146 2394
+> 2394 4999
+
+Family depth (bin; # training sequences) 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Top-1 family validity (%)
+
+B
+
+> 126 263
+> 263 549
+> 549 1146
+> 1146 2394
+> 2394 4999
+
+Family depth (bin; # training sequences) 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Mean pLDDT
+
+C
+
+Figure 6. Family depth distribution and performance. (A) Depth distribution of the processed dataset (number of families per depth bin). (B–C) LineageFlow performance versus family depth on the main benchmark: top-1 family validity and mean pLDDT (each dot is a family; shaded bands show mean ±std within each bin). 
+
+C.2. PoET pretraining data (UniRef50 homology sets) 
+
+PoET (Truong Jr & Bepler, 2023) is pretrained on large-scale sets of homologous sequences derived from UniRef50 rather than Pfam domain MSAs. The PoET paper describes constructing homology sets anchored by UniRef50 representative sequences (e.g., UniRef50 2021 03), retrieving homologs with DIAMOND, filtering out sets with fewer than 10 homologs, and sampling sets with inverse family-size weighting to reduce redundancy. The official PoET release provides inference code and model weights, but does not release training code, the preprocessing pipeline, or the exact training corpus; we therefore evaluate PoET only by sampling from released weights. 
+
+## D. Construction of ASR-Based Priors from Pfam MSAs 
+
+We construct a family-specific ancestral prior by combining (i) Pfam-provided alignment columns, (ii) maximum-likelihood phylogenetics, and (iii) ancestral sequence reconstruction (ASR) at the root. 
+
+Inputs and preprocessing. For each family h, Pfam provides an MSA of Nh aligned sequences. Let A denote the K=20 
+
+standard amino acids, and let A(h) 
+
+> n,l
+
+be the aligned character at row n and column l. We treat gaps and unknown characters as missing data, i.e., A(h) 
+
+> n,l
+
+∈ { -, X}. We optionally cap the number of sequences used for cleaning (uniform subsampling to at most 5000 ) and then drop highly missing columns using the per-column missing fraction 
+
+m(h) 
+
+> l
+
+= 1
+
+NhNhX
+
+> n=1
+
+1
+
+n
+
+A(h) 
+
+> n,l
+
+∈ { -, X}
+
+o
+
+,
+
+keeping columns with m(h) 
+
+> l
+
+≤ 0.95 , which defines the alignment length Lh. For scalable phylogeny/ASR, we then filter out extremely gappy sequences (gap fraction > 0.90 ) and very short sequences (ungapped length < 10 ), and uniformly subsample at most 400 sequences, yielding a filtered MSA eA(h) ∈ (A ∪ { -, X}) eNh×Lh with the same columns. Here eNh is the number of retained sequences, and we require eNh ≥ 4.
+
+Tree inference and rooting. Using eA(h), we infer an unrooted maximum-likelihood phylogenetic tree bT unroot  
+
+> h
+
+with branch lengths under an amino-acid substitution model (in our experiments we use LG (Le & Gascuel, 2008) with discrete gamma rate heterogeneity, LG+ Γ4) using IQ-TREE (Nguyen et al., 2015). Because standard reversible models identify only 20 LineageFlow: High-Fidelity Family-Aware Generation 
+
+an unrooted tree, we choose a root using Minimal Ancestor Deviation (MAD) rooting (Tria et al., 2017) to obtain a rooted tree bTh with root node rh.
+
+Root posterior (ASR). Let Z(h) 
+
+> v,l
+
+∈ A be the latent residue at tree node v and alignment column l. Fixing ( bTh, model ), we compute the marginal posterior at the root for each column: 
+
+p(h,l )root (a) = P
+
+
+
+Z(h) 
+
+> rh,l
+
+= a eA(h), bTh, model 
+
+
+
+, a ∈ A , l = 1 , . . . , L h. (44) This is standard marginal ASR under a continuous-time Markov substitution model (computed via dynamic programming on the tree). In our implementation, we compute these marginal root posteriors with PAML (Yang, 2007) given the rooted tree and fitted substitution model. 
+
+Dirichlet prior parameters. We map the root posterior to Dirichlet concentration parameters via a “mean–concentration” mapping: 
+
+α(h,l ) 
+
+> a
+
+= ε + λ p (h,l )root (a), a ∈ A . (45) This yields the site-wise prior q0(x(l) | h) = Dir( x(l); α(h,l )) and the product-sequence prior in Eq. (1) . In our experiments we use λ = 10 and ε = 10 −3.Optionally, we mix the ASR prior with a uniform prior of the same total concentration (which shifts the mean toward uniform while keeping the mass fixed): 
+
+α(h,l )mix = (1 − ρ) α(h,l ) + ρ ∥α(h,l )∥1
+
+K 1, ρ ∼ Unif[0 , ρ max ]. (46) 
+
+## E. Evaluation Protocols 
+
+E.1. Family Validity via Profile HMMs 
+
+In LineageFlow, generation is conditioned on a lineage (family) h and evolves within the corresponding family-specific sequence space Xh. To validate that generated sequences are biologically consistent with the intended family—i.e., similar to the training sequences of that family—we evaluate family membership using profile hidden Markov models (profile HMMs) (Eddy, 1998) as implemented in HMMER (Eddy, 2011) and distributed by Pfam (Finn et al., 2014). 
+
+Profile-HMM family assignment. Let {M h}h∈H denote the library of family profile HMMs and let score( Mh, s) be the HMMER full-sequence bit score for sequence s under model Mh. For each generated sequence sn with intended family label hn (the family used during generation), we compute its predicted family by scanning against the HMM library: 
+
+bh(sn) := arg max  
+
+> h∈H
+
+score( Mh, sn). (47) 
+
+Metrics. We report the top-1 family assignment accuracy 
+
+Acc fam = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+1
+
+nbh(sn) = hn
+
+o
+
+, (48) and a hit-rate that counts any significant HMM match at threshold τ (Hit any), based on HMMER E-values: 
+
+Hit any (τ ) = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+1
+
+
+
+min  
+
+> h∈H
+
+Evalue( Mh, sn) ≤ τ
+
+
+
+. (49) 
+
+Interpretation. Higher Acc fam (↑) indicates that generated sequences are most strongly recognized as belonging to the intended family rather than a related family. Higher Hit any ( ↑) indicates that a larger fraction of sequences achieve at least one statistically significant HMM match (at threshold τ ), independent of the intended family. 21 LineageFlow: High-Fidelity Family-Aware Generation 
+
+E.2. Novelty via Nearest-Neighbor Similarity 
+
+To assess whether generated sequences are genuinely new (rather than near-copies of training examples), we measure 
+
+nearest-neighbor sequence similarity to the training corpus using MMseqs2 (Steinegger & S ¨oding, 2017), following common practice in protein generative modeling (Alamdari et al., 2023). Because “novelty” can be trivially increased by generating low-quality sequences, we report novelty conditioned on foldability : all novelty metrics are computed on the subset of sequences with mean pLDDT ≥ 70 (Appendix E.3). Let Rall := S 
+
+> h∈H
+
+Rh denote the global reference set consisting of all training sequences across families (after the same preprocessing and split used for training). 
+
+Nearest-neighbor identity. For each (foldable) generated amino-acid sequence sn, we find its best-matching reference sequence in Rall and extract the reported pairwise sequence identity Id( s, r) ∈ [0 , 1] from the alignment. 1 We define the global nearest-neighbor identity as 
+
+NNId( sn) := max 
+
+> r∈R all
+
+Id( sn, r). (50) 
+
+Summary metrics and interpretation. We report the mean ±std of NNId and thresholded novelty rates, computed over sequences for which MMseqs2 returns at least one hit passing the coverage thresholds, 
+
+Novelty@ δ := 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+1{NNId( sn) < δ } , (51) for δ ∈ { 0.80 , 0.60 }, computed over the foldable subset (pLDDT ≥ 70 ); here N denotes the number of foldable sequences with at least one MMseqs2 hit. If a method yields no MMseqs2 hits in the foldable subset, NNId and Novelty@ δ are undefined; we mark this case as — in Table 1. Lower NNId (↓) and higher Novelty@ δ (↑) indicate greater novelty relative to training data; these should be interpreted together with family-validity (Appendix E.1) to ensure samples remain within the intended family manifold. 
+
+Diversity via clustering. To summarize within-set diversity, we cluster the foldable subset (pLDDT ≥ 70 ) using MM-seqs2 cluster at 80% sequence identity with minimum coverage 0.8 on ungapped amino-acid sequences. We report 
+
+Diversity@0 .8 as the number of clusters; higher values indicate more diverse generations. 
+
+E.3. Foldability and Self-Consistency 
+
+Following EvoDiff-style evaluation (Alamdari et al., 2023), we report two complementary metrics: (i) foldability via predicted structure confidence, and (ii) self-consistency via inverse folding likelihood under the predicted backbone. 
+
+Foldability via OmegaFold pLDDT. For each generated amino-acid sequence sn of length Ln, we predict a backbone structure bYn using OmegaFold (Wu et al., 2022). OmegaFold outputs a per-residue confidence score (pLDDT) pLDDT n,j ∈
+
+[0 , 100] for residue j. We summarize foldability by the mean pLDDT, 
+
+Fold( sn) := 1
+
+LnLnX
+
+> j=1
+
+pLDDT n,j . (52) Higher values ( ↑) indicate more confident predicted structures and are commonly used as a proxy for foldability. 
+
+Self-consistency via inverse folding perplexity. Given the predicted backbone bYn, we score the original sequence sn
+
+under an inverse folding model pϕ(s | bY) (we use ESM-IF (Hsu et al., 2022)). Let pϕ(sn,j | bYn, s n,<j ) be the autoregressive conditional probability assigned to residue sn,j at position j. We compute the per-residue negative log-likelihood and the corresponding self-consistency perplexity: 
+
+NLL sc (sn) := − 1
+
+LnLnX
+
+> j=1
+
+log pϕ
+
+
+
+sn,j | bYn, s n,<j 
+
+
+
+, scPPL( sn) := exp  NLL sc (sn). (53) 
+
+> 1We compute novelty on ungapped amino-acid sequences and require a minimum alignment coverage for both query and target (e.g.,
+> 80% ) to avoid short high-identity local matches.
+
+22 LineageFlow: High-Fidelity Family-Aware Generation 
+
+Lower values ( ↓) indicate that the predicted backbone is more compatible with the original sequence under a structure-conditioned sequence model, closing the loop “fold → score under inverse folding.” 23
