@@ -1,0 +1,643 @@
+Title: FlashMol: High-Quality Molecule Generation in as Few as Four Steps
+
+URL Source: https://arxiv.org/pdf/2605.07020v1
+
+Published Time: Mon, 11 May 2026 00:23:44 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# FlashMol: High-Quality Molecule Generation in as Few as Four Steps 
+
+Xinyuan Wei 1,2∗ Zian Li 1,3∗ Shaoheng Yan 1,2 Cai Zhou 4 Muhan Zhang 1,5†
+
+> 1
+
+Institute for Artificial Intelligence, Peking University 
+
+> 2
+
+Yuanpei College, Peking University 
+
+> 3
+
+School of Intelligence Science and Technology, Peking University 
+
+> 4
+
+Department of Electrical Engineering and Computer Science, Massachusetts Institute of Technology 
+
+> 5
+
+State Key Laboratory of General Artificial Intelligence, Peking University 
+
+## Abstract 
+
+Generating chemically valid 3D molecular conformations is critical for computa-tional drug discovery. Classical diffusion-based models like GeoLDM perform well but require hundreds of steps, making large-scale in silico screening impractical. Recent efforts on few-step molecular generation have accelerated this process to 12-50 steps, but they often largely sacrifice sample stability. In this work, we present FlashMol, an ultra-fast molecule generative model producing high-quality molecular conformations in as few as 4 steps. To achieve this, we adapt distribution matching distillation (DMD) — a reverse KL-divergence minimization objective — to the molecular domain for effective distillation. Considering the local minimiza-tion behavior of DMD, we respace the molecule generation timesteps, providing the generator with much better initialization and enables effective distillation. Ad-ditionally, to mitigate the mode-seeking behavior of DMD and improve diversity, we further regularize it with a Jensen-Shannon divergence term, which incorporates the mean-seeking behavior of the forward KL divergence. Extensive experiments on QM9 and GEOM-DRUG datasets demonstrate that FlashMol matches and even surpasses the original 1000-step teacher, achieving up to 250× acceleration in sampling speed while maintaining high molecular quality. 
+
+## 1 Introduction 
+
+Molecule generative models have emerged as a cornerstone of computational molecular design, offering the prospect of exploring chemical space at scales that are infeasible for traditional physics-based simulation [ 11 , 43 , 20 , 13 ]. Among these approaches, diffusion-based molecule generative models such as EDM [ 11 ] and GeoLDM [ 43 ] produce stable and valid molecules through iterative denoising, demonstrating strong potential in domains such as drug discovery [ 41 , 18 , 4], protein engineering [46], and materials science [8]. However, generating a molecule with diffusion-based methods typically requires hundreds to thou-sands of sequential network evaluations. For example, classic baselines including EDM [ 11 ] and GeoLDM [ 43 ] require 1000 NFEs, and even more efficient flow-matching variants such as Sem-laFlow [ 13 ] and ET-Flow [ 9] still require more than a hundred steps. Although recent few-step generative methods [ 50 , 25 , 20 ] have reduced NFE to the range of 12–50 steps, they often come with substantially lower molecule stability, and no existing method, to the best of our knowledge, achieves reliable generation in 10 steps or fewer, a regime that is increasingly common in image and video   
+
+> ∗Equal Contribution.
+> †Correspondence to Muhan Zhang <muhan@pku.edu.cn>. Preprint.
+> arXiv:2605.07020v1 [cs.LG] 7 May 2026
+
+domains [ 12 , 6, 33 ]. Sampling speed is therefore a major bottleneck preventing these models from being deployed in the high-throughput screening pipelines essential for drug discovery. 4 8 16 32 63 125 250 500 1000 
+
+NFEs (log scale)  
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Molecular Stability  Methods (NFE sweeps)
+> FlashMol
+> AccGeoLDM
+> GeoLDM-respaced
+> GeoLDM
+> Baselines
+> SLDM
+> GeoRCG (EDM)
+> GeoBFN
+> EquiFM
+> MolTD
+> GeoLDM-respaced-4
+> GeoLDM-respaced-5
+> GeoLDM-4 GeoLDM-8
+> FlashMol-4
+> FlashMol-5
+> FlashMol-8
+
+Figure 1: Molecule generation quality on QM9. We achieve comparable or superior performance on QM9 with only 4 to 8 steps, outperforming recent few-step molecule generative models. GeoLDM-respaced uses our respaced timesteps (Section 4.2); GeoLDM uses the original DDPM timesteps. In this work, we propose FlashMol, an ultra-fast molecule generative model that generates high-quality molecules in as few as 4 steps , as shown in Figure 1. To achieve this, we distill a few-step student from its 1000-step teacher via distribution matching distillation [ 48 , 47 ], a reverse-KL method that encourages high-fidelity samples and has shown strong promise in image and video domains [ 48 , 47 , 15 , 12 ]. We identify two key obstacles to applying DMD in molecular generation. First, the local optimization behavior of DMD requires a well-initialized few-step student to provide useful optimization signals. Yet molecular structures are far less tolerant of generation errors than images: small deviations in bond lengths and angles can destroy chemical validity, making the initial few-step student much less likely to produce reasonable samples (nearly 0 % stability). To address this issue, we draw inspiration from the EDM design space analysis [ 16 ] and redesign the discrete timestep schedule at inference and distillation training time , without any retraining. This respacing substantially improves few-step quality and provides a viable student initialization for DMD. Second, the mode-seeking behavior of DMD gives the student a smaller probability support than the teacher, reducing molecular diversity. This issue is especially pronounced on QM9 [ 28 ], which nearly enumerates the space of small molecules [ 43 ]. To address this issue, we leverage a Jensen-Shannon divergence [ 45 ], which combines forward and reverse KL divergence, to regularize support shrinkage , and treat it as a regularization term with a small coefficient, successfully improving the generation diversity. To summarize, our contributions are as follows: • We integrate distribution matching distillation into molecular generation using the latent molecu-lar generative model GeoLDM [43]. • We identify inference-time timestep scheduling as a key bottleneck for effective distribution distillation and introduce a respacing strategy inspired by EDM [ 16 ] that substantially improves the initial few-step generator even without training, and enables effective distillation. • We extend the vanilla DMD objective with a Jensen-Shannon divergence term and provide a unified integration of KL-divergence-related objectives in molecular settings. • We achieve 83.89% molecular stability on QM9 and 84.72% atom stability on GEOM-DRUG with only 4 steps .
+
+## 2 Related Work 
+
+Diffusion and Flow Models for 3D Molecule Generation Advances in molecular generation can be broadly categorized based on the output modality: 2D graph generation and 3D coordinate generation. Early work on molecular generation primarily focused on 2D graph generation [ 39 , 27 , 51 ], where molecules are represented as graphs of atoms and bonds [ 14 ]. However, recent research has shifted 2towards generating 3D coordinates of atoms, allowing models to capture the spatial arrangement of molecules, which is crucial for their chemical properties. Prominent models such as the Equivariant Diffusion Model (EDM) [ 11 ] and GeoLDM [ 43 ] have demonstrated impressive performance in both conditional and unconditional molecule generation tasks by adopting diffusion models. Despite their successes, these models often require a thousand function evaluations (NFEs) to generate a single sample. To address this limitation, flow-based models [ 13 , 36 , 5] reduce the number of NFEs required, yet they still typically require over a hundred evaluations. Other methods, such as GeoRCG [ 20 ] and REED [ 40 ], use molecular representations to enhance generation and can generate stable molecules in as few as 50 steps. A recent method [ 50 ] introduces molecule-specific trajectory diagnosis, which accelerates sampling and achieves strong performance with as few as 12 steps. 
+
+Distillation and Distribution Matching for Accelerated Sampling Efforts to accelerate diffusion models generally focus on two strategies. The first involves progressive distillation [ 29 ], consistency models [ 33 , 32 ], shortcut models [ 23 , 6, 21 , 52 ], and flow map distillation [ 3, 37 ], where a student model is trained to replicate a teacher model’s denoising trajectory. While this approach reduces the required steps, it suffers from error accumulation as the trajectory length increases. The second strategy, distribution matching distillation [ 48 , 47 , 15 , 45 , 37 ], uses a reverse KL-divergence objective to match the output distributions of the teacher and the student models, effectively avoiding error accumulation. This line of distribution matching work has led to state-of-the-art performance in one-step generation. 
+
+## 3 Preliminaries 
+
+3.1 Molecule Diffusion Models 
+
+In this paper, a molecule with N atoms is represented as a point cloud G = ⟨x, h ⟩, where x ∈ RN ×3
+
+denotes 3D coordinates and h ∈ RN ×d denotes atom features. FlashMol adopts GeoLDM [ 43 ] as its backbone, which encodes G into a continuous latent molecule z0 = ⟨zx, z h⟩ and decodes the final latent sample back to molecular coordinates and features. The coordinate latent zx is kept in the zero-center-of-mass subspace to preserve translation invariance. The latent diffusion process corrupts z0 using a predefined noise schedule (αt, σ t): zt = αtz0 +
+
+σtϵ, ϵ ∼ N (0 , I ). The denoising networks are implemented with equivariant architectures [ 11 ], so rotations of coordinate latents induce corresponding rotations in the predicted coordinates while atom-feature channels remain invariant. Our method keeps this GeoLDM latent-space formulation, but distills a few-step student generator to replace the expensive multi-step teacher. Additional details on the original molecule diffusion formulation are provided in Appendix A.1. 
+
+3.2 Distribution Matching Distillation 
+
+Distribution matching distillation (DMD) [ 47 , 48 ] aims to minimize the KL divergence between the few-step student model and the multi-step teacher model KL (pfake ∥preal ). Let F (x, t ) = αtx + σtϵ
+
+denote the corruption process for non-geometric objects x, with ϵ ∼ N (0 , I ). The corresponding DMD loss has a gradient equivalent to: 
+
+∇L DMD = Et (∇θ KL (pfake ,t ∥preal ,t )) (1) 
+
+= −Et
+
+Z  sreal (F (Gθ (z), t ), t ) − sfake ,ϕ (F (Gθ (z), t ), t ) dG θ (z)
+
+dθ dz 
+
+
+
+. (2) Here, Gθ (z) denotes the few-step student generator, starting from noise z ∼ N (0 , I ), whose generated samples x follow x ∼ pfake . The distributions pfake ,t and preal ,t correspond to the diffusion distributions defined by the forward operator F of the student and teacher models, respectively. The score functions [ 34 ] are defined as sreal (x, t ) = ∇ log preal ,t (x) and sfake ,ϕ (x, t ) = ∇ log pfake ,t (x),where sfake ,ϕ (x, t ) serves as a proxy multi-step score for the few-step student generator and is updated using the diffusion loss computed on samples produced by Gθ [ 48 ] while sreal (x, t ) is approximated by the teacher model and is frozen during the training process. The teacher model is parameterized as μreal and sfake ,ϕ as μfake ,ϕ , which are both noise-prediction diffusion models [ 47 ]; the denoising output ϵϕ of μfake ,ϕ is converted to sfake ,ϕ via the score-based 3Latent space   
+
+> High noise Low noise
+> 1000 0t (timestep)
+> timestep sampling
+> concentrated in low-noise region
+
+z ~
+
+N(0,I) 
+
+> (latent vector)
+> Generator
+> G
+> fake score
+
+sfake 
+
+update 
+
+## Dataset 
+
+> Molecule space
+
+# ⋯
+
+> Discriminator
+> D
+> real score
+
+sreal 
+
+> Encoder
+> E
+
+Figure 2: Training framework for FlashMol. In each iteration, the few-step generator G produces a batch of sampled molecules. Then, the μfake model which approximates fake score sfake and the discriminator D are first updated using diffusion loss and GAN loss respectively for 5 steps. After that, μfake and the discriminator D’s output are used to compute the DMD and Jensen-Shannon divergence gradient. Lastly, the gradients are mixed and update the generator G.SDE framework [ 34 ].Following DMD2 [ 47 ], in each iteration, μfake ,ϕ is first updated for 5 steps using the diffusion loss on the generated sample of the student model: 
+
+Lfake = Ex∼pfake ,ϵ ∼N (0 ,I )
+
+w(t)|| ϵϕ(F (x, t ), t ) − ϵ|| 2 (3) where x is the sample generated by the student model Gθ and ϵϕ(F (x, t ), t ) is the output of μfake .The student generator Gθ is updated by the gradient of the DMD loss LDMD for one step afterwards. As in DMD2 [ 47 ], few-step generator samples in a consistency-sampling manner [ 33 ]. Given a generator G, the final samples are obtained by repeatedly applying: 
+
+xt+1 = G(zt), zt+1 = αt+1 xt+1 + σt+1 ϵ (4) where ϵ, z 0 ∼ N (0 , I ) and αt, σ t are fixed noise schedules. This iterative refinement significantly improves the sample quality of the alternative one-step generator [47]. 
+
+3.3 f -Divergences for Distribution Matching Distillation 
+
+DMD optimizes the reverse KL loss between student and teacher distributions. More generally, one can consider f -divergences of the form Df (p|| q) = R q(x)f ( p(x) 
+
+> q(x)
+
+)dx . As derived in Xu et al. [45], 
+
+∇θ Df (preal || pfake ) = Eϵ,t 
+
+ −
+
+Z
+
+f ′′ (r)r2 sreal (F (Gθ (z), t ), t ) − sfake ,ϕ (F (Gθ (z), t ), t ) dG θ (z)
+
+dθ dz 
+
+(5) where r = preal (x) 
+
+> pfake (x)
+
+. For the Jensen-Shannon divergence, f (r) := r log r − (r + 1) log r+1 2 . To approximate r, we can introduce a discriminator D trained with the GAN objective, which yields the approximation r ≈ D(x)/(1 − D(x)) .
+
+## 4 Methods 
+
+4.1 Geometric Distribution Matching Distillation 
+
+We now describe the key designs of the FlashMol framework, which adapts the DMD approach to the molecular domain with carefully tailored mechanisms, achieving remarkable few-step generation 4Figure 3: Random 4-step samples from the multi-step teacher without additional training. Top: original Ge-oLDM schedule. Bottom: our respaced schedule. 0 5 10 15 20 25 
+
+> Training step
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> Molecule stability
+> vanilla schedule
+> FlashMol schedule
+
+Figure 4: Distribution matching distil-lation training dynamics under different sampling noise schedules. performance. We choose GeoLDM [ 43 ], a strong latent molecule generative model, as the backbone of FlashMol. The overall training framework is illustrated in Figure 2. Following DMD [ 48 ], our training uses three models: the few-step generator Gθ , the frozen multi-step teacher score estimator 
+
+μreal , and the proxy score estimator μfake for the student generator. In each training iteration, the student generator Gθ first produces latent molecules G = ⟨x, h ⟩ from Gaussian noise z via K-step consistency sampling, as defined in Equation (4), without decoding to the molecule space. During sampling, the coordinate component x is always projected onto the zero-mean subspace to preserve translation invariance. To let μfake faithfully approximate the score of the student generator, we first update μfake according to the diffusion loss in Equation (3) for 5 steps following [ 47 ]. Then, the generated latent molecules are passed through μreal and μfake to estimate the scores ∇ log pt(⟨xt, h t⟩),which yield the DMD gradients following Equation (1) for updating the student generator Gθ .Notably, in the geometric formulation of DMD, equivariance is always preserved: the resulting DMD gradient is invariant to rotation of the student samples. This property improves data efficiency in few-step distillation for equivariant molecular generators. For simplicity, we assume G to be a one-step generator. Formally, 
+
+Proposition 1 (invariance) . The distribution matching loss 
+
+∇L DMD (z; θ) = −Et
+
+Z  sreal (F (Gθ (z), t ), t ) − sfake ,ϕ (F (Gθ (z), t ), t ) dG θ (z)
+
+dθ dz 
+
+
+
+is invariant to SE(3) group, where Gaussian noise z = ⟨zx, z h⟩ ∈ RN ×(3+ d) and the group transfor-mation applies only on zx. Formal definitions and proof are in Appendix B. 
+
+At inference, the few-step generator samples in consistency sampling manner with K-steps, and the sampled latent molecules are decoded using the VAE inherited from the pretrained GeoLDM model. 
+
+4.2 Escaping Poor Initial Modes via Respaced Timesteps 
+
+Directly adapting DMD to molecules poses significant optimization challenges. In this subsection, we identify the key issue and show how the proposed timestep respacing strategy addresses it. 
+
+Local Optimization Behavior of DMD Theoretically, the DMD loss is a complete loss in the sense that its optimal solution aligns the student and teacher distributions nearly perfectly, assuming unlimited model capacity. In practice, however, the reverse KL divergence, KL (pfake ∥preal ) = 
+
+Ex∼pfake 
+
+ log pfake (x) − log preal (x), induces a local optimization behavior [ 15 , 2 , 49 ], because the samples are drawn from the student model , rather than the teacher or data distribution as in the case of the forward KL. Consequently, if the initial student model cannot generate reasonable (even if imperfect) samples, the DMD loss in Equation (1) provides limited optimization signals. Different from other modalities such as images, molecule generation exhibits two distinctive char-acteristics: (1) its process is highly sensitive to noise [ 25 ]; and (2) molecular bond lengths and angles must be encoded with precise fine-grained detail, meaning that low-noise regions require careful handling. Directly initializing a few-step student model from a multi-step teacher model and sampling with uniformly spaced timesteps [ 31 ] can introduce severe discretization errors and largely 5skip low-noise regions. As a result, the few-step initial student produces poor-quality molecular samples. As shown in the top row of Figure 3, the 4-step student samples generated with the original timestep schedule are highly noisy and chemically invalid—they often contain disconnected atoms due to large deviations in atom-pair distances. Eventually, directly optimizing such a model with the DMD loss will lead to ineffective few-step distillation. In our initial experiments, we observe that this causes gradient explosions even before the first DMD training epoch is completed and results in poor-quality samples after training. As shown in Figure 4 (blue line), an 8-step student model sampled with uniform timesteps fails to achieve effective DMD optimization. 
+
+Respaced Timesteps for GeoLDM To address this challenge, we devise a respaced timestep inspired by EDM [ 16 ], which shows that the optimal schedule, in the sense of minimized truncation error, for the noise levels {σi}N −1 
+
+> i=0
+
+takes the form: 
+
+σi =
+
+
+
+σ1/ρ  
+
+> max
+
++ iN − 1
+
+ σ1/ρ  
+
+> min
+
+− σ1/ρ 
+
+> max
+
+ρ
+
+, i = 0 , . . . , N − 1. (6) Crucially, this schedule front-loads large denoising steps at high noise levels and reserves many small steps for the low-noise regime, where fine geometric detail is recovered. However, GeoLDM inherits the variance preserving [ 34 ] schedule σt = p1 − α2 
+
+> t
+
+with αt =1 − (t/T )2 and T = 1000 , which allocates timesteps roughly uniformly in noise-variance space. This conflicts with the EDM-style timestep. We therefore select the timesteps according to the noise-level schedule in Equation (6). Specifically, we first choose noise levels uniformly from Equation (6), and then select the corresponding timesteps from the GeoLDM schedule to align with these noise levels. Under this design, the discrete step t ∈ [0 , T ] corresponding to the continuous-time noise level σi
+
+satisfies σ2 
+
+> i
+
+= 1 − α2 
+
+> t
+
+= 1 − (1 − (t/T )2)2. Inverting this relationship gives the formula: 
+
+tT =
+
+q
+
+1 − p1 − (i/ (N − 1)) 2ρ , (7) and we apply this respaced schedule in both the few-step generator G and the score estimator μreal 
+
+and μfake , ensuring compatibility during training. Furthermore, we investigate the selection of ρ in the schedule. We observe that the original configu-ration with ρ = 7 in Equation (7) leads to the diffusion step t ≈ 0 for more than 38% of the 1000 denoising steps, which is a degenerate case and demonstrates poor sampling quality in molecule generation. This is visualized in Figure 5. Thus, we experiment and obtain the optimal ρ = 2 .25 ,which distinguishes between the t values in [0 , 300] while remaining concentrated on low-noise regions. This is justified by our ablation experiments in Section 5.4. 
+
+Benefits of Respacing After timestep respacing, the generated molecules are dramatically more stable (bottom row of Figure 3). Although not perfect before distillation, they provide a good starting point for escaping the poor initial modes in DMD training. Consequently, DMD training is stabilized, with no significant gradient explosion even in later stages as shown in Figure 4 (orange line). 
+
+4.3 Improving Diversity via f -Divergence Regularization 
+
+DMD adopts a reverse KL-divergence objective which severely penalizes the student generator for placing probability mass outside the teacher’s support , thereby damaging sampling diversity. By choosing the Jensen-Shannon divergence , the resulting objective DJS (preal || pfake ) can be interpreted as the mean of KL (pfake ∥ (pfake + preal )/2) and KL (preal ∥ (pfake + preal )/2) , which incorporates both forward- and reverse-KL components [ 22 ]. This adds mean-seeking behavior via the forward-KL component, counteracting DMD’s reverse-KL mode seeking and improving sample diversity. In FlashMol, we introduce this f -divergence as a regularization term complementary to the DMD loss, resulting in the final loss: 
+
+LFlashMol = LDMD + λ · L JS , (8) where LJS follows the definition in Equation (5) with f (r) := r log r − (r + 1) log r+1 2 . However, direct differentiation of the loss requires the computation of pfake (G) 
+
+> preal (G)
+
+given a molecule G, which is intractable [ 45 ]. Therefore, we approximate this term using output of a GAN discriminator [ 7]according to the formula in Section 3.3. Following DMD2 [ 47 ], we train the discriminator on both 6Table 1: Unconditional molecule generation results of FlashMol. We present models of three different step counts and our method achieves 250 × to 125 × acceleration as well as state-of-the-art performance on various datasets. We highlight metrics in which our student model surpasses the respaced teacher using the same NFEs. G EO LDM-respaced results are obtained using our sampling method; see Section 4.2. The MOLTD V&U entry is estimated by us.                                                                                                                                                                                       
+
+> QM9 DRUG
+> # Metrics NFE Atom Sta (%) Mol Sta (%) Valid (%) Valid & Unique (%) Atom Sta (%) Valid (%) Data -99.0 95.2 97.7 97.7 86.5 99.9 GDM-AUG 1000 97.6 71.6 90.4 89.5 77.7 91.8 EDM 1000 98.7 82.0 91.9 90.7 81.3 92.6 EDM-Bridge 1000 98.8 84.6 92.0 90.7 82.4 92.8 GeoLDM 1000 98.9 89.4 93.8 92.7 84.4 99.3 EquiFM 200 98.9 88.3 94.7 93.5 84.1 98.9 GeoBFN 100 98.6 87.2 93.0 91.5 78.9 93.1 GOAT 90 99.2 -92.9 92.0 84.8 96.2 SLDM 50 98.70 88.09 92.84 89.53 --GeoRCG (EDM) 50 98.75 89.08 95.05 -81.44 95.70 AccGeoLDM 16 92.08 51.02 73.22 72.39 --MOLTD 12 99.40 92.53 96.04 92.0 86.88 95.33 GEO LDM-respaced 895.49 ±0.1 70.78 ±0.4 87.13 ±0.3 81.48 ±0.4 64.35 90.44
+> FLASH MOL 899.55 ±0.0 94.87 ±0.5 96.97 ±0.2 87.51 ±0.4 89.98 99.86
+> GEO LDM-respaced 582.11 ±0.1 27.96 ±0.2 62.10 ±0.1 59.20 ±0.1 18.27 82.07
+> FLASH MOL 598.73 ±0.0 87.05 ±0.4 92.67 ±0.3 78.83 ±0.2 87.69 99.69 GEO LDM-respaced 472.35 ±0.1 12.43 ±0.3 45.24 ±0.3 42.53 ±0.3 8.30 84.65
+> FLASH MOL 497.70 ±0.1 83.89 ±0.3 90.70 ±0.2 72.70 ±0.3 84.72 99.72
+
+the generated molecules of the few-step generator and real molecules in the dataset. To better capture both high-level semantics and low-level details, we extract three intermediate layers of features from the μfake network. Then, for each layer, we perform cross attention [ 38 ] with a learnable token query for the real/fake logits. We leave the detailed implementation in Appendix C.1. 
+
+## 5 Experiments 
+
+In this section, we show the remarkable performance of FlashMol on various molecule generative tasks. We first describe the experimental settings in Section 5.1. Then, we report quantitative results and acceleration-quality trade-offs across different datasets and metrics in Section 5.2 and Section 5.3. Finally, we provide an ablation study on the key designs of FlashMol, including time respacing and distillation loss, in Section 5.4. 
+
+5.1 Experimental Settings Teacher Models For unconditional generation tasks, the teacher model is obtained from Ge-oLDM [ 43 ]. For conditional generation, we train the teacher from scratch. Implementation details can be found in Appendix C. 
+
+Tasks and Metrics We experiment with both unconditional and conditional generation following standard evaluation protocols [ 11 , 50 ]. Specifically, we evaluate FlashMol on QM9 [ 28 ] dataset, which consists of 130K small molecules (with up to 29 atoms including hydrogens each), for both unconditional and conditional generation, and on GEOM-DRUG [ 1] dataset, which consists of 450K larger molecules with an average atom number of 44 and maximum of 181, for unconditional generation. For unconditional generation, we report the generated molecules’ atom stability, molecule stability, validity and uniqueness following GeoLDM, SLDM, and MOLTD [ 43 , 25 , 50 ]. Since our models output atom types and atoms’ 3D coordinates directly, bond types are computed via look-up tables according to pairwise distances and atom types [ 11 ]. In addition to those metrics, we record the number of function evaluations (NFE) to compare sampling efficiency across various models. For conditional generation, we report the mean absolute error (MAE) of the specific property between the generated molecule and the specified condition value. 
+
+5.2 Unconditional Generation on QM9 and GEOM-DRUG Baselines Our direct baseline is GeoLDM [ 43 ], the multi-step teacher of FlashMol. To highlight the effectiveness of the distillation training, we compare directly to the GeoLDM with respaced timesteps 7Table 2: Conditional molecule generation results are evaluated on various properties of the molecule. We report the MAE( ↓) between generated molecules. QM9 and Random results serve as lower and upper bounds of MAE across all properties. Property NFE α ∆ε εHOMO εLUMO μ Cv                                                               
+
+> Units -Bohr 3meV meV meV Dcal mol K
+> QM9 -0.10 64 39 36 0.043 0.040 Random -9.01 1470 645 1457 1.616 6.857
+> Natoms -3.86 866 426 813 1.053 1.971 EDM 1000 2.76 655 356 584 1.111 1.101 GeoLDM 1000 2.37 587 340 522 1.108 1.025 GeoBFN 100 2.34 577 328 516 0.998 0.949 GeoLDM-respaced 32 2.14 565 342 491 0.985 0.933
+> FLASH MOL 32 2.12 556 330 489 0.988 0.926
+
+(Section 4.2), denoted as GeoLDM-respaced. We further compare against competitive baselines spanning multiple generative paradigms, including: 1) Diffusion-based models, including EDM and its non-equivariant counterpart (GDM) [ 11 ], as well as EDM-Bridge [ 42 ] which extends EDM by incorporating informative prior bridges; 2) flow-based models, such as EquiFM [ 36 ], GOAT [ 10 ]and GeoBFN [ 35 ]; 3) advanced few-step molecule generative methods, including AccGeoLDM [ 19 ], SLDM [ 25 ], GeoRCG [ 20 ] and MOLTD [ 50 ]. Notably, several methods that directly generate 2D bonds, including SemlaFlow [ 13 ], are not compared against our models for fairness. This is because metrics such as stability and validity are essentially 2D metrics; they can easily reach very high values with 2D generative methods, yet this cannot reflect a method’s ability to learn 3D distributions. 
+
+Results and Analysis Table 1 presents the main results, and we highlight several important observations as below. First, with the fewest NFEs , FlashMol achieves the best stability and validity on both QM9 and GEOM-DRUG. Specifically, on QM9, FlashMol achieves 94.87% molecule stability with only 8 NFEs, substantially outperforming GeoLDM-respaced, which achieves 70.78%. It also surpasses strong few-step generative methods, including GeoRCG (89.08% with 50 NFEs) and MOLTD (92.53% with 12 NFEs). On GEOM-DRUG, FlashMol even exceeds the dataset-level atom stability of 86.5%, achieving 89.98% atom stability. Second, under extremely smaller NFE budgets, such as 4 and 5 NFEs, FlashMol significantly lifts the near-unstable GeoLDM-respaced baseline to a performance level comparable to 1000-NFE baselines . On QM9, without FlashMol training, GeoLDM-respaced achieves only 12.43% and 27.96% molecule stability with 4 and 5 NFEs, indicating that almost no stable molecules can be generated with such few sampling steps. In contrast, FlashMol achieves 83.89% and 87.05% molecule stability, approaching advanced performance with 250 × and 200 × less computation compared to the original 1000-step GeoLDM baseline. The gain is even more pronounced on GEOM-DRUG, where the 5-step FlashMol maintains the best performance among all compared methods. Third, FlashMol shows the diversity metric V&U to a level comparable with advanced methods .For example, the 8-step FlashMol achieves 87.51% V&U, compared with approximately 90% for the baselines. It is known that reverse-KL-based objectives can lead to substantial diversity loss for the improvement of fidelity [ 48 , 15 ], which is also validated in our setting as shown in Figure D.1. This is because samples from the student distribution that lie outside the support of the teacher distribution incur a large penalty, encouraging pfake to concentrate on the high-probability modes of the teacher distribution while discarding low-probability regions. However, FlashMol successfully mitigates this effect by introducing an f -divergence loss, whose effectiveness is further validated in Section 5.4. We note that although the V&U score of FlashMol remains slightly lower than those of some baselines, we view this as an opportunity rather than a limitation as discussed in DMDR [ 15 ]: steering the optimized distribution toward high-confidence regions is often desirable in practical few-step generation scenarios where sample quality is prioritized over exhaustive distribution coverage. 8Table 3: Ablation studies. Left : comparisons of using different ρ’s during sampling. Middle : ablation on the divergence regularizer. Right : ablation on the sampling method. 
+
+Schedule exponent ρ          
+
+> ρMol Sta (%) V&U (%) 269.93 81.27 2.25 70.78 81.48
+> 2.75 68.46 81.35 535.23 61.95
+
+Divergence regularizer              
+
+> Divergence Term Mol Stab (%) V&U (%) DMD only 81.51 68.84 Forward KL ( λ= 0 .1)58.09 59.10 JS only 83.34 72.36
+> DMD + JS (λ= 0 .1)83.89 72.70
+
+Sampling Method             
+
+> NFE Respaced DDIM Consistency 412.43 ±0.30 0.01 ±0.01 0.00 ±0.00
+> 870.78 ±0.39 5.06 ±0.09 6.71 ±0.39
+> 16 94.61 ±0.18 41.84 ±0.42 59.94 ±0.49
+
+5.3 Conditional Generation on Molecular Properties 
+
+Conditional generation evaluates the model’s ability to generate molecules that satisfy a specific property. Following GeoLDM [ 43 ], for each property condition, we inject it as a node feature in the few-step student, the score estimator μfake and the teacher model. The property values of the generated molecules are predicted by a pretrained property-specific classifier. Since the evaluation of this task relies solely on the 3D coordinates of the generated molecule, higher precision is required. As more NFEs yield finer-grained details, we choose a higher NFE budget (32 NFEs), which is still, to our knowledge, fewer than latest baselines in conditional generation on QM9. We provide implementation details and experiment results of models with fewer steps in Appendix C.4 and Appendix D.2. 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> t
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> (t)
+> = 2.25
+> = 2.5
+> = 5
+> = 7
+
+Figure 5: Noise schedules for differ-ent values of the exponent ρ in the respaced timesteps in Equation (7). As presented in Table 2, FlashMol achieves comparable or better results than other methods in almost all metrics with 
+
+the fewest NFEs . In εHOMO and εLUMO , FlashMol yields 330meV and 489meV MAE respectively compared to 340meV and 522meV produced by the 1000-step GeoLDM teacher. This demonstrates the applicability of FlashMol to various scenarios. 
+
+5.4 Ablation Studies Effect of Respaced Schedule on Sampling Quality To iso-late the contribution of the noise schedule, we sample with the GeoLDM teacher on QM9 without distillation under three con-ditions and report molecule stability: (1) uniform schedule with DDIM [ 31 ], as in GeoLDM [ 43 ]; (2) uniform schedule with consistency sampling (Consistency); (3) FlashMol’s respaced schedule with consistency sampling (Respaced). As shown in Table 3, condition (3) achieves 94.61% molecule stability and surpasses trained few-step models of MOLTD [ 50 ] at 16 NFEs without any distillation training . Consistency sampling alone yields a small additional gain over DDIM. 
+
+Sensitivity to the Schedule Exponent ρ To characterize the sensitivity of the sampling process to ρ in Equation (7), we vary ρ and sample using the GeoLDM teacher on QM9 without distillation training; results are shown in Table 3. ρ = 2 .25 yields the best stability and uniqueness. An excessively large ρ concentrates sampling steps in the low-noise regime, losing the coarse structural deformation that early high-noise steps provide: sampling with ρ = 5 yields only 35.23% molecule stability, compared to 70.78% at ρ = 2 .25 . Conversely, smaller ρ’s closely resemble the original DDIM schedule, limiting their ability to improve sample quality. 
+
+Effect of f -Divergence Choice on Stability and Diversity We compare the FlashMol objective in Equation (8) with its variants: 1) DMD only ( λ = 0 ); 2) Forward-KL, substituting f (r) := r log r
+
+in Equation (5), which corresponds to the forward-KL objective KL (preal || pfake ) [ 45 ]; 3) Jensen-Shannon only ( LJS-only = LJS ). As shown in Table 3 and Table D.2, combining JS-divergence regularization with the DMD loss yields the best overall performance: JS-divergence boosts Valid & Unique by approximately 4% at 4 NFEs by increasing sampling diversity, while DMD loss alone improves molecule stability but reduces Valid & Unique , indicating collapsed probability support. Forward KL-divergence causes dramatic instability due to high-variance estimation [ 45 ], incompatible with DMD’s reverse-KL objective. More details can be found in Appendix D.3. 96 Conclusion 
+
+We propose FlashMol, a few-step generative model for 3D molecules that achieves up to 250 ×
+
+acceleration over its 1000-step GeoLDM teacher while matching or exceeding teacher-level sample quality. Our approach adapts distribution matching distillation to the molecular domain through two key designs: an EDM-inspired respacing of generation timesteps that supplies the few-step student with a viable initialization, and a Jensen-Shannon divergence term that regularizes the reverse-KL DMD objective with a forward-KL component to mitigate mode-seeking behavior. FlashMol attains comparable generation quality in as few as 4 steps and state-of-the-art molecular stability and validity on QM9 and GEOM-DRUG in 8 steps. 
+
+## References 
+
+[1] Simon Axelrod and Rafael Gómez-Bombarelli. Geom, energy-annotated molecular conforma-tions for property prediction and molecular generation. Scientific Data , 2022. [2] Lichen Bai, Zikai Zhou, Shitong Shao, Wenliang Zhong, Shuo Yang, Shuo Chen, Bojun Chen, and Zeke Xie. Optimizing few-step generation with adaptive matching distillation. arXiv preprint arXiv:2602.07345 , 2026. [3] Nicholas M. Boffi, Michael S. Albergo, and Eric Vanden-Eijnden. How to build a consistency model: Learning flow maps via self-distillation. arXiv preprint arXiv:2505.18825 , 2025. [4] Michal Brylinski and Grover Waldrop. Computational redesign of bacterial biotin carboxylase inhibitors using structure-based virtual screening of combinatorial libraries. Molecules , 2014. [5] Ian Dunn and David R. Koes. Flowmol3: flow matching for 3d de novo small-molecule generation. Digital Discovery , 2026. [6] Zhengyang Geng, Mingyang Deng, Xingjian Bai, Jeremy Z. Kolter, and Kaiming He. Mean flows for one-step generative modeling. arXiv preprint arXiv:2505.13447 , 2025. [7] Ian J. Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and Yoshua Bengio. Generative adversarial nets. Advances in Neural Information Processing Systems , 2014. [8] Rebecca L. Greenaway and Kim E. Jelfs. Integrating computational and experimental workflows for accelerated organic materials discovery. Advanced Materials , 2021. [9] Majdi Hassan, Nikhil Shenoy, Jungyoon Lee, Hannes Stark, Stephan Thaler, and Dominique Beaini. Equivariant flow matching for molecular conformer generation. ICML 2024 Workshop ,2024. [10] Haokai Hong, Wanyu Lin, and Kay Chen Tan. Accelerating 3d molecule generation via jointly geometric optimal transport. arXiv preprint arXiv:2405.15252 , 2024. [11] Emiel Hoogeboom, Victor Garcia Satorras, Clément Vignac, and Max Welling. Equivariant diffusion for molecule generation in 3d. Proceedings of the 39th International Conference on Machine Learning , 2022. [12] Xun Huang, Zhengqi Li, Guande He, Mingyuan Zhou, and Eli Shechtman. Self forcing: Bridging the train-test gap in autoregressive video diffusion. arXiv preprint arXiv:2506.08009 ,2025. [13] Ross Irwin, Alessandro Tibo, Jon Paul Janet, and Simon Olsson. Semlaflow–efficient 3d molecular generation with latent attention and equivariant flow matching. arXiv preprint arXiv:2406.07266 , 2024. [14] Yunhui Jang, Dongwoo Kim, and Sungsoo Ahn. Hierarchical graph generation with K2-trees. In ICML 2023 Workshop on Structured Probabilistic Inference & Generative Modeling , 2023. 10 [15] Dengyang Jiang, Dongyang Liu, Zanyi Wang, Qilong Wu, Liuzhuozheng Li, Hengzhuang Li, Xin Jin, David Liu, Changsheng Lu, Zhen Li, Bo Zhang, Mengmeng Wang, Steven Hoi, Peng Gao, and Harry Yang. Distribution matching distillation meets reinforcement learning. arXiv preprint arXiv:2511.13649 , 2025. [16] Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine. Elucidating the design space of diffusion-based generative models. Advances in Neural Information Processing Systems , 2022. [17] Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 , 2014. [18] Xiangzhe Kong, Wenbing Huang, Zhixing Tan, and Yang Liu. Molecule generation by principal subgraph mining and assembling. Advances in Neural Information Processing Systems , 2022. [19] Romain Lacombe and Neal Vaidya. Accelerating the generation of molecular conforma-tions with progressive distillation of equivariant latent diffusion models. arXiv preprint arXiv:2404.13491 , 2024. [20] Zian Li, Cai Zhou, Xiyuan Wang, Xingang Peng, and Muhan Zhang. Geometric representation condition improves equivariant molecule generation. arXiv preprint arXiv:2410.03655 , 2024. [21] Haitao Lin, Peiyan Hu, Minsi Ren, Zhifeng Gao, Zhi-Ming Ma, Guolin ke, Tailin Wu, and Stan Z. Li. On the design of one-step diffusion via shortcutting flow paths. arXiv preprint arXiv:2512.11831 , 2025. [22] Jianhua Lin. Divergence measures based on the shannon entropy. IEEE Transactions on Information theory , 2002. [23] Cheng Lu and Yang Song. Simplifying, stabilizing and scaling continuous-time consistency models. arXiv preprint arXiv:2410.11081 , 2024. [24] Lars Mescheder, Andreas Geiger, and Sebastian Nowozin. Which training methods for gans do actually converge? Proceedings of the 35th International Conference on Machine Learning ,2018. [25] Yuyan Ni, Shikun Feng, Haohan Chi, Bowen Zheng, Huan ang Gao, Wei-Ying Ma, Zhi-Ming Ma, and Yanyan Lan. Straight-line diffusion model for efficient 3d molecular generation. arXiv preprint arXiv:2503.02918 , 2025. [26] Adam Paszke, Sam Gross, Soumith Chintala, Gregory Chanan, Edward Yang, Zachary DeVito, Zeming Lin, Alban Desmaison, Luca Antiga, and Adam Lerer. Automatic differentiation in pytorch. NeurIPS 2017 Workshop on Autodiff , 2017. [27] Yiming Qin, Manuel Madeira, Dorina Thanou, and Pascal Frossard. Defog: Discrete flow matching for graph generation. arXiv preprint arXiv:2410.04263 , 2024. [28] Raghunathan Ramakrishnan, Pavlo O. Dral, Matthias Rupp, and Anatole von Lilienfeld. Quan-tum chemistry structures and properties of 134 kilo molecules. Scientific Data , 2014. [29] Tim Salimans and Jonathan Ho. Progressive distillation for fast sampling of diffusion models. 
+
+arXiv preprint arXiv:2202.00512 , 2022. [30] Vıctor Garcia Satorras, Emiel Hoogeboom, and Max Welling. E (n) equivariant graph neural networks. In International conference on machine learning , pages 9323–9332. PMLR, 2021. [31] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. arXiv preprint arXiv:2010.02502 , 2020. [32] Yang Song and Prafulla Dhariwal. Improved techniques for training consistency models. arXiv preprint arXiv:2310.14189 , 2023. [33] Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever. Consistency models. Proceedings of the 40th International Conference on Machine Learning , 2023. 11 [34] Yang Song, Jascha Sohl-Dickstein, Diederik P. Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. arXiv preprint arXiv:2011.13456 , 2020. [35] Yuxuan Song, Jingjing Gong, Yanru Qu, Hao Zhou, Mingyue Zheng, Jingjing Liu, and Wei-Ying Ma. Unified generative modeling of 3d molecules with bayesian flow networks. The Twelfth International Conference on Learning Representations , 2024. [36] Yuxuan Song, Jingjing Gong, Minkai Xu, Ziyao Cao, Yanyan Lan, Stefano Ermon, Hao Zhou, and Wei-Ying Ma. Equivariant flow matching with hybrid probability transport for 3d molecule generation. Advances in Neural Information Processing Systems , 2023. [37] Shangyuan Tong, Nanye Ma, Saining Xie, and Tommi Jaakkola. Flow map distillation without data. arXiv preprint arXiv:2511.19428 , 2025. [38] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 2017. [39] Clement Vignac, Igor Krawczuk, Antoine Siraudin, Bohan Wang, Volkan Cevher, and Pas-cal Frossard. Digress: Discrete denoising diffusion for graph generation. arXiv preprint arXiv:2209.14734 , 2022. [40] Chenyu Wang, Cai Zhou, Sharut Gupta, Zongyu Lin, Stefanie Jegelka, Stephen Bates, and Tommi Jaakkola. Learning diffusion models with flexible representation guidance. arXiv preprint arXiv:2507.08980 , 2025. [41] Wendy A. Warr, Marc C. Nicklaus, Christos A. Nicolaou, and Matthias Rarey. Exploration of ultralarge compound collections for drug discovery. Journal of Chemical Information and Modeling , 2022. [42] Lemeng Wu, Chengyue Gong, Xingchao Liu, Mao Ye, and Qiang Liu. Diffusion-based molecule generation with informative prior bridges. Advances in Neural Information Processing Systems ,2022. [43] Minkai Xu, Alexander Powers, Ron Dror, Stefano Ermon, and Jure Leskovec. Geometric latent diffusion models for 3d molecule generation. Proceedings of the 40th International Conference on Machine Learning , 2023. [44] Minkai Xu, Lantao Yu, Yang Song, Chence Shi, Stefano Ermon, and Jian Tang. Geodiff: A geo-metric diffusion model for molecular conformation generation. arXiv preprint arXiv:2203.02923 ,2022. [45] Yilun Xu, Weili Nie, and Arash Vahdat. One-step diffusion models with f -divergence distribu-tion matching. arXiv preprint arXiv:2502.15681 , 2025. [46] Zehra Yildirim, Kyle Swanson, Xuekun Wu, James Zou, and Joseph Wu. Next-gen therapeutics: pioneering drug discovery with ipscs, genomics, ai, and clinical trials in a dish. Annual Review of Pharmacology and Toxicology , 2025. [47] Tianwei Yin, Michaël Gharbi, Taesung Park, Richard Zhang, Eli Shechtman, Fredo Durand, and William T. Freeman. Improved distribution matching distillation for fast image synthesis. 
+
+Advances in Neural Information Processing Systems , 2024. [48] Tianwei Yin, Michaël Gharbi, Richard Zhang, Eli Shechtman, Frédo Durand, William T. Free-man, and Taesung Park. One-step diffusion with distribution matching distillation. Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2024. [49] Tianwei Yin, Qiang Zhang, Richard Zhang, William T. Freeman, Frédo Durand, Eli Shecht-man, and Xun Huang. From slow bidirectional to fast autoregressive video diffusion models. 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2025. [50] Zhilong Zhang, Yuxuan Song, Yichun Wang, Jingjing Gong, Hanlin Wu, Dongzhan Zhou, Hao Zhou, and Wei-Ying Ma. Accelerating 3d molecule generative models with trajectory diagnosis. 
+
+The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. 12 [51] Cai Zhou, Xiyuan Wang, and Muhan Zhang. Unifying generation and prediction on graphs with latent graph diffusion. Advances in Neural Information Processing Systems , 2024. [52] Linqi Zhou, Mathias Parger, Ayaan Haque, and Jiaming Song. Terminal velocity matching. 
+
+arXiv preprint arXiv:2511.19797 , 2025. 13 Appendix A Additional Preliminaries 
+
+A.1 Molecule Diffusion Models 
+
+We provide additional details on the molecule diffusion model summarized in Section 3. Following GeoLDM [ 43 ], a molecule with N atoms is represented as G = ⟨x, h ⟩, where x ∈ RN ×3 denotes 3D atom coordinates and h ∈ RN ×d denotes node features. GeoLDM first maps the molecule into a continuous latent representation with an encoder Eϕ:
+
+qϕ(zx, z h | x, h ) = N (Eϕ(x, h ), σ 20 I).
+
+Here, zx is the coordinate latent and zh is the feature latent. The coordinate latent is constrained to the zero-center-of-mass subspace, i.e., P 
+
+> i
+
+zx,i = 0 , which removes global translation degrees of freedom. A decoder Dφ maps latent samples back to molecular coordinates and atom features. The diffusion model operates entirely in this latent space. At each diffusion step, Gaussian noise is added to both latent coordinates and latent features according to a predefined schedule (αt, σ t):
+
+q(zx,t , z h,t | zx,t −1, z h,t −1) = N (zx,t ; √αtzx,t −1, σ 2 
+
+> t
+
+I) · N (zh,t ; √αtzh,t −1, σ 2 
+
+> t
+
+I).
+
+Equivalently, the noised latent at timestep t can be written as 
+
+zt = αtz0 + σtϵ, ϵ ∼ N (0 , I ),
+
+where zt = ⟨zx,t , z h,t ⟩. During this process, the coordinate component is projected back to the zero-center-of-mass subspace so that the latent representation remains translation invariant. The reverse denoising process is parameterized by a neural network that predicts the added noise. The original diffusion training objective can be written as 
+
+LDM = E(zx, 0,z h, 0)∼qϕ, ϵ ∼N (0 ,I ), t 
+
+∥ϵx − ϵθ,x (zx,t , z h,t , t )∥2 + ∥ϵh − ϵθ,h (zx,t , z h,t , t )∥2 .
+
+The denoiser therefore learns to recover both geometric and feature perturbations in latent space. In FlashMol, the teacher model μreal , the few-step student generator Gθ , and the fake score estimator 
+
+μfake all inherit this latent-space parameterization. For geometric consistency, GeoLDM uses equivariant networks such as EGNN [ 30 ] in the encoder, decoder, and denoising model. These networks preserve SO(3)-equivariance for coordinate channels and SO(3)-invariance for feature channels. Informally, rotating the coordinate input rotates the coordinate output in the same way, while the feature output remains unchanged. Together with the zero-center-of-mass constraint and an invariant Gaussian prior, this yields a latent molecular distribution that is invariant to global rigid transformations [ 44 ]. This geometric structure is the basis for the invariance statement used in our distribution matching formulation. At inference time, GeoLDM starts from Gaussian latent noise, applies iterative denoising in latent space, and decodes the final latent sample with Dφ. FlashMol preserves this inference interface but distills the denoising process into a small number of consistency-sampling steps, as described in Sections 3.2 and 4.2. 14 B Formal Statements and Proofs 
+
+We provide the formal definition of invariance as follows: 
+
+Definition 1. For a sample z = ⟨zx, z h⟩ ∈ RN ×(3+ d) ∼ N (0 , I ) in the data distribution and the model parameter θ, a loss that is computed according to L(z; θ) is invariant to SO(3) 1 group if and only if: 
+
+∇θ L(z; θ) = ∇θ L(Rz; θ)
+
+for any R ∈ SO (3) .
+
+We use the notation Rz to indicate group action of R on z, which is a matrix multiplication that gives 
+
+Rz = ⟨zxR, z h⟩ where R ∈ SO (3) .
+
+B.1 Proof of Proposition 1 
+
+Proof. ∀R ∈ SO (3) , RR T = I, det( R) = 1 , thus: 
+
+∇L DMD (Rz; t) = −
+
+Z
+
+p(ϵ) sreal (αtGθ (Rz) + σtϵ, t ) − sfake (αtGθ (Rz) + σtϵ, t ) dG θ (Rz)
+
+dθ dϵ 
+
+Given the equivariant property of EGNN [ 30 ], we denote z′ = ⟨z′
+
+> x
+
+, z ′
+
+> h
+
+⟩ = Gθ (z), then Gθ (Rz) = 
+
+⟨z′
+
+> x
+
+R, z ′
+
+> h
+
+⟩. Therefore, we denote ¯R = diag {R, I d}, then Gθ (Rz) = Gθ (z) ¯R, ¯R ¯RT = I and 
+
+det( ¯R) = 1 .
+
+∇L DMD (Rz; t) = −
+
+Z
+
+p(ϵ) sreal (αtGθ (z) + σtϵ ¯RT , t ) − sfake (αtGθ (z) + σtϵ ¯RT , t ) ¯R ¯RT dG θ (z)
+
+dθ dϵ 
+
+= −
+
+Z
+
+p(ϵ) sreal (αtGθ (z) + σtϵ ¯RT , t ) − sfake (αtGθ (z) + σtϵ ¯RT , t ) dG θ (z)
+
+dθ dϵ 
+
+= −
+
+Z
+
+p(ϵ ¯RT ) sreal (αtGθ (z) + σtϵ ¯RT , t ) − sfake (αtGθ (z) + σtϵ ¯RT , t ) dG θ (z)
+
+dθ dϵ 
+
+= −
+
+Z
+
+p(ϵ) sreal (αtGθ (z) + σtϵ, t ) − sfake (αtGθ (z) + σtϵ, t ) dG θ (z)
+
+dθ dϵ 
+
+= ∇L DMD (z; t)
+
+It is worth noting that the ϵ added during the Markovian forward process is not equivariant, we need to prove that in expectation sense this does not matter. Given that det (R) = 1 , ∀R ∈ SO (3) ,
+
+∇L DMD (z; t) = −
+
+Z
+
+p(ϵ) sreal (αtGθ (z) + σtϵ, t ) − sfake (αtGθ (z) + σtϵ, t ) dG θ (z)
+
+dθ dϵ 
+
+= −
+
+Z
+
+p(ϵ′) sreal (αtGθ (z) + σtϵ′ ¯R−1, t ) − sfake (αtGθ (z) + σtϵ′ ¯R−1, t ) dG θ (z)
+
+dθ dϵ ′
+
+where ϵ′ = ϵ ¯R.  
+
+> 1We only need to prove that the model is invariant to SO(3) only. This is due to the fact that we subtract the mean of all equivariant features with respect to the molecule Gin each step of the EGNN backbone and therefore operate on a zero-center-of-mass space as defined in EDM [11], which is invariant to translation by definition.
+
+15 C Experimental Settings 
+
+C.1 Discriminator Design 
+
+The discriminator Dψ takes as input three intermediate layers of μfake : the second, fifth, and seventh layers for QM9, and the zeroth, first, and second layers for GEOM-DRUG. We denote the selected rep-resentations of a molecule x ∈ RN ×D by mu_fake_out_0 , mu_fake_out_1 , and mu_fake_out_2 ,respectively. For each extracted representation mu_fake_out_i ∈ RN ×D , where i ∈ { 0, 1, 2}, N is the number of atoms, and D is the hidden dimension, we introduce a learnable query token q_i ∈ RD . This query token aggregates information from the corresponding layer through cross-attention [38]: 
+
+output_i = CrossAttn ( query = q_i , key = mu_fake_out_i , value = mu_fake_out_i ) .
+
+The resulting representation is then passed through a layer-specific MLP to obtain the discriminator logit: 
+
+logits_i = MLP i(output_i ).
+
+Each logit is converted into a probability score p_i using the softmax activation. The final discrimi-nator score Dψ (x) is computed as the average of the three probability scores: 
+
+p = 13
+
+> 2
+
+X
+
+> i=0
+
+p_i .
+
+To achieve faster convergence and increase training stability, we also adopt an R1 regularization loss [24]: 
+
+R1(ψ) = Ex∼pdata 
+
+||∇ Dψ (x)|| 2.
+
+C.2 Implementation details for unconditional generation QM9 We implement our distillation framework on top of GeoLDM [ 43 ] within the PyTorch framework [ 26 ], using the EGNN-based equivariant score network [ 30 ] as both the teacher and the student generator. Following the GeoLDM implementation, we operate in the learned continuous latent space with invariant feature dimensionality of 2, and we retain the teacher’s architectural hyperparameters for the student generator Gθ , the fake score network μfake , and the discriminator backbone. The student is initialized from the pretrained teacher’s weights, while μfake is initialized as a copy of the teacher and subsequently updated online during distillation. We adopt the Adam optimizer [ 17 ] for all three networks. We observe that 4-step generation training typically suffers from under-fitting and requires a larger learning rate to achieve a better minimum. For the 5-step and 8-step regimes, we use Glr = 8 × 10 −7, μfake ,lr = 32 × 10 −7, and disc lr = 16 × 10 −5.For the 4-step regime, we scale all three learning rates by a factor of 10 , yielding Glr = 8 × 10 −6,
+
+μfake ,lr = 32 × 10 −6, and disc lr = 16 × 10 −4. The relative ratio between the three learning rates (1 : 4 : 200 ) is preserved across both regimes, which we found important for maintaining stable adversarial dynamics between the generator, the fake score estimator, and the discriminator. An exponential moving average of the student weights is maintained with decay 0.9999 and used for all evaluation. We provide more details on the self-rollout procedure. We also note that using 1, 1, and 3 respectively for generation of 4 steps, 5 steps, and 8 steps as the lower bound for the number of generated samples passed to μfake is optimal. During each training iteration, the number of generation steps K is sampled from one of three curricula: K ∈ { 1, 2, 3, 4}, K ∈ { 1, 2, 3, 4, 5}, or K ∈ { 3, 4, 5, 6, 7, 8}. The first two curricula target few-step inference, while the third targets higher-fidelity multi-step generation. Sampling K uniformly within a curriculum exposes the student to a range of rollout horizons and encourages consistent generation quality across the supported inference budgets. At each step of the rollout, we apply the distribution matching gradient following DMD2 [ 47 ], with the fake score network updated via a standard denoising objective on the student’s generated samples. The total training loss combines the distribution matching objective with two auxiliary terms: an adversarial GAN loss and a Jensen-Shannon divergence loss computed between the teacher and student score distributions. Across all experiments, we fix the GAN loss coefficient for μfake to 16 λGAN = 0 .2 and the Jensen-Shannon loss coefficient to λJS = 0 .1. We observed that both auxiliary losses improve sample quality and stability but must be kept subordinate to the primary distribution matching loss to avoid mode collapse. Training is performed on RTX 4090 GPUs. For QM9, we use a batch size of 32 and the student converges within 5 epochs (15,000 iterations). 
+
+GEOM-DRUG We implement our distillation framework on top of GeoLDM [ 43 ] in PyTorch [ 26 ]. Following GeoLDM, both the teacher and student models use an EGNN-based equivariant score network [ 30 ]. For GEOM- DRUG, we perform distillation in the learned continuous latent space with latent feature dimensionality 2. Unless otherwise stated, the student generator Gθ , the fake score network μfake , and the discriminator backbone follow the same architectural hyperparameters as the pretrained teacher. In particular, we use hidden dimension 256 , four EGNN layers, normalization factors [1 , 4, 10] , and a global normalization factor of 1. An exponential moving average of the student weights is maintained with decay 0.9999 and used for all evaluation. The student is initialized from the pretrained teacher checkpoint, while μfake is initialized as a copy of the teacher and updated online during distillation. We use the polynomial noise schedule 
+
+polynomial_2 with noise precision 10 −5 and train with the ℓ2 diffusion loss. The minimum diffusion time is set to Tmin = 0 .02 , with the same value used during pretraining. For the GEOM-DRUG experiment reported here, we target 5-step generation and set the rollout step number to K = 5 .We optimize the student generator, fake score network, and discriminator using Adam [ 17 ]. The learning rates are set to 
+
+Glr = 5 × 10 −6, μfake ,lr = 4 × 10 −6, Dlr = 2 × 10 −4.
+
+The R1 regularization weight is set to 0.001 , with perturbation scale σ = 0 .01 .The total objective combines the distribution matching loss with auxiliary adversarial and divergence terms. For this GEOM-DRUG setting, the adversarial network coefficient, which is related to both 
+
+μfake and Dψ , is set to 0.47 . We additionally enable the Jensen-Shannon divergence objective with coefficient 0.03 . The consistency regularization coefficient and additional regularization coefficient are both set to 0.Training is performed with distributed data parallelism on 8 A100 GPUs. We use a per-device batch size of 6, corresponding to an effective batch size of 48 and the student converges within 20,000 iterations, with 3,000 iterations of discriminator warmup. 
+
+C.3 Quality-stability trade-off 
+
+The experiments are conducted using the same parameters as used to train the models in Appendix C.2. However, we simply elongate the training time. Due to the higher magnitude of the learning rate for the generation of 4 steps, longer training leads to overshooting, and we do not report them in ablation on training time. 
+
+C.4 Conditional Generation 
+
+Following previous conventions [ 43 ], we evaluate conditional generation results on 6 properties. The condition is added as an additional node feature in the molecule representation. For each molecule property, we train a GeoLDM teacher for 3000 epochs conditioning on it and then distill a FlashMol student model accordingly. We judge the results by training a classifier separately that outputs the value of this property given a molecule. Since generally speaking conditional generation is more difficult, we present the results of our 32 step models. We train FlashMol on the QM9 dataset, conditioning on the α, ∆ϵ, HOMO, LUMO, μ, and Cv respectively following [ 43 ] and [ 11 ]. The student distills a pre-trained conditional GeoLDM teacher (exp_cond_alpha for instance) into a 32-step generator using the f-divergence variant of DMD [ 45 ]with Jensen–Shannon divergence as the final objective as specified in Section 4. 
+
+C.4.1 Architecture 
+
+The student inherits the teacher’s architecture and is initialized from the teacher weights. Both networks operate on continuous point-structured geometric latents z = ⟨zx, z h⟩ with k = 1 invariant channel per node, parameterized by an EGNN denoiser with 9 layers and hidden width 192. Feature 17 normalization factors are [1 , 8, 1] for (x, h cat , h int ), and atomic charges are excluded from the input. An exponential moving average of the student weights is maintained with decay 0.9999 and used for all evaluation. Table C.1: Architecture hyperparameters. Hyperparameter Value Hidden features ( nf ) 192 Number of layers ( n_layers ) 9Latent features ( latent_nf ) 1Normalization factors [1 , 8, 1] 
+
+EMA decay 0.9999 
+
+C.4.2 Diffusion Settings 
+
+The teacher uses a polynomial-2 noise schedule with precision 10 −5 and an L2 ϵ-prediction objective. 
+
+[Tmin , T ] with Tmin = 0 .02 to avoid the unstable low-noise tail is applied to the timestep sampler used for the fake-score network’s denoising-score-matching update. Table C.2: Diffusion settings. Parameter Value Noise schedule polynomial-2 Noise precision 10 −5
+
+Diffusion loss L2 Distillation steps K 32 Minimum timestep for score estimation Tmin 0.02 The discriminator is regularized with an R1 gradient penalty [ 24 ] of weight 10 −3 at noise scale 
+
+σ = 0 .01 .Table C.3: Loss coefficients and regularization. Parameter Value f-divergence type Jensen–Shannon ( use_js )f-divergence coefficient 0.1 GAN coefficient ( μfake and discriminator, λf ) 0.2 R1 gradient penalty weight 10 −3
+
+R1 noise scale σ 0.01 Table C.4: Learning rates. Component Learning rate Generator Gθ 8 × 10 −7
+
+Fake-score network μfake 3.2 × 10 −6
+
+Discriminator D 1.6 × 10 −4
+
+18 Table C.5: Training and evaluation configuration. Parameter Value Dataset QM9 (second half, 50K) Include charges No Batch size 32 Stability samples 10,000 GPU NVIDIA RTX 4090 
+
+C.4.3 Optimization 
+
+Following DMD2 [ 47 ] and f-distill [ 45 ], the three networks are optimized at distinct learning rates with Adam: the generator Gθ at 8 × 10 −7, the fake-score network μfake at 3.2 × 10 −6, and the discriminator at 1.6 × 10 −4. The auxiliary networks ( μfake and D) are updated 5 times per generator update ( step_ratio = 5 ), to better track the moving student distribution before each f-distill gradient is computed. The lower bound of the self-rollout step number is set to 3 for 8, 12 and 32 NFEs while 1 for 5 NFEs. 
+
+C.4.4 Training and Evaluation 
+
+Training is performed on the QM9 second-half split (50K molecules) with batch size 32 on a single NVIDIA RTX 4090 GPU. Evaluation is performed by running three runs, drawing 10 ,000 conditional samples each, and we report the conditional MAE against a pretrained EGNN property predictor ω
+
+trained on the first 50K split, following the protocol of EDM [11] and GeoLDM [43]. 19 D Results 
+
+Sampling protocol Following previous conventions, all outcomes below on both QM9 and DRUG dataset are obtained by running the test for 3 times. We sample 10000 molecules for each test. We report the mean for each metric. Our models are trained until Valid & Unique drops. 
+
+D.1 Unconditional Molecule Generation Results Stability and Diversity Trade-Offs We train the 8-NFE and 5-NFE model using the configurations in Appendix C. During training, although molecule stability generated by the models keeps increasing, Valid & Unique metrics keeps declining by a small margin as shown in Figure D.1. 74 76 78 80 82 84 86 88 
+
+> Valid & Unique
+> 88
+> 90
+> 92
+> 94
+> 96
+> Molecular Stability
+> 5-step
+> 5-step
+> 5-step
+> 8-step
+> 8-step
+> 8-step
+> Epoch 5
+> Epoch 10
+> Epoch 15
+
+Figure D.1: Training dynamics of the distilled student across epochs. Darker points correspond to later training epochs. While atom and molecule stability improve with training, uniqueness decreases monotonically 
+
+D.2 Conditional Molecule Generation Results 
+
+Here, we present the test results of conditional generation trained with fewer NFEs. All hyperparame-ters are the same for the 12-step and 8-step models. We train each model until convergence: 5 epochs for the 12-NFE model, 6 epochs for the 8-NFE model, and 10 epochs for the 5-NFE model. Table D.1: Conditional generation results are evaluated on various properties of the molecule. We report the MAE( ↓) between generated molecules. The property of each generated molecule is predicted by a pretrained EGNN classifier. QM9 and Random results can be viewed as lower and upper bounds of MAE on all properties. We highlight metrics in which our student model surpasses the respaced teacher using the same NFEs. Property NFE α ∆ε εHOMO εLUMO μ Cv
+
+Units - Bohr 3 meV meV meV D cal mol K 
+
+QM9 - 0.10 64 39 36 0.043 0.040 Random - 9.01 1470 645 1457 1.616 6.857 
+
+Natoms - 3.86 866 426 813 1.053 1.971 EDM 1000 2.76 655 356 584 1.111 1.101 GeoLDM 1000 2.37 587 340 522 1.108 1.025 GeoBFN 100 2.34 577 328 516 0.998 0.949 GeoLDM-respaced 12 2.70 670 383 591 1.058 1.087 FLASH MOL 12 2.70 646 367 578 1.082 1.117 GeoLDM-respaced 8 3.20 750 423 686 1.111 1.301 FLASH MOL 8 2.98 714 399 611 1.111 1.230 GeoLDM-respaced 5 5.24 935 591 910 1.343 1.706 FLASH MOL 5 3.88 814 538 747 1.830 1.428 20 D.3 Ablation Study Results Effect of f -Divergence Choice on Stability and Diversity We use the same configuration as elaborated in Appendix C.2 and compare our full objective (DMD + JS) against a Jensen-Shannon term only, reverse KL + forward KL, or a DMD only variant. The corresponding loss objectives are: LDMD , LDMD + λ · L forward and LJS respectively, where λ = 0 .1 and Lforward is computed with 
+
+f := r log r in Equation (5). We train all models until V&U metric drops (which is 5 epochs for all models). Higher is better for all metrics. Results are reported as means over 3 sampling runs of 10000 molecules each on QM9 dataset. The results are shown in Table 3. We also report the results trained without the Jensen-Shannon objective across 4, 5 and 8 steps in Table D.2. All models are distilled under the configurations as specified in Appendix C.2 from the same GeoLDM teacher with K = 4 , 5, 8 generation steps respectively and evaluated at epoch 5 where all training converge. Results trained with regularizers can be found in Table 1. Higher is better for all metrics. Results are reported as means over three sampling runs of 10000 molecules each. The results are shown in Table 3. Table D.2: DMD-only variant NFE Mol Stab (%) V&U (%) 4 81.51 68.84 5 88.60 78.19 8 95.32 86.89 21 E Limitations and Broader Impact 
+
+E.1 Limitations Uniqueness and Diversity Trade-Offs Despite the training efficiency and generation quality of FlashMol, we observe a gradual reduction in sample diversity as distillation training proceeds. This is not unique to our method: it is a known characteristic of score-distillation objectives, including the DMD family [ 47 , 48 ], which trade stochastic uncertainty in sampling for stable, high-quality output. In the molecular generation setting, diversity loss is particularly consequential: a generative model used for virtual screening must cover a wide region of chemical space to maximize the probability of discovering viable lead compounds. We observe this effect primarily as reduced uniqueness scores over extended training, while atom-level and molecule-level stability remain largely unaffected. 
+
+Generalization to other noise-sensitive molecular backbones. The core insight motivating FlashMol—that certain equivariant architectures exhibit structured sensitivity to noise in latent space that can be exploited by distribution matching distillation and timestep respacing technique —is not specific to the GeoLDM backbone [ 43 ]. We expect similar benefits to extend to other 3D molecular generative models that operate over continuous latent representations of atomic coordinates, such as protein–ligand co-design or conformation generation models. Adapting FlashMol to these settings may require re-examining the latent-space geometry and the construction of the fake score network, particularly for architectures with different equivariance groups ( e.g. , SE(3) vs. E(3) ) or non-Gaussian priors. We leave systematic benchmarking on broader molecular modalities to future work. 
+
+E.2 Broader Impact 
+
+This work accelerates the sampling of 3-D molecular generative models by applying distribution matching distillation to equivariant latent diffusion models. The primary intended application is computational drug discovery and materials design, where generative models are used to propose novel molecular structures for subsequent experimental validation. 
+
+Positive impacts. Reducing the inference cost of high-quality molecular generative models lowers the computational barrier to large-scale virtual screening—a step that currently limits the practical deployment of diffusion-based molecular design tools in academic and resource-constrained industrial settings. Faster generation enables higher-throughput exploration of chemical space within fixed compute budgets, which could accelerate the early-stage identification of therapeutically relevant molecules. More broadly, FlashMol is a general distillation framework applicable to any equivari-ant latent diffusion model, and may therefore benefit downstream tasks such as protein structure prediction, antibody design, and materials discovery. 
+
+Risks and limitations. As with all generative models for molecular design, there is a potential for misuse: accelerated generation of structurally valid molecules could in principle be directed toward the design of harmful compounds, including those with toxic, environmentally persistent, or weaponisable properties. We note, however, that FlashMol operates as a distillation of an existing teacher model and introduces no novel generative capacity beyond what is already present in the teacher; the risk profile of FlashMol is therefore no greater than that of the teacher molecular diffusion model itself. We recommend that downstream applications incorporate appropriate safety filters—for example, standard toxicity predictors ( e.g. , hERG cardiotoxicity screening, Ames mutagenicity tests) applied to generated structures prior to any experimental follow-through. 
+
+Societal context. The acceleration of AI-driven drug discovery has complex distributional effects: it may reduce time-to-drug for diseases with well-funded research programs while potentially increasing the concentration of early-stage discovery power in organisations with large compute resources. We hope that the reduced inference cost introduced by FlashMol partially counteracts this trend by making high-quality molecular generation more accessible to the broader research community. 22

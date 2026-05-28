@@ -6,115 +6,94 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-19 ~ 2026-05-28
-- 运行时间：2026-05-28 12:47:20 UTC
+- 最新运行日期：2026-04-29 ~ 2026-05-28
+- 运行时间：2026-05-28 13:38:22 UTC
 - 运行状态：成功
-- 本次总论文数：31
-- 精读区：20
+- 本次总论文数：24
+- 精读区：13
 - 速读区：11
 
 ### 今日简报（AI）
-连续九天精读20篇前沿论文，聚焦扩散语言模型与偏好优化新突破。  
-推荐关注“漂移目标优化”与“线性DPO”两项满分工作，它们分别重塑扩散模型的离散训练流程和对齐方法。  
-建议从论文《Drifting Objectives》入手，用解耦误差累积的思路理解扩散语言模型的高效对齐逻辑。
-- 详情：[/20260519-20260528/README](/20260519-20260528/README)
+本期精读聚焦3D生成与重建，从稀疏观测中重建多物体场景和姿态感知扩散模型均获9分高评。  
+最值得关注的方向是：用生成式方法从极少观测中重建完整3D场景，以及扩散模型对物体姿态的精细控制。  
+建议读者留意“重建即生成”这一趋势，未来手机拍几张照片就能自动生成可交互的3D空间。
+- 详情：[/20260429-20260528/README](/20260429-20260528/README)
 
 ### 精读区论文标签
-1. [Drifting Objectives for Refining Discrete Diffusion Language Models](/20260519-20260528/2605.19470v1-drifting-objectives-for-refining-discrete-diffusion-language-models)  
-   标签：评分：10.0/10、query:diff-gen
-   evidence：提出TokenDrift精炼离散扩散语言模型，增强了扩散模型的文本生成
-2. [Linear-DPO: Linear Direct Preference Optimization for Diffusion and Flow-Matching Generative Models](/20260519-20260528/2605.21123v1-linear-dpo-linear-direct-preference-optimization-for-diffusion-and-flow-matching-generative-models)  
-   标签：评分：10.0/10、query:diff-gen
-   evidence：提出线性DPO，用于对齐文本到图像生成中的扩散和流匹配生成模型
-3. [Stream3D: Sequential Multi-View 3D Generation via Evidential Memory](/20260519-20260528/2605.21472v1-stream3d-sequential-multi-view-3d-generation-via-evidential-memory)  
-   标签：评分：10.0/10、query:diff-gen
-   evidence：利用证据记忆从单目视频流生成3D内容
-4. [One-Step Distillation of Discrete Diffusion Image Generators via Fixed-Point Iteration](/20260519-20260528/2605.21484v1-one-step-distillation-of-discrete-diffusion-image-generators-via-fixed-point-iteration)  
-   标签：评分：10.0/10、query:diff-gen
-   evidence：提出不动点蒸馏，用于离散扩散图像生成器，提升扩散生成模型的效率
-5. [A Tutorial on Diffusion Theory: From Differential Equations to Diffusion Models](/20260519-20260528/2605.22586v2-a-tutorial-on-diffusion-theory-from-differential-equations-to-diffusion-models)  
-   标签：评分：10.0/10、query:diff-gen
-   evidence：从微分方程推导扩散模型的教程，作为扩散理论的综述
-6. [GenRecon: Bridging Generative Priors for Multi-View 3D Scene Reconstruction](/20260519-20260528/2605.23888v1-genrecon-bridging-generative-priors-for-multi-view-3d-scene-reconstruction)  
-   标签：评分：10.0/10、query:diff-gen
-   evidence：引入生成式先验用于多视图3D场景重建，通过神经网络实现3D内容生成
-7. [Pantheon360: Taming Digital Twin Generation via 3D-Aware 360° Video Diffusion](/20260519-20260528/2605.25449v1-pantheon360-taming-digital-twin-generation-via-3d-aware-360-video-diffusion)  
-   标签：评分：10.0/10、query:diff-gen
-   evidence：基于3D感知的360°视频扩散模型生成数字孪生
-8. [Geometric Flow Matching for Molecular Conformation Generation via Manifold Decomposition](/20260519-20260528/2605.25577v1-geometric-flow-matching-for-molecular-conformation-generation-via-manifold-decomposition)  
-   标签：评分：10.0/10、query:diff-gen
-   evidence：提出几何流匹配用于分子构象生成，用类扩散模型解决分子生成问题
-9. [Don't Retrain, Just Reuse: Recovering Dual-Target Molecules from Single-Target Diffusion Models](/20260519-20260528/2605.25681v1-dont-retrain-just-reuse-recovering-dual-target-molecules-from-single-target-diffusion-models)  
-   标签：评分：10.0/10、query:diff-gen
-   evidence：从单目标扩散模型中恢复双靶点分子而无需重训练，推进了用扩散模型进行分子生成
-10. [PhAME: Phenotype-Aware Molecular Editing via Latent Diffusion](/20260519-20260528/2605.28226v1-phame-phenotype-aware-molecular-editing-via-latent-diffusion)  
-   标签：评分：10.0/10、query:diff-gen
-   evidence：基于潜在扩散的表型感知分子编辑
-11. [Tweedie's Formulae and Diffusion Generative Models Beyond Gaussian](/20260519-20260528/2605.19391v1-tweedies-formulae-and-diffusion-generative-models-beyond-gaussian)  
+1. [Reconstruction by Generation: 3D Multi-Object Scene Reconstruction from Sparse Observations](/20260429-20260528/2604.27106v1-reconstruction-by-generation-3d-multi-object-scene-reconstruction-from-sparse-observations)  
    标签：评分：9.0/10、query:diff-gen
-   evidence：将Tweedie公式推广到非高斯扩散过程，用于生成建模
-12. [Self-Creative Text-to-Object Generation using Semantic-Aware Spatial Weighting](/20260519-20260528/2605.19554v1-self-creative-text-to-object-generation-using-semantic-aware-spatial-weighting)  
+   evidence：RecGen生成框架，从RGB-D图像联合估计物体形状与位姿
+2. [Pose-Aware Diffusion for 3D Generation](/20260429-20260528/2605.00345v1-pose-aware-diffusion-for-3d-generation)  
    标签：评分：9.0/10、query:diff-gen
-   evidence：提出带学习空间加权和混合损失的扩散模型，用于创造性文本到对象生成
-13. [Structural Energy Guidance for View-Consistent Text-to-3D Generation](/20260519-20260528/2605.19876v1-structural-energy-guidance-for-view-consistent-text-to-3d-generation)  
+   evidence：提出姿态感知扩散（PAD），端到端的姿态对齐3D生成扩散框架
+3. [VQ-SAD: Vector Quantized Structure Aware Diffusion For Molecule Generation](/20260429-20260528/2605.00354v1-vq-sad-vector-quantized-structure-aware-diffusion-for-molecule-generation)  
    标签：评分：9.0/10、query:diff-gen
-   evidence：提出一种无需训练的即插即用框架，提升基于扩散模型的文本到3D生成中的多视角一致性
-14. [Latent Process Generator Matching](/20260519-20260528/2605.20547v1-latent-process-generator-matching)  
+   evidence：基于VQ-VAE结构感知码的扩散分子生成
+4. [MOC-3D: Manifold-Order Consistency for Text-to-3D Generation](/20260429-20260528/2605.01743v1-moc-3d-manifold-order-consistency-for-text-to-3d-generation)  
    标签：评分：9.0/10、query:diff-gen
-   evidence：为扩散和流式生成模型引入通用框架
-15. [Bernini: Latent Semantic Planning for Video Diffusion](/20260519-20260528/2605.22344v1-bernini-latent-semantic-planning-for-video-diffusion)  
+   evidence：提出MOC-3D方法，利用流形阶次一致性与扩散先验进行文本到3D生成
+5. [Structured 3D Latents Are Surprisingly Powerful: Unleashing Generalizable Style with 2D Diffusion](/20260429-20260528/2605.04412v1-structured-3d-latents-are-surprisingly-powerful-unleashing-generalizable-style-with-2d-diffusion)  
    标签：评分：9.0/10、query:diff-gen
-   evidence：利用MLLM规划和扩散模型进行视频生成
-16. [A Tutorial on Diffusion Theory: From Differential Equations to Diffusion Models](/20260519-20260528/2605.22586v1-a-tutorial-on-diffusion-theory-from-differential-equations-to-diffusion-models)  
+   evidence：提出DiLAST，一种基于2D扩散的3D资产风格迁移与生成方法。
+6. [FlashMol: High-Quality Molecule Generation in as Few as Four Steps](/20260429-20260528/2605.07020v1-flashmol-high-quality-molecule-generation-in-as-few-as-four-steps)  
    标签：评分：9.0/10、query:diff-gen
-   evidence：扩散模型教程涵盖从微分方程到生成模型的理论
-17. [DriftingMol: Decoder-Coupled Drift for One-Pass Property-Conditional Molecular Generation](/20260519-20260528/2605.24841v1-driftingmol-decoder-coupled-drift-for-one-pass-property-conditional-molecular-generation)  
+   evidence：FlashMol，超快分子生成模型，最快4步生成高质量分子构象
+7. [DiffST: Spatiotemporal-Aware Diffusion for Real-World Space-Time Video Super-Resolution](/20260429-20260528/2605.13182v1-diffst-spatiotemporal-aware-diffusion-for-real-world-space-time-video-super-resolution)  
    标签：评分：9.0/10、query:diff-gen
-   evidence：基于扩散的漂移模型进行分子生成，采用解码器耦合漂移
-18. [Paris 2.0: A Decentralized Diffusion Model for Video Generation](/20260519-20260528/2605.26064v1-paris-20-a-decentralized-diffusion-model-for-video-generation)  
+   evidence：基于扩散的视频帧插值与超分辨率
+8. [DreamEdit3D: Personalization of Multi-View Diffusion Models for 3D Editing](/20260429-20260528/2605.16990v1-dreamedit3d-personalization-of-multi-view-diffusion-models-for-3d-editing)  
    标签：评分：9.0/10、query:diff-gen
-   evidence：提出用于视频生成的去中心化扩散模型
-19. [Paris 2.0: A Decentralized Diffusion Model for Video Generation](/20260519-20260528/2605.26064v2-paris-20-a-decentralized-diffusion-model-for-video-generation)  
+   evidence：基于多视图扩散模型的文本引导3D编辑个性化方法
+9. [Efficient 3D Content Reconstruction and Generation](/20260429-20260528/2605.18052v1-efficient-3d-content-reconstruction-and-generation)  
    标签：评分：9.0/10、query:diff-gen
-   evidence：去中心化扩散模型用于视频生成，提升视频质量
-20. [AtomComposer: Discovering Chemical Space from First Principles with Reinforcement Learning](/20260519-20260528/2605.28287v1-atomcomposer-discovering-chemical-space-from-first-principles-with-reinforcement-learning)  
+   evidence：关于高效3D内容生成与重建的论文
+10. [Generative Pseudo-Force Fields for Molecular Generation](/20260429-20260528/2605.19050v1-generative-pseudo-force-fields-for-molecular-generation)  
    标签：评分：9.0/10、query:diff-gen
-   evidence：基于强化学习且无需预训练的分子生成
+   evidence：提出用于分子构象生成的生成伪力场方法
+11. [Programming Biomolecular Interactions with All-Atom Generative Model](/20260429-20260528/biorxiv-10-64898-2026-03-12-711044-v2-programming-biomolecular-interactions-with-all-atom-generative-model)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：统一生成框架实现跨尺度可转移分子设计
+12. [Bayesian-Steered Structure Prediction of Mechanical Biomolecules Using Twisted Diffusion](/20260429-20260528/biorxiv-10-64898-2026-05-11-724187-v1-bayesian-steered-structure-prediction-of-mechanical-biomolecules-using-twisted-diffusion)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：使用扭曲扩散进行分子构象生成
+13. [MuseDrift: Navigating Protein Evolutionary Manifolds with Conditional Discrete Diffusion](/20260429-20260528/biorxiv-10-64898-2026-05-11-724439-v1-musedrift-navigating-protein-evolutionary-manifolds-with-conditional-discrete-diffusion)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：提出条件离散扩散模型进行距离控制的蛋白质生成
 
 ### 速读区论文标签
-1. [Inference-Time Scaling in Diffusion Models through Iterative Partial Refinement](/20260519-20260528/2605.19317v1-inference-time-scaling-in-diffusion-models-through-iterative-partial-refinement)  
+1. [Stochastic Transition-Map Distillation for Fast Probabilistic Inference](/20260429-20260528/2605.07661v1-stochastic-transition-map-distillation-for-fast-probabilistic-inference)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：提出迭代部分细化方法实现扩散模型推理时缩放
-2. [Boosting Text-to-Image Diffusion Models via Core Token Attention-Based Seed Selection](/20260519-20260528/2605.19532v1-boosting-text-to-image-diffusion-models-via-core-token-attention-based-seed-selection)  
+   evidence：加速扩散模型推理以用于生成任务
+2. [HetScene: Heterogeneity-Aware Diffusion for Dense Indoor Scene Generation](/20260429-20260528/2605.13586v1-hetscene-heterogeneity-aware-diffusion-for-dense-indoor-scene-generation)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：通过种子选择提高文本到图像扩散模型生成质量
-3. [Efficient Long-Context Modeling in Diffusion Language Models via Block Approximate Sparse Attention](/20260519-20260528/2605.19726v1-efficient-long-context-modeling-in-diffusion-language-models-via-block-approximate-sparse-attention)  
+   evidence：扩散模型用于室内3D场景生成
+3. [Drift Flow Matching](/20260429-20260528/2605.17244v1-drift-flow-matching)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：提出面向高效长上下文扩散语言模型的稀疏注意力
-4. [Stitched Value Model for Diffusion Alignment](/20260519-20260528/2605.19804v1-stitched-value-model-for-diffusion-alignment)  
+   evidence：连接漂移模型和流匹配以实现灵活生成
+4. [Forward-Learned Discrete Diffusion: Learning how to noise to denoise faster](/20260429-20260528/2605.18204v1-forward-learned-discrete-diffusion-learning-how-to-noise-to-denoise-faster)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：通过学习的值函数实现扩散模型对齐以完成生成任务
-5. [Pareto-Enhanced Portrait Generation: Vision-Aligned Text Supervision for Alignment, Realism, and Aesthetics](/20260519-20260528/2605.20640v1-pareto-enhanced-portrait-generation-vision-aligned-text-supervision-for-alignment-realism-and-aesthetics)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：帕累托增强人像生成解决扩散模型中对齐-逼真-美学三难问题
-6. [Dynamic Video Generation: Shaping Video Generation Across Time and Space](/20260519-20260528/2605.21042v1-dynamic-video-generation-shaping-video-generation-across-time-and-space)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：提出动态视频生成框架，加速视频扩散模型
-7. [Variance Reduction for Expectations with Diffusion Teachers](/20260519-20260528/2605.21489v1-variance-reduction-for-expectations-with-diffusion-teachers)  
+   evidence：提出前向学习的离散扩散模型（FLDD），通过学习前向加噪过程实现更快生成。
+5. [3D-ReGen: A Unified 3D Geometry Regeneration Framework](/20260429-20260528/2604.28134v1-3d-regen-a-unified-3d-geometry-regeneration-framework)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：引入用于文本到3D生成的扩散教师模型的方差缩减框架
-8. [Variance Reduction for Expectations with Diffusion Teachers](/20260519-20260528/2605.21489v2-variance-reduction-for-expectations-with-diffusion-teachers)  
+   evidence：从2D图像和初始3D形状神经再生3D物体
+6. [When Do Diffusion Models learn to Generate Multiple Objects?](/20260429-20260528/2605.00273v1-when-do-diffusion-models-learn-to-generate-multiple-objects)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：提出降低文本到3D扩散教师梯度方差的框架
-9. [Rethinking Token Reduction for Diffusion Models via Output-Similarity-Awareness](/20260519-20260528/2605.22011v1-rethinking-token-reduction-for-diffusion-models-via-output-similarity-awareness)  
+   evidence：分析扩散模型的多对象生成能力
+7. [Mix3R: Mixing Feed-forward Reconstruction and Generative 3D Priors for Joint Multi-view Aligned 3D Reconstruction and Pose Estimation](/20260429-20260528/2605.03359v1-mix3r-mixing-feed-forward-reconstruction-and-generative-3d-priors-for-joint-multi-view-aligned-3d-reconstruction-and-pose-estimation)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：提出基于输出相似度感知的令牌缩减，提升扩散Transformer效率
-10. [DiLaDiff: Distilled Latent-Augmented Diffusion for Language Modeling](/20260519-20260528/2605.23605v1-diladiff-distilled-latent-augmented-diffusion-for-language-modeling)  
+   evidence：提出Mix3R，融合前馈重建与生成式3D先验的生成式3D重建方法
+8. [Test-Time Compositional Generalization in Diffusion Models via Concept Discovery](/20260429-20260528/2605.07078v1-test-time-compositional-generalization-in-diffusion-models-via-concept-discovery)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：提出掩码扩散语言模型的潜空间增强和蒸馏方法，用于文本生成
-11. [Continual Learning in Modern Hopfield Networks with an Application to Diffusion Models](/20260519-20260528/2605.27975v1-continual-learning-in-modern-hopfield-networks-with-an-application-to-diffusion-models)  
+   evidence：通过从得分函数中发现查询特定概念，实现在测试时扩散模型的组合泛化。
+9. [Molecules Meet Language: Confound-Aware Representation Learning and Chemical Property Steering in Transformer-VAE Latent Spaces](/20260429-20260528/2605.06303v1-molecules-meet-language-confound-aware-representation-learning-and-chemical-property-steering-in-transformer-vae-latent-spaces)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：应用霍普菲尔德网络理解扩散模型中的遗忘
+   evidence：分子生成模型的混淆感知潜在操控
+10. [Statistical Convergence of Spherical First Hitting Diffusion Models](/20260429-20260528/2605.07625v1-statistical-convergence-of-spherical-first-hitting-diffusion-models)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：分析第一击中扩散模型在流形感知生成上的统计收敛性。
+11. [Towards Controllable Image Generation through Representation-Conditioned Diffusion Models](/20260429-20260528/2605.27343v1-towards-controllable-image-generation-through-representation-conditioned-diffusion-models)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：以预训练自监督模型表示为条件的扩散模型
 
 
 <div class="dpr-home-promo-card">

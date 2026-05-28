@@ -1,0 +1,566 @@
+Title: DiffST: Spatiotemporal-Aware Diffusion for Real-World Space-Time Video Super-Resolution
+
+URL Source: https://arxiv.org/pdf/2605.13182v1
+
+Published Time: Thu, 14 May 2026 01:01:59 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# DiffST: Spatiotemporal-Aware Diffusion for Real-World Space-Time Video Super-Resolution 
+
+Zheng Chen 1∗
+
+, Ruofan Yang 1∗
+
+, Jin Han 2, Dehua Song 2,Zichen Zou 1, Chunming He 3, Yong Guo 4, Yulun Zhang 1†
+
+> 1
+
+Shanghai Jiao Tong University, 2Huawei Noah’s Ark Lab, 
+
+> 3
+
+Duke University, 4Huawei Consumer Business Group 
+
+## Abstract 
+
+Diffusion-based models have shown strong performance in video super-resolution (VSR) and video frame interpolation (VFI). However, their role in the coupled space-time video super-resolution (STVSR) setting remains limited. Existing diffusion-based STVSR approaches suffer from two issues: (1) low inference efficiency and (2) insufficient utilization of spatiotemporal information. These limitations impede deployment. To address these issues, we introduce DiffST, an efficient spatiotemporal-aware video diffusion framework for real-world STVSR. To improve efficiency, we adapt a pre-trained diffusion model for one-step sampling and process the entire video directly rather than operating on individual frames. Furthermore, to enhance spatiotemporal information utilization, we introduce cross-frame context aggregation (CFCA) and video representation guidance (VRG). The CFCA module aggregates information across multiple keyframes to produce intermediate frames. The VRG module extracts video-level global features to guide the diffusion process. Extensive experiments show that DiffST obtains leading results on real-world STVSR tasks. It also maintains high inference efficiency, running about 17 × faster than previous diffusion-based STVSR methods. Code is available at: https://github.com/zhengchen1999/DiffST .
+
+## 1 Introduction 
+
+Space-time video super-resolution (STVSR) aims to jointly increase spatial resolution and frame rate for spatially and temporally degraded videos [ 51 , 49 , 5 , 15 , 21 ]. Given the video compression that occurs during acquisition, transmission, and storage, as well as the limited quality of previously recorded video resources, STVSR has broad practical value. It can improve perceptual quality and motion smoothness, thereby improving the viewing experience in real applications. One straightforward approach is to chain video super-resolution (VSR) [ 2 , 36 , 4, 64 , 42 ] and video frame interpolation (VFI) [ 16 , 9 , 34 ] methods. This pipeline can reach the target spatial and tem-poral resolutions. However, it overlooks the correlation between the two tasks, so spatiotemporal information is not fully shared across them, which limits the final restoration quality. Therefore, researchers have developed unified frameworks that handle frame interpolation and super-resolution jointly within one stage [ 13 , 51 , 5, 21 , 46 ]. These methods can better couple spatial and temporal cues. Nevertheless, many approaches follow the conventional VFI setting, i.e. , processing only two keyframes (the first and last). Such a design has two drawbacks: (1) Low efficiency. Since each inference operates on two frames, the computational cost grows rapidly with video length. 
+
+(2) Limited information. Two-frame inputs cannot exploit the complementary information across multiple frames, which is crucial in complex motion or degradation scenarios. Some studies attempt to overcome these issues by processing the entire video [ 49 , 12 ]. However, restricted by model capabilities, the magnification is limited ( e.g. , ×2), and severe detail loss occurs.    
+
+> ∗Equal contribution.
+> †Corresponding author: Yulun Zhang, yulun100@gmail.com Preprint.
+> arXiv:2605.13182v1 [cs.CV] 13 May 2026 DiffST (ours) VEnhancer SeedVR2+TLBVFI
+> STAR+TLBVFI LR GT
+> DOVER ↑
+> VEnhancer SeedVR+
+> TLBVFI
+> SeedVR2
+> +TLBVFI
+> DiffST
+> (ours)
+> 0.73
+> 0.80
+> 0.7158
+> 0.6845
+> 0.6638
+> 0.7395
+> 0.8048
+> +0.1410
+> STAR+
+> TLBVFI
+> 0.66
+> Time (s)
+> VEnhancer SeedVR +
+> TLBVFI
+> SeedVR2
+> +TLBVFI
+> DiffST
+> (ours)
+> 0
+> 60
+> 120
+> 58.32
+> 100.11
+> 32.89
+> 124.29
+> 7.12
+> STAR+
+> TLBVFI
+> ~17 ×faster
+
+Figure 1: Performance comparison of STVSR methods. The right-side quantitative scores are reported on the real-world dataset (RealVSR [ 56 ]). Runtime is measured on an A100 GPU using an output video of resolution 33 ×720 ×1280. Compared with VEnhancer [ 14 ], DiffST achieves superior performance with an approximately 17 × inference speedup. Recently, large pre-trained video diffusion models have shown impressive generative capability [ 57 ,22 , 39 ]. They have also been introduced into VSR [ 50 , 65 ] and VFI [ 34 , 44 , 53 ] tasks, demonstrating great potential. Compared with previous methods ( e.g. , convolution-based models), they can produce more realistic details. For STVSR, some methods leverage pre-trained models by treating the low-quality video as a condition [ 14 ]. This paradigm enables whole-video processing, mitigating issues present in previous methods. However, two major limitations remain: (1) Low efficiency. The model takes random noise as input and conditions on the video. As a result, it requires multiple sampling steps to produce clear results, leading to slow inference. (2) Limited information. Conditioning uses video spatiotemporal cues only implicitly, which prevents full exploitation of the video information. These limitations hinder the application of STVSR methods in the real world. To address the above issues, we propose DiffST, an efficient spatiotemporal-aware video diffu-sion model for real-world STVSR. DiffST is based on a pre-trained video generation model ( i.e. ,WAN [ 39 ]) to exploit its rich generative prior. Meanwhile, it is specifically designed to overcome the inefficiency and limited information utilization of existing approaches. First, to improve efficiency, we process the entire video directly (instead of frame by frame) and adopt it as the model input (instead of the condition). This design enables the model to leverage the rich structural information contained in the input video. Thus, we can compress the multi-step sampling process into a single step, greatly enhancing inference efficiency. It also eliminates the need for heavy conditional modules, such as ControlNet [58, 14], while preserving the generative prior. Moreover, to enhance information utilization, we design two modules: cross-frame context aggrega-tion and video representation guidance. These modules explicitly exploit spatiotemporal information to enhance video restoration. (1) Aggregation. To better leverage temporal information, we fuse multiple keyframes to generate an intermediate frame. The multi-to-one manner allows the model to leverage broader contextual cues and better handle challenging cases such as severe degradation. 
+
+(2) Guidance. We further extract representations from multiple keyframes and fuse them into a global video representation. This video representation then guides the diffusion generation process, providing explicit spatiotemporal cues throughout restoration. Benefiting from our one-step, video-level inference paradigm, and the proposed aggregation and guidance modules, DiffST achieves outstanding restoration performance and efficiency. As shown in Fig. 1, compared with recent diffusion-based STVSR and VSR+VFI approaches, our method exhibits significant advantages in spatial detail, temporal consistency, and inference speed. Compared with VEnhancer [14], it attains a 17 × speedup under the same setting. Overall, our contributions can be summarized as follows: • We propose DiffST, a diffusion-based space-time video super-resolution model for real-world scenarios. The one-step, video-level inference ensures high efficiency. • We introduce cross-frame context aggregation and video representation guidance to leverage spatiotemporal information, improving detail and consistency. • Extensive experiments on synthetic and real-world STVSR datasets demonstrate the superior restoration performance and efficiency of our method. 22 Related Work 
+
+2.1 Video Super-Resolution 
+
+Previous video super-resolution (VSR) approaches [ 2 , 3 , 19 , 27 , 29 ] typically use optical flow to exploit temporal information, but suffer from flow estimation errors and the complexity of two-stage models. Several studies [ 38 , 18 ] opt to forgo optical flow, adopting end-to-end models. For instance, VSR-DUF [ 18 ] learns dynamic filters and residuals directly from the input. Recently, with the rapid progress of generative models, diffusion-based methods [ 26 , 55 , 42 , 64 , 61 ] have become an increasingly adopted direction for VSR. UAV [ 64 ] uses a pretrained image diffusion model and inserts temporal layers into the diffusion. STAR [ 50 ] augments a text-to-video diffusion model with an enhancement module to capture spatial details. Going further, one-step diffusion methods [ 7, 41 , 25 ]seek to alleviate the burden of multi-step diffusion denoising. For instance, SeedVR2 [ 41 ] proposes an efficient one-step diffusion transformer that employs the window attention. 
+
+2.2 Video Frame Interpolation 
+
+Conventional learning-based video frame interpolation (VFI) methods include optical flow estimation and kernel prediction. Flow-based methods [ 33 , 16 , 17 ] model motion by estimating optical flow, whereas kernel-based approaches [ 62 , 30 , 23 , 11 ] learn per-pixel adaptive kernels. Recently, diffusion models are increasingly used for VFI [ 31 , 24 , 9]. MoMo [ 24 ] generates intermediate bi-directional optical flows via a dedicated motion diffusion model. LDMVFI [ 9] uses a VFI-specific autoencoder and a denoising U-Net to generate intermediate frames. EDEN [ 60 ] replaces the U-Net structure with the diffusion transformer to avoid information loss. However, many VFI models are limited to two-frame input, making it difficult to exploit long-range temporal cues from the video. This limitation also reduces their flexibility in real-world. 
+
+2.3 Space-Time Video Super Resolution 
+
+Space-time video super-resolution (STVSR) refers to reconstructing spatially detailed, high-frame-rate videos from sparsely sampled input. Early methods [ 35 , 32 ] model low-resolution videos as degraded observations of HR scenes corrupted by blur, sampling, and motion. By contrast, CNN-based methods [ 13 , 51 , 1 ] view STVSR as an end-to-end learning problem. STARnet [ 13 ]integrates multi-resolution spatial–temporal features for detail enhancement and motion estimation. Zooming Slow-Mo [ 49 ] employs deformable feature interpolation and a deformable ConvLSTM to jointly perform spatial and temporal upscaling. In recent work, to leverage the powerful generative capabilities of diffusion models, VEnhancer [ 14 ] builds on video diffusion models with a trainable video ControlNet. Nevertheless, insufficient use of spatiotemporal cues restricts STVSR performance, particularly in two-frame settings [ 6, 13 , 5 ]. Moreover, diffusion-based STVSR [ 14 ] suffers from low inference efficiency due to multi-step sampling at inference time. 
+
+## 3 Method 
+
+In this section, we present DiffST, our diffusion-based approach for space-time video super-resolution (STVSR). We first define the real-world video-level STVSR problem. Then, we describe the overall model architecture. Finally, we introduce the proposed cross-frame context aggregation (CFCA) and video representation guidance (VRG) modules used in DiffST. 
+
+3.1 Problem Setting 
+
+The goal of space-time video super-resolution (STVSR) is to enhance low spatial and temporal resolution video, improving spatial detail and motion smoothness. A common problem setting takes the first and last frames of a short video clip ( e.g. , 7 frames), downsamples them through interpolation to serve as inputs. The STVSR model reconstructs the video from these two low-resolution frames. This setting intuitively combines the classic video super-resolution (VSR) and video frame inter-polation (VFI) tasks. However, this task definition differs from that in the real world. In practice, the video data to be processed contains multiple frames rather than only two keyframes. Moreover, during capture and transmission, videos often suffer from various degradations ( e.g. , blur or noise). Simple interpolation downsampling is insufficient to represent reality. 3Decoder   
+
+> Encoder
+> Cross -Frame Context Aggregation
+> VRG
+> ℒ#$%
+> ℒ&'()
+> ℒ%*+,-,
+> CFCA
+> DiT
+> ℒ./0$+0
+> Overview of DiffST
+> Time
+> Degradation
+> Backward
+> Flow
+> Forward
+> Flow
+> Input
+> Frame
+> Backward
+> Frame
+> Forward
+> Frame
+> Temporary
+> Frame
+> Target
+> Frame
+> Trainable
+> Frozen
+> Space
+> Degradation
+> !!
+> !"
+> !#$
+> !%
+> (')
+> !%
+> ())
+> !())
+> Frame
+> Prediction
+> Frame
+> Fusion
+> Block
+> Block
+> Block
+> Block
+
+Figure 2: Overview of the proposed DiffST. Built upon a pre-trained video generation diffusion model, DiffST performs one-step sampling to process the entire video directly. The cross-frame context aggregation (CFCA) module aggregates information from multiple frames to generate intermediate frames. The video representation guidance (VRG) module extracts a video-level representation to guide the restoration process. To better match real-world conditions, we adopt multiple spatial degradations, combined with frame subsampling (temporal). Thus, we define a new video-level STVSR task that better aligns with real-world scenarios. Given an input video with low spatial resolution and low frame rate Il∈R Tφt × Hφs × Wφs ×3, the objective is to recover a high-resolution and high-frame-rate output Ist ∈RT ×H×W ×3, where T is the frame number, 
+
+H×W denotes the spatial resolution, and φs and φt are spatial and temporal scaling factors: 
+
+Ist = Fθ (Il; φs, φ t), (1) where, F denotes the STVSR model. To simulate realistic degradations, we construct Il from the high-quality ground truth video Ih with the degradation process illustrated in Fig. 2. Specifically, Ih
+
+undergoes multiple degradation operations to generate the low-resolution sequence. Then, frames are temporally sampled with a sliding window according to the temporal sacle φt, resulting Il. This formulation preserves the input as a continuous video clip rather than isolated endpoints, allowing the model to exploit broader temporal context during restoration. 
+
+3.2 Model Overview 
+
+To solve the STVSR task, we propose DiffST, as illustrated in Fig. 2. Our model builds on the pre-trained video generation model ( i.e. , WAN [ 39 ]). Given the low-resolution and low-frame-rate video Il, we first employ the cross-frame context aggregation module to exploit information from multiple frames and predict the target intermediate frames. Then, we apply bilinear interpolation to upsample the results by a factor ( φs), obtaining the intermediate Im that matches the target ( Ih). The intermediate video Im is compressed into a latent representation z through the VAE encoder. Then, the target refined latent zst is produced through single-step sampling by the transformer-based velocity prediction network ϵθ . Since the pre-trained model follows the flow-matching diffusion architecture with the Euler ODE solver, the sampling process is expressed as: 
+
+zst = z − σtVθ (z, t, c), (2) where t is the timestep, σt denotes the noise level, and c represents the condition prompt. By initializing sampling from the structure-rich latent z (instead of random noise), single-step sampling can yield target reconstructions without iterative denoising from pure noise. Meanwhile, to further enhance restoration quality, we introduce the video representation guidance module to provide global video-aware cues. The module extracts the global video representation from the input Il as the prompt c. This explicit utilization of video-level information constrains the diffusion sampling. Unlike frame-wise prompts, this video-level representation summarizes the overall temporal context and provides consistent guidance for the entire sequence. Finally, the refined latent zst is decoded through the VAE decoder to obtain the final STVSR output Ist . Next, we describe the two explicit spatiotemporal information utilization modules in detail. 43.3 Cross-Frame Context Aggregation Two Frame  
+
+> Prediction
+> Multi Frame
+> Prediction
+
+Figure 3: The visualization shows that leveraging mul-tiple frames to predict intermediate frames produces clearer results in the complex scenarios. In contrast, applying only two frames lacks temporal information and leads to inferior outcomes. To increase frame rate, video frame interpo-lation (VFI) methods typically predict inter-mediate frames from two adjacent keyframes, either by direct regression or by flow-based warping. Compared with linear interpolation, these approaches achieve more accurate pre-dictions under mild motion and clean inputs. However, under complex motion or severe degradation, relying only on adjacent frames remains insufficient. As shown in Fig. 3, in the first two frames, the person appears al-ready heavily degraded with substantial de-tail loss. The intermediate frames predicted from these two frames also exhibit severe detail loss. In contrast, the content of subse-quent frames is relatively clear. This observation motivates us to aggregate information from multiple frames to fully utilize temporal cues for more accurate predictions. Based on this insight, we propose the cross-frame context aggregation module, as displayed in Fig. 2. We first propagate information across frames by flow-based warping. For the input video Il, we estimate both forward and backward flow. Using these flows, we perform temporal propagation by fusing neighboring frames. Specifically, given the forward flow, the backward fused video Ib is: 
+
+I(n) 
+
+> b
+
+= W I(n+1)  
+
+> b
+
+, Fn→n+1  ⊙ Mn + I(n) 
+
+> l
+
+⊙  1 − Mn
+
+, (3) where n denotes the frame index; Fn→n+1  
+
+> l
+
+means the forward flow from input video Il; W(·, ·)
+
+represents the backward warping operation, and M is a validity mask derived from forward-backward flow consistency [ 52 , 63 ]. This fusion strategy can effectively propagate information and suppress unreliable regions. By reversing Eq. (3), we can obtain the forward fused video If .Based on the fused videos If and Ib, and the input video Il, we predict the intermediate frames from complementary temporal contexts. For the k-th intermediate frame I(k), let its neighboring keyframes be m and m+1 . The prediction process is defined as: 
+
+I(k) 
+
+> α
+
+= (1 − S(k) 
+
+> α
+
+) ⊙ W  I(m+1)  
+
+> α
+
+, Fk→m+1 
+
+> α
+
+
+
++ S(k) 
+
+> α
+
+⊙ W  I(m) 
+
+> α
+
+, Fk→mα
+
+, α ∈ { l, f, b }, (4) where I(k) 
+
+> α
+
+are the temporary frames predicted from three videos, Fα is the corresponding optical flow, and S(k) 
+
+> α
+
+is the fusion map. The S(k) 
+
+> α
+
+, Fk→m+1  
+
+> α
+
+, and Fk→mα are estimated from keyframes through the network [16]. Finally, we fuse the three frames to obtain the final target I(k):
+
+I(k) = Ψ θ
+
+ I(k) 
+
+> l
+
+, I(k) 
+
+> f
+
+, I(k)
+
+> b
+
+, (5) where Ψθ is a learnable fusion network. By integrating rich information from multiple frames, our aggregation module produces more accurate intermediate frames, providing reliable inputs for subsequent processing by the diffusion backbone. 
+
+3.4 Video Representation Guidance 
+
+The prompt plays a crucial role in the diffusion generation process. Thus, for video restoration, some studies retain the original T2V model condition, using text prompts with a fixed string [ 7, 65 ] or extracted from the first frame [ 64 ] via a vision-language model (VLM). This matches the pre-training distribution and stabilizes training. However, it ignores temporal information and cannot represent the whole video, which limits the guidance. Besides, some methods adopt ControlNet [ 50 , 58 ] to provide conditions. Nevertheless, the module approaches introduce significant overhead. To overcome these limitations, we propose the video representation guidance module Φθ , as illustrated in Fig. 4. The module extracts global video-level prompt embedding from the input Il to guide the diffusion process. We feed the embedding through the built-in prompt guidance path ( i.e. ,cross-attention) to maintain efficiency without extra conditional networks. 5Specifically, we select Nk keyframes uniformly from the input video Il to cover the temporal span. Each keyframe is encoded through a pre-trained image encoder, i.e. , DAPE [ 48 ] (denoted as Eθ ), to obtain spatial representations from representative frames. To combine spatial cues with temporal context, we introduce the multi-head attention module to aggregate these Nk frame embeddings into a unified video representation ev . The process is formulated as: 
+
+{I(k) 
+
+> l
+
+}Nk=1 = S(Il, N ), ek = Eθ (I(k) 
+
+> l
+
+),
+
+eall = [ e1, . . . , eN ], ev = MHCA( Ql, eall , eall ), (6) where S(·, N ) denotes uniform sampling, MHCA( Q, K, V ) means the multi-head cross-attention operation, and Ql is a learnable parameter. Moreover, since the video representation ev differs from the original diffusion embedding space, we further fuse ev with the text embedding et to generate the final prompt embedding. The text embedding et comes from a fixed description for efficiency. This reduces training difficulty and provides additional semantic cues while keeping the prompt pathway lightweight. Therefore, the final condition prompt c can be calculated as: 
+
+c = Pθ
+
+ [ev , et], (7) where Pθ is a learnable projector to fuse the embedding. The resulting video prompt embedding c is then applied in Eq. (2) to guide diffusion. It offers explicit global spatiotemporal guidance, improving restoration results across the multi temporal sequence. 
+
+3.5 Training Objectives MHCA  
+
+> Image
+> Encoder
+> !""*""
+> #"
+> "+
+> ",
+> "-
+> ".
+> "$
+> Projector
+> $
+
+Figure 4: We select keyframes from the input video, encode them, and fuse the features to construct a video representa-tion. This representation is combined with text embeddings to align with the pre-trained diffusion distribution. We employ a set of loss functions to optimize the velocity prediction net-work Vθ , the intermediate frame fu-sion network Ψθ , and the video repre-sentation extraction module Φθ . All other components, such as the VAE, are kept frozen for adaptation. In the latent domain , we compute the MSE loss between the latent zh from the ground-truth Ih and the predicted latent zst obtained from Eq. (2) to su-pervise the one-step refinement and align the restored latent with the target video distribution. The loss is computed as: 
+
+Llatent = LMSE (zst , zh) = 1
+
+zst 
+
+|| zst − zh|| 22. (8) In the pixel domain , we calculate the reconstruction loss (MSE) and a perceptual loss (LPIPS [59]) between the DiffST output Ist and the ground-truth Ih:
+
+Lrec = LMSE (Ist , Ih), Lperc = LLPIPS (Ist , Ih). (9) To further enhance temporal coherence, we introduce a bidirectional temporal consistency loss. We extract forward and backward optical flows Fh from ground-truth video Ih, and compute the loss consistency between the warped frame and its corresponding frame: 
+
+Lconsis = X
+
+> i
+
+ ∥W (I(i+1)  
+
+> st
+
+, Fi+1 →ih ) − Iist ∥1
+
++ ∥W (I(i−1)  
+
+> st
+
+, Fi−1→ih ) − Iist ∥1
+
+.
+
+(10) This loss encourages consistency between adjacent frames and suppresses temporal flickering in the restored video. Finally, our overall loss is a weighted sum: 
+
+Lfinal = Llatent + Lrec + Lperc + γconsis Lconsis , (11) where Lconsis is the loss scaler. With this joint loss formulation, we train DiffST end-to-end to realize efficient, video-level, real-world space-time video super-resolution. 6Method PSNR ↑ LPIPS ↓ CLIP-IQA ↑ DOVER ↑            
+
+> Baseline 24.49 0.2757 0.3859 0.7081
+> +Aggregation 24.87 0.2609 0.4002 0.7564
+> +Guidance 24.92 0.2564 0.4086 0.7780
+
+Table 1: Break down ablation.                     
+
+> Aggregation PSNR ↑LPIPS ↓CLIP-IQA ↑DOVER ↑
+> Interpolation 24.49 0.2757 0.3859 0.7081 Flow (Two) 24.75 0.2637 0.3910 0.7342 Flow (Multi) 24.87 0.2609 0.4002 0.7564
+
+Table 2: Ablation on aggregation method. 
+
+## 4 Experiments 
+
+4.1 Experimental Settings Datasets. We apply HQ-VSR [ 7] as the training dataset. The training LQ-HQ pairs are generated fol-lowing the degradation pipeline in Sec. 3.1, where the spatial degradation follows RealBasicVSR [ 4]. Both spatial and temporal scaling factors ( φs, φt) are set to 4. Evaluation is conducted on synthetic (UDM10 [ 37 ] and Vid4 [ 28 ]) and real-world (MVSR4x [ 43 ] and RealVSR [ 56 ]) benchmarks. For synthetic datasets, we reuse the training degradation; for real-world benchmarks, only temporal subsampling is applied for fair comparison across methods. 
+
+Evaluation Metrics. We employ multiple metrics to assess fidelity, perceptual quality, and temporal consistency. For fidelity, PSNR and SSIM [ 45 ] are reported. For perceptual quality, we evaluate with LPIPS [ 59 ], DISTS [ 10 ], CLIP-IQA [ 40 ], MUSIQA [ 20 ], and MANIQA [ 54 ]. For general video quality and temporal consistency, DOVER [ 47 ] is adopted. Additional temporal-consistency and perceptual video metrics are defined in Appendix A.1, and their scores are given in Appendix A.2. 
+
+Implementation Details. The backbone is the pre-trained Wan2.1-T2V-1.3B [ 39 ]. In one-step inference, we set t=799 . The video representation guidance module takes Nk=5 keyframes. We adopt the loss in Eq. (11) , where Lconsis is 0.1. AdamW is used ( β1=0 .9, β2=0 .999 ) with a learning rate of 5 ×10 −5. Training videos are cropped to 17 ×320 ×640. The batch size is 4 and the iteration is 10,000. Experiments are conducted on four A100 GPU. 
+
+4.2 Ablation Study 
+
+We evaluate the effectiveness of our method through ablations. All training settings follow Sec. 4.1. We evaluate on UDM10 [37] for controlled comparison of core components. 
+
+Break Down. We perform a breakdown ablation to examine the contribution of each component. The results are shown in Tab. 1. The baseline adopts the original WAN model ( i.e. , Wan2.1-T2V-1.3B) [ 39 ], where inputs are upsampled to the target size via interpolation. Gradually incorporating the proposed cross-frame context aggregation ( i.e. , Aggregation) and video representation guidance (i.e. , Guidance) modules brings consistent improvements across multiple dimensions. Compared with the baseline, the complete model improves PSNR by 0.43 dB. 
+
+Cross-Frame Context Aggregation. We perform an ablation on the aggregation module, with results shown in Tab. 2. Interpolation denotes generating intermediate frames via linear interpolation. Flow (Two) predicts intermediate frames using optical flow [ 16 ] between two adjacent frames. Flow (Multi) corresponds to our proposed cross-frame context aggregation. The results show that our multi-frame aggregation improves DOVER by 0.0222 over Flow (Two) and 0.0483 over Interpolation. This demonstrates that our proposed multi-frame aggregation is able to leverages spatiotemporal information, producing clearer intermediate results that better support subsequent processing.                     
+
+> Guidance PSNR ↑LPIPS ↓CLIP-IQA ↑DOVER ↑
+> Text 24.87 0.2609 0.4002 0.7564 Video 24.98 0.2744 0.3863 0.7335 Video&Text 24.92 0.2564 0.4086 0.7780
+
+Table 3: Ablation on different guidance prompts. 
+
+Video Representation Guidance. Different guidance prompts are compared in Tab. 3. Text indicates the text embedding from a fixed text. Video denotes the video representation embed-ding from Eq. (6) . Video&Text fuses both em-beddings as in Eq. (7) . Video-only guidance noticeably degrades perceptual quality, likely due to distribution mismatch. Combining video and text embeddings balances fidelity and perceptual quality under the same backbone. 
+
+4.3 Comparison with State-of-the-Art Methods 
+
+We compare the proposed DiffST against several VSR+VFI approaches. The VSR methods contain: STAR [ 50 ], SeedVR [ 42 ], and SeedVR2 [ 41 ], where SeedVR2 is a single-step diffusion model and the others are multi-step diffusion. For VFI, we include BiM-VFI [ 34 ], MoMo [ 24 ], and TLBVFI [ 31 ]. BiM-VFI is an end-to-end model, while MoMo and TLBVFI are multi-step diffusion approaches. In addition, we compare with the multi-step diffusion-based STVSR method VEnhancer [14]. 7Methods Datasets VSR VFI PSNR ↑ SSIM ↑ LPIPS ↓ DISTS ↓ CLIP-IQA ↑ MUSIQ ↑ MANIQA ↑ DOVER ↑
+
+UDM10 STAR [50] BiM-VFI [34] 23.09 0.6882 0.4054 0.1888 0.2573 44.78 0.2330 0.5909 STAR [50] MoMo [24] 22.90 0.6908 0.4030 0.1949 0.2690 42.89 0.2165 0.5358 STAR [50] TLBVFI [31] 22.73 0.6901 0.4010 0.1947 0.2692 42.91 0.2154 0.5582 SeedVR [42] BiM-VFI [34] 19.86 0.5470 0.4801 0.2099 0.3274 50.96 0.2587 0.5850 SeedVR [42] MoMo [24] 19.79 0.5452 0.4783 0.2196 0.3471 49.52 0.2497 0.5723 SeedVR [42] TLBVFI [31] 19.63 0.5481 0.4719 0.2187 0.3513 49.48 0.2454 0.5825 SeedVR2 [41] BiM-VFI [34] 21.05 0.6133 0.4427 0.2135 0.2431 40.12 0.1806 0.4536 SeedVR2 [41] MoMo [24] 20.99 0.6124 0.4353 0.2170 0.2591 38.10 0.1644 0.4344 SeedVR2 [41] TLBVFI [31] 20.80 0.6116 0.4319 0.2180 0.2628 38.61 0.1654 0.4567 VEnhancer [14] 21.19 0.6692 0.4372 0.2198 0.2843 43.43 0.2128 0.6063 DiffST (ours) 24.92 0.7392 0.2564 0.1554 0.4086 62.47 0.3212 0.7780 Vid4 STAR [50] BiM-VFI [34] 17.82 0.4020 0.5551 0.2700 0.3570 46.34 0.2505 0.4299 STAR [50] MoMo [24] 17.73 0.4003 0.5568 0.2680 0.3165 45.61 0.2577 0.3946 STAR [50] TLBVFI [31] 17.74 0.4033 0.5498 0.2654 0.3070 45.03 0.2524 0.3960 SeedVR [42] BiM-VFI [34] 16.58 0.3372 0.4612 0.2150 0.3038 63.73 0.3232 0.5967 SeedVR [42] MoMo [24] 16.47 0.3361 0.4646 0.2176 0.2941 63.11 0.3309 0.5621 SeedVR [42] TLBVFI [31] 16.48 0.3387 0.4534 0.2145 0.2868 62.32 0.3172 0.5626 SeedVR2 [41] BiM-VFI [34] 18.77 0.4658 0.3594 0.1996 0.2733 56.30 0.2472 0.4784 SeedVR2 [41] MoMo [24] 18.64 0.4664 0.3593 0.1996 0.2679 55.53 0.2508 0.4461 SeedVR2 [41] TLBVFI [31] 18.59 0.4664 0.3629 0.2011 0.2639 55.05 0.2496 0.4443 VEnhancer [14] 15.98 0.3277 0.6404 0.3016 0.2507 37.46 0.2078 0.2914 DiffST (ours) 19.99 0.5204 0.2699 0.1637 0.2735 66.12 0.3254 0.6076 MVSR4x STAR [50] BiM-VFI [34] 22.07 0.7343 0.4405 0.2636 0.2712 35.93 0.2931 0.2566 STAR [50] MoMo [24] 22.01 0.7344 0.4332 0.2636 0.2855 34.95 0.2908 0.2440 STAR [50] TLBVFI [31] 21.95 0.7349 0.4314 0.2612 0.2808 34.94 0.2907 0.2397 SeedVR [42] BiM-VFI [34] 21.81 0.7252 0.4171 0.2299 0.2480 38.77 0.2350 0.3163 SeedVR [42] MoMo [24] 21.80 0.7254 0.4123 0.2330 0.2908 38.07 0.2393 0.3063 SeedVR [42] TLBVFI [31] 21.78 0.7262 0.4075 0.2319 0.2930 38.20 0.2391 0.3126 SeedVR2 [41] BiM-VFI [34] 22.27 0.7657 0.3592 0.2289 0.2117 32.65 0.2163 0.2401 SeedVR2 [41] MoMo [24] 22.35 0.7641 0.3566 0.2299 0.2377 31.76 0.2176 0.2369 SeedVR2 [41] TLBVFI [31] 22.30 0.7633 0.3560 0.2295 0.2392 32.12 0.2191 0.2382 VEnhancer [14] 20.37 0.7112 0.4562 0.2779 0.2980 37.96 0.3207 0.3064 DiffST (ours) 22.24 0.7446 0.3320 0.2233 0.4565 60.99 0.3591 0.6739 RealVSR STAR [50] BiM-VFI [34] 16.41 0.4607 0.3200 0.1654 0.5499 73.21 0.4296 0.7383 STAR [50] MoMo [24] 16.36 0.4604 0.3189 0.1596 0.4919 72.65 0.4337 0.7155 STAR [50] TLBVFI [31] 16.48 0.4652 0.3192 0.1593 0.4722 71.85 0.4171 0.7158 SeedVR [42] BiM-VFI [34] 17.71 0.4813 0.3232 0.1677 0.3314 62.10 0.3255 0.7023 SeedVR [42] MoMo [24] 17.65 0.4794 0.3148 0.1641 0.3512 61.92 0.3300 0.6796 SeedVR [42] TLBVFI [31] 17.58 0.4779 0.3165 0.1651 0.3514 61.25 0.3240 0.6845 SeedVR2 [41] BiM-VFI [34] 18.79 0.5552 0.2567 0.1365 0.3208 62.78 0.3324 0.6826 SeedVR2 [41] MoMo [24] 18.70 0.5621 0.2525 0.1315 0.3373 61.76 0.3349 0.6632 SeedVR2 [41] TLBVFI [31] 18.64 0.5592 0.2588 0.1348 0.3318 60.98 0.3269 0.6638 VEnhancer [14] 16.48 0.4274 0.3953 0.1755 0.3830 69.74 0.3827 0.7395 DiffST (ours) 19.01 0.5562 0.2151 0.1205 0.3833 74.95 0.4167 0.8048 
+
+Table 4: Quantitative results. The best and second best results are colored with red and blue. 
+
+VSR STAR SeedVR SeedVR2 STVSR Method VFI BiM-VFI MoMo TLBVFI BiM-VFI MoMo TLBVFI BiM-VFI MoMo TLBVFI VEnhancer DiffST Inference Step 15+1 15+8 15+10 50+1 50+8 50+10 1+1 1+8 1+10 15 1
+
+Parameter (M) 2,499.78 2,566.48 2,539.60 3,404.26 3,470.96 3,444.08 3,404.26 3,470.96 3,444.08 2,496.59 1,581.46 
+
+Runtime (s) 48.42 51.69 58.32 90.21 93.49 100.11 22.99 26.27 32.89 124.29 7.12 
+
+Table 5: Complexity comparison. We compare inference steps, parameter, and runtime. Runtime is measured using a 33-frame input video at a resolution of 720 ×1280. 
+
+Quantitative Results. Table 4 summarizes the quantitative comparison, while Tab. 5 reports the complexity comparison. Appendix A.2 provides more temporal-consistency metrics, and Appendix B includes comparisons with additional single-stage STVSR methods. Our DiffST is competitive across synthetic and real-world datasets, ranking first or second on most metrics. For example, on the real-world dataset MVSR4x, compared to the method (SeedVR [ 42 ]+BiM-VFI [ 34 ]), it improves DOVER by approximately 94% on this benchmark. Moreover, our method achieves lower parameter counts and lower computational complexity. Mean-while, thanks to its single-step, video-level, one-stage STVSR design, DiffST runs significantly faster. Compared with the two-stage pipeline (SeedVR [ 42 ]+TLBVFI [ 31 ]), our method achieves a speedup of 14 ×. It also outperforms the single-stage diffusion-based VEnhancer [ 14 ] with a speedup of 17 ×.8UDM10: 000                   
+
+> HR LR STAR+TLBVFI STAR+BiM-VFI
+> SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours)
+> MVSR4x: 465
+> HR LR STAR+TLBVFI STAR+BiM-VFI
+> SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours)
+> RealVSR: 044
+> HR LR STAR+TLBVFI STAR+BiM-VFI
+> SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours)
+
+Figure 5: Qualitative results on synthetic (UDM10 [ 37 ]) and real-world (MVSR4x [ 43 ] and Re-alVSR [56]) benchmarks. Our method achieves impressive performance. DiffST (ours)    
+
+> SeedVR+BiM -VFI
+> SeedVR2+BiM -VFI
+> STAR+BiM -VFI
+> VEnhancer
+> GT
+> LQ
+> txtx
+> Diff -ST (ours)
+> SeedVR+BiM -VFI
+> SeedVR2+BiM -VFI
+> STAR+ BiM -VFI
+> VEnhancer
+> GT
+> LQ
+
+Figure 6: Consistency comparison with other STVSR methods. We stack the green dots on each frame along the temporal axis. Our method produces richer details and smoother transitions. 
+
+Qualitative Results. Figure 5 shows qualitative comparisons for challenging cases. Against existing SOTA methods, our approach recovers more realistic and sharper details. For example, in the first case, competing methods introduce severe artifacts or excessive blur, while our DiffST successfully restores the fine textures on the stone gate. These examples verify the effectiveness of our approach. They also agree with the quantitative results in Tab. 4. More visual examples appear in Appendix C. 
+
+Temporal Consistency. Temporal consistency is visualized in Fig. 6. The compared methods exhibit noticeable temporal instability. Specifically, two-stage pipelines introduce significant artifacts. For instance, in the left case, in the third case, strong noise appears in the blank region between objects. The single-stage method VEnhancer also generates unrealistic and inconsistent content. In contrast, our DiffST produces smoother and more coherent frame-to-frame transitions. 
+
+## 5 Conclusion 
+
+In this paper, we propose DiffST, an efficient video diffusion model for real-world space–time video super-resolution (STVSR). DiffST performs video-level one-step sampling to ensure efficient infer-ence. Meanwhile, we introduce cross-frame context aggregation (CFCA) and video representation guidance (VRG) to enhance the utilization of spatiotemporal information and improve reconstruction quality. CFCA aggregates multiple keyframes to better construct intermediate frames. VRG extracts the video representation with rich spatiotemporal information to guide the diffusion generation pro-cess. Experiments on synthetic and real-world benchmarks reveal that our proposed DiffST achieves impressive space-time video super-resolution performance and high efficiency. 9References 
+
+[1] Jiezhang Cao, Jingyun Liang, Kai Zhang, Wenguan Wang, Qin Wang, Yulun Zhang, Hao Tang, and Luc Van Gool. Towards interpretable video super-resolution via alternating optimization. In ECCV , 2022. [2] Kelvin CK Chan, Xintao Wang, Ke Yu, Chao Dong, and Chen Change Loy. Basicvsr: The search for essential components in video super-resolution and beyond. In CVPR , 2021. [3] Kelvin CK Chan, Shangchen Zhou, Xiangyu Xu, and Chen Change Loy. Basicvsr++: Improving video super-resolution with enhanced propagation and alignment. In CVPR , 2022. [4] Kelvin CK Chan, Shangchen Zhou, Xiangyu Xu, and Chen Change Loy. Investigating tradeoffs in real-world video super-resolution. In CVPR , 2022. [5] Yi-Hsin Chen, Si-Cun Chen, Yen-Yu Lin, and Wen-Hsiao Peng. Motif: Learning motion trajectories with local implicit neural functions for continuous space-time video super-resolution. In ICCV , 2023. [6] Zeyuan Chen, Yinbo Chen, Jingwen Liu, Xingqian Xu, Vidit Goel, Zhangyang Wang, Humphrey Shi, and Xiaolong Wang. Videoinr: Learning video implicit neural representation for continuous space-time super-resolution. In CVPR , 2022. [7] Zheng Chen, Zichen Zou, Kewei Zhang, Xiongfei Su, Xin Yuan, Yong Guo, and Yulun Zhang. Dove: Efficient one-step diffusion model for real-world video super-resolution. In NeurIPS , 2025. [8] Duolikun Danier, Fan Zhang, and David Bull. Flolpips: A bespoke video quality metric for frame interpolation. In PCS , 2022. [9] Duolikun Danier, Fan Zhang, and David Bull. Ldmvfi: Video frame interpolation with latent diffusion models. In AAAI , 2024. [10] Keyan Ding, Kede Ma, Shiqi Wang, and Eero P Simoncelli. Image quality assessment: Unifying structure and texture similarity. TPAMI , 2020. [11] Tianyu Ding, Luming Liang, Zhihui Zhu, and Ilya Zharkov. Cdfi: Compression-driven network design for frame interpolation. In CVPR , 2021. [12] Zhicheng Geng, Luming Liang, Tianyu Ding, and Ilya Zharkov. Rstt: Real-time spatial temporal trans-former for space-time video super-resolution. In CVPR , 2022. [13] Muhammad Haris, Greg Shakhnarovich, and Norimichi Ukita. Space-time-aware multi-resolution video enhancement. In CVPR , 2020. [14] Jingwen He, Tianfan Xue, Dongyang Liu, Xinqi Lin, Peng Gao, Dahua Lin, Yu Qiao, Wanli Ouyang, and Ziwei Liu. Venhancer: Generative space-time enhancement for video generation. arXiv preprint arXiv:2407.07667 , 2024. [15] Mengshun Hu, Kui Jiang, Zheng Wang, Xiang Bai, and Ruimin Hu. Cycmunet+: Cycle-projected mutual learning for spatial-temporal video super-resolution. TPAMI , 2023. [16] Zhewei Huang, Tianyuan Zhang, Wen Heng, Boxin Shi, and Shuchang Zhou. Real-time intermediate flow estimation for video frame interpolation. In ECCV , 2022. [17] Xin Jin, Longhai Wu, Jie Chen, Youxin Chen, Jayoon Koo, and Cheul-hee Hahm. A unified pyramid recurrent network for video frame interpolation. In CVPR , 2023. [18] Younghyun Jo, Seoung Wug Oh, Jaeyeon Kang, and Seon Joo Kim. Deep video super-resolution network using dynamic upsampling filters without explicit motion compensation. In CVPR , 2018. [19] Armin Kappeler, Seunghwan Yoo, Qiqin Dai, and Aggelos K Katsaggelos. Video super-resolution with convolutional neural networks. TCI , 2016. [20] Junjie Ke, Qifei Wang, Yilin Wang, Peyman Milanfar, and Feng Yang. Musiq: Multi-scale image quality transformer. In ICCV , 2021. [21] Eunjin Kim, Hyeonjin Kim, Kyong Hwan Jin, and Jaejun Yoo. Bf-stvsr: B-splines and fourier—best friends for high fidelity spatial-temporal video super-resolution. In CVPR , 2025. [22] Weijie Kong, Qi Tian, Zijian Zhang, Rox Min, Zuozhuo Dai, Jin Zhou, Jiangfeng Xiong, Xin Li, Bo Wu, Jianwei Zhang, et al. Hunyuanvideo: A systematic framework for large video generative models. arXiv preprint arXiv:2412.03603 , 2024. 
+
+10 [23] Hyeongmin Lee, Taeoh Kim, Tae-young Chung, Daehyun Pak, Yuseok Ban, and Sangyoun Lee. Adacof: Adaptive collaboration of flows for video frame interpolation. In CVPR , 2020. [24] Jaihyun Lew, Jooyoung Choi, Chaehun Shin, Dahuin Jung, and Sungroh Yoon. Disentangled motion modeling for video frame interpolation. In AAAI , 2025. [25] Jianze Li, Yong Guo, Yulun Zhang, and Xiaokang Yang. Asymmetric vae for one-step video super-resolution acceleration. arXiv preprint arXiv:2509.24142 , 2025. [26] Xiaohui Li, Yihao Liu, Shuo Cao, Ziyan Chen, Shaobin Zhuang, Xiangyu Chen, Yinan He, Yi Wang, and Yu Qiao. Diffvsr: Enhancing real-world video super-resolution with diffusion models for advanced visual quality and temporal consistency. arXiv preprint arXiv:2501.10110 , 2025. [27] Renjie Liao, Xin Tao, Ruiyu Li, Ziyang Ma, and Jiaya Jia. Video super-resolution via deep draft-ensemble learning. In ICCV , 2015. [28] Ce Liu and Deqing Sun. A bayesian approach to adaptive video super resolution. In CVPR , 2011. [29] Ding Liu, Zhaowen Wang, Yuchen Fan, Xianming Liu, Zhangyang Wang, Shiyu Chang, and Thomas Huang. Robust video super-resolution with learned temporal dynamics. In ICCV , 2017. [30] Ziwei Liu, Raymond A Yeh, Xiaoou Tang, Yiming Liu, and Aseem Agarwala. Video frame synthesis using deep voxel flow. In ICCV , 2017. [31] Zonglin Lyu and Chen Chen. Tlb-vfi: Temporal-aware latent brownian bridge diffusion for video frame interpolation. In ICCV , 2025. [32] Uma Mudenagudi, Subhashis Banerjee, and Prem Kumar Kalra. Space-time super-resolution using graph-cut optimization. TPAMI , 2010. [33] Simon Niklaus and Feng Liu. Context-aware synthesis for video frame interpolation. In CVPR , 2018. [34] Wonyong Seo, Jihyong Oh, and Munchurl Kim. Bim-vfi: Bidirectional motion field-guided frame interpolation for video with non-uniform motions. In CVPR , 2025. [35] Eli Shechtman, Yaron Caspi, and Michal Irani. Increasing space-time resolution in video. In ECCV , 2002. [36] Shuwei Shi, Jinjin Gu, Liangbin Xie, Xintao Wang, Yujiu Yang, and Chao Dong. Rethinking alignment in video super-resolution transformers. In NeurIPS , 2022. [37] Xin Tao, Hongyun Gao, Renjie Liao, Jue Wang, and Jiaya Jia. Detail-revealing deep video super-resolution. In ICCV , 2017. [38] Yapeng Tian, Yulun Zhang, Yun Fu, and Chenliang Xu. Tdan: Temporally-deformable alignment network for video super-resolution. In CVPR , 2020. [39] Team Wan, Ang Wang, Baole Ai, Bin Wen, Chaojie Mao, Chen-Wei Xie, Di Chen, Feiwu Yu, Haiming Zhao, Jianxiao Yang, et al. Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314 , 2025. [40] Jianyi Wang, Kelvin CK Chan, and Chen Change Loy. Exploring clip for assessing the look and feel of images. In AAAI , 2023. [41] Jianyi Wang, Shanchuan Lin, Zhijie Lin, Yuxi Ren, Meng Wei, Zongsheng Yue, Shangchen Zhou, Hao Chen, Yang Zhao, Ceyuan Yang, et al. Seedvr2: One-step video restoration via diffusion adversarial post-training. arXiv preprint arXiv:2506.05301 , 2025. [42] Jianyi Wang, Zhijie Lin, Meng Wei, Yang Zhao, Ceyuan Yang, Fei Xiao, Chen Change Loy, and Lu Jiang. Seedvr: Seeding infinity in diffusion transformer towards generic video restoration. In CVPR , 2025. [43] Ruohao Wang, Xiaohui Liu, Zhilu Zhang, Xiaohe Wu, Chun-Mei Feng, Lei Zhang, and Wangmeng Zuo. Benchmark dataset and effective inter-frame alignment for real-world video super-resolution. In CVPRW ,2023. [44] Xiaojuan Wang, Boyang Zhou, Brian Curless, Ira Kemelmacher-Shlizerman, Aleksander Holynski, and Steven M Seitz. Generative inbetweening: Adapting image-to-video models for keyframe interpolation. In 
+
+ICLR , 2025. [45] Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Simoncelli. Image quality assessment: from error visibility to structural similarity. TIP , 2004. 
+
+11 [46] Shuoyan Wei, Feng Li, Shengeng Tang, Yao Zhao, and Huihui Bai. Evenhancer: Empowering effectiveness, efficiency and generalizability for continuous space-time video super-resolution with events. In CVPR ,2025. [47] Haoning Wu, Erli Zhang, Liang Liao, Chaofeng Chen, Jingwen Hou, Annan Wang, Wenxiu Sun, Qiong Yan, and Weisi Lin. Exploring video quality assessment on user generated contents from aesthetic and technical perspectives. In ICCV , 2023. [48] Rongyuan Wu, Tao Yang, Lingchen Sun, Zhengqiang Zhang, Shuai Li, and Lei Zhang. Seesr: Towards semantics-aware real-world image super-resolution. In CVPR , 2024. [49] Xiaoyu Xiang, Yapeng Tian, Yulun Zhang, Yun Fu, Jan P Allebach, and Chenliang Xu. Zooming slow-mo: Fast and accurate one-stage space-time video super-resolution. In CVPR , 2020. [50] Rui Xie, Yinhong Liu, Penghao Zhou, Chen Zhao, Jun Zhou, Kai Zhang, Zhenyu Zhang, Jian Yang, Zhenheng Yang, and Ying Tai. Star: Spatial-temporal augmentation with text-to-video models for real-world video super-resolution. arXiv preprint arXiv:2501.02976 , 2025. [51] Gang Xu, Jun Xu, Zhen Li, Liang Wang, Xing Sun, and Ming-Ming Cheng. Temporal modulation network for controllable space-time video super-resolution. In CVPR , 2021. [52] Rui Xu, Xiaoxiao Li, Bolei Zhou, and Chen Change Loy. Deep flow-guided video inpainting. In CVPR ,2019. [53] Serin Yang, Taesung Kwon, and Jong Chul Ye. Vibidsampler: Enhancing video interpolation using bidirectional diffusion sampler. In ICLR , 2025. [54] Sidi Yang, Tianhe Wu, Shuwei Shi, Shanshan Lao, Yuan Gong, Mingdeng Cao, Jiahao Wang, and Yujiu Yang. Maniqa: Multi-dimension attention network for no-reference image quality assessment. In CVPRW ,2022. [55] Xi Yang, Chenhang He, Jianqi Ma, and Lei Zhang. Motion-guided latent diffusion for temporally consistent real-world video super-resolution. In ECCV , 2024. [56] Xi Yang, Wangmeng Xiang, Hui Zeng, and Lei Zhang. Real-world video super-resolution: A benchmark dataset and a decomposition based learning scheme. In CVPR , 2021. [57] Zhuoyi Yang, Jiayan Teng, Wendi Zheng, Ming Ding, Shiyu Huang, Jiazheng Xu, Yuanming Yang, Wenyi Hong, Xiaohan Zhang, Guanyu Feng, et al. Cogvideox: Text-to-video diffusion models with an expert transformer. In ICLR , 2025. [58] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. In ICCV , 2023. [59] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, and Oliver Wang. The unreasonable effectiveness of deep features as a perceptual metric. In CVPR , 2018. [60] Zihao Zhang, Haoran Chen, Haoyu Zhao, Guansong Lu, Yanwei Fu, Hang Xu, and Zuxuan Wu. Eden: Enhanced diffusion for high-quality large-motion video frame interpolation. In CVPR , 2025. [61] Ziqing Zhang, Kai Liu, Zheng Chen, Xi Li, Yucong Chen, Bingnan Duan, Linghe Kong, and Yulun Zhang. Infvsr: Breaking length limits of generic video super-resolution. arXiv preprint arXiv:2510.00948 , 2025. [62] Kun Zhou, Wenbo Li, Xiaoguang Han, and Jiangbo Lu. Exploring motion ambiguity and alignment for high-quality video frame interpolation. In CVPR , 2023. [63] Shangchen Zhou, Chongyi Li, Kelvin CK Chan, and Chen Change Loy. Propainter: Improving propagation and transformer for video inpainting. In ICCV , 2023. [64] Shangchen Zhou, Peiqing Yang, Jianyi Wang, Yihang Luo, and Chen Change Loy. Upscale-a-video: Temporal-consistent diffusion model for real-world video super-resolution. In CVPR , 2024. [65] Junhao Zhuang, Shi Guo, Xin Cai, Xiaohui Li, Yihao Liu, Chun Yuan, and Tianfan Xue. Flashvsr: Towards real-time diffusion-based streaming video super-resolution. arXiv preprint arXiv:2510.12747 , 2025. 
+
+12 A Evaluation on More Metrics 
+
+In this section, we introduce more metrics, particularly those designed for assessing temporal consistency, to provide a more comprehensive analysis of STVSR performance. This appendix complements the evaluation metrics and main quantitative comparison in Sec. 4.1 and Sec. 4.3. 
+
+A.1 Metrics 
+
+We incorporate tOF/tLP to measure temporal consistency, and adopt FloLPIPS [ 8 ] to evaluate perceptual video quality. The detailed is described as follows. 
+
+tOF/tLP. The tOF and tLP evaluate the temporal consistency between generated and ground-truth videos by comparing frame-to-frame changes over time. tOF measures the difference in pixel-level motion between the output and ground-truth using optical flow estimated from consecutive frames to reflect motion consistency over time. tLP measures temporal perceptual discrepancies using deep feature maps. The metrics are defined as: 
+
+tOF = ∥OF (I(t−1)  
+
+> gt
+
+, I(t) 
+
+> gt
+
+) − OF (I(t−1)  
+
+> out
+
+, I(t)
+
+> out
+
+)∥1,
+
+tLP = ∥LP (I(t−1)  
+
+> gt
+
+, I(t) 
+
+> gt
+
+) − LP (I(t−1)  
+
+> out
+
+, I(t)
+
+> out
+
+)∥1, (12) where, OF denotes optical-flow estimation, LP denotes LPIPS-based perceptual features, Igt denotes round-truth frames, and Iout is the model output video at adjacent timesteps. For both metrics, lower values indicate better temporal consistency and fewer temporal artifacts. 
+
+FloLPIPS. This metric [ 8] is a full-reference perceptual video quality metric. It is based on LPIPS [ 59 ] with motion-aware modeling to better assess perceptual degradation in videos over temporal changes. It incorporates motion information derived from optical flow to capture distortions that arise across consecutive frames. By integrating both appearance differences and motion-related deviations, FloLPIPS provides a perceptually aligned assessment of overall video quality for restored sequences. For this metric, lower values indicate better perceptual quality. 
+
+A.2 Results Methods UDM10 RealVSR VSR VFI tOF ↓ tLP ↓ FloLPIPS ↓ tOF ↓ tLP ↓ FloLPIPS ↓                                                                           
+
+> STAR BiM-VFI 1.59 2.08 0.4017 1.75 2.91 0.2878 STAR MoMo 1.51 2.27 0.4075 1.63 3.11 0.3203 STAR TLBVFI 1.71 1.86 0.4094 1.79 2.93 0.3233 SeedVR BiM-VFI 2.16 4.45 0.4882 1.96 4.20 0.3220 SeedVR MoMo 1.99 2.49 0.4570 1.83 3.78 0.3180 SeedVR TLBVFI 2.93 3.63 0.4608 2.00 3.57 0.3215 SeedVR2 BiM-VFI 1.53 2.44 0.3753 1.69 3.41 0.2529 SeedVR2 MoMo 1.65 2.50 0.4948 1.75 3.35 0.2541 SeedVR2 TLBVFI 2.35 3.45 0.4891 1.64 3.54 0.2633 VEnhancer 1.63 2.29 0.4119 1.79 3.42 0.3908 DiffST (ours) 1.25 1.89 0.2649 1.56 2.89 0.2147
+
+Table 6: Quantitative comparison on more metrics. We evaluate tOF/tLP and FloLPIPS on the synthetic UDM10 dataset and the real-world RealVSR dataset. The results are presented in Tab 6. Com-pared with existing STVSR meth-ods and VSR+VFI pipelines, our pro-posed DiffST achieves significantly better temporal consistency, reflected by lower tOF and tLP scores. In addi-tion, DiffST outperforms competing approaches on the perceptual video metric FloLPIPS. 
+
+## B Comparison with More STVSR Methods 
+
+We compare our DiffST with more single-stage space-time video super-resolution methods, including Zooming Slow-Mo [ 49 ] and BF-STVSR [ 21 ]. This appendix extends the main comparison with state-of-the-art methods in Sec. 4.3 using additional one-stage baselines. 
+
+Zooming Slow-Mo. Zooming Slow-Mo is a single-stage STVSR method that captures local tem-poral information through a feature-level temporal interpolation network. It employs a deformable ConvLSTM to jointly align and aggregate cross-frame features, followed by a reconstruction network that generates high-quality outputs from the aggregated representations. 
+
+BF-STVSR. BF-STVSR is a continuous space–time video super-resolution framework that improves reconstruction quality by explicitly modeling spatial and temporal features. It uses a B-spline mapper to achieve smooth temporal interpolation, enhancing spatial detail and temporal consistency. 13 Zooming Slow-Mo BF-STVSR DiffST (ours) Datasets PSNR ↑ LPIPS ↓ CLIP-IQA ↑ DOVER ↑ PSNR ↑ LPIPS ↓ CLIP-IQA ↑ DOVER ↑ PSNR ↑ LPIPS ↓ CLIP-IQA ↑ DOVER ↑                                                
+
+> UDM10 23.71 0.5117 0.1611 0.0863 23.65 0.5256 0.1601 0.1011 24.92 0.2564 0.4086 0.7780 Vid4 20.80 0.5468 0.1908 0.1326 15.73 0.6221 0.1925 0.1343 19.99 0.2699 0.2735 0.6076 MVSR4x 11.43 0.7037 0.4540 0.0310 22.83 0.4532 0.2467 0.0985 22.24 0.3320 0.4565 0.6739 RealVSR 9.71 0.8972 0.2227 0.0606 20.52 0.3147 0.2252 0.4841 19.01 0.2151 0.3833 0.8048
+
+Table 7: Quantitative comparison with more STVSR methods. 
+
+Results. The comparison results are shown in Tab. 7. Our method outperforms the STVSR baselines on both synthetic and real-world datasets, with particularly strong gains in perceptual metrics such as CLIP-IQA and DOVER. These findings demonstrate the effectiveness of our approach. 
+
+## C More Qualitative Results 
+
+We provide additional visual comparisons in Figs. 7 and 8. These examples extend the main qualitative comparison in Sec. 4.3 and Fig. 5. Compared with existing methods, our approach reconstructs more realistic and accurate details. These results further demonstrate the effectiveness of our DiffST. 
+
+## D Explanations for Checklist 
+
+D.1 Limitations 
+
+In this work, we propose DiffST, an efficient one-step diffusion-based method for real-world space-time video super-resolution. While DiffST achieves strong performance and efficiency, it may still be limited under extremely severe degradations or complex motion. In addition, the VAE encoding and decoding process remains part of the overall computational cost. 
+
+D.2 Broader Impacts 
+
+DiffST improves the quality and efficiency of space-time video super-resolution. We do not foresee direct negative societal impacts from the proposed technical contributions. 14 UDM10: 002 
+
+HR LR STAR+TLBVFI STAR+BiM-VFI 
+
+SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours) 
+
+UDM10: 003 
+
+HR LR STAR+TLBVFI STAR+BiM-VFI 
+
+SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours) 
+
+UDM10: 004 
+
+HR LR STAR+TLBVFI STAR+BiM-VFI 
+
+SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours) 
+
+UDM10: 008 
+
+HR LR STAR+TLBVFI STAR+BiM-VFI 
+
+SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours) 
+
+Vid4: walk 
+
+HR LR STAR+TLBVFI STAR+BiM-VFI 
+
+SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours) 
+
+Vid4: foliage 
+
+HR LR STAR+TLBVFI STAR+BiM-VFI 
+
+SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours) 
+
+Figure 7: Visual comparison on synthetic (UDM10 [37] and Vid4 [28]) datasets. 15 RealVSR: 018 
+
+HR LR STAR+TLBVFI STAR+BiM-VFI 
+
+SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours) 
+
+RealVSR: 039 
+
+HR LR STAR+TLBVFI STAR+BiM-VFI 
+
+SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours) 
+
+RealVSR: 170 
+
+HR LR STAR+TLBVFI STAR+BiM-VFI 
+
+SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours) 
+
+RealVSR: 211 
+
+HR LR STAR+TLBVFI STAR+BiM-VFI 
+
+SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours) 
+
+MVSR4x: 065 
+
+HR LR STAR+TLBVFI STAR+BiM-VFI 
+
+SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours) 
+
+MVSR4x: 232 
+
+HR LR STAR+TLBVFI STAR+BiM-VFI 
+
+SeedVR+BiM-VFI SeedVR2+BiM-VFI VEnhancer DiffST (ours) 
+
+Figure 8: Visual comparison on real-world (MVSR4x [43] and RealVSR [56]) datasets. 16

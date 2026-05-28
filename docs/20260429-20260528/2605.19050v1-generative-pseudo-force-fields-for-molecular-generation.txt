@@ -1,0 +1,1440 @@
+Title: Generative Pseudo-Force Fields for Molecular Generation
+
+URL Source: https://arxiv.org/pdf/2605.19050v1
+
+Published Time: Wed, 20 May 2026 00:13:23 GMT
+
+Number of Pages: 36
+
+Markdown Content:
+# Generative Pseudo-Force Fields for Molecular Generation 
+
+## Stefaan S. P. Hessmann 1,2, * , Khaled Kahouli 1,2 , Stefan Gugler 1,2 , Michael Plainer 3,4,1,2 ,Frank No´ e3,5,6,7 , Klaus-Robert M¨ uller 1,2,8,9 , and Niklas W. A. Gebauer 1,2, * 
+
+> 1
+
+Machine Learning Group, Technische Universit¨ at Berlin, Berlin, Germany 
+
+> 2
+
+BIFOLD – Berlin Institute for the Foundations of Learning and Data, Berlin, Germany 
+
+> 3
+
+Department of Mathematics and Computer Science, Freie Universit¨ at Berlin, Berlin, Germany 
+
+> 4
+
+Zuse School ELIZA, Darmstadt, Germany 
+
+> 5
+
+Department of Physics, Freie Universit¨ at Berlin, Berlin, Germany 
+
+> 6
+
+Microsoft Research AI4Science, Berlin, Germany 
+
+> 7
+
+Department of Chemistry, Rice University, Houston, USA 
+
+> 8
+
+Max-Planck Institute for Informatics, Saarbr¨ ucken, Germany 
+
+> 9
+
+Department of Artificial Intelligence, Korea University, Seoul, South Korea 
+
+> *
+
+Corresponding authors: stefaan.hessmann@tu-berlin.de , niklas.gebauer@tu-berlin.de 
+
+## May 20, 2026 
+
+Abstract 
+
+Generating stable molecular conformations typically forces a tradeoff between the physical realism of energy-based relaxation and the sampling efficiency of data-driven generative models. While machine learning force fields (MLFFs) can sample stable conformations by relaxing molecular geometries according to physical forces, they require costly ab-initio training data. Conversely, diffusion models (DMs) learn from equilibrium data alone but are dependent on noise schedules and time-step conditioning. In this work, we propose generative pseudo-force fields (GPFFs) to bridge these paradigms by training an MLFF on a quadratic pseudo-potential energy surface relative to reference equilibrium structures. Because no ab-initio calculations are required for the perturbed geometries, non-equilibrium training data can be generated on the fly by perturbing the equilibria with Gaussian noise. We show that GPFFs constitute a time-step-agnostic variant of variance exploding DMs: the score comes from the predicted pseudo-forces but because force magnitudes implicitly encode the noise level, no time-step conditioning is needed. Our GPFF can hence be used as a drop-in replacement in standard diffusion sampling (ancestral, Heun) but also facilitates more efficient, adaptive variants and an MLFF inspired direct denoising scheme. Our proposed sampling algorithms support arbitrary structural priors and geometric constraints. On QM9, GPFF has 100 % validity at 256 neural function evaluations (NFE) and over 50 % at just 6 NFE, outperforming diffusion baselines across all samplers. Combined with custom priors, we showcase the fast and accurate generation process of our method in a molecular editor for a drug design setting, where a molecule is generated in real time. 
+
+# 1 Introduction 
+
+The discovery and design of molecules and materials is a fundamental challenge in computational chemistry, with applications ranging from drug design [ 1] to materials science [ 2]. Beyond the broad exploration of chemical space [ 3 –7 ], specific tasks often impose additional constraints, such as targeting desired physical properties [ 8– 10 ], incorporating certain substructures [ 11 ], or obeying spatial conditions 1
+
+> arXiv:2605.19050v1 [cs.LG] 18 May 2026
+
+(a) Training             
+
+> magnitude encodes σtime-step agnostic ⇒
+> σ= 0 σ1σ2σT
+> Di ff usion (DM) ̂
+> ε ∝ 1
+> ours (GPFF) ̂
+> Fσ∝
+
+(b) Sampling 
+
+> Adaptive di ff usion sampling adaptive step size Direct denoising large steps
+
+(c) Enabling geometric constraints                 
+
+> Direct denoising + shape
+> predict enforce
+> rod prior rod molecule
+> predict enforce
+> disc prior disc molecule
+> each step: predict (off )enforce (back to )Σ→ΣΣ
+> Direct denoising + sca ff old sca ff old + prior sca ff old + generated ̂
+> Fon scaffold = 0 free atoms denoised
+> (ours) (existing)
+> Standard di ff usion sampling
+> fi xed step size
+> GPFF/DM GPFF only
+
+Figure 1: Overview of generative pseudo-force fields (GPFFs). (a) Training. Both generative models (DM, top) and GPFFs (bottom, ours) are trained on equilibrium structures perturbed with isotropic Gaussian noise of increasing scale σ. The DM regresses unit-magnitude noise vectors ˆε that are invariant to σ, whereas GPFF learns pseudo-forces ˆF ∝ σ including the magnitude which implicitly encodes the current noise level, so no time-step conditioning is required. (b) Sampling. Both families of samplers operate on the same trained GPFF. Standard diffusion sampling is shared with DMs and follows a fixed schedule of equal-sized denoising steps. Adaptive diffusion sampling (ours) reads the noise-level estimate ˆσ(i) off the predicted pseudo-force magnitude and rescales each step to correct deviations from the target schedule. Direct denoising (ours) treats sampling as MLFF-style relaxation, taking a few large gradient steps toward the predicted equilibrium. (c) Enabling geometric constraints. 
+
+Because GPFF does not require the noise level as an input, intermediate structures can be modified at every step, enabling the extension of direct denoising to arbitrary priors and geometric constraints. 
+
+Shape (top): starting from a shape-conforming prior, each step first predicts an unconstrained update and then projects the structure back onto the prescribed covariance Σ, yielding molecules with targeted shape (e.g., rod or disc). Scaffold (bottom): a fixed substructure (blue) is held in place by clamping its pseudo-forces to zero while the remaining free atoms (green) are denoised, enabling scaffold-guided generation. 2such as fitting into protein pockets [ 12 ]. Independent of the target domain, design methods commonly target equilibrium structures, i.e., local minima in the Born–Oppenheimer potential energy surface (PES). Two approaches dominate the computational discovery of equilibrium structures: Geometry relaxation 
+
+[13 – 15 ] iteratively follows interatomic forces to a local minimum, demanding multiple computationally expensive calculations [ 16 ], which becomes infeasible at scale. To address these limitations, a plethora of machine learning force field (MLFF) [17 –21 ] models, such as kernel methods [ 3 , 22 –26 ] and neural networks [ 27 – 39 ] have emerged [ 40 ]. Once trained, they enable relaxation from arbitrary inputs with any gradient-descent algorithm. However, this efficiency relies on extensive training data, with MLFFs requiring datasets of non-equilibrium geometries [ 41 –43 ] labeled with energies and forces from quantum-mechanical calculations. Because these datasets typically only cover a small fraction of the configurational space, MLFFs can fail to reliably relax high-energy inputs, such as randomly sampled or strongly perturbed coordinates [44]. The second approach relies on generative models , which bypass force labels entirely by directly learning the distribution of equilibrium structures, enabling substantial progress in computational chemistry [5 , 45 –48 ]. Auto-regressive models [ 49 , 50 ] build molecules atom by atom, while diffusion-based denoisers [ 51 , 52 ] iteratively remove noise from non-equilibrium geometries and currently achieve state-of-the-art results on de novo structure generation [ 53 – 57 ] and adjacent tasks such as conditional generation [ 54 ], conformer generation [ 58 –60 ], fragment-based design [ 1 , 11 ], and protein-pocket–targeted generation [ 61 , 62 ]. However, because diffusion-based models take the current noise level as a network input, sampling is restricted to a fixed schedule and intermediate structures cannot be freely modified between steps. Both are freedoms that MLFF relaxation naturally provides. Although various approaches have been developed to accelerate classical diffusion models, e.g., distillation [ 63 –65 ], better samplers [ 66 , 67 ], optimized noise schedules [ 68 –70 ], consistency models [ 71 –73 ], and steering [ 74 ], the underlying issues remain core challenges in the field. In this work, we propose generative pseudo-force fields (GPFFs), a hybrid between MLFFs (inheriting their sampling flexibility) and diffusion models (inheriting their equilibrium-only training). A GPFF defines a quadratic pseudo-PES whose minima coincide with reference equilibria. Its pseudo-forces and pseudo-energies are cheap to compute on the fly, removing the need for DFT labels. As in diffusion, training data is generated by perturbing equilibria with Gaussian noise, but training uses the standard MLFF (pseudo-)force-regression loss. As a consequence, GPFF learns pseudo-forces whose magnitude scales with the noise level, in contrast to diffusion models that learn normalized noise vectors of unit scale at every noise level (Figure 1a). We show that GPFF is a time-step-agnostic variance-exploding (VE) [ 52 , 75 ] diffusion model: the score is recovered in closed form from the predicted pseudo-forces, and the temperature of the corresponding Boltzmann distribution is set by the diffusion noise level. This dual nature is the central methodological feature of GPFF, and it is reflected directly in the sampling toolbox, for which we propose two complementary families of samplers (Figure 1b): 
+
+From the MLFF perspective , pseudo-forces drive iterative structure relaxation through direct denois-ing (DD), a new sampler that iteratively refines towards the equilibrium. As in MLFF relaxation, intermediate structures can be modified at every step to enforce constraints, which we illustrate with shape-targeted (DD+shape) and scaffold-based (DD+scaffold) generation (Figure 1c). 
+
+From the diffusion perspective , the recovered score makes GPFF a drop-in replacement in standard ancestral, Heun, and stochastic-Heun samplers [ 52 , 67 ]. The implicit noise-level encoding additionally yields a cost-free noise-level estimate from the predicted pseudo-forces, which we use to propose adaptive sampling (AS), a novel strategy that corrects for deviations from the true noise schedule and can be applied on top of any of the three standard samplers. Importantly, all of these samplers operate on the same trained model and can be selected without retraining, depending on the target application. The 3MLFF-style DD samplers enable fast relaxation, targeted design, refinement of given structures, and integration into existing MLFF relaxation pipelines. The diffusion-style samplers cover the standard generative use case, with AS especially beneficial at low step counts. We evaluate GPFF on QM9 [ 76 ] across all proposed samplers and their non-adaptive baseline coun-terparts. With MLFF-inspired DD, GPFF achieves 100% validity at 256 steps and over 50% validity at only 6 steps, outperforming comparable diffusion models. DD introduces a bias towards compact, spherical molecules in the generated property distributions. Enforcing geometric shapes on intermediate structures removes this bias without loss of efficiency or validity, and provides an intuitive route to targeted design (rod, disc, sphere shapes). Furthermore, geometric constraints can be imposed, which we showcase by building a molecular design tool. With diffusion samplers, GPFF outperforms the diffusion baseline and accurately captures QM9 property distributions, and the adaptive variants further improve both validity and cost, e.g., adaptive Heun improves validity from 87% to 92% at 255 steps. This work is organized as follows: in Section 2, we discuss related approaches that connect DMs with MLFFs or remove their noise-level conditioning. In Section 3, we describe our methodology, starting with the GPFF model and its background followed by the proposed sampling strategies. We present our results of training a GPFF model on QM9 and evaluating it with all samplers in Section 4. Finally, we provide a conclusion and an outlook on future research directions in Section 5. 
+
+# 2 Related work 
+
+Several works have drawn a connection between diffusion-based training and MLFFs. Zaidi et al. [ 77 ]showed that denoising equilibrium structures perturbed with Gaussian noise is related to learning a force field, and used this objective for property-prediction pretraining. When training a diffusion model on data that comes from molecular dynamics trajectories, the resulting score function approximates a force field that can drive coarse-grained molecular-dynamics simulation [ 78 , 79 ]. The closest molecular precedents to GPFF leverage this connection in different ways. MoreRed [ 44 ] introduced the term 
+
+pseudo-PES and the corresponding design intuition for molecular relaxation, but trains a noise-conditional diffusion model and recovers the time step with a separate predictor network. R-DM [ 80 ]trains a noise-agnostic denoiser on slightly perturbed structures for molecular structure optimization with chemical accuracy, using a physics-informed Riemannian manifold of internal coordinates whose metric aligns with molecular energy change. Furthermore, a growing body of recent work argues that noise-level conditioning is not strictly necessary in denoising-based generative models. The idea is rooted in blind image denoising [ 81 , 82 ], where a single denoiser handles a range of noise levels without explicit conditioning. Sun et al. [ 83 ] systematically remove noise conditioning from a wide range of diffusion-based generative models and find graceful degradation, or even improvement, on image benchmarks, while Equilibrium Matching [ 84 ] and Energy Matching [ 85 ] propose noise-agnostic methods on images that explicitly learn a single, noise-independent gradient field of an energy-like quantity. Concurrent theoretical work explains why this works: Kadkhodaie et al. [ 86 ] prove that on low-dimensional data manifolds, a noise-agnostic denoiser can implicitly read the noise level off the noisy input, while Sahraee-Ardakan et al. [ 87 ] formalize the resulting generative process as a Riemannian gradient flow on a marginal energy obtained by averaging over noise levels. GPFF can be viewed as the molecular-domain instance of this noise-agnostic class. Compared to image-domain members, it is grounded in the MLFF / structure-relaxation analogy with an explicit Cartesian pseudo-PES that yields a closed-form correspondence between the training objective and the VE diffusion perturbation kernel at every noise level. Compared to R-DM, GPFF works in Cartesian space, supports sampling from arbitrary (including high-noise) initial geometries, and is positioned as a full molecular design tool with flexible geometric constraints rather than a 4near-equilibrium structure optimizer. 
+
+# 3 Methods 
+
+This work encompasses two methodological contributions: generative pseudo-force fields, a novel method for learning machine learning force fields (MLFFs) based on a diffusion-inspired pseudo-energy function, and several sampling strategies for finding equilibrium molecules that leverage the time-agnostic nature of our method compared to conventional diffusion models. In the following, we separate models and sampling into individual sections. First, we briefly summarize machine learning force fields and diffusion models (DM) before introducing our generative pseudo-force field (GPFF). Afterwards, we describe the sampling strategies that we employ for GPFF and the baseline DM. We denote the Cartesian coordinates of a molecule with n atoms as a matrix X ∈ Rn×3. To keep formulas brief, we use the following conventions. Any binary operation between matrices and a scalar (e.g., addition or division) is understood entry-wise. Likewise, the gradient ∇Xf (X) of a function 
+
+f : Rn×3 → R is computed entry-wise. Finally, we write X ∼ N (μ, σ 2I) for a matrix with entries following an isotropic multivariate Gaussian with mean matrix μ ∈ Rn×3 and a variance of σ in all 3 n
+
+dimensions. The corresponding probability density function is 
+
+N (μ, σ 2I) = 1
+
+Z exp 
+
+
+
+− ∥X − μ∥2
+
+> F
+
+2σ2
+
+
+
+, (1) where Z is a normalization constant and ∥·∥ F is the Frobenius norm. 
+
+## 3.1 Background: Learning potential energy surfaces and probability distri-butions of equilibrium molecules 
+
+GPFF combines concepts of two existing approaches for finding equilibrium structures. MLFFs directly approximate the PES E(X) where E : Rn×3 → R, while DMs capture a probability distribution over the configurational space p(X) with probability density p : Rn×3 → (0 , ∞). In the following, we will briefly summarize these approaches. 
+
+Machine learning force fields Let ˜X ∈ Rn×3 denote the Cartesian coordinates of a non-equilibrium molecular structure. We can relax ˜X into an equilibrium configuration by repeatedly doing small gradient descent steps on the PES, which corresponds to following the forces F( ˜X) = −∇ ˜XE( ˜X), with recent machine learning approaches aiming to accelerate this by enabling larger steps [ 88 –90 ]. Typically, MLFFs are trained to predict energies ˆE( ˜X) and forces ˆF( ˜X) via the mean squared error loss 
+
+LMLFF = E ˜X∼qdata 
+
+λE ∥E( ˜X) − ˆE( ˜X)∥2 + λF∥F( ˜X) − ˆF( ˜X)∥2
+
+> F
+
+ , (2) where λE and λF are weighting factors for the energy and force components and the expectation over qdata is approximated by an average over the training data samples. Many MLFF models explicitly compute the forces as the negative gradient of the predicted energy, thereby enforcing energy conservation [28, 32, 34, 91]. 
+
+Diffusion models Instead of explicitly approximating the PES, generative machine learning models capture the distribution of the training data. Our GPFF builds on variance exploding DMs [ 52 , 75 ], which 5are probabilistic models that learn to map samples from a simple prior distribution pprior = N  0, σ 2 
+
+> T
+
+I
+
+to the target distribution qdata , e.g.,the manifold of equilibrium molecules. Given an equilibrium molecule X0, we obtain off-manifold samples ˜Xt by corrupting the Cartesian coordinates with Gaussian noise ϵt ∼ N (0, I), ϵt ∈ Rn×3:˜Xt = X0 + σt · ϵt . (3) This creates a path of T steps between the data sample and a sample from the prior distribution if we use a monotonically increasing noise schedule σ1 < · · · < σ T . Each step t is characterized by a Gaussian perturbation kernel , as the closed-form conditional distribution 
+
+q( ˜Xt | X0) = N  X0, σ 2 
+
+> t
+
+I = 1
+
+Z exp − ∥ ˜Xt − X0∥2
+
+> F
+
+2σ2
+
+> t
+
+!
+
+, t = 1 , . . . , T . (4) The last step approximately gives a sample from the prior N  X0, σ 2 
+
+> T
+
+I ≈ N  0, σ 2 
+
+> T
+
+I if σT ≫ σdata .DMs learn to reverse this noising process. The resulting denoising process involves following the score 
+
+at each step t, which is the gradient of the log-probability of the corresponding perturbation kernel 
+
+s( ˜Xt, t ) = ∇ ˜Xt log q( ˜Xt|X0) = ∇ ˜Xt − ∥ ˜Xt − X0∥2
+
+> F
+
+2σ2
+
+> t
+
+!
+
+= − ˜Xt − X0
+
+σ2
+
+> t
+
+= − ϵt
+
+σt
+
+. (5) A common approach is to learn to predict quantities related to the score given the corrupted sample ˜Xt and either the time step t or the corresponding noise level σt, such as the direction ϵt of the noise that was added to the original sample, the clean data X0, or a combination of both to enforce an output of unit variance [ 51 , 67 , 70 ]. Since the noise level σt is known, one can reconstruct the score from the predicted noise direction as ˆs( ˜Xt, t ) = −ˆϵ( ˜Xt, t )σt [51 , 52 ] or from the predicted clean data using Tweedie’s formula 
+
+ ˆX0( ˜Xt, t ) − ˜Xt
+
+ σ2 
+
+> t
+
+[ 67 , 92 , 93 ]. We follow the noise parameterization for the baseline DM in our results, using the objective 
+
+LDM = Et∼q(t),X0∼qdata , ˜Xt∼q( ˜Xt|X0)
+
+
+
+ϵt − ˆϵ( ˜Xt, t ) 2
+
+> F
+
+
+
+. (6) The expectation over qdata is approximated by an average over the training data samples, whereas the remaining expectations are numerically performed by sampling from a distribution over time steps q(t)and applying the perturbation kernel q( ˜Xt|X0). The choice of q(t) can have a significant effect on the sampling quality of DMs and we optimize it according to the procedure proposed in EDM [ 67 ] (see Appendix A.4). Once trained, DMs start denoising with a sample from the prior distribution ˜XT ∼ N  0, σ 2 
+
+> T
+
+I used as the endpoint of the forward noising process during training and iteratively follow the score function over a fixed number of steps. Throughout the trajectory, a noise schedule controls the step sizes and keeps track of the noise level σt which is needed as an input for model inference and obtaining the score. Commonly used samplers for denoising include ancestral sampling [ 52 ], which performs a single score-based update per step, Heun sampling [ 67 ], which applies a second-order corrector at the cost of two inference calls per step, and stochastic Heun [67], which additionally injects noise at each step. 63.2 Generative pseudo-force fields 
+
+Similar to MLFFs, we design GPFF as a PES-based force predictor for molecular relaxation. However, we replace the DFT-based PES of traditional MLFFs with a pseudo-PES, where energies for non-equilibrium molecules are calculated with respect to the coordinates of a reference equilibrium molecule 
+
+X0:
+
+E( ˜X | X0) = ∥ ˜X − X0∥2 
+
+> F
+
+. (7) The minimum of this pseudo-PES coincides with a known equilibrium structure on the physical PES and the pseudo-energies must increase with deviation from the reference point. As in DMs, we augment equilibrium molecules with Gaussian noise to obtain non-equilibrium structures for training (Eq. 3). To reduce label ambiguity for molecules with multiple atoms of the same species, we align the atom indexing of the noisy structure to match the reference equilibrium structure (details in Appendix A.8) [ 94 ]. The pseudo-energy allows us to cheaply compute labels for the obtained pairs without requiring DFT calculations. The corresponding pseudo-forces are then given as 
+
+F( ˜Xt | X0) = −∇ ˜Xt E( ˜Xt | X0) = −2( ˜Xt − X0) = −2σtϵt . (8) The GPFF model learns to predict the pseudo-energies and pseudo-forces given noisy samples ˜Xt
+
+based on the mean squared error objective for MLFFs (Eq. 2). While for large noise values, i.e., 
+
+t → T , the resulting noisy structures become physically non-plausible, the pseudo-forces converge to the physical forces as t → 0 [ 78 , 79 ]. Any existing MLFF model can be used without modifications to the architecture. In this work, we employ the SchNetPack implementation [ 95 , 96 ] of the neural network architecture PaiNN [ 32 ]. As in conventional MLFF training, pseudo-forces can in principle be computed as derivatives of predicted energies. However, we find that this constraint does not lead to improved performance in practice. We therefore omit the energy term from the loss (i.e., λE = 0) and directly learn the pseudo-forces using the gated-equivariant output head of PaiNN. To prevent that large pseudo-forces dominate the loss, our forces loss weight λF = σ−2 
+
+> t
+
+is reciprocal to the noise level of training samples. The resulting, simplified loss is 
+
+Lsimple = Et∼q(t), X0∼qdata , ˜Xt∼q( ˜Xt|X0)
+
+σ−2 
+
+> t
+
+∥ − 2σtϵt − ˆF( ˜X)∥2 , (9) where the expectations are computed as in DM training and q(t) is chosen as described in Appendix A.4. 
+
+GPFFs as time-step-agnostic diffusion models GPFFs and diffusion models are closely re-lated. Given a PES E( ˜Xt|X0), we can obtain a corresponding probability density via the Boltzmann distribution 
+
+p( ˜Xt) = 1
+
+Z exp − E( ˜Xt|X0)
+
+kBTphys 
+
+!
+
+= 1
+
+Z exp − ∥ ˜Xt − X0∥2
+
+> F
+
+kBTphys 
+
+!
+
+, (10) where kB is the Boltzmann constant and Z is the normalizing partition function. It assigns higher density to low-energy configurations, with the strength of this preference controlled by the physical temperature 
+
+Tphys . The Boltzmann distribution of our GPFF is identical to the perturbation kernel in variance exploding diffusion (Eq. 4) if we set the temperature depending on the noise level Tphys = 2 σ2
+
+> t
+
+kB. In fact, we can directly reconstruct the score of the perturbation kernel (Eq. 5) with the forces predicted by a GPFF just as with the noise direction predicted by a diffusion model: 7ˆs( ˜Xt, t ) = − ˆϵ( ˜Xt, t )
+
+σt
+
+= ˆX0 − ˜Xt
+
+σ2
+
+> t
+
+= ˆF( ˜Xt)2σ2
+
+> t
+
+. (11) Accordingly, GPFFs can be utilized with any existing sampling strategy for variance exploding diffusion models. However, there exist important differences between GPFFs and diffusion models in the training target and time-step handling. While diffusion models are usually trained on quantities with unit variance such as the normalized noise direction ϵt, the forces learned by GPFFs have a magnitude that implicitly encodes the noise level σt:ˆϵ( ˜Xt, t ) ≈ ˜Xt − X0
+
+σt
+
+= ϵt and ˆF( ˜Xt) ≈ − 2( ˜Xt − X0) = −2σtϵt . (12) Furthermore, diffusion models are conditioned on the time step t (or the noise level σt). This means that they are limited to reverse processes with a fixed schedule where the time step and the corresponding noise level σt are always known. In contrast, GPFFs are trained without conditioning on t, they only take noisy structures ˜Xt as input and implicitly estimate the noise level when predicting forces, which was shown to be feasible with Gaussian noise in a high dimensional space [ 44 ]. We confirm this empirically in Appendix A.9, where adding explicit time-step conditioning to GPFF brings no measurable improvement; the converse experiment, removing time conditioning from the DM, is reported in Appendix A.10 and shows a large drop in validity. Therefore, they can be interpreted as time-step-agnostic diffusion models that enable denoising of arbitrary input structures and facilitate adaptive sampling strategies. 
+
+## 3.3 Sampling strategies 
+
+We develop and evaluate several sampling algorithms that exploit the flexibility of GPFF as the second main contribution of this work. Because GPFF is time-step-agnostic, denoising steps do not require a fixed noise schedule, allowing a wide range of sampling strategies and priors. In the following, we propose direct denoising, a family of sampling approaches that iteratively refine a direct prediction of X0 similar to fixed-point iteration schemes. Furthermore, we show how GPFFs can be employed with traditional, diffusion-based samplers and then propose adaptive variants that specifically leverage the time-step-agnostic design of GPFFs. Pseudocode for all algorithms is provided in Appendix A.12. Since some strategies take less denoising steps than the number of steps T employed during training, we adopt a separate notation for the denoising steps: i ∈ { 0, 1, . . . , N } denotes the step index, where ˜X(0) corresponds to a sample from the prior and N is the maximum number of steps. 
+
+Direct denoising Our base strategy, direct denoising (DD), is inspired by structure relaxation with MLFFs and directly uses the predicted pseudo-forces ˆF to drive noisy geometries towards local minima in the pseudo-PES. Because the pseudo-PES is locally quadratic, pseudo-forces admit a closed-form update for equilibrium coordinates from any point ˜X(i) close to a minimum: ˆX0( ˜X(i)) = ˜X(i) + 12 ˆF( ˜X(i)) (13) Structures with larger amounts of noise might have come from different reference equilibria and therefore the learned forces will rather point towards a region of less noisy configurations than directly to a single minimum. Therefore, we design DD as an iterative sampler, where each step further refines the 8structure until it converges according to a force threshold ∥ ˆF∥max ≤ fmax :˜X(i+1) = ˆX0( ˜X(i)) . (14) Similar to MLFF-based relaxation, sampling can start from a flexible choice of prior and intermediate structures can be modified intuitively. We define three additional variants of DD. First, a stochastic variant (SDD) where intermediate coordinates are perturbed with isotropic Gaussian noise, scaled by a linearly decaying schedule, allowing to explore more local minima: ˜X(i+1) = ˆX0( ˜X(i)) + σ(i) · ϵ(i) with ϵ(i) ∼ N (0, I) and σ(i) = 1 − iN . (15) Second, we propose DD+shape for guiding the sampler towards a target shape parameterized by a 3 × 3covariance matrix Σtarget , whose diagonal in the principal frame gives the target principal variances 
+
+λtarget = ( λx, λ y , λ z ). Before each denoising step, the current positions are aligned to their respective principal frames and the current variances ˜λ are rescaled by soft element-wise multiplication to match the target variances. To avoid over-constraining the geometry near equilibrium, we interpolate between the corrected and uncorrected positions using α = ( i/N )p, where p governs the strictness: ˜X(i)shaped = (1 − α) ·
+
+r λtarget 
+
+˜λ · ˜X(i) + α · ˜X(i) . (16) Finally, we propose DD+scaffold that enforces a valid molecular sub-structure during sampling. DD+scaffold starts from a mixed prior ˜X(0) where some positions are defined by the target sub-structure and remaining atoms are sampled from Gaussian noise. At every denoising step, the pseudo-forces on scaffold atoms are set to zero, while non-scaffold atoms are free to move. All three variants can be combined with each other and with either DD or SDD. However, SDD and DD+shape introduce 
+
+i-dependent schedules for noise injection and shape enforcement respectively, which prevent the use of the force-based stopping criterion fmax ; all configurations involving these variants therefore use a fixed number of steps N .
+
+Diffusion-based adaptive sampling (AS) With the score-force conversion of Equation (11) , GPFF predictions can be used directly inside standard diffusion samplers. Unlike the DM, GPFF ignores the time-step input and relies solely on the geometry, but the fixed noise schedule still governs the step sizes and noise injection of the sampler. In this work, we follow the EDM noise schedule by Karras et al. [ 67 ]
+
+σ(i+1) (σ(i), ∆s) = 
+
+
+
+(σ(i)) 1 
+
+> ρ
+
+− ∆s · (σ 1 
+
+> ρ
+> max
+
+− σ 1
+
+> ρ
+> min
+
+)
+
+ρ
+
+, (17) where σ(0) = σmax , ρ defines the steepness of the noise decay and the step size ∆ s = 1  
+
+> N−1
+
+is determined by the number of steps and constant in ρ-space. As the model prediction is approximate and the sampler discretizes a continuous process into finite steps, both the model and the sampler introduce errors during denoising. These errors can cause the observed noise level ˆσ(i) to diverge from the schedule σ(i). Stochastic samplers partially compensate through noise injection, which limits error accumulation at the cost of additional NFE [ 67 , 70 ]. However, because the pseudo-forces also encode the magnitude of the perturbation σ(i)ϵ(i), Equation (8) naturally provides a cost-free estimate of the true noise level ˆσ(i) = std( ˆF( ˜X(i))/2) . (18) Comparing ˆ σ(i) to the estimate at the previous step ˆ σ(i−1) additionally yields an estimate of the true 9step size taken by the previous denoising step ∆ˆ s(i−1) = (ˆ σ(i−1) ) 1 
+
+> ρ
+
+− (ˆ σ(i)) 1
+
+> ρ
+
+σ 1 
+
+> ρ
+> max
+
+− σ 1
+
+> ρ
+> min
+
+. (19) We leverage these estimates to adjust the schedule as follows. At every step, AS replaces the scheduled noise level with the estimate σ(i) = ˆσ(i). The sampler is initialized with an ambitious target step size ∆ s(0) = 1 
+
+> Ntarget −1
+
+, aiming for Ntarget ≪ N steps. From i ≥ 1, the step size is additionally adjusted by adopting the observed value ∆ s(i) = ∆ ˆs(i−1) , and the next noise level is computed as 
+
+σ(i+1) AS = σ(i+1) ( ˆσ(i), ∆ ˆs(i−1) ). If the model denoises faster than Ntarget prescribes, the step size grows and sampling terminates early; if slower, the adjusted step size yields a more conservative schedule for subsequent steps. To prevent stagnation, we define a non-adaptive upper bound σ(i+1) upper based on 
+
+N steps, ensuring termination by enforcing σ(i+1) AS ≤ σ(i+1) upper . The mechanism applies identically to ancestral, Heun, and stochastic Heun sampling. For the stochastic Heun variant, part of the injected noise variance is subtracted from ˆσ(i) to ensure the adaptation reflects genuine denoising progress (details in Appendix A.3). As with DD, the dynamic schedule of AS also allows using arbitrary priors where the initial noise level is unknown. We show example adaptive sampling trajectories and their target and maximum noise schedules in Appendix Figure 7. 
+
+# 4 Results 
+
+We train both GPFF and a DM baseline on the valid 123,569 QM9 molecules [ 76 ]. In all experiments we generated 10,000 molecules, initialized from an isotropic Gaussian prior with σmax = 30 .0 ˚A, except for DD+shape which uses a shaped Gaussian prior from the shape predictor. Model and sampling parameters as well as noise level sampling according to Karras et al. [ 67 ], can be found in Appendix A.1, A.2, and A.4, respectively. We assess the quality of the generated structures with a threefold test: 
+
+• Validity requires a parseable, connected, radical-free molecular graph as per RDKit’s 
+
+DetermineBonds [97]. 
+
+• Distributional agreement between the valid molecules and QM9 is measured by Jensen–Shannon (JS) divergence (100-bin histograms) of maximum pairwise atomic distance (MPD), HOMO–LUMO gap, and atomization energy U0 (latter two as per another PaiNN model, see Appendix A.7). 
+
+• Computational cost is reported as the mean NFEs per molecule. Note that Heun-type samplers require 2 N − 1 NFE for N schedule steps, while ancestral sampling and GPFF direct denoising use one NFE per step. 
+
+## 4.1 Direct denoising leads to a spherical bias 
+
+We evaluate GPFF with DD and SDD against the DM baseline using ancestral, Heun, and stochastic Heun sampling (see Figure 2). DD stops when reaching the fmax threshold values while SDD and the diffusion-based samplers run for a fixed number of steps. Our method GPFF consistently outperforms the DM baselines in validity: in the deterministic regime GPFF reaches 93% validity versus 84% for Heun (left panel), and in the stochastic regime it achieves 100% versus 95% for stochastic Heun and 91% for ancestral sampling. Notably, GPFF already achieves approximately 50% validity after only 6 NFE, while the DM baselines remain near 0% at similar inference calls. 10 3 10 100 256 
+
+Mean NFE    
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Validity
+> 0.84
+> 0.93
+> (GPFF) DD
+> (DM) Heun
+> 310 100 256
+
+Mean NFE   
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Validity
+> 0.91
+> 0.95
+> 1.00
+> (GPFF) SDD
+> (DM) s. Heun
+> (DM) ancestral
+> 0.00 0.04 0.08
+
+JS divergence 
+
+> MPD
+> gap
+> energy
+> (GPFF) SDD
+> (DM) s. Heun
+> (DM) ancestral
+
+Figure 2: Comparison of GPFF (ours, solid) and DM baselines (dashed). Left: deterministic sampling, comparing GPFF with DD against the DM Heun sampler. Middle: stochastic sampling, comparing GPFF with DD against the DM stochastic Heun (s. Heun) and ancestral samplers. Right: Jensen-Shannon (JS) divergence to QM9 at 250 NFE for the stochastic samplers, decomposed into MPD, HOMO–LUMO gap, and atomization energy contributions. 3 10 100 256 Mean NFE     
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 Validity
+> 0.87 0.94 0.97 0.99 1.00 (GPFF) SDD (GPFF) SDD+shape (GPFF) Heun (GPFF) s. Heun (GPFF) ancestral
+> 0.00 0.02 0.04 0.06 0.08
+
+JS divergence MPD gap energy (GPFF) SDD (GPFF) SDD+shape (GPFF) Heun (GPFF) s. Heun (GPFF) ancestral   
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8 Density  (GPFF) SDD QM9
+> 5.0 7.5 10.0
+
+MPD ( Å)
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8 Density  (GPFF) SDD+shape QM9
+
+Figure 3: Alternative GPFF samplers and their similarity to QM9. Left: validity as a function of NFE for SDD, SDD+shape, Heun, stochastic Heun (s. Heun), and ancestral sampling. Middle: JS divergence to QM9 at 256 NFE for the same GPFF samplers, decomposed into MPD, gap, and energy contributions. Right: MPD-histograms of SDD, SDD+shape and QM9. However, the JS divergence analysis evaluated at 256 NFEs (255 for Heun) reveals that GPFF’s higher validity comes with a distributional bias (right panel). Diffusion-based sampling achieves a low JS divergence in all three properties, while GPFF exhibits higher JS divergence especially in MPD. This effect stems from GPFF initially predicting a dataset-mean-like structure, which tends to be spherical. In the next section, we introduce a two-fold strategy to alleviate this issue. 
+
+## 4.2 Mitigating shape biases 
+
+To address the spherical bias from the previous section we introduce two complementary mitigation strategies: First, we train a lightweight shape predictor (see Appendix A.5) that, conditioned on the number of atoms, samples a target covariance Σtarget used to draw the Gaussian prior; its principal variances λtarget then enforce the target shape during SDD+shape sampling. Second, instead of (S)DD, we employ diffusion-based samplers (see Section 3.3), where the model takes smaller, schedule-constrained steps that naturally prevent the trajectory from collapsing to compact geometries. 11 3 10 100     
+
+> Mean NFE
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Validity
+> 0.91
+> 0.94
+> 0.96
+> ancestral
+> (DM) non-adaptive
+> (GPFF) non-adaptive
+> (GPFF) adaptive
+> 310 100
+> Mean NFE
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Validity
+> 0.84
+> 0.87
+> 0.93
+> Heun
+> (DM) non-adaptive
+> (GPFF) non-adaptive
+> (GPFF) adaptive
+> 310 100
+> Mean NFE
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Validity
+> 0.95
+> 0.97
+> 0.97
+> s. Heun
+> (DM) non-adaptive
+> (GPFF) non-adaptive
+> (GPFF) adaptive
+
+Figure 4: Adaptive versus non-adaptive sampling. Panels compare non-adaptive DM (dashed), non-adaptive GPFF (solid), and adaptive GPFF (dash-dotted) variants for ancestral sampling (left), Heun sampling (middle), and stochastic Heun sampling (right). Curves show validity as a function of NFE. The results are shown in Figure 3. SDD+shape achieves the highest validity overall at 99%, out-performing Heun (87%), stochastic Heun (97%), and ancestral sampling (94%), with SDD from the previous section as comparison (100%) (left panel). The advantage is especially pronounced at low NFE: SDD+shape reaches approximately 40% validity at just 4 NFE, surpassing even standard SDD at the same budget, because the variance-shaped prior already provides a starting point much closer to realistic molecular geometries. All approaches successfully correct the spherical bias (middle panel): the JS divergence drops substantially compared to SDD, with ancestral sampling achieving marginally lower values, though the differences are small at these already low divergence levels. The property histograms (right panel and Appendix A.11) further illustrate the effect. SDD produces a pronounced peak at low MPD values compared to QM9, reflecting the spherical bias, while SDD+shape closely recovers the reference distribution. This confirms that the bias is not a property of the GPFF model itself but of the (S)DD trajectory. The combination of high validity, low NFE, and corrected distributional coverage makes DD+shape particularly suitable when both speed and distributional quality matter, and it is the basis of the targeted design experiments in Section 4.4. 
+
+## 4.3 Exploiting GPFF’s flexibility with adaptive sampling 
+
+In the previous section, GPFF was used with fixed noise schedules for the diffusion-based samplers, leaving the step sizes unadjusted even when the model’s own noise estimate suggested a different pace. The AS mechanism described in Section 3.3 allows GPFF to dynamically adjust step sizes during the reverse trajectory. To this end, we set an ambitious step target of Ntarget = N/ 2. In Figure 4, we show validity as a function of NFE for ancestral sampling (left panel), Heun sampling (middle panel) and stochastic Heun sampling (right panel), where AS outperforms its non-adaptive GPFF counterpart across all three sampler types, with the most improvement at low NFE. At convergence, AS reaches 95%, 92% and 97% validity for ancestral, Heun and stochastic Heun, compared to 94%, 87% and 97% for its non-adaptive version. Notably, even the non-adaptive GPFF samplers consistently outperform the DM baselines, achieving validities of 91%, 84% and 95%, respectively. This improved performance over DMs can be attributed to the model itself, because GPFF is inherently robust to deviations from the scheduled noise level: as a time-agnostic model, it does not receive the scheduled σ(i) as input and instead responds to the actual geometry, making it implicitly adaptive by design. The explicit step-size adjustment in AS amplifies this advantage, with the largest gains observed for the deterministic Heun sampler, where the corrective effect of noise injection is absent. 12 Rod Sphere     
+
+> Disc
+> Rod Sphere
+> Disc
+> QM9 rod (validity=98%) sphere (validity=99%) disc (validity=99%)
+
+Figure 5: Each point represents a molecule mapped to the shape space spanned by rod, sphere, and disc geometries according to its mass-free principal moments of inertia. The enumerative QM9 data set shows a distribution across all three corners of the diagram (left). This flat distribution can be steered with SDD+shape as is shown in the right panel, where a sample of 10,000 structures was generated for each shape, demonstrating the flexibility of our approach. Crosses mark the representative example molecules. The generated clusters match their respective targets, with validity exceeding 98% in all cases. 
+
+## 4.4 Targeted molecular design 
+
+Because GPFF is time-agnostic and does not require fixed diffusion schedules, it naturally supports sampling strategies that guide generation on a geometric level by modifying intermediate structures, analogous to what is possible with MLFFs. In Section 4.2, we showed that enforcing sampled target shapes during generation corrects the bias towards spherical molecules. Here, we leverage this capability for targeted design: first generating molecules with prescribed geometric shapes using SDD+shape, and then adding scaffold constraints to fix substructures during generation. Importantly, no additional GPFF model is trained for these experiments; we only add constraints to the SDD sampler. We extend the shape predictor introduced in Section 4.2 with conditioning on the number of atoms and the target relative variances, enabling it to generate appropriately shaped anisotropic Gaussian priors. These serve both as the initial prior and as the constraint enforced at each step of the DD+shape sampler (256 steps). To demonstrate how we can freely steer the geometry towards a desired shape, we generate 10,000 for each rod-like, sphere-like, and disc-like molecules and plot them by their mass-free principal moments of inertia [ 98 ] in Figure 5 (details in Appendix A.6). In the left panel, the distribution of QM9 is shown, where the isolated cluster near the disc-rod edge corresponds to molecules whose heavy atoms are coplanar, with only hydrogen atoms contributing variance out of the plane. The generated molecules (right panel) match the prescribed target shapes for all three geometries, with validity exceeding 98% in each case. To further illustrate the possibilities for constrained generation with GPFF, we build a simple iterative design tool that combines DD+shape with SDD+scaffold (see Figure 6). While this example serves as an illustrative proof of concept, the approach could be extended to realistic scenarios such as drug discovery, where a desired functional group must be placed within the geometric constraints of a protein pocket[99–102]. We demonstrate the tool by iteratively assembling an out-of-distribution molecule with more heavy atoms than any molecule in QM9. At every stage, the chemist can create a prior (orange blob, left 13 Figure 6: Iterative scaffold-guided design with shape-constrained denoising. Each row shows one stage of a three-step design process which recovers aspirin. In the left column, a prior (orange) is sampled around the current scaffold while keeping scaffold atoms fixed and the randomized atom types in green. The number of atoms and shape of each prior are chosen to steer the design toward aspirin. The remaining columns show representative denoised samples obtained from this prior distribution. One sample per row is highlighted as the selected structure passed to the next design stage. column of Figure 6) that defines the target covariance Σtarget of the sampling distribution, with randomized atom types (denoted in green). From this prior, three (or more) samples are drawn, in this case, propyne, ethylene oxide, and acetaldehyde. We select one candidate as the new scaffold (removing one hydrogen atom), here acetaldehyde from the C2H4O sample, and add the next prior (step 2) in order to extend the molecule to the right. Here, sample 1 with the C8H8O2 (phenyl acetate) atoms was selected. In a last step, a four-atom prior is placed at the ortho position of the benzene. The selected sample contains CHO 2 atoms, forming a carboxylic acid and recovering aspirin. This demonstrates that the MLFF-like behavior of GPFF enables intuitive, iterative molecular design through geometric and structural constraints alone. 
+
+# 5 Discussion and conclusion 
+
+In this work, we introduced GPFF, a generative model that bridges machine learning force fields (MLFFs) and diffusion models (DMs) by reinterpreting the denoising process as relaxation on a pseudo potential energy surface. GPFF adopts the data augmentation strategy of DMs but trains on pseudo-forces using a classical MLFF regression loss, bringing a new intuition to generative modeling that is more accessible to force-field-based reasoning. A key novelty is that GPFF is time-step-agnostic, predicting pseudo-forces whose magnitude naturally scales with the perturbation level. This dual nature allows GPFF to be used from two complementary perspectives. From the MLFF perspective, pseudo-forces drive iterative structure relaxation towards equilibrium, enabling direct denoising (DD) and its variants: SDD (stochastic noise injection), DD+shape (geometric shape enforcement), and DD+scaffold (fixed sub-structures), which can be freely combined and support flexible priors beyond the standard isotropic Gaussian. Following pseudo-forces serves as an attempt to recover the equilibrium geometry in a single step, taking the largest possible denoising 14 update; being time-step-agnostic, GPFF can iteratively refine through repeated pseudo-force updates until convergence. From the diffusion perspective, the score function can be derived directly from the pseudo-forces, allowing GPFF to serve as a drop-in replacement in standard diffusion samplers such as ancestral, Heun, or stochastic Heun sampling. The magnitude-carrying prediction further enables cost-free noise-level estimation, which we exploit for adaptive sampling (AS) to dynamically correct for discretization and prediction errors. Evaluated on QM9, SDD+shape achieves 99% validity at 256 NFE and 70% at 6 NFE, outperforming all diffusion-based alternatives, including stochastic Heun at 95% and ancestral sampling below 10% at 6 NFE. GPFF also improves validity over the diffusion baseline across all diffusion-based samplers, which we attribute to its robustness against deviations from the noise schedule. Adaptive sampling further improves performance, especially at low NFE budgets. We also demonstrated targeted design capabilities by generating molecules with prescribed geometric shapes and iteratively assembling out-of-distribution structures with more heavy atoms than in training molecules through scaffold-guided denoising. Overall, GPFF’s time-step-agnostic design enables two complementary capabilities, both unavailable to standard diffusion models and outperforming them in validity: AS on top of any standard diffusion sampler, and DD with intuitive geometric and structural constraints during generation. By framing generative modeling in the language of forces and structure relaxation, GPFF makes the field more accessible to the molecular simulation community. This study evaluated GPFF exclusively on QM9, which contains small organic molecules with at most nine heavy atoms and its performance on larger systems remains to be demonstrated. Furthermore, GPFF generates only atomic positions with a given composition and does not jointly generate atom types, limiting its applicability to settings where the molecular formula is unknown. Several directions for future work emerge. The pseudo-PES could be extended beyond the simple quadratic form, for instance by incorporating physical energy labels to bias the landscape towards chemically relevant minima. The framework could be broadened to periodic systems, larger molecules, and diverse atom types. The DD framework invites additional geometric and chemical constraints for application-specific design. Finally, GPFF could serve as a pre-training stage for MLFFs, stabilizing them in high-energy regions where training data is typically scarce. 
+
+# Data availability 
+
+Code and data will be made available upon publication. 
+
+# Acknowledgments 
+
+SG was supported by the Postdoc.Mobility fellowship by the Swiss National Science Foundation (project no. 225476). MP is supported by the Konrad Zuse School of Excellence in Learning and Intelligent Systems (ELIZA) through the DAAD programme Konrad Zuse Schools of Excellence in Artificial Intelligence, sponsored by the Federal Ministry of Education and Research. K.R.M. was supported in part by the German Federal Ministry for Research, Technology and Space (BMFTR) under grants 01IS18025A, 031L0207D, 01IS18037A, 16IS24087C. K.R.M. was also supported by the Institute of Information & communications Technology Planning & Evaluation (IITP) grants funded by the Korea government (MSIT) (No. RS-2019-II190079, Artificial Intelligence Graduate School Program of Korea University and No. RS-2024-00457882, AI Research Hub Project). We gratefully acknowledge support by the Deutsche Forschungsgemeinschaft (SFB1114, Projects No. A04 and No. B08) and the Berlin Mathematics center MATH+ (AA1-10, AA2-20, AA-Health-2). During the preparation of this 15 manuscript and during coding we used Claude Opus 4.6 and 4.7 for drafting and polishing purposes. All outputs were reviewed and edited by the authors, who take full responsibility for the content. 16 References 
+
+[1] Philip J. Hajduk and Jonathan Greer. A decade of fragment-based drug design: strategic advances and lessons learned. Nature Reviews Drug Discovery , 6(3):211–219, 2007. doi: 10.1038/nrd2220. [2] Geoffroy Hautier, Anubhav Jain, Hailong Chen, Charles Moore, Shyue Ping Ong, and Gerbrand Ceder. Novel mixed polyanions lithium-ion battery cathode materials predicted by high-throughput ab initio computations. Journal of Materials Chemistry , 21(43):17147–17153, 2011. doi: 10.1039/ c1jm12216a. [3] Matthias Rupp, Alexandre Tkatchenko, Klaus-Robert M¨ uller, and O. Anatole von Lilienfeld. Fast and accurate modeling of molecular atomization energies with machine learning. Physical Review Letters , 108(5):058301, 2012. [4] Jean-Louis Reymond. The chemical space project. Accounts of Chemical Research , 48(3):722–730, February 2015. ISSN 1520-4898. doi: 10.1021/ar500432k. URL http://dx.doi.org/10.1021/ ar500432k .[5] Frank No´ e, Simon Olsson, Jonas K¨ ohler, and Hao Wu. Boltzmann generators: Sampling equilibrium states of many-body systems with deep learning. Science , 365(6457):eaaw1147, 2019. doi: 10.1126/science.aaw1147. [6] O. Anatole von Lilienfeld, Klaus-Robert M¨ uller, and Alexandre Tkatchenko. Exploring chemical compound space with quantum-based machine learning. Nature Reviews Chemistry , 4(7):347–358, 2020. doi: 10.1038/s41570-020-0189-9. [7] Stefan Gugler, Jon Paul Janet, and Heather J. Kulik. Enumeration of de novo inorganic complexes for chemical discovery and machine learning. Molecular Systems Design & Engineering , 5(1): 139–152, 2020. ISSN 2058-9689. doi: 10.1039/c9me00069k. URL http://dx.doi.org/10.1039/ C9ME00069K .[8] Arghya Bhowmik, Ivano E. Castelli, Juan Maria Garcia-Lastra, Peter Bjørn Jørgensen, Ole Winther, and Tejs Vegge. A perspective on inverse design of battery interphases using multi-scale modelling, experiments and generative deep learning. Energy Storage Materials , 21:446–456, 2019. ISSN 2405-8297. doi: 10.1016/j.ensm.2019.06.011. [9] Jessica G. Freeze, H. Ray Kelly, and Victor S. Batista. Search for catalysts by inverse design: Artificial intelligence, mountain climbers, and alchemists. Chemical Reviews , 119(11):6595–6612, 2019. doi: 10.1021/acs.chemrev.8b00759. PMID: 31059236. [10] Philippe Gantzer, Benoit Creton, and Carlos Nieto-Draghi. Inverse-qspr for de novo design: A review. Molecular Informatics , 39(4):1900087, 2020. doi: 10.1002/minf.201900087. [11] Rajendra P. Joshi, Niklas W. A. Gebauer, Mridula Bontha, Mercedeh Khazaieli, Rhema M. James, James B. Brown, and Neeraj Kumar. 3D-Scaffold: A deep learning framework to generate 3d coordinates of drug-like molecules with desired scaffolds. Journal of Physical Chemistry B ,125(44):12166–12176, 2021. doi: 10.1021/acs.jpcb.1c06437. [12] St´ ephanie P´ erot, Olivier Sperandio, Maria A. Miteva, Anne-Claude Camproux, and Bruno O. Villoutreix. Druggable pockets and binding site centric chemical space: a paradigm shift in drug discovery. Drug Discovery Today , 15(15–16):656–667, August 2010. ISSN 1359-6446. doi: 10.1016/j.drudis.2010.05.015. URL http://dx.doi.org/10.1016/j.drudis.2010.05.015 .[13] Frank Jensen. Introduction to Computational Chemistry . Wiley, 3 edition, 2017. ISBN 978-1-118-82599-0. 17 [14] Christopher J. Cramer. Essentials of Computational Chemistry: Theories and Models . Wiley, 2 edition, 2004. ISBN 978-0-470-09182-1. [15] H. Bernhard Schlegel. Geometry optimization. WIREs Computational Molecular Science , 1 (5):790–809, May 2011. ISSN 1759-0884. doi: 10.1002/wcms.34. URL http://dx.doi.org/10. 1002/wcms.34 .[16] Pierre Hohenberg and Walter Kohn. Inhomogeneous electron gas. Physical Review , 136(3B):B864, 1964. doi: 10.1103/PhysRev.136.B864. [17] Frank No´ e, Alexandre Tkatchenko, Klaus-Robert M¨ uller, and Cecilia Clementi. Machine learning for molecular simulation. Annual Review of Physical Chemistry , 71(1):361–390, 2020. doi: 10.1146/annurev-physchem-042018-052331. [18] Oliver T. Unke, Stefan Chmiela, Huziel E. Sauceda, Michael Gastegger, Igor Poltavsky, Kristof T. Sch¨ utt, Alexandre Tkatchenko, and Klaus-Robert M¨ uller. Machine learning force fields. Chemical Reviews , 121(16):10142–10186, 2021. doi: 10.1021/acs.chemrev.0c01111. [19] Oliver T. Unke, Martin St¨ ohr, Stefan Ganscha, Thomas Unterthiner, Hartmut Maennel, Sergii Kashubin, Daniel Ahlin, Michael Gastegger, Leonardo Medrano Sandonas, Joshua T. Berryman, Alexandre Tkatchenko, and Klaus-Robert M¨ uller. Biomolecular dynamics with machine-learned quantum-mechanical force fields trained on diverse chemical fragments. Science Advances , 10 (14):eadn4397, 2024. doi: 10.1126/sciadv.adn4397. URL https://www.science.org/doi/abs/ 10.1126/sciadv.adn4397 .[20] Felix Musil, Andrea Grisafi, Albert P Bart´ ok, Christoph Ortner, G´ abor Cs´ anyi, and Michele Ceriotti. Physics-inspired structural representations for molecules and materials. Chemical reviews , 121(16):9759–9815, 2021. [21] Stefan Gugler and Markus Reiher. Molecular similarity in machine learning of energies in chemical reaction networks, 2025. URL https://arxiv.org/abs/2504.18742 .[22] Stefan Chmiela, Alexandre Tkatchenko, Huziel E. Sauceda, Igor Poltavsky, Kristof T. Sch¨ utt, and Klaus-Robert M¨ uller. Machine learning of accurate energy-conserving molecular force fields. 
+
+Science Advances , 3(5):e1603015, 2017. doi: 10.1126/sciadv.1603015. [23] Stefan Chmiela, Huziel E. Sauceda, Igor Poltavsky, Klaus-Robert M¨ uller, and Alexandre Tkatchenko. sgdml: Constructing accurate and data efficient molecular force fields using machine learning. Computer Physics Communications , 240:38–45, 2019. doi: 10.1016/j.cpc.2019.02.007. [24] Stefan Chmiela, Huziel E. Sauceda, Klaus-Robert M¨ uller, and Alexandre Tkatchenko. Towards exact molecular dynamics simulations with machine-learned force fields. Nature Communications ,9(1):3887, 2018. doi: 10.1038/s41467-018-06169-2. [25] Albert P Bart´ ok, Mike C Payne, Risi Kondor, and G´ abor Cs´ anyi. Gaussian approximation potentials: The accuracy of quantum mechanics, without the electrons. Physical review letters ,104(13):136403, 2010. [26] Albert P Bart´ ok, Sandip De, Carl Poelking, Noam Bernstein, James R Kermode, G´ abor Cs´ anyi, and Michele Ceriotti. Machine learning unifies the modeling of materials and molecules. Science advances , 3(12):e1701816, 2017. [27] Gr´ egoire Montavon, Matthias Rupp, Vivekanand Gobre, Alvaro Vazquez-Mayagoitia, Katja Hansen, Alexandre Tkatchenko, Klaus-Robert M¨ uller, and O. Anatole von Lilienfeld. Machine learning of molecular electronic properties in chemical compound space. New Journal of Physics ,15(9):095003, 2013. 18 [28] Kristof T. Sch¨ utt, Pieter-Jan Kindermans, Huziel E. Sauceda, Stefan Chmiela, Alexandre Tkatchenko, and Klaus-Robert M¨ uller. SchNet: A continuous-filter convolutional neural network for modeling quantum interactions. In I. Guyon, U. Von Luxburg, S. Bengio, H. Wallach, R. Fergus, S. Vishwanathan, and R. Garnett, editors, Advances in Neural Information Processing Systems ,volume 30, pages 991–1001. Curran Associates, Inc., 2017. URL https://proceedings.neurips. cc/paper_files/paper/2017/file/303ed4c69846ab36c2904d3ba8573050-Paper.pdf .[29] Kristof T. Sch¨ utt, Huziel E. Sauceda, Pieter-Jan Kindermans, Alexandre Tkatchenko, and Klaus-Robert M¨ uller. SchNet – A deep learning architecture for molecules and materials. The Journal of Chemical Physics , 148(24):241722, 2018. doi: 10.1063/1.5019779. [30] Oliver T. Unke, Stefan Chmiela, Michael Gastegger, Kristof T. Sch¨ utt, Huziel E. Sauceda, and Klaus-Robert M¨ uller. Spookynet: Learning force fields with electronic degrees of freedom and nonlocal effects. Nature Communications , 12(1):7273, 2021. doi: 10.1038/s41467-021-27504-0. [31] Oliver T. Unke and Markus Meuwly. PhysNet: a neural network for predicting energies, forces, dipole moments, and partial charges. Journal of Chemical Theory and Computation , 15(6): 3678–3693, 2019. doi: 10.1021/acs.jctc.9b00181. [32] Kristof T. Sch¨ utt, Oliver T. Unke, and Michael Gastegger. Equivariant message passing for the prediction of tensorial properties and molecular spectra. In Marina Meila and Tong Zhang, editors, Proceedings of the 38th International Conference on Machine Learning , volume 139 of Proceedings of Machine Learning Research , pages 9377–9388. PMLR, 18–24 Jul 2021. URL 
+
+https://proceedings.mlr.press/v139/schutt21a.html .[33] John A. Keith, Valentin Vassilev-Galindo, Bingqing Cheng, Stefan Chmiela, Michael Gastegger, Klaus-Robert M¨ uller, and Alexandre Tkatchenko. Combining machine learning and computational chemistry for predictive insights into chemical systems. Chemical Reviews , 121(16):9816–9872, 2021. [34] Simon Batzner, Albert Musaelian, Lixin Sun, Mario Geiger, Jonathan P. Mailoa, Mordechai Kornbluth, Nicola Molinari, Tess E. Smidt, and Boris Kozinsky. E(3)-equivariant graph neural networks for data-efficient and accurate interatomic potentials. Nature Communications , 13(1): 2453, May 2022. ISSN 2041-1723. doi: 10.1038/s41467-022-29939-5. [35] Ilyes Batatia, Philipp Benner, Yuan Chiang, Alin M Elena, D´ avid P Kov´ acs, Janosh Riebesell, Xavier R Advincula, Mark Asta, Matthew Avaylon, William J Baldwin, et al. A foundation model for atomistic materials chemistry. The Journal of chemical physics , 163(18), 2025. [36] J. Thorben Frank, Oliver T. Unke, and Klaus-Robert M¨ uller. So3krates: Equivariant attention for interactions on arbitrary length-scales in molecular systems. In S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh, editors, Advances in Neural Information Processing Systems , volume 35, pages 29400–29413. Curran Asso-ciates, Inc., 2022. URL https://proceedings.neurips.cc/paper_files/paper/2022/file/ bcf4ca90a8d405201d29dd47d75ac896-Paper-Conference.pdf .[37] J. Thorben Frank, Oliver T. Unke, Klaus-Robert M¨ uller, and Stefan Chmiela. A euclidean transformer for fast and stable machine learned force fields. Nature Communications , 15(1):6539, 2024. [38] Max Eissler, Tim Korjakow, Stefan Ganscha, Oliver T. Unke, Klaus-Robert M¨ uller, and Stefan Gugler. How simple can you go? an off-the-shelf transformer approach to molecular dynamics. 
+
+The Journal of Chemical Physics , 164(9), 2026. 19 [39] J. Thorben Frank, Stefan Chmiela, Klaus-Robert M¨ uller, and Oliver T. Unke. Machine learning global atomic representations with euclidean fast attention. Nature Machine Intelligence , 8(3): 388–402, 2026. [40] Klara Bonneau, Aldo S. Pasos-Trejo, Michael Plainer, Luca Sagresti, Jacopo Venturin, Iryna Zaporozhets, Alessandro Caruso, Edoardo Rolando, Andrea Guljas, Leon Klein, Maximilian Schebek, Filippo Albani, Raquel L´ opez-R´ ıos de Castro, Zakariya El Machachi, Lorenzo Giambagli, and Cecilia Clementi. Breaking the barriers of molecular dynamics with deep-learning: Oppor-tunities, pitfalls, and how to navigate them. WIREs Computational Molecular Science , 16(1): e70064, 2026. [41] Stefan Ganscha, Oliver T. Unke, Daniel Ahlin, Hartmut Maennel, Sergii Kashubin, and Klaus-Robert M¨ uller. The qcml dataset, quantum chemistry reference data from 33.5 m dft and 14.7 b semi-empirical calculations. Scientific Data , 12(1):406, 2025. [42] Justin S. Smith, Roman Zubatyuk, Benjamin Nebgen, Nicholas Lubbers, Kipton Barros, Adrian E. Roitberg, Olexandr Isayev, and Sergei Tretiak. The ANI-1ccx and ANI-1x data sets, coupled-cluster and density functional theory properties for molecules. Scientific Data , 7(1):134, 2020. doi: 10.1038/s41597-020-0473-z. [43] Johannes Hoja, Leonardo Medrano Sandonas, Brian G. Ernst, Alvaro Vazquez-Mayagoitia, Robert A. DiStasio Jr., and Alexandre Tkatchenko. QM7-X, a comprehensive dataset of quantum-mechanical properties spanning the chemical space of small organic molecules. Scientific Data , 8 (1):43, Feb 2021. ISSN 2052-4463. doi: 10.1038/s41597-021-00812-2. [44] Khaled Kahouli, Stefaan S. P. Hessmann, Klaus-Robert M¨ uller, Shinichi Nakajima, Stefan Gugler, and Niklas W. A. Gebauer. Molecular relaxation by reverse diffusion with time step prediction. 
+
+Machine Learning: Science and Technology , 5(3):035038, 2024. [45] Jonas K¨ ohler, Leon Klein, and Frank No´ e. Equivariant flows: Exact likelihood generative learning for symmetric densities. In Hal Daum´ e III and Aarti Singh, editors, Proceedings of the 37th International Conference on Machine Learning , volume 119 of Proceedings of Machine Learning Research , pages 5361–5370. PMLR, 13–18 Jul 2020. URL https://proceedings.mlr.press/ v119/kohler20a.html .[46] Victor Garcia Satorras, Emiel Hoogeboom, Fabian Fuchs, Ingmar Posner, and Max Welling. E(n) equivariant normalizing flows. In M. Ranzato, A. Beygelzimer, Y. Dauphin, P.S. Liang, and J. Wortman Vaughan, editors, Advances in Neural Information Processing Systems , volume 34, pages 4181–4192. Curran Associates, Inc., 2021. URL https://proceedings.neurips.cc/ paper_files/paper/2021/file/21b5680d80f75a616096f2e791affac6-Paper.pdf .[47] Leon Klein, Andrew Y. K. Foong, Tor Erlend Fjelde, Bruno Kacper Mlodozeniec, Marc Brockschmidt, Sebastian Nowozin, Frank No´ e, and Ryota Tomioka. Timewarp: Transferable acceleration of molecular dynamics by learning time-coarsened dynamics. In Thirty-seventh Conference on Neural Information Processing Systems , 2023. URL https://openreview.net/ forum?id=EjMLpTgvKH .[48] Sarah Lewis, Tim Hempel, Jos´ e Jim´ enez-Luna, Michael Gastegger, Yu Xie, Andrew YK Foong, Victor Garc´ ıa Satorras, Osama Abdin, Bastiaan S. Veeling, Iryna Zaporozhets, Yaoyi Chen, Soojung Yang, Adam E. Foster, Arne Schneuing, Jigyasa Nigam, Federico Barbero, Vincent Stimper, Andrew Campbell, Jason Yim, Marten Lienen, Yu Shi, Shuxin Zheng, Hannes Schulz, Usman Munir, Roberto Sordillo, Ryota Tomioka, Cecilia Clementi, and Frank No´ e. Scalable emulation of protein equilibrium ensembles with generative deep learning. Science , page eadv9817, 2025. doi: 10.1126/science.adv9817. 20 [49] Niklas W. A. Gebauer, Michael Gastegger, and Kristof T. Sch¨ utt. Symmetry-adapted generation of 3d point sets for the targeted discovery of molecules. In H. Wallach, H. Larochelle, A. Beygelzimer, F. d'Alch´ e-Buc, E. Fox, and R. Garnett, editors, Ad-vances in Neural Information Processing Systems , volume 32, pages 7566–7578. Curran Asso-ciates, Inc., 2019. URL https://proceedings.neurips.cc/paper_files/paper/2019/file/ a4d8e2a7e0d0c102339f97716d2fdfb6-Paper.pdf .[50] Niklas W. A. Gebauer, Michael Gastegger, Stefaan S. P. Hessmann, Klaus-Robert M¨ uller, and Kristof T. Sch¨ utt. Inverse design of 3d molecular structures with conditional generative neural networks. Nature Communications , 13(1):973, 2022. ISSN 2041-1723. doi: 10.1038/ s41467-022-28526-y. [51] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In H. Larochelle, M. Ranzato, R. Hadsell, M.F. Balcan, and H. Lin, editors, Advances in Neural Information Processing Systems , volume 33, pages 6840–6851. Curran Asso-ciates, Inc., 2020. URL https://proceedings.neurips.cc/paper_files/paper/2020/file/ 4c5bcfec8584af0d967f1ab10179ca4b-Paper.pdf .[52] Yang Song, Jascha Sohl-Dickstein, Diederik P. Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. In 
+
+International Conference on Learning Representations , 2021. URL https://openreview.net/ forum?id=PxTIG12RRHS .[53] Emiel Hoogeboom, V´ ıctor Garcia Satorras, Cl´ ement Vignac, and Max Welling. Equivariant diffusion for molecule generation in 3D. In Kamalika Chaudhuri, Stefanie Jegelka, Le Song, Csaba Szepesvari, Gang Niu, and Sivan Sabato, editors, Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pages 8867–8887. PMLR, 17–23 Jul 2022. URL https://proceedings.mlr.press/v162/hoogeboom22a.html .[54] Lemeng Wu, Chengyue Gong, Xingchao Liu, Mao Ye, and Qiang Liu. Diffusion-based molecule generation with informative prior bridges. In S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh, editors, Advances in Neural Information Processing Systems , volume 35, pages 36533–36545. Curran Associates, Inc., 2022. URL https://proceedings.neurips.cc/paper_ files/paper/2022/file/eccc6e11878857e87ec7dd109eaa9eeb-Paper-Conference.pdf .[55] Lei Huang, Hengtong Zhang, Tingyang Xu, and Ka-Chun Wong. Mdm: Molecular diffusion model for 3d molecule generation. Proceedings of the AAAI Conference on Artificial Intelligence ,37(4):5105–5112, Jun. 2023. doi: 10.1609/aaai.v37i4.25639. URL https://ojs.aaai.org/index. php/AAAI/article/view/25639 .[56] Minkai Xu, Alexander S. Powers, Ron O. Dror, Stefano Ermon, and Jure Leskovec. Geometric latent diffusion models for 3D molecule generation. In Andreas Krause, Emma Brunskill, Kyunghyun Cho, Barbara Engelhardt, Sivan Sabato, and Jonathan Scarlett, editors, Proceedings of the 40th International Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pages 38592–38610. PMLR, 23–29 Jul 2023. URL https://proceedings. mlr.press/v202/xu23n.html .[57] Xingang Peng, Jiaqi Guan, Qiang Liu, and Jianzhu Ma. MolDiff: Addressing the atom-bond inconsistency problem in 3D molecule diffusion generation. In Andreas Krause, Emma Brunskill, Kyunghyun Cho, Barbara Engelhardt, Sivan Sabato, and Jonathan Scarlett, editors, Proceedings of the 40th International Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pages 27611–27629. PMLR, 23–29 Jul 2023. URL https://proceedings. mlr.press/v202/peng23b.html .21 [58] Minkai Xu, Lantao Yu, Yang Song, Chence Shi, Stefano Ermon, and Jian Tang. GeoDiff: A geometric diffusion model for molecular conformation generation. In International Conference on Learning Representations , 2022. URL https://openreview.net/forum?id=PzcvxEMzvQC .[59] Bowen Jing, Gabriele Corso, Jeffrey Chang, Regina Barzilay, and Tommi S. Jaakkola. Torsional diffusion for molecular conformer generation. In Alice H. Oh, Alekh Agarwal, Danielle Belgrave, and Kyunghyun Cho, editors, Advances in Neural Information Processing Systems , 2022. URL 
+
+https://openreview.net/forum?id=w6fj2r62r_H .[60] J. Thorben Frank, Winfried Ripken, Gregor Lied, Klaus-Robert M¨ uller, Oliver T. Unke, and Stefan Chmiela. Sampling 3d molecular conformers with diffusion transformers. Advances in Neural Information Processing Systems , 38:168881–168931, 2026. [61] Nathaniel R. Bennett, Brian Coventry, Inna Goreshnik, Buwei Huang, Aza Allen, Dionne Vafeados, Ying Po Peng, Justas Dauparas, Minkyung Baek, Lance Stewart, Frank DiMaio, Steven De Munck, Savvas N. Savvides, and David Baker. Improving de novo protein binder design with deep learning. 
+
+Nature Communications , 14(1), May 2023. ISSN 2041-1723. doi: 10.1038/s41467-023-38328-5. URL http://dx.doi.org/10.1038/s41467-023-38328-5 .[62] Joseph L. Watson, David Juergens, Nathaniel R. Bennett, Brian L. Trippe, Jason Yim, Helen E. Eisenach, Woody Ahern, Andrew J. Borst, Robert J. Ragotte, Lukas F. Milles, Basile I. M. Wicky, Nikita Hanikel, Samuel J. Pellock, Alexis Courbet, William Sheffler, Jue Wang, Preetham Venkatesh, Isaac Sappington, Susana V´ azquez Torres, Anna Lauko, Valentin De Bortoli, Emile Mathieu, Sergey Ovchinnikov, Regina Barzilay, Tommi S. Jaakkola, Frank DiMaio, Minkyung Baek, and David Baker. De novo design of protein structure and function with rfdiffusion. 
+
+Nature , 620(7976):1089–1100, July 2023. ISSN 1476-4687. doi: 10.1038/s41586-023-06415-8. URL 
+
+http://dx.doi.org/10.1038/s41586-023-06415-8 .[63] Tim Salimans and Jonathan Ho. Progressive distillation for fast sampling of diffusion models. 
+
+arXiv preprint arXiv:2202.00512 , 2022. [64] Eric Luhman and Troy Luhman. Knowledge distillation in iterative generative models for improved sampling speed. arXiv preprint arXiv:2101.02388 , 2021. [65] Kevin Frans, Danijar Hafner, Sergey Levine, and Pieter Abbeel. One-step diffusion via shortcut models. In Proceedings of the Thirteenth International Conference on Learning Representations (ICLR) , 2025. [66] Alexander Quinn Nichol and Prafulla Dhariwal. Improved denoising diffusion probabilistic models. In Marina Meila and Tong Zhang, editors, Proceedings of the 38th International Conference on Machine Learning , volume 139 of Proceedings of Machine Learning Research , pages 8162–8171. PMLR, 18–24 Jul 2021. URL https://proceedings.mlr.press/v139/nichol21a.html .[67] Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine. Elucidating the design space of diffusion-based generative models. In Alice H. Oh, Alekh Agarwal, Danielle Belgrave, and Kyunghyun Cho, editors, Advances in Neural Information Processing Systems , 2022. URL 
+
+https://openreview.net/forum?id=k7FuTOWMOc7 .[68] Ting Chen. On the importance of noise scheduling for diffusion models. arXiv preprint arXiv:2301.10972 , 2023. [69] Shanchuan Lin, Bingchen Liu, Jiashi Li, and Xiao Yang. Common diffusion noise schedules and sample steps are flawed. In Proceedings of the IEEE/CVF winter conference on applications of computer vision , pages 5404–5411, 2024. 22 [70] Khaled Kahouli, Winfried Ripken, Stefan Gugler, Oliver T. Unke, Klaus-Robert M¨ uller, and Shinichi Nakajima. Disentangling total-variance and signal-to-noise-ratio improves diffusion models, 2025. URL https://arxiv.org/abs/2502.08598 .[71] Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever. Consistency models. In Proceedings of the 40th International Conference on Machine Learning , pages 32211–32252, 2023. [72] Dongjun Kim, Chieh-Hsin Lai, Wei-Hsiang Liao, Naoki Murata, Yuhta Takida, Toshimitsu Uesaka, Yutong He, Yuki Mitsufuji, and Stefano Ermon. Consistency trajectory models: Learning probability flow ODE trajectory of diffusion. In The Twelfth International Conference on Learning Representations , 2024. URL https://openreview.net/forum?id=ymjI8feDTD .[73] Nicholas M. Boffi, Michael S. Albergo, and Eric Vanden-Eijnden. How to build a consistency model: Learning flow maps via self-distillation, 2025. URL https://arxiv.org/abs/2505.18825 .[74] Yu Xie, Ludwig Winkler, Lixin Sun, Sarah Lewis, Adam E. Foster, Jos´ e Jim´ enez-Luna, Tim Hempel, Michael Gastegger, Yaoyi Chen, Iryna Zaporozhets, Cecilia Clementi, Christopher M. Bishop, and Frank No´ e. Enhanced diffusion sampling: Efficient rare event sampling and free energy calculation with diffusion models, 2026. URL https://arxiv.org/abs/2602.16634 .[75] Yang Song and Stefano Ermon. Generative modeling by estimating gradients of the data distribution. In H. Wallach, H. Larochelle, A. Beygelzimer, F. d 'Alch´ e-Buc, E. Fox, and R. Gar-nett, editors, Advances in Neural Information Processing Systems , volume 32. Curran Asso-ciates, Inc., 2019. URL https://proceedings.neurips.cc/paper_files/paper/2019/file/ 3001ef257407d5a371a96dcd947c7d93-Paper.pdf .[76] Raghunathan Ramakrishnan, Pavlo O. Dral, Matthias Rupp, and O. Anatole von Lilienfeld. Quantum chemistry structures and properties of 134 kilo molecules. Scientific Data , 1(1):1–7, 2014. [77] Sheheryar Zaidi, Michael Schaarschmidt, James Martens, Hyunjik Kim, Yee Whye Teh, Alvaro Sanchez-Gonzalez, Peter Battaglia, Razvan Pascanu, and Jonathan Godwin. Pre-training via denoising for molecular property prediction. In The Eleventh International Conference on Learning Representations , 2023. URL https://openreview.net/forum?id=tYIMtogyee .[78] Marloes Arts, Victor Garcia Satorras, Chin-Wei Huang, Daniel Z¨ ugner, Marco Federici, Cecilia Clementi, Frank No´ e, Robert Pinsler, and Rianne van den Berg. Two for one: Diffusion models and force fields for coarse-grained molecular dynamics. Journal of Chemical Theory and Computation , 19(18):6151–6159, Sep 2023. ISSN 1549-9618. doi: 10.1021/acs.jctc.3c00702. URL 
+
+https://doi.org/10.1021/acs.jctc.3c00702 .[79] Michael Plainer, Hao Wu, Leon Klein, Stephan G¨ unnemann, and Frank No´ e. Consistent sampling and simulation: Molecular dynamics with energy-based diffusion models. In D. Belgrave, C. Zhang, H. Lin, R. Pascanu, P. Koniusz, M. Ghassemi, and N. Chen, editors, Advances in Neural Information Processing Systems , volume 38, pages 24460–24505. Curran Associates, Inc., 2025. [80] Jeheon Woo, Seonghwan Kim, Jun Hyeong Kim, and Woo Youn Kim. Riemannian denoising model for molecular structure optimization with chemical accuracy. Nature Computational Science ,pages 1–11, 2026. [81] Sreyas Mohan, Zahra Kadkhodaie, Eero P. Simoncelli, and Carlos Fernandez-Granda. Robust and interpretable blind image denoising via bias-free convolutional neural networks. arXiv preprint arXiv:1906.05478 , 2019. 23 [82] Zahra Kadkhodaie and Eero Simoncelli. Stochastic solutions for linear inverse problems using the prior implicit in a denoiser. Advances in Neural Information Processing Systems , 34:13242–13254, 2021. [83] Qiao Sun, Zhicheng Jiang, Hanhong Zhao, and Kaiming He. Is noise conditioning necessary for denoising generative models? arXiv preprint arXiv:2502.13129 , 2025. [84] Runqian Wang and Yilun Du. Equilibrium matching: Generative modeling with implicit energy-based models. arXiv preprint arXiv:2510.02300 , 2025. [85] Michal Balcerak, Tamaz Amiranashvili, Antonio Terpin, Suprosanna Shit, Lea Bogensperger, Sebastian Kaltenbach, Petros Koumoutsakos, and Bjoern Menze. Energy matching: unifying flow matching and energy-based models for generative modeling. Advances in Neural Information Processing Systems , 38:8583–8609, 2026. [86] Zahra Kadkhodaie, Aram-Alexandre Pooladian, Sinho Chewi, and Eero Simoncelli. Blind denoising diffusion models and the blessings of dimensionality. arXiv preprint arXiv:2602.09639 , 2026. [87] Mojtaba Sahraee-Ardakan, Mauricio Delbracio, and Peyman Milanfar. The geometry of noise: Why diffusion models don’t need noise conditioning. arXiv preprint arXiv:2602.18428 , 2026. [88] Filippo Bigi, Sanggyu Chong, Agustinus Kristiadi, and Michele Ceriotti. Flashmd: long-stride, universal prediction of molecular dynamics. In Advances in Neural Information Processing Systems , volume 38. Curran Associates, Inc., 2025. [89] Fabian L. Thiemann, Thiago Resch¨ utzegger, Massimiliano Esposito, Tseden Taddese, Juan D. Olarte-Plata, and Fausto Martelli. Force-free molecular dynamics through autoregressive equiv-ariant networks. arXiv:2503.23794 , 2025. [90] Winfried Ripken, Michael Plainer, Gregor Lied, J. Thorben Frank, Oliver T. Unke, Stefan Chmiela, Frank No´ e, and Klaus-Robert M¨ uller. Learning hamiltonian flow maps: Mean flow consistency for large-timestep molecular dynamics, 2026. URL https://arxiv.org/abs/2601.22123 .[91] J¨ org Behler and Michele Parrinello. Generalized neural-network representation of high-dimensional potential-energy surfaces. Physical Review Letters , 98(14):146401, 2007. doi: 10.1103/physrevlett. 98.146401. [92] Herbert E. Robbins. An empirical bayes approach to statistics. In Breakthroughs in Statistics: Foundations and basic theory , pages 388–394. Springer, 1992. [93] Bradley Efron. Tweedie’s formula and selection bias. Journal of the American Statistical Association , 106(496):1602–1614, 2011. [94] Leon Klein, Andreas Kr¨ amer, and Frank No´ e. Equivariant flow matching. Advances in Neural Information Processing Systems , 36:59886–59910, 2023. [95] Kristof T. Sch¨ utt, Pan Kessel, Michael Gastegger, Kim A. Nicoli, Alexandre Tkatchenko, and Klaus-Robert M¨ uller. SchNetPack: A deep learning toolbox for atomistic systems. Journal of Chemical Theory and Computation , 15(1):448–455, 2018. doi: 10.1021/acs.jctc.8b00908. [96] Kristof T. Sch¨ utt, Stefaan S. P. Hessmann, Niklas W. A. Gebauer, Jonas Lederer, and Michael Gastegger. SchNetPack 2.0: A neural network toolbox for atomistic machine learning. The Journal of Chemical Physics , 158(14):144801, 04 2023. ISSN 0021-9606. doi: 10.1063/5.0138367. 24 [97] Greg Landrum, Paolo Tosco, Brian Kelley, Ricardo Rodriguez, David Cosgrove, Riccardo Vianello, sriniker, Peter Gedeck, Gareth Jones, Eisuke Kawashima, Nadine Schneider, Dan Nealschnei-der, tadhurst cdd, Andrew Dalke, Matt Swain, Brian Cole, Samo Turk, Aleksandr Savelev, Niels Maeder, Rachel Walker, Alain Vaucher, Maciej W´ ojcikowski, Hussein Faara, Ichiru Take, Vincent F. Scalfani, Daniel Probst, Kazuya Ujihara, Yakov Pechersky, Jeremy Monat, and Juuso Lehtivarjo. RDKit: Open-source cheminformatics. URL https://www.rdkit.org . DOI: 10.5281/zenodo.18797641. [98] Wolfgang HB Sauer and Matthias K. Schwarz. Molecular shape diversity of combinatorial libraries: a prerequisite for broad bioactivity. Journal of Chemical Information and Computer Sciences , 43 (3):987–1003, 2003. [99] Michael Plainer, Marcella Toth, Simon Dobers, Hannes St¨ ark, Gabriele Corso, C´ eline Marquet, and Regina Barzilay. DiffDock-Pocket: Diffusion for pocket-level docking with sidechain flexibility. In Machine Learning in Structural Biology , 2023. [100] Arne Schneuing, Charles Harris, Yuanqi Du, Kieran Didi, Arian Jamasb, Ilia Igashov, Weitao Du, Carla Gomes, Tom L. Blundell, Pietro Lio, et al. Structure-based drug design with equivariant diffusion models. Nature Computational Science , 4(12):899–909, 2024. [101] Ilia Igashov, Hannes St¨ ark, Cl´ ement Vignac, Arne Schneuing, Victor Garcia Satorras, Pascal Frossard, Max Welling, Michael Bronstein, and Bruno Correia. Equivariant 3d-conditional diffusion model for molecular linker design. Nature Machine Intelligence , 6(4):417–427, 2024. [102] Lei Huang, Tingyang Xu, Yang Yu, Peilin Zhao, Xingjian Chen, Jing Han, Zhi Xie, Hailong Li, Wenge Zhong, Ka-Chun Wong, et al. A dual diffusion model enables 3d molecule generation and lead optimization based on target pockets. Nature Communications , 15(1):2657, 2024. [103] Christopher M. Bishop. Pattern recognition and machine learning . Information Science and Statistics. Springer New York, 2006. URL https://www.microsoft.com/en-us/research/ publication/pattern-recognition-machine-learning/ .25 A Appendix 
+
+## A.1 Model parameters 
+
+Table 1: Architecture and Training Hyperparameters for GPFF and Baseline Models 
+
+Parameter Value / Description 
+
+Dataset Split 80% / 10% / 10% (Train / Validation / Test) Architecture PaiNN (4 interaction layers) Feature Dimensions 256 Radial Basis Functions 600 Gaussian RBFs (Cutoff: 150 ˚ A) Noise Sampling ( σ) Log-normal: ln σ ∼ N (−0.7, 1.22), clipped to [0 , 30] Optimizer AdamW Learning Rate 10 −4 (Initial) Batch Size 512 LR Scheduling Halve LR after 250 epochs without improvement Early Stopping 500 epochs without improvement EMA Decay 0.995 SchNetPack Version 2.1.1 (commit 74940f3) 
+
+## A.2 Sampler parameters 
+
+Table 2: Sampler hyperparameters used throughout all experiments. 
+
+Parameter Value 
+
+Prior 
+
+σmax 30.0 ˚ A
+
+EDM noise schedule 
+
+ρ 5.0 
+
+σmin 0.01 ˚ A
+
+σmax 30.0 ˚ A
+
+Stochastic Heun 
+
+σchurn 60.0 
+
+σt, min 0.01 ˚ A
+
+σt, max 15.0 ˚ A
+
+σnoise 1.0 
+
+## A.3 Adaptive sampling trajectories 
+
+Figure 7 shows adaptive sampling (AS) trajectories of the first 500 generated molecules for ancestral, Heun, and stochastic Heun sampling with Ntarget = N/ 2. The individual trajectories (gray lines) illustrate that AS adapts the noise decay to each molecule’s denoising difficulty, with faster-converging molecules terminating earlier. On average (colored markers), the adaptive schedule for ancestral and Heun closely follows the target schedule (dashed line), while the maximum schedule (dotted line) provides the upper bound that prevents stagnation. Because permutation alignment during training reduces the effective noise level seen by the model, the model’s noise-level estimate at inference — where no alignment is applied — tends to fall below the scheduled value, allowing many trajectories to 26 0 100 200          
+
+> NFE
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> ancestral
+> 0100 200
+> NFE
+> Heun
+> 0100 200
+> NFE
+> s. Heun
+> measured mean single trajectories target schedule max schedule
+
+Figure 7: Adaptive sampling trajectories for ancestral, Heun, and stochastic Heun sampling with 
+
+Ntarget = N/ 2, showing the first 500 generated molecules. Gray lines show individual trajectories of the estimated noise level ˆσ(i) over NFE. Colored markers indicate the mean across all trajectories. The dashed line shows the target schedule ( Ntarget steps) and the dotted line the maximum schedule ( N
+
+steps). progress faster than the target schedule. Conversely, near convergence, we observe smaller step sizes and more steps in the final phase. In contrast to AS with ancestral and deterministic Heun sampling, the AS with stochastic Heun is close to the maximum schedule. Here, AS mainly provides an advantage in validity of generated molecules at small numbers of target NFEs (see Fig. 4 in the main text) but converges to a similar amount of NFEs and validity for less ambitious schedules. We hypothesize that this is caused by the corrective effect of adding noise: the stochastic Heun sampler increases the noise level to ˜σ(i) = (1 + γ)σ(i) before each step. To avoid an additional inference call, we estimate the pre-injection noise level by rescaling 
+
+σ(i) = ˜σ(i)/(1 + γα ), where α governs the correction strength. Due to permutation alignment during training, the model tends to underestimate the added noise, so a correction is necessary; we find that a conservative scaling of α = 0 .5 provides the best results. 
+
+## A.4 Distribution of noise levels 
+
+Following Karras et al. [ 67 ], we concentrate training on informative noise scales by sampling σ ∈ [0 , 30] from a log-normal distribution. To determine the distribution parameters, we first trained preliminary models with uniformly sampled σ and evaluated the loss across noise levels on the test set (Figure 8). For GPFF, the loss drops off at small σ due to clipping the loss weight λF = σ−2 to a maximum of 1000 for numerical stability. From the resulting loss profiles, we chose a log-normal distribution (ln σ ∼ N (−0.7, 1.22)) that concentrates sampling in regions where the loss is highest and the model benefits most from additional training examples. The calibration was performed independently for GPFF and DM, yielding the same parameters for both. These parameters were then used to train the final models used in all experiments. 
+
+## A.5 Shape predictor 
+
+In direct denoising, standard isotropic Gaussian priors are often insufficient to capture the wide structural variety of molecules. To address this, we shape the prior with a 3 × 3 covariance matrix 
+
+Σ ∈ R3×3 computed from atomic coordinates in their principal frame; the principal variances used in the main text are its diagonal in this frame, λ = diag (Σ). This matrix captures the macroscopic molecular geometry, with the relative variance rx = λx/ (λx + λy + λz ) distinguishing between rod, 27 (a) GPFF (b) DM 
+
+Figure 8: Loss as a function of noise level σ for (a) GPFF and (b) DM, evaluated on preliminary models trained with uniformly sampled σ. Gray dots show individual test samples, the green line shows the smoothed mean loss, and the blue curve shows the fitted log-normal sampling density p(σ) used for the final training runs. sphere, and disc shapes (see Section 4.4). We train a lightweight generator to sample valid covariance matrices conditioned on the number of atoms of a given molecule. To enforce the required positive definiteness of Σ, we first parameterize it via the Cholesky decomposition Σ = LL ⊤, where L is a lower triangular matrix. To allow for unconstrained modeling and prediction, we then map L to a six-dimensional vector v by applying a logarithmic transformation to its diagonal entries 
+
+v = [log ( L11 ) , L21 , log ( L22 ) , L31 , L32 , log ( L33 )] ⊤ , (20) ensuring positive diagonal values and thus positive definiteness of Σ.In this unconstrained space of vectors v, we fit a 5-component Gaussian Mixture Model (GMM) [ 103 ]on the v extracted from the training data, training a separate GMM for each distinct atom count. During generation, we first sample an unconstrained vector v from the GMM corresponding to the target number of atoms, which is then mapped back to the covariance matrix Σ and used to draw prior atomic positions xi ∼ N (0, Σ). This lightweight shape predictor trains in seconds and introduces negligible computational overhead to the overall generative pipeline. 
+
+## A.6 Principal moments of inertia 
+
+Each shape target in Section 4.4 is a triple of the relative variances ( rx, r y , r z ) defined in Section A.5, evaluated in the principal frame of Σtarget so that the components sum to one and are sorted in non-increasing order. We pick one canonical target per archetype: rod = (0 .9, 0.05 , 0.05), sphere = (1 /3, 1/3, 1/3), and disc = (0 .5, 0.5, 0). The rod target is offset from the vertex (1 , 0, 0), since concentrating all variance on a single axis is not feasible for most molecules. For Figure 5 we follow Sauer and Schwarz [ 98 ] and compute the principal moments of inertia (PMI) 
+
+I1 ≤ I2 ≤ I3 with uniform unit weights rather than atomic masses, so the descriptor reflects atomic geometry alone and is consistent with how Σtarget is defined. In the principal frame of each molecule’s empirical covariance Σ with centered coordinates, the moments about the longest, middle, and shortest 28 axis simplify to I1 ∝ Σyy + Σzz , I2 ∝ Σxx + Σzz , and I3 ∝ Σxx + Σyy (with Σxx ≥ Σyy ≥ Σzz ), so the normalized PMI ratios (NPRs) become NPR 1 = I1
+
+I3
+
+= Σyy + Σzz 
+
+Σxx + Σyy 
+
+, NPR 2 = I2
+
+I3
+
+= Σxx + Σzz 
+
+Σxx + Σyy 
+
+. (21) Each molecule maps to a point ( NPR 1, NPR 2) in the rod–sphere–disc triangle with vertices Rod = (0 , 1), Sphere = (1 , 1), Disc = (0 .5, 0.5), to which the sphere and disc targets map exactly while the offset rod target lands at (0 .105 , 1). 
+
+## A.7 Training of property models 
+
+We trained separate PaiNN property predictors on QM9 for the HOMO–LUMO gap and U0 energy used in the JS divergence evaluation. Both models use 128 hidden features, 3 interaction blocks, a 5.0 ˚Acutoff with 20 Gaussian radial basis functions, and a cosine cutoff function. Training was performed with AdamW at a learning rate of 5 × 10 −4 and batch size 100, with the learning rate halved after 75 epochs without improvement and early stopping after 200 epochs without improvement, using EMA with decay 0.995 and an 80/10/10 train/validation/test split. The models achieve test MAEs of 42.4 meV for the gap and 6.2 meV for U0. For the U0 distribution comparison, we subtract atomic reference energies (atomrefs) from the predictions, so that the distribution reflects only bonding and geometry rather than composition (number and types of atoms), which is an input to the generation rather than an output. 
+
+## A.8 Permutation alignment 
+
+During training, for each reference geometry X a perturbed geometry ˜X is sampled from the forward process. For GPFF, we align the atom ordering of ˜X to X before computing the pseudo-forces. The alignment is performed independently per atom type using the Hungarian algorithm on pairwise squared distances between centered coordinates. Figure 9 compares GPFF trained with and without permutation alignment across three samplers: DD, ancestral, and stochastic Heun. The aligned model consistently achieves slightly higher validity, with the advantage most visible at low NFE. At convergence, the differences are small (1.00 vs. 0.98 for DD, 0.94 vs. 0.93 for ancestral, 0.97 vs. 0.97 for stochastic Heun), indicating that alignment provides a modest but consistent improvement. 
+
+## A.9 Ablation studies on time step for GPFF 
+
+We evaluate whether explicit time conditioning improves GPFF sampling quality by training a time-aware GPFF variant with identical hyperparameters, differing only in the use of the same t-conditioned output head as the DM. Figure 10 shows validity across matched NFE sweeps for ancestral and stochastic Heun sampling. The results show no meaningful difference between the two variants (0.94 vs. 0.93 for ancestral, 0.97 vs. 0.97 for stochastic Heun), confirming that explicit time conditioning is unnecessary for GPFF and that the model captures sufficient information about the noise level from the geometry alone. 29 3 10 100 
+
+Mean NFE 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Validity
+> 0.98
+> 1.00
+> (GPFF) alignment
+> (GPFF) no alignment
+
+3 10 100 
+
+Mean NFE 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Validity
+> 0.93
+> 0.94
+> (GPFF) alignment
+> (GPFF) no alignment
+
+3 10 100 
+
+Mean NFE 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Validity
+> 0.97
+> 0.97
+> (GPFF) alignment
+> (GPFF) no alignment
+
+Figure 9: Effect of atom index alignment during training on GPFF sampling. Validity as a function of NFE for direct denoising (left), ancestral sampling (middle), and stochastic Heun sampling (right), comparing alignment and no alignment. 3 10 100 
+
+Mean NFE 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Validity
+> 0.93
+> 0.94
+
+(GPFF) time agnostic 
+
+(GPFF) time aware 
+
+3 10 100 
+
+Mean NFE 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Validity
+> 0.97
+> 0.97
+
+(GPFF) time agnostic 
+
+(GPFF) time aware 
+
+Figure 10: Impact of time-step conditioning of GPFF models on sampling quality. Validity as a function of NFE for ancestral sampling (left) and stochastic Heun sampling (right), comparing time-agnostic and time-aware GPFF models. 30 3 10 100   
+
+> Mean NFE
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Validity  0.61
+> 0.91
+> (DM) time agnostic
+> (DM) time aware
+> 310 100
+> Mean NFE
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Validity
+> 0.92
+> 0.95
+> (DM) time agnostic
+> (DM) time aware
+
+Figure 11: Impact of time-step conditioning of DMs on sampling quality. Validity as a function of NFE for ancestral sampling (left) and stochastic Heun sampling (right), comparing time-agnostic and time-aware DMs. 
+
+## A.10 Ablation studies on time step for diffusion models 
+
+We perform the converse experiment for the DM by training a time-agnostic variant with identical hyperparameters, replacing the t-conditioned output head with the gated equivariant head used by GPFF. As shown in Figure 11, the time-agnostic DM performs substantially worse than its time-aware counterpart, reaching only 0.61 vs. 0.91 validity for ancestral sampling and 0.92 vs. 0.95 for stochastic Heun. While stochastic Heun partially recovers at higher NFE, the gap remains large for ancestral sampling across the entire NFE range. We attribute this asymmetry to a fundamental difference in what the two model types learn. GPFF predicts a quantity whose magnitude scales with the noise level, effectively forcing the model to implicitly encode the time step in its predictions, as demonstrated by the noise-level estimator used in AS (Equation 18). The DM, by contrast, predicts a normalized direction that is magnitude-free and therefore has no incentive to learn the current noise level from the geometry alone. Without explicit t-conditioning, the DM lacks the information needed to produce appropriately scaled score estimates, leading to degraded sampling quality. 
+
+## A.11 Examples of property distributions 
+
+Figure 12 compares the property distributions of valid generated molecules against QM9 at 256 NFE for three samplers: GPFF direct denoising (DD, from Section 4.1), the DM stochastic Heun baseline (from Section 4.1), and GPFF with covariance-enforced direct denoising (DD+shape, from Section 4.2). The MPD bias of standard DD is clearly visible, with a JS divergence of 0.065 compared to 0.002 for stochastic Heun and 0.004 for DD+shape. The HOMO–LUMO gap distribution is also affected in the DD variant (JS = 0.013 vs. 0.002 and 0.003), which we attribute to the gap’s dependence on molecular shape. The atomization energy U0, by contrast, is largely unaffected by the MPD bias, showing comparable JS divergences across all three methods (0.003, 0.001, 0.003). Although stochastic Heun achieves marginally lower JS divergence than DD+shape, the differences are negligible at these levels and not visible in the histograms. 
+
+## A.12 Pseudocode for sampling algorithms 
+
+31 0.0 
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Density
+
+JS=0.065 
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> Density
+
+JS=0.013 
+
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> Density
+
+JS=0.003 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Density
+
+JS=0.002 
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> Density
+
+JS=0.002 
+
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> Density
+
+JS=0.001   
+
+> 5.0 7.5 10.0
+
+MPD ( Å)
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Density
+
+JS=0.004    
+
+> 2.5 5.0 7.5 10.0
+
+gap (eV) 
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> Density
+
+JS=0.003    
+
+> 100 75 50 25
+
+energy (eV) 
+
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> Density
+
+JS=0.003    
+
+> (GPFF) SDD QM9 (DM) s. Heun (GPFF) SDD+var
+
+Figure 12: Distribution comparison to QM9 at 256 NFE. Rows correspond to direct denoising (GPFF), stochastic Heun (DM), and direct denoising with covariance enforcement (GPFF). Columns show the distributions of MPD, HOMO-LUMO gap, and energy U0. Orange histograms show generated valid molecules and black outlines show the QM9 target distribution; the JS divergence for each panel is reported in the top-right corner. 
+
+Algorithm 1 Direct Denoising  
+
+> 1:
+
+procedure DirectDenoising ( ˜X(0) , GPFF , N, f max , enforce shape , stochastic , λtarget , p ) 
+
+> 2:
+
+for i = 0 to N − 1 do  
+
+> 3:
+
+if enforce shape then ▷ Apply shape constraint  
+
+> 4:
+
+α ← (i/N )p 
+
+> 5:
+
+˜λ ← PrincipalVariances( ˜X(i)) 
+
+> 6:
+
+˜X(i) ← (1 − α) ·
+
+q
+
+λtarget /˜λ · ˜X(i) + α · ˜X(i) 
+
+> 7:
+
+end if  
+
+> 8:
+
+{ ˆX0, ˆF} ← GPFF( ˜X(i)) ▷ Predict clean geometry and forces  
+
+> 9:
+
+˜X(i+1) ← ˆX0 
+
+> 10:
+
+if ∥ ˆF∥max ≤ fmax then ▷ Force-based stopping criterion  
+
+> 11:
+
+break  
+
+> 12:
+
+end if  
+
+> 13:
+
+if stochastic then  
+
+> 14:
+
+β ← 1 − i/N ▷ Linearly decaying noise scale  
+
+> 15:
+
+˜X(i+1) ← ˜X(i+1) + β · ϵ, ϵ ∼ N (0, I) ▷ Stochastic noise injection  
+
+> 16:
+
+end if  
+
+> 17:
+
+end for  
+
+> 18:
+
+return ˜X(i+1)  
+
+> 19:
+
+end procedure 
+
+32 Algorithm 2 Ancestral Sampler 
+
+1: procedure Ancestral ( ˜X(0) , GPFF , {σ(i)}Ni=0 )
+
+2: for i = 0 to N − 1 do 
+
+3: ˆF ← GPFF( ˜X(i)) ▷ Predict pseudo-forces 
+
+4: ˆs ← ˆF/(−2σ(i)) ▷ Convert pseudo-forces to score 
+
+5: ˜X(i+1) ← ˜X(i) + ˆ s · (( σ(i))2 − (σ(i+1) )2) ▷ Deterministic score update 
+
+6: if σ(i+1) > 0 then 
+
+7: σinj ←
+
+q (σ(i+1) )2(( σ(i))2−(σ(i+1) )2)(σ(i))2 ▷ Noise injection scale 
+
+8: ˜X(i+1) ← ˜X(i+1) + σinj · ϵ, ϵ ∼ N (0, I) ▷ Add corrective noise 
+
+9: end if 
+
+10: end for 
+
+11: return ˜X(i+1) 
+
+12: end procedure Algorithm 3 Adaptive Ancestral Sampler 
+
+1: procedure AdaptiveAncestral ( ˜X(0) , GPFF , N target , N )
+
+2: ∆s ← 1 
+
+> Ntarget −1
+
+▷ Initial step size from target schedule 
+
+3: for i = 0 to N − 1 do 
+
+4: // 1. Estimate noise level and adapt schedule 
+
+5: { ˆF, ˆσ(i)} ← GPFF( ˜X(i)) ▷ Predict pseudo-forces and estimate σ
+
+6: if i > 0 then 
+
+7: ∆s ← (ˆ σ(i−1) )1/ρ −(ˆ σ(i))1/ρ 
+
+> σ1/ρ
+> max −σ1/ρ
+> min
+
+▷ Observed step size 
+
+8: end if 
+
+9: σ(i+1) ←
+
+
+
+(ˆ σ(i))1/ρ − ∆s · (σ1/ρ  
+
+> max
+
+− σ1/ρ 
+
+> min
+
+)
+
+ρ
+
+10: σ(i+1) ← min 
+
+
+
+σ(i+1) , σ (i+1) upper 
+
+
+
+▷ Bound by maximum schedule 
+
+11: if σ(i+1) ≤ σmin then 
+
+12: σ(i+1) = 0 
+
+13: end if 
+
+14: 15: // 2. Score update 
+
+16: ˆs ← ˆF/(−2ˆ σ(i)) ▷ Convert pseudo-forces to score 
+
+17: ˜X(i+1) ← ˜X(i) + ˆ s · ((ˆ σ(i))2 − (σ(i+1) )2) ▷ Deterministic score update 
+
+18: if σ(i+1) > 0 then 
+
+19: σinj ←
+
+q (σ(i+1) )2((ˆ σ(i))2−(σ(i+1) )2)(ˆ σ(i))2 ▷ Noise injection scale 
+
+20: ˜X(i+1) ← ˜X(i+1) + σinj · ϵ, ϵ ∼ N (0, I) ▷ Add corrective noise 
+
+21: end if 
+
+22: end for 
+
+23: return ˜X(i+1) 
+
+24: end procedure 
+
+33 Algorithm 4 Deterministic Heun Sampler 
+
+1: procedure HeunSampler ( ˜X(0) , GPFF , {σ(i)}Ni=0 )
+
+2: for i = 0 to N − 1 do 
+
+3: ˆX′ 
+
+> 0
+
+← GPFF( ˜X(i)) ▷ Predict clean geometry 
+
+4: d′ ← 1
+
+> σ(i)
+
+ ˜X(i) − ˆX′
+
+> 0
+
+
+
+▷ Evaluate dX/dσ at σ(i)
+
+5: ˜X(i+1) ← ˜X(i) + ( σ(i+1) − σ(i))d′ ▷ Euler predictor step 
+
+6: if i == N − 1 then ▷ Convergence criterion 
+
+7: break 
+
+8: else 
+
+9: ˆX′′  
+
+> 0
+
+← GPFF( ˜X(i+1) ) ▷ Predict at new position 
+
+10: d′′ ← 1
+
+> σ(i+1)
+
+ ˜X(i+1) − ˆX′′ 
+
+> 0
+
+
+
+11: ˜X(i+1) ← ˜X(i) + ( σ(i+1) − σ(i))   12 d′ + 12 d′′  ▷ Corrector step 
+
+12: end if 
+
+13: end for 
+
+14: return ˜X(i+1) 
+
+15: end procedure Algorithm 5 Adaptive Heun Sampler 
+
+1: procedure AdaptiveHeun ( ˜X(0) , GPFF , {σ(i)upper }Ni=0 , N target , σ min , σ max , ρ )
+
+2: ∆s ← 1 
+
+> Ntarget −1
+
+▷ Initial step size from target schedule 
+
+3: for i = 0 to N − 1 do 
+
+4: { ˆX′
+
+> 0
+
+, ˆσ(i)} ← GPFF( ˜X(i)) ▷ Predict clean geometry and estimate noise level 
+
+5: if i > 0 then ▷ Estimate step size 
+
+6: ∆s ← (ˆ σ(i−1) )1/ρ −(ˆ σ(i))1/ρ 
+
+> σ1/ρ
+> max −σ1/ρ
+> min
+
+7: end if 
+
+8: σ(i+1) ← min 
+
+
+
+((ˆ σ(i))1/ρ + ∆ s · (σ1/ρ  
+
+> min
+
+− σ1/ρ 
+
+> max
+
+)) ρ, σ (i+1) upper 
+
+
+
+▷ Compute next noise level 
+
+9: if σ(i+1) ≤ σmin then 
+
+10: σ(i+1) = 0 
+
+11: end if 
+
+12: d′ ← 1ˆσ(i)
+
+ ˜X(i) − ˆX′
+
+> 0
+
+
+
+13: ˜X(i+1) ← ˜X(i) + ( σ(i+1) − ˆσ(i))d′ ▷ Step 1: Update positions 
+
+14: if ˆσ(i) ≤ σmin then ▷ Check convergence 
+
+15: break 
+
+16: else 
+
+17: ˆX′′  
+
+> 0
+
+← GPFF( ˜X(i+1) ) ▷ Predict clean geometry 
+
+18: d′′ ← 1
+
+> σ(i+1)
+
+ ˜X(i+1) − ˆX′′ 
+
+> 0
+
+
+
+19: ˜X(i+1) ← ˜X(i) + ( σ(i+1) − ˆσ(i))   12 d′ + 12 d′′  ▷ Step 2: Corrector 
+
+20: end if 
+
+21: end for 
+
+22: return ˜X(i+1) 
+
+23: end procedure 
+
+34 Algorithm 6 Stochastic Heun Sampler 
+
+1: procedure StochasticHeun ( ˜X(0) , GPFF , {σ(i)}Ni=0 , σ churn , σ t, min , σ t, max , σ noise )
+
+2: for i = 0 to N − 1 do 
+
+3: γ(i) ← 0
+
+4: if σt, min ≤ σ(i) ≤ σt, max then 
+
+5: γ(i) ← min  σchurn /N, √2 − 1
+
+6: end if 
+
+7: ˜σ(i) ← σ(i)(1 + γ(i)) ▷ Increase noise level 
+
+8: ˜X(i) ← ˜X(i) + σnoise · ϵp(˜ σ(i))2 − (σ(i))2, ϵ ∼ N (0, I) ▷ Inject noise 
+
+9: ˆX′ 
+
+> 0
+
+← GPFF( ˜X(i)) ▷ Predict clean geometry 
+
+10: d′ ← 1ˆσ ( ˜X(i) − ˆX′
+
+> 0
+
+) ▷ Evaluate dX/dσ at ˜ σ(i)
+
+11: ˜X(i+1) ← ˜X(i) + ( σ(i+1) − ˆσ)d′ ▷ Euler predictor step 
+
+12: if σ(i+1) == 0 then 
+
+13: break 
+
+14: else 
+
+15: ˆX′′  
+
+> 0
+
+← GPFF( ˜X(i+1) ) ▷ Predict at new position 
+
+16: d′′ ← 1 
+
+> σ(i+1)
+
+( ˜X(i+1) − ˆX′′  
+
+> 0
+
+)
+
+17: ˜X(i+1) ← ˜X(i+1) + ( σ(i+1) − ˆσ)   12 d′ + 12 d′′  ▷ Corrector step 
+
+18: end if 
+
+19: end for 
+
+20: return ˜X(i+1) 
+
+21: end procedure 
+
+35 Algorithm 7 Adaptive Stochastic Heun Sampler 
+
+1: procedure AdaptiveStochasticHeun ( ˜X(0) , GPFF , N target , N, σ churn , σ t, min , σ t, max , σ noise , α )
+
+2: ∆s ← 1 
+
+> Ntarget −1
+
+▷ Initial step size from target schedule 
+
+3: for i = 0 to N − 1 do 
+
+4: // 1. Estimate noise level and adapt schedule 
+
+5: { ˆX0, ˆσ(i)} ← GPFF( ˜X(i)) ▷ Predict clean geometry and estimate σ
+
+6: if i > 0 then 
+
+7: ∆s ← (ˆ σ(i−1) )1/ρ −(ˆ σ(i))1/ρ 
+
+> σ1/ρ
+> max −σ1/ρ
+> min
+
+▷ Observed step size 
+
+8: end if 
+
+9: σ(i+1) ←
+
+
+
+(ˆ σ(i))1/ρ − ∆s · (σ1/ρ  
+
+> max
+
+− σ1/ρ 
+
+> min
+
+)
+
+ρ
+
+10: σ(i+1) ← min 
+
+
+
+σ(i+1) , σ (i+1) upper 
+
+
+
+▷ Bound by maximum schedule 
+
+11: // 2. Stochastic noise injection 
+
+12: γ(i) ← 0
+
+13: if σt, min ≤ ˆσ(i) ≤ σt, max then 
+
+14: γ(i) ← min  σchurn /N, √2 − 1
+
+15: end if 
+
+16: ˜σ(i) ← ˆσ(i)(1 + γ(i)) ▷ Increase noise level 
+
+17: ˜X(i) ← ˜X(i) + σnoise · ϵp(˜ σ(i))2 − (ˆ σ(i))2, ϵ ∼ N (0, I) ▷ Inject noise 
+
+18: 19: // 3. Correct noise estimate for injected noise 
+
+20: ˆσ(i) ← ˜σ(i)/(1 + γ(i) · α) ▷ Rescale with correction factor α
+
+21: 22: // 4. Euler predictor step 
+
+23: d′ ← 1˜σ(i) ( ˜X(i) − ˆX0)
+
+24: ˜X(i+1) ← ˜X(i) + ( σ(i+1) − ˜σ(i))d′
+
+25: if σ(i+1) == 0 then 
+
+26: break 
+
+27: else 
+
+28: // 5. Corrector step 
+
+29: ˆX′′  
+
+> 0
+
+← GPFF( ˜X(i+1) ) ▷ Predict at new position 
+
+30: d′′ ← 1 
+
+> σ(i+1)
+
+( ˜X(i+1) − ˆX′′  
+
+> 0
+
+)
+
+31: ˜X(i+1) ← ˜X(i) + ( σ(i+1) − ˜σ(i))   12 d′ + 12 d′′  ▷ Corrector step 
+
+32: end if 
+
+33: end for 
+
+34: return ˜X(i+1) 
+
+35: end procedure 
+
+36
