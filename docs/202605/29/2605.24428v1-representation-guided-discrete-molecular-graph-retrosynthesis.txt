@@ -1,0 +1,788 @@
+Title: Representation-Guided Discrete Molecular Graph Retrosynthesis
+
+URL Source: https://arxiv.org/pdf/2605.24428v1
+
+Published Time: Tue, 26 May 2026 00:32:32 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Representation-Guided Discrete Molecular Graph Retrosynthesis 
+
+# Jiahai Huang 
+
+Sun Yat-sen University Guangzhou, China 
+
+# Anjie Qiao 
+
+Sun Yat-sen University Guangzhou, China 
+
+# Zhen Wang 
+
+Sun Yat-sen University Guangzhou, China 
+
+# Defu Lian 
+
+University of Science and Technology of China Hefei, China 
+
+# Yutong Lu 
+
+Sun Yat-sen University Guangzhou, China 
+
+## Abstract 
+
+Stochastic process–based molecular graph generators have become the state of the art for template-free single-step retrosynthesis. How-ever, these models are typically trained only on product–reactant pairs, thereby acquiring chemistry-relevant representations in an indirect and implicit manner. Meanwhile, recent advances in com-puter vision demonstrate that offering representation guidance to a generator can effectively distill semantics from pretrained encoders into DiTs, substantially improving both convergence and gener-ation quality. Whether similar gains extend to the retrosynthesis task, and what graph-specific design choices can make them work, remains an open question. To address these questions, we con-duct a systematic empirical study over a unified design space span-ning teacher molecular representations, endpoint and granularity choices, injection depths in the denoiser, correspondence strategies and guidance scheme. Guided by these considerations, we develop 
+
+Graph-oriented Representation Guidance ( GRG ), which achieves 58.6 / 77.2 / 83.4 / 87.1 top-1 / 3 / 5 / 10 accuracy on USPTO-50k ,while increasing diversity to 15.5, both substantially outperforming the adopted base generator. Notably, GRG consistently improves all top-𝑘 metrics in out-of-distribution settings, suggesting that repre-sentation guidance facilitates the acquisition of intrinsic chemical semantics. Meanwhile, the introduced representation guidance re-duces the number of epochs by 35% and the wall-clock time by 30% to reach comparable performance. In addition, we introduce a simple yet effective representation-similarity-based reranking mechanism, which further improves the top of the ranked list with-out training an additional verifier. 
+
+## 1 Introduction 
+
+Retrosynthesis prediction—decomposing a given product into plau-sible precursor sets—is a central primitive in synthesis planning and drug discovery [ 19 , 24 ]. Modern retrosynthesis systems span a spectrum of reliance on prior chemical knowledge: template-based methods select from a predefined reaction template set [ 2, 3]; semi-template methods first identify reaction centers or synthons and then complete reactants [ 15 , 30 , 35 ]; and template-free methods directly generate reactants end-to-end, offering the best scalability to expanding reaction corpora [17, 29, 37]. Within template-free modeling, most work represents molecules as SMILES strings [ 32 ] and frames retrosynthesis as translation [ 7,17 , 25 , 29 ]. Graph-based approaches instead operate on molecular graphs and can preserve structural constraints more directly [ 20 ,23 ]. Recently, stochastic process–based generative models have be-come the state of the art for graph-to-graph retrosynthesis: rather than predicting the full reactant set in one shot, they generate reactants through a sequence of stochastic refinement steps in-stantiated as discrete diffusion, Markov bridges, or discrete-flow formulations [ 1, 6, 9, 28 ]. In this work, we focus on improving such models. Despite their promising performance, stochastic process–based retrosynthesis models learn the conditional transport induced by paired product–reactant supervision. However, such supervision only implicitly shapes intermediate representations of the model, which may fall short of encoding chemistry-relevant abstractions (e.g., functional groups, local atomic environments, or reactivity patterns) that remain informative under noise and help determine which refinements are plausible. Meanwhile, recent work in vision has shown that distilling representations from pretrained encoders into diffusion/flow Transformers—via representation alignment (REPA ) [ 36 ] and representation entanglement ( REG ) [ 33 ]—can close this semantic gap and enhance both convergence speed and gener-ation quality. This motivates a natural question: can representation guidance also improve discrete molecular-graph retrosynthesis , and what graph-specific design choices are needed for it to work reli-ably? Adapting guidance from continuous vision models to discrete molecular graphs raises several design questions : teacher choice, endpoint/granularity decisions, how to incorporate bond-aware structure beyond isolated atom tokens, and robustness of the guid-ance scheme under categorical corruption —the forward noising that corrupts categorical variables (here, atom/bond types) via discrete transition matrices rather than adding Gaussian noise. We formalize these questions as study axes in Sec. 3.2. 
+
+Our work. We conduct a systematic empirical study on USPTO-50k using a representative Markov-bridge retrosynthesis gener-ator as the primary backbone [ 6], and additionally validate key conclusions on a discrete-flow model [ 9]. From an overarching perspective, we study two guidance schemes: (i) representation alignment (REPA ), which aligns intermediate node-/graph-level hidden states with teacher embeddings, and (ii) representation en-tanglement (REG ), which jointly corrupts and denoises an auxiliary semantic token together with the graph state to couple semantics and generation. To make these schemes work on molecular graphs under categorical corruption—and to balance accuracy and diver-sity in one-to-many reaction spaces—we further explore a graph-oriented design space and systematically examine combinations of: teacher encoders/representations (ECFP/Morgan fingerprints, RMAT, Uni-RXN, Uni-Mol+), guidance location (reactant-only vs. dual-endpoint), alignment granularity (graph-level vs. node-level), 
+
+> 1
+> arXiv:2605.24428v1 [cs.LG] 23 May 2026 Jiahai Huang, Anjie Qiao, Zhen Wang, Defu Lian, and Yutong Lu
+
+Figure 1: Overview of representation guidance for stochastic-process retrosynthesis and our node–edge projector 
+
+injection depth (which denoiser layer to align), guidance scheme (REPA /REG ), and correspondence strategies that handle node–bond-coupled guidance. Guided by these graph-specific considerations, we develop Graph-oriented Representation Guidance ( GRG ), a structure-aware alignment design for stochastic-process retrosyn-thesis generators. Beyond training, we show that representation similarity provides a lightweight inference-time verification signal: without training a separate verifier, we rerank sampled candidates by representation similarity. 
+
+Contributions. We summarize our main contributions as follows: 
+
+• We propose GRG , a graph-oriented representation guidance framework for discrete molecular graph retrosynthesis. It adapts representation guidance to stochastic process–based graph gener-ators and introduces graph-specific designs (e.g. correspondence handling and node–edge–aware intermediate alignment) that are compatible with categorical corruption. 
+
+• We provide a systematic design study that compares teacher rep-resentations, guidance location, alignment granularity, injection depth, guidance schemes, and correspondence strategies, yield-ing practical guidance on how to effectively apply representation guidance for retrosynthesis under discrete corruption. 
+
+• We show that representation similarity can serve as a lightweight inference-time verification signal: a simple representation-similarity reranking improves the head of the ranked list with minimal extra logic and without training an additional verifier. Our best configuration achieves state-of-the-art performance. 
+
+## 2 Background and Related Work 
+
+Single-step retrosynthesis: template-based, semi-template, and template-free. Template-based methods rely on reaction tem-plates and cast retrosynthesis as classification or retrieval over templates [ 2, 3 ]. Semi-template pipelines decompose the task into in-termediate subproblems such as reaction-center identification, syn-thon generation, and synthon-to-reactant completion [ 15 , 30 , 35 ]. Template-free methods generate reactants end-to-end and are scal-able to large reaction datasets and diverse chemical spaces [ 19 , 24 ]. Most template-free methods operate on SMILES [ 32 ] and cast ret-rosynthesis as SMILES-to-SMILES translation using sequence-to-sequence models (often Transformer-based) [ 4, 7, 17 , 25 , 29 , 37 ]. Graph-based methods instead aim to preserve molecular struc-ture and typically treat retrosynthesis as conditional graph gen-eration [ 20 , 23 , 26 ]. Our work focuses on stochastic-process graph generators and studies how representation guidance should be de-signed for discrete molecular-graph retrosynthesis. 
+
+Discrete diffusion, bridges, and flows for graph generation. 
+
+Generative diffusion models [ 5, 22 ] have been extended to dis-crete state spaces [ 1 ] and to graphs [ 28 ]. For retrosynthesis, recent work has explored diffusion-like iterative generation on molecu-lar graphs, achieving state-of-the-art accuracy and validity [ 8, 31 ]. 
+
+RetroBridge formulates retrosynthesis as sampling from a Markov bridge distribution that explicitly couples the product and reactant endpoints [ 6]. In addition to diffusion/bridges, discrete flow for-malisms are also emerging for bidirectional retrosynthesis and reaction-state modeling [ 9]. Our empirical study injects representa-tion guidance into both RetroBridge and SynBridge .
+
+Representation guidance: alignment and entanglement. Dif-fusion/flow Transformers [ 11 ] expose intermediate hidden states along the denoising trajectory, enabling auxiliary objectives that improve convergence speed and generation quality. Representation alignment (REPA ) aligns intermediate denoising features with em-beddings produced by a pretrained encoder [ 36 ]. Representation entanglement (REG ) models a joint distribution over the generated sample (e.g., an image; in our setting, the reactant graph) and an auxiliary token, jointly corrupting/denoising the token and the 
+
+> 2Representation-Guided Discrete Molecular Graph Retrosynthesis
+
+sample to couple semantics and generation [ 33 ]. Meanwhile, a key insight from recent studies is that alignment effectiveness may be driven not only by global semantic quality, but also by how well 
+
+local structure is preserved in the representation space. For example, 
+
+iREPA [21 ] shows that enhancing the transfer of spatial structure (via a more structure-preserving projection layer and normaliza-tion on encoder features) can significantly improve convergence in diffusion Transformer training. This perspective motivates our graph-specific design: in molecular graphs, chemically meaningful structure is carried by bonded neighborhoods and fragment-level patterns, suggesting that guidance schemes should explicitly ac-count for node–edge coupling rather than aligning atom tokens in isolation. 
+
+External molecular encoders and representations. In this work, we consider a spectrum of molecular representations used as teach-ers or entangled tokens. Morgan/ECFP fingerprints [ 14 ] are a strong hand-engineered baseline. Learned encoders include RMAT [ 10 ]and Uni-Mol+ [ 38 ], which provide transferable molecule embed-dings. We also use Uni-RXN [ 12 ], a reaction-aware representation model bridging reaction pretraining and conditional generation, as our primary “teacher” encoder. Because these teachers differ in modality (2D vs. 3D), supervision granularity (graph vs. atom), and inductive bias, we treat teacher choice as a first-class axis rather than assuming a universally optimal encoder. 
+
+Evaluation, validity checks, and inference-time reranking. 
+
+Standard single-step retrosynthesis evaluation reports top-𝑘 exact-match accuracy on benchmarks such as USPTO-50k [3 , 29 ]. Forward-model round-trip checks using the Molecular Transformer [ 17 , 18 ]are widely used to assess plausibility. For generative models that produce many samples per product, ranking heuristics such as fre-quency among samples are commonly used [ 6]. We show that rep-resentation similarity additionally enable a lightweight inference-time reranking signal without training a separate verifier. 
+
+## 3 Empirical Study Design 
+
+This section outlines the experimental protocol, covering the task formalism (Sec. 3.1) and design questions for representation guid-ance (Sec. 3.2). 
+
+## 3.1 Task setup and evaluation protocol 
+
+We focus on template-free, single-step retrosynthesis mapping a product graph 𝐺 𝑃 to reactants 𝐺 𝑅 . Following prior work [ 6 , 28 ], reactants are treated as a single disconnected graph padded to 𝑁 
+
+nodes. We represent a molecular graph as 𝐺 = (𝑋, 𝐸 ), where 𝑋 ∈ R𝑁 ×𝐾 𝑎 
+
+is the node (atom) feature matrix and 𝐸 ∈ R𝑁 ×𝑁 ×𝐾 𝑏 is the edge (bond) feature tensor. Here 𝐾 𝑎 and 𝐾 𝑏 denote the dimensionalities of the (discrete) atom- and bond-feature vocabularies (e.g., one-hot atom types and one-hot bond types), respectively. Given paired training examples (𝐺 𝑃 , 𝐺 𝑅 ) ∼ 𝑝 data , we train a parameterized condi-tional model 𝑝 𝜃 (𝐺 𝑅 | 𝐺 𝑃 ) to approximate the unknown conditional distribution 𝑝 data (𝐺 𝑅 | 𝐺 𝑃 ).
+
+Datasets. We utilize the standard USPTO-50k benchmark [ 16 ]with established splits [ 3, 23 ] and further evaluate OOD generaliza-tion on USPTO-50k-cluster [13] (Appendix A.2). 
+
+Sampling and metrics. For each product, we sample 𝑛 = 100 
+
+unique candidates from 𝑝 𝜃 , ranked by frequency. We report top-𝑘 
+
+accuracy, round-trip metrics via the Molecular Transformer [ 17 , 18 ], and diversity. See Appendix A.1 for definitions. 
+
+Backbones and protocol. RetroBridge is a state-of-the-art stochastic-process molecular-graph retrosynthesis model; accordingly, we adopt RetroBridge [ 6 ] as our primary generator to investigate rep-resentation guidance, with additional validation on SynBridge [ 9]. Following official implementations and consistent preprocessing, we provide details in Appendix A.3. Code is available at https: //anonymous.4open.science/r/rgdmg7f3c9a/. 
+
+## 3.2 Key design questions and study axes 
+
+Adapting representation guidance from continuous generative mod-els to discrete molecular-graph retrosynthesis is not a drop-in change. Retrosynthesis generators operate on categorical atom/bond vari-ables [ 1 , 28 ] and the task is inherently one-to-many . This creates several task-specific challenges. We therefore undertake an empiri-cal design for representation guidance in discrete molecular-graph retrosynthesis, and organize our study around the following inter-related questions: (Q1) Teacher representations: which molecular representa-tions are effective teachers? 
+
+Unlike vision, retrosynthesis lacks a universally optimal molecular encoder: existing encoders differ in modality (2D vs. 3D), pretrain-ing objective, and representational granularity, and their suitability as teachers remains uncertain. This calls for a systematic compari-son of teacher representations rather than assuming a single best teacher. 
+
+Design axis: choice of pretrained encoder E (·) .
+
+Choices: Morgan/ECFP fingerprints [ 14 ], RMAT [ 10 ], Uni-Mol+ [ 38 ], and Uni-RXN [12]. (Q2) Where and at what granularity should guidance be ap-plied in one-to-many reaction spaces? 
+
+In practice, many molecule encoders naturally expose graph-level embeddings (fingerprints, [CLS] /pooling), while atom-level em-beddings, when available, are often intermediate and not always a clean “atom token → atom embedding” interface. This makes graph-level guidance broadly applicable, but it can be overly coarse: a single global vector does not specify where to edit the reactant graph, potentially under-constraining local chemistry while over-regularizing the overall reactant distribution. At the graph level, a natural starting point is dual-endpoint alignment: teacher embed-dings can be computed for both product and reactants, and many stochastic-process formulations (especially bridge-style views) make it tempting to constrain both endpoints for semantic consistency. With teacher representations available, the choice of alignment endpoint and injection layer remains non-trivial. Adding global con-straints to the already-observed product side may over-regularize conditional generation, narrowing the candidate distribution and hurting diversity (or large-𝑘 performance) in one-to-many reac-tion spaces. Moreover, even when atom-level targets are available, moving from graph-level to node-level guidance is not obviously free: finer constraints may tilt the accuracy–diversity trade-off, for example by biasing the model toward a single decomposition and reducing diversity or large-𝑘 coverage on multi-reaction-center 
+
+> 3Jiahai Huang, Anjie Qiao, Zhen Wang, Defu Lian, and Yutong Lu
+
+reactions. Whether such trade-offs occur in discrete retrosynthesis must be tested empirically. In Sec. 6.2, we show that node-level guidance not only avoids the feared degradation but also improves both accuracy and diversity. 
+
+Design axes: (i) endpoint choice, (ii) granularity of the guided repre-sentation, and (iii) injection depth in the denoiser. 
+
+Choices: guiding both endpoints (product+reactant) vs. guiding the generated side only (reactant-only); graph-level guidance on the global token 𝑦 vs. node-level guidance on atom tokens 𝑋 ; and injection depth by aligning different denoiser layers (Sec. 6.2.2). (Q3) Graph-specific structure: do we need designs beyond isolated atom tokens? 
+
+Unlike images with patch tokens, molecular graphs have no canon-ical local unit. Even with node-level guidance, a single atom embed-ding can be too local to represent fragment-level semantics (e.g., functional groups or ring systems), and chemical meaning depends critically on bonds and valence constraints. This suggests that ef-fective guidance should incorporate structure-aware intermediate units that couple nodes and bonds. 
+
+Design axis: whether and how to incorporate bond-aware local topology into representation transfer. 
+
+Choices: a plain per-node MLP projector (atom-token alignment) vs. structure-aware node–edge coupling (our GRG ), where the pro-jector aggregates bonded neighborhoods via message passing [ 34 ]and enhances relative information among atoms with per-molecule instance normalization [27]. (Q4) Guidance scheme: which scheme is robust under cate-gorical corruption? 
+
+Guidance schemes may behave differently under categorical cor-ruption. Most representation guidance schemes are developed for continuous diffusion/flow models [ 33 , 36 ], where small guidance-induced perturbations typically change samples smoothly and can be corrected over later denoising steps. In discrete graph generation, however, the denoiser predicts categorical distributions over atom and bond types [ 1, 28 ]. Because guidance affects logits through intermediate features, even a small logit shift can flip the most prob-able category (e.g., atom/bond type), potentially violating chemical constraints and pushing the trajectory into hard-to-recover regions. Thus, it is an empirical question which guidance scheme is robust without harming validity or collapsing diversity. 
+
+Design axis: how semantics is injected into the generator under categorical corruption. 
+
+Choices: representation alignment ( REPA ) [ 36 ] vs. representation entanglement ( REG ) [ 33 ]. We compare these schemes through accuracy–diversity trade-offs. 
+
+## 4 Representation Guidance Design 
+
+Guided by the study axes in Sec. 3.2, we now detail how represen-tation guidance is instantiated within stochastic-process molecular-graph generators. We start from a unified denoiser interface and the intermediate states exposed along the refinement trajectory (Sec. 4.1). We then discuss representation alignment ( REPA ) and en-tanglement ( REG ), and introduce GRG . This graph-oriented variant couples node and bond context to ensure stable transfer of chemical semantics. 
+
+## 4.1 Stochastic-process graph generators 
+
+All guidance instantiations depend on a stochastic-process graph generator that iteratively refines a graph state over steps 𝑡 = 1, . . . ,𝑇 
+
+and exposes intermediate hidden states. We denote its denoiser as 
+
+𝐷 𝜃 (·) , implemented as a Graph Transformer. At Transformer layer 
+
+ℓ, the denoiser maintains and can expose intermediate represen-tations: node representations 𝑋 (ℓ ) 
+
+> 𝑡
+
+∈ R𝑁 ×𝑑 𝑥 , edge representations 
+
+𝐸 (ℓ ) 
+
+> 𝑡
+
+∈ R𝑁 ×𝑁 ×𝑑 𝑒 , and a global token 𝑦 (ℓ ) 
+
+> 𝑡
+
+∈ R𝑑 𝑦 . Representation guidance attaches lightweight heads on top of these intermediate states and adds auxiliary objectives. 
+
+## 4.2 Representation alignment ( REPA ) for retrosynthesis 
+
+We adapt representation alignment to discrete graph generation by attaching auxiliary heads to intermediate denoiser features and aligning them to embeddings produced by a pretrained teacher encoder E (·) .
+
+4.2.1 Graph-level alignment on the global token 𝑦 . Some teachers naturally output only a single graph embedding (e.g., ECFP), which motivates graph-level alignment as the first instantiation. Let ECLS (𝑀 ) denote the teacher’s graph-level embedding of mol-ecule 𝑀 (either the encoder’s dedicated [CLS] output or a single-vector representation such as ECFP). For a reactant set 𝐺 𝑅 with multiple components {𝑀 1, . . . , 𝑀 𝐾 𝑅 }, we define a set embedding by summing per-molecule vectors: 
+
+ℎ𝑅 =
+
+> 𝐾 𝑅
+
+∑︁ 
+
+> 𝑗 =1
+
+ECLS (𝑀 𝑗 ), (1) and obtain ℎ𝑃 for the product analogously. We apply standard normalization (Appendix A.3) and attach an MLP projection head 
+
+𝑔 𝜙 ★ to 𝑦 (ℓ★ ) 
+
+> 𝑡
+
+: ˆℎ★,𝑡 = Norm (𝑔 𝜙 ★ (𝑦 (ℓ★ ) 
+
+> 𝑡
+
+)) . The alignment loss is cosine distance: Lalign-𝑦 = Í★∈ S (1 − cos ( ˆℎ★,𝑡 , ˜ℎ★)) , where S ⊆ { 𝑃, 𝑅 }
+
+controls endpoint choice. 
+
+4.2.2 Node-level alignment on 𝑋 : atom-level targets. Graph-level alignment can be overly coarse. We therefore study node-level alignment that supervises individual atom representations. We re-quire atom-aligned teacher features; in our study Uni-RXN provides per-atom embeddings in a canonical RDKit atom order. During pre-processing we cache the node-order mapping and reorder teacher atom embeddings to match the student node indices; we therefore denote the aligned teacher target for student node 𝑖 directly as ˜ℎ𝑖 
+
+(details in Appendix A.7). Let V𝑅 denote the set of valid reactant atom indices (excluding padded/dummy slots). We attach a node-wise MLP 𝑔 𝜙 𝑋 to the student’s node features 
+
+𝑋 (ℓ ) 
+
+> 𝑡
+
+. Let ˆℎ𝑡,𝑖 = Norm (𝑔 𝜙 𝑋 (𝑋 (ℓ ) 
+
+> 𝑡,𝑖
+
+)) and ˜ℎ𝑖 denote the normalized teacher target. We apply cosine-distance alignment over valid reac-tant atoms: Lalign-𝑋 = 1 
+
+> | V 𝑅 |
+
+Í𝑖 ∈ V 𝑅 (1 − cos ( ˆℎ𝑡,𝑖 , ˜ℎ𝑖 )) .
+
+## 4.3 Representation entanglement ( REG ) for retrosynthesis 
+
+Representation entanglement augments the generative state with an auxiliary token 𝑧 𝑡 and models a joint distribution 𝑝 𝜃 (𝐺 𝑅 , 𝑧 | 𝐺 𝑃 ).
+
+> 4Representation-Guided Discrete Molecular Graph Retrosynthesis
+
+We append 𝑧 𝑡 as an additional global token and model it alongside the graph trajectory. We consider both discrete and continuous tokens to probe the effect of token bandwidth and semantic granularity. Discrete tokens (reaction class) provide a low-cost coarse prior available in USPTO-50k , while continuous tokens (pretrained embeddings) can carry richer reactant semantics. 
+
+Discrete token entanglement (reaction class). We use the 10-way reaction class label in USPTO-50k as a discrete token 𝑧 0 ∈ { 1, . . . , 10 }
+
+with a D3PM-style forward transition [ 1]: 𝑞 (𝑧 𝑡 | 𝑧 0) = 𝑧 0𝑄 𝑡 , where 
+
+𝑄 𝑡 = (1 − 𝛽 𝑡 )𝐼 + 𝛽 𝑡 𝑈 . where 𝑈 is uniform and 𝛽 𝑡 follows a co-sine schedule. The model predicts logits for the clean token and is optimized with cross-entropy loss Ldisc  
+
+> 𝑧
+
+.
+
+Continuous token entanglement (pretrained embeddings). We also entangle continuous vectors from a pretrained encoder (e.g., RMAT CLS or Uni-Mol+ CLS). Let 𝑧 0 ∈ R𝑑 𝑧 be the normalized target embedding. We apply Gaussian corruption: 𝑧 𝑡 = √ ¯𝛼 𝑡 𝑧 0 + √1 − ¯𝛼 𝑡 𝜖 ,where 𝜖 ∼ N ( 0, 𝐼 ), and supervise the prediction of 𝑧 0 with MSE loss Lcont  
+
+> 𝑧
+
+.
+
+Total training objective. L = LRetroBridge + 𝜆 align Lalign + 𝜆 𝑧 L𝑧 .
+
+## 4.4 Graph-oriented Representation Guidance (GRG )
+
+A plain node-level alignment (Sec. 4.2) aligns each atom token independently through an MLP projector, which ignores bond con-text. In molecular graphs, however, chemical semantics is carried by bonded neighborhoods (functional groups, rings), and atom identity is coupled with bond types and valence constraints. We therefore propose GRG , a structure-aware representation alignment that cou-ples node and edge context through a lightweight message-passing projector. 
+
+Intermediate features. We attach guidance at a Transformer layer 
+
+ℓ (layer 4 for RetroBridge by default; Sec. 6.2.2) and extract 
+
+𝑋 (ℓ ) 
+
+> 𝑡
+
+∈ R𝑁 ×𝑑 𝑥 , 𝐸 (ℓ ) 
+
+> 𝑡
+
+∈ R𝑁 ×𝑁 ×𝑑 𝑒 . (2) 
+
+Edge augmentation and edge encoder. During training, we restrict message passing to edges present in the ground-truth reactant graph. For each ground-truth bond (𝑢, 𝑣 ), let 𝑏 GT  
+
+> 𝑢𝑣
+
+∈ { 0, 1}𝐾 𝑏 be the one-hot bond type. We concatenate it to the intermediate edge features and map to a node-dimensional edge embedding: 
+
+𝑒 in  
+
+> 𝑢𝑣
+
+= Concat 
+
+
+
+𝐸 (ℓ )
+
+> 𝑡,𝑢𝑣
+
+, 𝑏 GT 
+
+> 𝑢𝑣
+
+
+
+, 𝑒 𝑢𝑣 = EdgeEnc 
+
+
+
+𝑒 in 
+
+> 𝑢𝑣
+
+
+
+, (3) where EdgeEnc (·) is a small MLP that outputs a 𝑑 𝑥 -dimensional edge embedding. 
+
+Node–edge coupled projector (EdgeGIN).. We perform 𝐾 rounds of message passing along ground-truth neighbors NGT (𝑣 ):
+
+ℎ(0) 
+
+> 𝑣
+
+= 𝑋 (ℓ ) 
+
+> 𝑡,𝑣
+
+,ℎ(𝑘 ) 
+
+> 𝑣
+
+= MLP 𝑘 
+
+
+
+(1 + 𝜖 𝑘 ) ℎ(𝑘 −1) 
+
+> 𝑣
+
++∑︁   
+
+> 𝑢 ∈ N GT (𝑣 )
+
+ReLU  ℎ(𝑘 −1) 
+
+> 𝑢
+
++ 𝑒 𝑢𝑣 
+
+
+
+, (4) for 𝑘 = 1, . . . , 𝐾 (we use 𝐾 = 2), where 𝜖 𝑘 is learnable as in GIN [ 34 ]. We denote the resulting structure-aware node features by ¯𝑋 𝑡,𝑣 :=
+
+ℎ(𝐾 ) 
+
+> 𝑣
+
+.
+
+Per-molecule instance normalization on teacher atoms. Let ˜ℎ𝑖 de-note the teacher atom embedding for atom 𝑖 . To emphasize within-molecule contrast (relative semantic patterns) rather than absolute embedding scale, we apply instance normalization [ 27 ] to teacher atom embeddings within each reactant molecule component: 
+
+˜ℎ′ 
+
+> 𝑖
+
+=
+
+˜ℎ𝑖 − 𝜇 ( ˜ℎC ( 𝑖 ) )
+
+𝜎 ( ˜ℎC ( 𝑖 ) ) + 𝜖 ,
+
+where C( 𝑖 ) denotes the molecule component containing atom 𝑖 and 
+
+𝜇 (·) , 𝜎 (·) are computed over atoms in that component. This design highlights the importance of local organization and normalization in the target representation space. 
+
+Alignment objective. We apply a node-wise head 𝑔 𝜙 on top of ¯𝑋 𝑡 
+
+and compute masked cosine alignment on valid reactant atoms: 
+
+Lalign-GRG = 1
+
+|V 𝑅 |∑︁ 𝑖 ∈ V 𝑅 
+
+
+
+1 − cos 
+
+
+
+Norm (𝑔 𝜙 ( ¯𝑋 𝑡,𝑖 )) , Norm ( ˜ℎ′ 
+
+> 𝑖
+
+)
+
+ 
+
+.
+
+(5) 
+
+## 5 Inference-time Reranking via Representation Similarity 
+
+We refine the conventional frequency-based ranking of 𝑛 sam-ples [ 6] by leveraging representation similarity as a lightweight verification score (Fig. 2). Crucially, this incurs no additional sam-pling cost or separate training. 
+
+Representation similarity score. We extract generator-side repre-sentations along the denoising trajectory and compute a reference embedding for the candidate ˆ𝐺 𝑅 via the teacher encoder E (·) . We then aggregate per-step cosine similarities over 𝐾 steps: 
+
+𝑠 𝑡 ( ˆ𝐺 𝑅 ) = 1
+
+|V ( ˆ𝐺 𝑅 )| ∑︁ 𝑖 ∈ V ( ˆ𝐺 𝑅 )
+
+cos 
+
+ ˆℎ𝑡,𝑖 ( ˆ𝐺 𝑅 ), ˜ℎ𝑖 ( ˆ𝐺 𝑅 )
+
+
+
+,𝑠 ( ˆ𝐺 𝑅 ) = 1
+
+𝐾 
+
+> 𝑇
+
+∑︁   
+
+> 𝑡 =𝑇 −𝐾 +1
+
+𝑠 𝑡 ( ˆ𝐺 𝑅 ) + 12 ,
+
+(6) where cos (· , ·) is cosine similarity; 𝑇 is the total number of denois-ing steps; and 𝑠 𝑡 +12 maps cosine similarity to [0, 1] for numerical stability. V ( ˆ𝐺 𝑅 ) denotes the set of representation tokens used for similarity. ˜ℎ𝑖 ( ˆ𝐺 𝑅 ) denotes the teacher-side embedding of node 𝑖 on 
+
+ˆ𝐺 𝑅 , and ˆℎ𝑡,𝑖 ( ˆ𝐺 𝑅 ) denotes the generator-side representation (at step 
+
+𝑡 ) of node 𝑖 on ˆ𝐺 𝑅 (Appendix A.9). 
+
+Frequency score. Let 𝑐 ( ˆ𝐺 𝑅 ) ∈ { 1, . . . , 𝑛 } denote the number of times a distinct candidate ˆ𝐺 𝑅 appears among the 𝑛 sampled trajec-tories. We define the frequency score as 𝑓 ( ˆ𝐺 𝑅 ) = 𝑐 ( ˆ𝐺 𝑅 ) 
+
+> 𝑛
+
+∈ [ 0, 1],which is the default confidence signal used by frequency rank-ing [6]. 
+
+Reranking score via fusion. We combine 𝑓 ( ˆ𝐺 𝑅 ) and 𝑠 ( ˆ𝐺 𝑅 ) with a simple fusion rule to obtain a final reranking score Score ( ˆ𝐺 𝑅 )
+
+(implementation details in Appendix A.3). Intuitively, 𝑓 ( ˆ𝐺 𝑅 ) cap-tures model confidence under stochastic sampling, while 𝑠 ( ˆ𝐺 𝑅 )
+
+acts as a semantic consistency score that helps break ties among high-frequency candidates. 
+
+> 5Jiahai Huang, Anjie Qiao, Zhen Wang, Defu Lian, and Yutong Lu
+
+Figure 2: Reranking sampled candidates by frequency and representation similarity. 
+
+## 6 Empirical Results and Design Insights 
+
+We evaluate representation guidance on USPTO-50k and an out-of-distribution (OOD) cluster split [ 13 ], using RetroBridge as the primary stochastic-process backbone. We start from the most broadly applicable instantiation, identify accuracy–diversity trade-off in one-to-many retrosynthesis, and then make a sequence of explicit decision points . These decisions establish a strong and sta-ble baseline recipe. Building on this foundation, we carefully tailor 
+
+representation guidance to molecular graphs by explicitly account-ing for node–bond coupling and structure-aware correspondence under categorical corruption, culminating in our final method, GRG 
+
+(Graph-oriented Representation Guidance). 
+
+## 6.1 Graph-level alignment and teacher choice 
+
+Graph-level alignment on the denoiser global token 𝑦 is the most broadly applicable entry point. Table 1 reports a consolidated com-parison across teacher. 
+
+Takeaway. Across teacher types, Align 𝑦 substantially improves top-1 accuracy over the RetroBridge baseline (Table 1), indicat-ing that representation transfer is effective even without a CLIP-level universally dominant molecular encoder. At the same time, Uni-RXN is the strongest among tested teachers, suggesting that reaction-aware representations better match retrosynthesis seman-tics than generic molecule encoders or fingerprints. 
+
+But: graph-level alignment exhibits an accuracy–diversity trade-off. While Align 𝑦 improves small-𝑘 precision, it reduces diversity (and can hurt larger-𝑘 coverage), foreshadowing over-constraint in one-to-many reaction spaces. 
+
+Decision. We use Uni-RXN which is a reaction-aware pretrained encoder [12] as the default teacher. 
+
+## 6.2 From global constraints to local guidance in one-to-many retrosynthesis 
+
+With the teacher fixed (Uni-RXN), we now decide where to apply guidance (endpoint), at what granularity (graph vs. node), and how deep to inject it (layer placement). 
+
+Decision point I: endpoint choice for graph-level alignment. 
+
+Comparing Uni-RXN dual-endpoint alignment vs. reactant-only alignment (Table 1), we observe that aligning the generated end-point only (reactant-only) yields a better accuracy–diversity trade-off. Intuitively, the product endpoint is already observed as condi-tioning; additionally constraining it can unnecessarily narrow the conditional distribution. 
+
+Decision. We adopt reactant-only guidance. 
+
+6.2.1 Multi-reaction-center analysis. We further stratify perfor-mance by reaction-center (RC) complexity. Detailed numbers are provided in Appendix Table 6. 
+
+Design insight: coarse global constraints can collapse large-𝑘 
+
+performance on harder (RC >1) reactions. Graph-level align-ment shows strong top-1 gains but degrades larger-𝑘 accuracy on RC >1 reactions, consistent with the notion that global constraints pick a single “high-confidence” mode and miss alternative valid decompositions. 
+
+Decision point II: move from graph-level to node-level align-ment. To attempt more fine-grained guidance, we move to node-level supervision using Uni-RXN atom embeddings. As shown by RB-Align 𝑋 in Table 1, node-level alignment not only improves top-𝑘 across the board but also recovers and exceeds baseline diver-sity. Moreover, it substantially mitigates the large-𝑘 degradation on harder multi-reaction-center (RC >1) reactions that we observe with coarse graph-level alignment (Appendix Table 6). This suggests that distributing guidance across atoms provides more informative, 
+
+> 6Representation-Guided Discrete Molecular Graph Retrosynthesis
+
+Table 1: Top-𝑘 exact-match accuracy (%) on the USPTO-50k test split.                                                               
+
+> Model Guidance granularity Teacher / token Top-1 Top-3 Top-5 Top-10 Diversity
+> RetroBridge (Base) ––50.8 71.1 76.0 80.3 12.9 RB-Align 𝑦 graph 𝑦 Uni-RXN (prod+reac) 56.8 72.7 76.0 78.4 10.9 RB-Align 𝑦 graph 𝑦 Uni-RXN (reac-only) 57.6 73.1 76.6 78.8 11.8 RB-Align 𝑦 graph 𝑦 ECFP/Morgan 56.6 71.3 75.2 78.6 11.1 RB-Align 𝑦 graph 𝑦 RMAT 57.0 72.5 74.8 77.4 9.3 RB-Align 𝑋 node 𝑋 Uni-RXN node 58.0 76.6 80.2 85.3 13.7
+> GRG node–edge Uni-RXN node 58.6 77.2 83.4 87.1 15.5
+
+Table 2: Round-trip coverage and accuracy (%) on the standard test split of USPTO-50k .                                   
+
+> Coverage Accuracy Model k=1 k=3 k=5 k=1 k=3 k=5
+> RetroBridge (Base) 84.2 94.3 95.9 84.2 71.7 66.3 RB-Align 𝑦 (Uni-RXN) 90.7 97.2 97.8 90.7 76.4 70.9 RB-Align 𝑋 (Uni-RXN node) 89.3 97.8 99.0 89.3 78.7 72.7
+> GRG (node–edge) 92.1 98.4 99.4 92.1 79.9 72.7
+
+localized constraints without globally collapsing the reactant distri-bution. 
+
+Decision. We adopt node-level reactant-only alignment. 
+
+6.2.2 Layer placement for node-level alignment. Having decided to use node-level alignment, the remaining practical question is where 
+
+to inject it in the denoiser. We report a layer-placement ablation in Appendix Table 7. 
+
+Design insight. Aligning deeper layers consistently improves node-level results (Appendix Table 7), suggesting that deeper de-noiser features encode more task-relevant chemical semantics. 
+
+Decision. We use layer 4 for node-level alignment. 
+
+## 6.3 Robustness and transfer 
+
+At this point we have a concrete, fixed alignment recipe. We now evaluate whether this choice improves (i) plausibility under forward-model checks, (ii) OOD generalization, and (iii) transfer beyond Markov bridges. 
+
+6.3.1 Round-trip consistency and diversity. Table 2 reports round-trip coverage and accuracy using the Molecular Transformer for-ward model [17, 18]. 
+
+Takeaway. RB-Align 𝑋 improves round-trip coverage compared to the RetroBridge baseline, especially at larger 𝑘 (Table 2), indicating that the guided generator produces candidates that are not only closer to the ground truth but also more often forward-consistent. 
+
+6.3.2 Out-of-distribution generalization on USPTO-50k-cluster .
+
+We evaluate OOD generalization on USPTO-50k-cluster [13]. 
+
+Takeaway: node-level alignment provides a strong, transfer-able semantic anchor. RB-Align 𝑋 substantially improves OOD top-𝑘 accuracy across all 𝑘 (Table 3), with a particularly large gain on top-1 (42.9 →54.7). This supports that representation alignment 
+
+Table 3: Top-k (exact match) accuracy on the USPTO-50k-cluster dataset’s test split.                    
+
+> Model Top-1 Top-3 Top-5 Top-10
+> RetroBridge (Base) 42.9 66.3 73.2 77.9 RB-Align 𝑋 (node) 54.7 69.9 76.6 79.3
+> GRG (node–edge) 55.3 70.7 76.8 80.3
+
+helps distill intrinsic chemical semantics rather than overfitting to dataset-specific shortcuts. 
+
+6.3.3 Transfer to a flow model: SynBridge . To test whether the ben-efits of representation alignment extend beyond Markov bridges, we inject an analogous alignment mechanism into SynBridge [9]. Results are summarized in Appendix Table 8 under the same evalu-ation pipeline (Appendix A.1). 
+
+Takeaway. On SynBridge , alignment improves exact-match top-𝑘 
+
+yet reduces round-trip coverage (Appendix Table 8), suggesting that the interaction between guidance and the underlying stochastic process and architecture can shift the precision–plausibility balance. This motivates comparing guidance schemes beyond alignment. 
+
+## 6.4 Guidance scheme under categorical corruption: entanglement vs. alignment 
+
+We next test representation entanglement ( REG ) by jointly mod-eling an auxiliary token 𝑧 appended to the global representation. We consider both discrete tokens (reaction class) and continuous tokens (pretrained CLS embeddings) to probe how token bandwidth and modality affect one-to-many behavior. 
+
+Takeaway: entanglement can improve small-𝑘 , but exhibits sharper token-dependent trade-offs. Entanglement variants improve top-1 in several settings (Table 4), and the discrete reaction-type token achieves the highest top-1 among tested configurations. However, entanglement often reduces diversity, indicating that coupling an auxiliary token into the generative state can impose strong constraints in one-to-many reaction spaces. 
+
+Design insight: token modality and source matter. Pretrained continuous tokens outperform learned/random tokens (Appendix Table 9), suggesting that entanglement benefits from meaningful external semantics; nevertheless, selecting a token that preserves diversity remains non-trivial. 
+
+Decision. Given its more stable accuracy–diversity behavior, we use alignment as the default guidance scheme for our final design. 
+
+> 7Jiahai Huang, Anjie Qiao, Zhen Wang, Defu Lian, and Yutong Lu
+
+Table 4: Representation entanglement via joint modeling of auxiliary token and graph. Exact-match accuracy (%) on USPTO-50k .                                                  
+
+> Model Token type Dim Top-1 Top-3 Top-5 Top-10 Diversity
+> RetroBridge (Base) ––50.8 71.1 76.0 80.3 12.9 RB-REG (reaction type) discrete one-hot 10 60.0 74.1 78.0 80.4 11.7 RB-REG (RMAT CLS) continuous CLS 64 58.8 77.0 80.8 83.8 13.2 RB-REG (Uni-Mol+ CLS) continuous CLS 64 59.2 77.8 81.0 83.2 10.3 RB-REG (Uni-RXN CLS) continuous CLS 64 58.6 74.6 78.0 80.2 9.8 RB-REG (Uni-RXN CLS) continuous CLS 16 58.4 73.5 76.6 79.0 10.9
+
+## 6.5 Graph-oriented Representation Guidance 
+
+So far, we have established a stable alignment recipe that improves both in-distribution accuracy and OOD generalization. The remain-ing question is graph-specific : can we transfer semantics more reli-ably by explicitly accounting for node–edge coupling, rather than aligning atom tokens in isolation? 
+
+GRG : structure-aware alignment via node–edge coupling. 
+
+GRG (Sec. 4.4) replaces the plain per-node MLP projector with a lightweight message-passing projector that aggregates bonded neighborhoods (EdgeGIN) and applies per-molecule instance nor-malization on teacher atom embeddings. 
+
+Main result: GRG improves both accuracy and diversity. As shown in Table 1, GRG consistently improves all top-𝑘 metrics over RB-Align 𝑋 while further increasing diversity (15.5 vs. 13.7), indicat-ing that incorporating graph structure into representation transfer strengthens guidance without collapsing one-to-many modes. 
+
+Robustness: GRG achieves the highest round-trip coverage (Ta-ble 2) and is consistently strongest on the OOD cluster split across all 𝑘 (Table 3). These improvements are particularly meaningful because they persist under distribution shift, which suggests that 
+
+GRG better learns crucial and intrinsic chemical semantics. 
+
+## 6.6 Inference-time reranking via representation similarity 
+
+We evaluate inference-time reranking that fuses the default fre-quency score with the representation-similarity score described in Sec. 5. We summarize reranking as ΔTop-𝑘 relative to the default frequency ranking. Detailed numbers are provided in Appendix Table 10 
+
+Takeaway: guided representations enable lightweight veri-fication signals. Representation similarity most consistently im-proves the head of the ranked list (often top-1) (Appendix Table 10). For GRG , reranking improves top-1/top-3/top-10 without any de-crease, suggesting that the guided representation space provides a useful semantic consistency signal. 
+
+## 6.7 Compute and efficiency 
+
+Faster convergence in epochs and wall-clock time. GRG re-duces the number of epochs by 35% and the wall-clock time by 30% to reach comparable validation performance. The full validation curves are provided in Appendix A.5 +(Fig. 3–4). 
+
+Training overhead. Alignment introduces a modest training over-head (Appendix A.3). Our structure-aware projector in GRG incurs a slightly higher but still low overhead. Entanglement increases training cost further due to the additional token pathway. 
+
+Sampling and reranking overhead. We can do without addi-tional sampling budget when using alignment. Reranking logic and sampling cls tokens are negligible; practical overhead mainly comes from teacher-encoder throughput when computing candidate-side references for similarity. 
+
+## 7 Limitations and Ethical Considerations 
+
+Limitations. Our improvements depend on the teacher encoder; teacher failure modes may be inherited by alignment and similarity-based reranking. We focus on USPTO-50k (plus one OOD split and one architecture transfer), and broader validation on larger and more diverse reaction corpora remains future work. 
+
+Limitations: REG design space. We only probe a small set of auxiliary tokens and corruption settings for representation entan-glement; richer tokenizations and schedules may yield better per-formance. 
+
+Ethical considerations. We utilize the public USPTO-50k dataset, involving no human subjects or sensitive data. regarding dual-use risks, while improved retrosynthesis lowers barriers for synthesiz-ing regulated compounds, we emphasize the necessity of safeguards in any model deployment. 
+
+## 8 Conclusion 
+
+We presented GRG , a graph-oriented representation guidance frame-work for template-free retrosynthesis with stochastic-process molecular-graph generators. Across a unified empirical study spanning teacher representations, guidance endpoints and granularity, injection depth, and graph-specific structure-aware designs under categorical cor-ruption, we distill the practical choices that make representation guidance reliable for one-to-many retrosynthesis. Building on these insights, GRG couples node and bond context via a lightweight message-passing projector for stable, structure-aware alignment, achieving 58.6% top-1 / 87.1% top-10 accuracy with higher diver-sity on USPTO-50k , consistent improvements under distribution shift, and faster convergence in both epochs and wall-clock time. Moreover, the guided representation space provides a simple post-sampling reranking signal via representation similarity, improving the head of the ranked list without training an additional verifier. Overall, our results indicate that explicit representation guidance is a practical path to distill more intrinsic chemical abstractions into discrete graph generators for synthesis planning. 
+
+## References  
+
+> [1] Jacob Austin, Daniel D. Johnson, Jonathan Ho, Daniel Tarlow, and Rianne van den Berg. 2021. Structured denoising diffusion models in discrete state-spaces. In
+> Advances in Neural Information Processing Systems (NeurIPS) . 17981–17993. 8
+
+Representation-Guided Discrete Molecular Graph Retrosynthesis 
+
+[2] Shuangjia Chen and Yongjin Jung. 2021. Deep retrosynthetic reaction prediction using local reactivity and global attention. JACS Au 1, 10 (2021), 1612–1620. [3] Hanjun Dai, Chengtao Li, Connor Coley, Bo Dai, and Le Song. 2019. Retrosyn-thesis prediction with conditional graph logic network. In Advances in Neural Information Processing Systems (NeurIPS) , Vol. 32. [4] Yuqiang Han, Xiaoyang Xu, Chang-Yu Hsieh, Keyan Ding, Hongxia Xu, Renjun Xu, Tingjun Hou, Qiang Zhang, and Huajun Chen. 2024. Retrosynthesis predic-tion with an iterative string editing model. Nature Communications 15, 1 (2024), 6404. doi:10.1038/s41467-024-50617-1 [5] Jonathan Ho, Ajay Jain, and Pieter Abbeel. 2020. Denoising diffusion probabilistic models. In Advances in Neural Information Processing Systems (NeurIPS) , Vol. 33. 6840–6851. [6] Ilyas Igashov, Arne Schneuing, Marwin Segler, Michael Bronstein, and Bruno Correia. 2024. RetroBridge: modeling retrosynthesis with Markov bridges. In 
+
+International Conference on Learning Representations (ICLR) . arXiv:2308.16212. [7] Euijoon Kim, Donghyeon Lee, Yujin Kwon, Min S. Park, and Young-Seon Choi. 2021. Valid, plausible, and diverse retrosynthesis using tied two-way transformers with latent variables. Journal of Chemical Information and Modeling 61, 1 (2021), 123–133. [8] Najwa Laabid, Severi Rissanen, Markus Heinonen, Arno Solin, and Vikas Garg. 2025. Equivariant denoisers cannot copy graphs: align your graph diffusion models. In International Conference on Learning Representations (ICLR) . doi:10. 48550/arXiv.2405.17656 arXiv:2405.17656. [9] Haitao Lin, Junjie Wang, Zhifeng Gao, Xiaohong Ji, Rong Zhu, Linfeng Zhang, Guolin Ke, and Weinan E. 2025. SynBridge: bridging reaction states via discrete flow for bidirectional single-step retrosynthesis. arXiv preprint arXiv:2507.08475 
+
+(2025). [10] Łukasz Maziarka, Dawid Majchrowski, Tomasz Danel, Piotr Gaiński, Jacek Tabor, Igor Podolak, Paweł Morkisz, and Stanisław Jastrzębski. 2021. Relative molecule self-attention transformer. arXiv preprint arXiv:2110.05841 (2021). doi:10.48550/ arXiv.2110.05841 [11] William Peebles and Saining Xie. 2023. Scalable diffusion models with transform-ers. In IEEE/CVF International Conference on Computer Vision (ICCV) . 4172–4182. [12] Bo Qiang, Yiran Zhou, Yuheng Ding, Ningfeng Liu, Song Song, Liangren Zhang, Bo Huang, et al . 2023. Bridging the gap between chemical reaction pretraining and conditional molecule generation with a unified model. Nature Machine Intelligence 5, 12 (2023), 1476–1485. doi:10.1038/s42256-023-00764-9 [13] Anjie Qiao, Zhen Wang, Jiahua Rao, Yuedong Yang, and Zhewei Wei. 2025. Advancing Retrosynthesis with Retrieval-Augmented Graph Generation. In Pro-ceedings of the AAAI Conference on Artificial Intelligence , Vol. 39. 20004–20013. doi:10.1609/aaai.v39i19.34203 [14] David Rogers and Mathew Hahn. 2010. Extended-connectivity fingerprints. 
+
+Journal of Chemical Information and Modeling 50, 5 (2010), 742–754. doi:10.1021/ ci100050t [15] Mikołaj Sacha, Mateusz Błaż, Piotr Byrski, Paweł Dąbrowski-Tumański, Mateusz Chromiński, Rafał Loska, Piotr Włodarczyk-Pruszyński, and Stanisław Jastrzęb-ski. 2021. Molecule edit graph attention network: modeling chemical reactions as sequences of graph edits. Journal of Chemical Information and Modeling 61, 7 (2021), 3273–3284. [16] Nadine Schneider, Daniel M. Lowe, Roger A. Sayle, Michael A. Tarselli, and Gre-gory A. Landrum. 2016. Big data from pharmaceutical patents: a computational analysis of medicinal chemists’ bread and butter. Journal of Medicinal Chemistry 
+
+59, 9 (2016), 4385–4402. doi:10.1021/acs.jmedchem.6b00153 [17] Philippe Schwaller, Teodoro Laino, Théophile Gaudin, Peter Bolgar, Christo-pher A. Hunter, Costas Bekas, and Alpha A. Lee. 2019. Molecular transformer: a model for uncertainty-calibrated chemical reaction prediction. ACS Central Science 5, 9 (2019), 1572–1583. doi:10.1021/acscentsci.9b00576 [18] Philippe Schwaller, Riccardo Petraglia, Valentino Zullo, Vishnu H Nair, Ralph A Haeuselmann, Riccardo Pisoni, Costas Bekas, Antonio Iuliano, and Teodoro Laino. 2020. Predicting retrosynthetic pathways using transformer-based models and a hyper-graph exploration strategy. Chemical Science 11, 12 (2020), 3316–3325. [19] Marwin H. S. Segler, Mike Preuss, and Mark P. Waller. 2018. Planning chemical syntheses with deep neural networks and symbolic AI. Nature 555, 7698 (2018), 604–610. [20] Chence Shi, Muhan Xu, Hongyu Guo, Ming Zhang, and Jian Tang. 2020. A graph to graphs framework for retrosynthesis prediction. In International Conference on Machine Learning (ICML) . 8818–8827. [21] Jaskirat Singh, Xingjian Leng, Zongze Wu, Liang Zheng, Richard Zhang, Eli Shechtman, and Saining Xie. 2025. What Matters for Representation Alignment: Global Information or Spatial Structure? arXiv preprint arXiv:2512.10794 (2025). [22] Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan, and Surya Ganguli. 2015. Deep unsupervised learning using nonequilibrium thermodynamics. In 
+
+International Conference on Machine Learning (ICML) . 2256–2265. [23] Vrinda R. Somnath, Charlotte Bunne, Connor Coley, Andreas Krause, and Regina Barzilay. 2021. Learning graph models for retrosynthesis prediction. In Advances in Neural Information Processing Systems (NeurIPS) , Vol. 34. 9405–9415. [24] Felix Strieth-Kalthoff, Frank Sandfort, Marwin H. S. Segler, and Frank Glorius. 2020. Machine learning the ropes: principles, applications and directions in synthetic chemistry. Chemical Society Reviews 49, 17 (2020), 6154–6168. [25] Igor V. Tetko, Petr Karpov, Robert Van Deursen, and Guillaume Godin. 2020. State-of-the-art augmented NLP transformer models for direct and single-step retrosynthesis. Nature Communications 11, 1 (2020), 5575. [26] Zhen Tu and Connor W. Coley. 2022. Permutation invariant graph-to-sequence model for template-free retrosynthesis and reaction prediction. Journal of Chem-ical Information and Modeling 62, 15 (2022), 3503–3513. [27] Dmitry Ulyanov, Andrea Vedaldi, and Victor Lempitsky. 2016. Instance normaliza-tion: The missing ingredient for fast stylization. arXiv preprint arXiv:1607.08022 
+
+(2016). [28] Clément Vignac, Igor Krawczuk, Aymeric Siraudin, Bin Wang, Volkan Cevher, and Pascal Frossard. 2023. DiGress: discrete denoising diffusion for graph gener-ation. In International Conference on Learning Representations (ICLR) .[29] Yu Wan, Cheng-Yu Hsieh, Bo Liao, and Shengyu Zhang. 2022. Retroformer: pushing the limits of end-to-end retrosynthesis transformer. In International Conference on Machine Learning (ICML) . 22475–22490. [30] Xiaorui Wang, Yujie Li, Jie Qiu, Guangyong Chen, Haibo Liu, Bo Liao, Cheng-Yu Hsieh, and Xin Yao. 2021. RetroPrime: a diverse, plausible and transformer-based method for single-step retrosynthesis predictions. Chemical Engineering Journal 
+
+420 (2021), 129845. [31] Yiming Wang, Yuxuan Song, Yiqun Wang, Minkai Xu, Rui Wang, Hao Zhou, and Wei-Ying Ma. 2025. RetroDiff: retrosynthesis as multi-stage distribution interpolation. In Proceedings of The 28th International Conference on Artificial Intelligence and Statistics (Proceedings of Machine Learning Research, Vol. 258) ,Yingzhen Li, Stephan Mandt, Shipra Agrawal, and Emtiyaz Khan (Eds.). PMLR, 1918–1926. https://proceedings.mlr.press/v258/wang25e.html Also available as arXiv:2311.14077. [32] David Weininger. 1988. SMILES, a chemical language and information system. 1. Introduction to methodology and encoding rules. Journal of Chemical Information and Computer Sciences 28, 1 (1988), 31–36. [33] Ge Wu, Shen Zhang, Ruijing Shi, Shanghua Gao, Zhenyuan Chen, Lei Wang, Zhaowei Chen, Hongcheng Gao, Yao Tang, Jian Yang, Ming-Ming Cheng, and Xiang Li. 2025. Representation entanglement for generation: training diffusion transformers is much easier than you think. arXiv preprint arXiv:2507.01467 
+
+(2025). [34] Keyulu Xu, Weihua Hu, Jure Leskovec, and Stefanie Jegelka. 2019. How powerful are graph neural networks?. In International Conference on Learning Representa-tions (ICLR) .[35] Chaochao Yan, Qiankun Ding, Peilin Zhao, Sheng Zheng, Jun Yang, Yang Yu, and Junzhou Huang. 2020. RetroXpert: decompose retrosynthesis prediction like a chemist. In Advances in Neural Information Processing Systems (NeurIPS) , Vol. 33. 11248–11258. [36] Sihyun Yu, Sangkyung Kwak, Huiwon Jang, Jongheon Jeong, Jonathan Huang, Jinwoo Shin, and Saining Xie. 2024. Representation alignment for genera-tion: training diffusion transformers is easier than you think. arXiv preprint arXiv:2410.06940 (2024). [37] Shuangjia Zheng, Jiahua Rao, Zeyi Zhang, Jun Xu, and Yuedong Yang. 2019. Predicting retrosynthetic reactions using self-corrected transformer neural net-works. Journal of Chemical Information and Modeling 60, 1 (2019), 47–55. [38] Gengmo Zhou, Zhifeng Gao, Qiankun Ding, Hang Zheng, Hongteng Xu, Zhewei Wei, Linfeng Zhang, and Guolin Ke. 2023. Uni-Mol: a universal 3D molecular representation learning framework. In International Conference on Learning Representations (ICLR) .
+
+## A Additional Details A.1 Evaluation metrics and protocol 
+
+Top-𝑘 exact match. Top-𝑘 exact-match accuracy is the fraction of products for which the ground-truth reactants appear within the top-𝑘 distinct ranked candidates (higher is better). At test time we sample 𝑛 = 100 candidates per product, remove duplicates, and rank candidates by frequency unless otherwise noted. 
+
+Round-trip correctness. We use the forward Molecular Trans-former [ 17 , 18 ]. Let 𝐹 (·) denote the forward model. A predicted reactant set is forward-consistent if 𝐹 (𝐺 𝑅 ) = 𝐺 𝑃 . A prediction is treated as correct if it either exactly matches the ground truth or is forward-consistent. 
+
+Round-trip coverage and accuracy. Round-trip coverage@k mea-sures the fraction of products for which at least one of the top-𝑘 
+
+distinct ranked predictions is correct (higher is better). Round-trip 
+
+9Jiahai Huang, Anjie Qiao, Zhen Wang, Defu Lian, and Yutong Lu 
+
+accuracy@k measures the fraction of correct predictions among the selected top-𝑘 predictions (higher is better). 
+
+Diversity. We report diversity as the average number of distinct reactant candidates among the 𝑛 = 100 sampled predictions per product (higher is better). 
+
+## A.2 OOD split: USPTO-50k-cluster 
+
+We evaluate out-of-distribution generalization on the USPTO-50k-cluster split [ 13 ]. This split is designed to reduce overlap between training and test chemistry. We use the provided train/valid/test partitions and report test results in Table 3. 
+
+## A.3 Implementation details 
+
+Backbone implementations. RetroBridge (Markov bridge). 
+
+Our primary backbone is RetroBridge [ 6 ], which formulates ret-rosynthesis as sampling from a discrete-time Markov bridge pro-cess {𝐺 𝑡 }𝑇 𝑡 =0 with 𝑇 = 500 steps, where 𝐺 𝑇 is the fixed product endpoint and 𝐺 0 is the reactant target. A Graph Transformer de-noiser 𝐷 𝜃 (𝐺 𝑡 , 𝑡, 𝐺 𝑃 ) learns to reverse the forward corruption / transport. At each layer ℓ, the denoiser exposes intermediate node states 𝑋 (ℓ ) 
+
+> 𝑡
+
+, edge states 𝐸 (ℓ ) 
+
+> 𝑡
+
+, and a global token 𝑦 (ℓ ) 
+
+> 𝑡
+
+; our align-ment/entanglement heads attach to these intermediate states. 
+
+Padded graphs, dummy nodes, and node order. RetroBridge uses a fixed-size dense graph representation with dummy nodes: because some atoms present in the reactants may be absent in the corre-sponding product, the official setup always adds 10 dummy nodes to each initial product graph [ 6]. The implementation also randomly permutes graph nodes after converting SMILES to graphs to avoid ordering shortcuts. We keep (i) a binary node-validity indicator 𝑚 
+
+to exclude padded/dummy slots when computing node-level align-ment losses, and (ii) a stored index vector that maps the permuted student node order back to the teacher’s canonical atom order. Along the bridge trajectory, dummy slots can “birth” into atoms (or “die” back into dummy); by applying atom-level alignment only on ground-truth reactant atoms, we avoid spurious supervision from dummy slots. 
+
+SynBridge (discrete flow). For architectural generalization, we additionally inject alignment into SynBridge [9]. We follow the same teacher preprocessing and endpoint choice as in our graph-level alignment setting. 
+
+Teacher encoders. We evaluate Uni-RXN [ 12 ], ECFP/Morgan [ 14 ], RMAT [ 10 ], and Uni-Mol+ [ 38 ]. Teacher embeddings used for su-pervision are precomputed and cached for efficiency. 
+
+Embedding preprocessing. Graph-level teacher embeddings are PCA-whitened to a fixed dimension and then 𝐿 2-normalized. For Uni-RXN atom embeddings used in node-level alignment, we apply PCA whitening and normalization at the atom level (dimensions reported in the main paper where relevant). 
+
+Guidance heads. Graph-level alignment heads. We use a small MLP projection head on top of the global token 𝑦 and optimize cosine alignment. 
+
+Node-level alignment heads. We use a node-wise MLP head on top of intermediate node features and optimize masked cosine alignment. 
+
+Table 5: Compute overhead summary relative to Retro-Bridge (Base) in our implementation. “Training cost” is nor-malized by average training time per epoch; “Sampling cost” is normalized by end-to-end time for generating the default sampling budget (reranking excluded).              
+
+> Model Training cost (rel.) Sampling cost (rel.)
+> RetroBridge (Base) 1.00 ×1.00 ×
+> RB-Align 𝑋 (alignment) 1.08 ×1.00 ×
+> GRG (node–edge) 1.10 ×1.00 ×
+> RB-REG (RMAT CLS) 1.13 ×1.01 ×
+
+Table 6: Percentage-point change in top-𝑘 exact-match ac-curacy relative to the RetroBridge baseline, stratified by number of reaction centers (RC).                         
+
+> Model / Split Top-1 Top-3 Top-5 Top-10 RB-Align 𝑦 (Uni-RXN) RC=1 5.9 2.3 0.9 -0.9 RB-Align 𝑦 (Uni-RXN) RC >17.1 -11.3 -16.4 -20.4 RB-Align 𝑋 (Uni-RXN node) RC=1 7.4 6.0 4.5 5.6 RB-Align 𝑋 (Uni-RXN node) RC >13.4 -3.9 -1.6 -5.6
+
+Table 7: Layer placement ablation for node-level alignment.                 
+
+> Alignment layer Top-1 Top-3 Top-5 Top-10 2nd layer 56.2 73.7 78.0 81.4 3rd layer 57.2 75.4 80.2 83.2 4th layer 58.0 76.6 80.2 85.3
+
+Table 8: SynBridge generalization. Alignment improves exact-match top-𝑘 in this setting.                            
+
+> Exact match Round-trip coverage Model 13510 13510
+> SynBridge (Base) 78.7 82.3 83.8 84.7 91.8 94.1 94.8 95.2
+> SynBridge (Align) 81.4 83.6 84.7 85.4 83.4 85.4 86.4 87.0
+
+Training. We train with AdamW (amsgrad=True), learning rate 
+
+2 × 10 −4, weight decay 10 −12 , and no explicit learning-rate schedule. We use batch size 128, seed 42, and train for 1000 epochs. For 
+
+RetroBridge , we use a cosine noise schedule with 𝑇 = 500 steps. 
+
+Inference and reranking. At test time, we sample 𝑛 = 100 reactant candidates per product. Default ranking is sample frequency among 
+
+𝑛 draws. Inference-time reranking requires encoding generated candidates with a pretrained encoder to obtain similarity references (Sec. 5); this is the main source of reranking overhead. 
+
+## A.4 Additional ablations and analyses 
+
+This section collects supplementary ablations and analyses refer-enced in the main text. 
+
+> 10 Representation-Guided Discrete Molecular Graph Retrosynthesis
+
+Table 9: Representation entanglement ablation on source.                     
+
+> CLS token source Top-1 Top-3 Top-5 Top-10 Diversity Random vector (learned) 57.4 73.3 76.8 78.6 10.8 Pooled node embedding 58.0 74.3 77.8 79.4 9.0 Pretrained CLS (RMAT CLS) 58.8 77.0 80.8 83.8 13.2
+
+Figure 3: Validation exact-match vs. epochs for Retro-Bridge (Base) and GRG .
+
+Figure 4: Validation exact-match vs. wall clock for Retro-Bridge (Base) and GRG .
+
+## A.5 Efficiency curves 
+
+We provide the validation exact-match curves referenced in Sec. 6.7. 
+
+## A.6 Alignment losses and masking details 
+
+For node-level alignment, dummy atoms introduced by padding must be excluded from the alignment objective. We use a binary mask 𝑚 ∈ { 0, 1}𝑁 indicating valid atoms and compute a masked mean of per-node cosine-alignment losses (Sec. 4.2). In all node-level experiments we align only on the reactant side, following the empirical finding that reactant-only alignment yields a better accuracy–diversity trade-off. 
+
+## A.7 Node ordering bookkeeping for atom-level alignment 
+
+Our atom-level teacher (Uni-RXN) produces per-atom embeddings in RDKit atom-index order. In contrast, RetroBridge constructs the reactant-graph node order by first sorting atoms by atom-map numbers (to define a canonical “mapped” order) and then apply-ing a random permutation; the padded graph may also include dummy nodes. To align these two orderings during training, the dataset preprocessing stores an index vector reactant_order ∈
+
+Table 10: Effect of inference-time reranking via representa-tion similarity on USPTO-50k .                                    
+
+> Model ΔTop-1 ΔTop-3 ΔTop-5 ΔTop-10 RB-Align 𝑦 (Uni-RXN) +0.8 +0.4 +0.2 +0.2 RB-Align 𝑦 (ECFP) -0.6 +0.2 +0.2 +0.0 RB-Align 𝑦 (RMAT) +0.8 -0.4 +0.2 +0.0 RB-Align 𝑋 (Uni-RXN node) +1.4 +0.0 +0.2 -0.3
+> GRG +0.6 +1.0 +0.0 +0.4 RB-REG (RMAT CLS) +1.4 +0.2 +0.0 -0.4 RB-REG (Uni-RXN CLS) +0.6 +0.2 -0.6 +0.0
+
+{0, . . . , 𝑁 atoms − 1}𝑁 such that the model’s node position 𝑗 corre-sponds to RDKit atom index reactant_order [ 𝑗 ] (dummy nodes are masked out by 𝑚 𝑗 = 0). We therefore reorder teacher targets to model order as 𝐻 reord  
+
+> 𝑗
+
+= 𝐻 teacher    
+
+> reactant_order [𝑗 ]
+
+and apply masked cosine alignment only on valid nodes. No atom mapping or reordering is needed at inference, since alignment is used only as training-time supervision. 
+
+## A.8 Additional implementation notes for GRG 
+
+## (structure-aware projector) 
+
+Our structure-aware alignment (Sec. 4.4) uses a lightweight EdgeGIN-style message-passing projector: 
+
+• Inputs: intermediate node features 𝑋 (ℓ ) 
+
+> 𝑡
+
+, intermediate edge fea-tures 𝐸 (ℓ ) 
+
+> 𝑡
+
+, and a one-hot ground-truth bond type Bond GT .
+
+• Training-only privileged filtering: message passing is re-stricted to ground-truth reactant edges (computed from the clean reactant graph). 
+
+• Inference: privileged information is used only inside the auxil-iary alignment projector during training; the generative pathway and inference do not depend on it. 
+
+• Normalization: we apply per-molecule instance normalization on teacher embeddings to emphasize within-molecule token-level contrast and improve alignment stability. 
+
+## A.9 Inference-time reranking: similarity computation and variants 
+
+Score fusion. We use a simple linear fusion of the frequency score 
+
+𝑓 ( ˆ𝐺 𝑅 ) ∈ [ 0, 1] and the representation-similarity score 𝑠 ( ˆ𝐺 𝑅 ) ∈ [0, 1]:Score ( ˆ𝐺 𝑅 ) = 0.85 𝑓 ( ˆ𝐺 𝑅 ) + 0.15 𝑠 ( ˆ𝐺 𝑅 ).
+
+Candidates are ranked by Score ( ˆ𝐺 𝑅 ) in descending order (ties are rare; when they occur we break ties by higher 𝑓 ). Example: if a distinct candidate appears 𝑐 = 20 times among 𝑛 = 100 samples, then 𝑓 = 0.20 . If its similarity score is 𝑠 = 0.74 , then Score =
+
+0.85 × 0.20 + 0.15 × 0.74 = 0.281 .
+
+Similarity computation. Reranking fuses the default frequency score with a representation-similarity score computed from the guided representations (Sec. 5). For each sampled trajectory we extract generator-side guidance-head representations along the denoising trajectory and compute teacher-side representations us-ing the same teacher encoder and the same normalization used in training (PCA whitening + 𝐿 2 normalization; Appendix A.3). We 
+
+> 11 Jiahai Huang, Anjie Qiao, Zhen Wang, Defu Lian, and Yutong Lu
+
+then compute the per-step similarity 𝑠 𝑡 ( ˆ𝐺 𝑅 ) in Eq. (6) by averaging cosine similarity over the token set V ( ˆ𝐺 𝑅 ):
+
+• Graph-level guided models. V ( ˆ𝐺 𝑅 ) is a singleton global token; 
+
+ˆℎ𝑡,𝑖 is the projected global token (e.g., 𝑦 (ℓ ) 
+
+> 𝑡
+
+), and ˜ℎ𝑖 is the teacher set embedding computed with the same pooling as in Eq. (1). 
+
+• Node-level guided models. V ( ˆ𝐺 𝑅 ) indexes the valid atoms in the decoded reactant graph; ˆℎ𝑡,𝑖 is the projected node embed-ding at atom 𝑖 , and ˜ℎ𝑖 is the teacher atom embedding aligned to the same node index. When node-level similarity is used, we align teacher atom embeddings to the graph node order by apply-ing the same graph construction and node-order bookkeeping routine used during training (Appendix A.7). 
+
+Duplicates among sampled candidates. If a distinct candidate ˆ𝐺 𝑅 
+
+appears multiple times among the 𝑛 sampled trajectories, we com-pute its similarity score per occurrence and average the resulting 
+
+𝑠 ( ˆ𝐺 𝑅 ) before fusing with the frequency score. 
+
+Aggregation window. The results in Table 10 use a similarity signal aggregated over the last 𝐾 = 10 denoising steps. Additional variants are possible: 
+
+• Using only the last-step similarity. 
+
+• Averaging similarity across a different window size (e.g., last 𝐾 
+
+steps with 𝐾 ≠ 10 ). 
+
+• Using both a trajectory-average similarity and a late-step simi-larity in a two-term score. 
+
+• Learning a small calibration map for similarity based on valida-tion data, while keeping inference-time reranking label-leakage-safe. We leave systematic exploration of these variants to future work.
