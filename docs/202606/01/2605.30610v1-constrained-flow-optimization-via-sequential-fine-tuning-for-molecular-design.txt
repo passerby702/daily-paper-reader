@@ -1,0 +1,1781 @@
+Title: Constrained Flow Optimization via Sequential Fine Tuning for Molecular Design
+
+URL Source: https://arxiv.org/pdf/2605.30610v1
+
+Published Time: Mon, 01 Jun 2026 00:17:39 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+Sven Gutjahr * 1 Riccardo De Santi * 1 2 3 Luca Schaufelberger * 3 4 Kjell Jorner 3 4 Andreas Krause 1 2 3 
+
+## Abstract 
+
+Adapting generative foundation models, in particular diffusion and flow models, to optimize given reward functions (e.g., binding affinity) while satisfying constraints (e.g., molecular syn-thesizability) is fundamental for their adoption in real-world scientific discovery applications such as molecular design or protein engineering. While recent works have introduced scalable methods for reward-guided fine-tuning of such models via reinforcement learning and control schemes, it remains an open problem how to algorithmically trade-off reward maximization and constraint satisfaction in a reliable and predictable manner. Motivated by this challenge, we first present a rigorous framework for Constrained Generative Optimization , which brings an optimization viewpoint to the introduced adaptation problem and retrieves the relevant task of constrained generation as a sub-case. Then, we introduce 
+
+Constrained Flow Optimization ( CFO ), an algo-rithm that automatically and provably balances reward maximization and constraint satisfaction by reducing the original problem to sequential fine-tuning via established, scalable methods. We provide convergence guarantees for con-strained generative optimization and constrained generation via CFO . Ultimately, we present an experimental evaluation of CFO on both synthetic, yet illustrative, settings, and a molecular design task. Across these evaluations, CFO achieves con-sistent increases in reward while ensuring high constraint satisfaction, showcasing its practical utility for constrained generative optimization. 
+
+> *
+
+Equal contribution 1Department of Computer Science, ETH Zurich 2ETH AI Center 3NCCR Catalysis, Switzerland 4Institute of Chemical and Bioengineering, Department of Chemistry and Applied Biosciences, ETH Zurich. Correspondence to: Sven Gut-jahr, Riccardo De Santi, Luca Schaufelberger <sgutjahr, rdesanti, schaluca@ethz.ch >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 
+
+## 1. Introduction 
+
+Recent advances in generative modeling, particularly the advent of diffusion (Ho et al., 2020; Song et al., 2020; 2022) and flow models (Lipman et al., 2022), have led to state-of-the-art performance in several fields such as image synthesis (Rombach et al., 2022), biology (Corso et al., 2022; Wohlwend et al., 2025), and chemistry (Hoogeboom et al., 2022). In particular, they have been applied for the design of protein structures (Wu et al., 2024), drug-like molecules (Dunn & Koes, 2024), and DNA sequences (Stark et al., 2024), among others. These generative models excel at capturing complex data distributions and generating realistic samples. However, approximately sampling from the data distribution is insufficient for most real-world discovery applications, where one typically wishes to generate candidates maximizing task-specific rewards ,a problem recently denoted by generative optimization 
+
+(De Santi et al., 2025b; Li et al., 2024). Examples of rewards of interest include binding affinity in drug discovery (Pantsar & Poso, 2018), or drug-likeness (Bickerton et al., 2012). To tackle the generative optimization problem, recent works have introduced scalable fine-tuning methods that adapt a pre-trained flow or diffusion model to maximize a given reward function under KL-regularization from the pre-trained model, via reinforcement learning (RL) or control theoretic methods (e.g., Domingo-Enrich et al., 2024; Uehara et al., 2024b; Tang & Zhou, 2024). 
+
+The importance of known constraints in generative opti-mization. Many generative design and scientific discovery problems require generated samples to satisfy explicit, domain-specific constraints, e.g., bounded toxicity (Amorim et al., 2024), synthetic accessibility (Ertl & Schuffenhauer, 2009; Neeser et al., 2024), or biophysical plausibility of docking poses (Buttenschoen et al., 2024). Even though current fine-tuning schemes regularize toward a pre-trained model (Domingo-Enrich et al., 2024; Uehara et al., 2024b; Tang & Zhou, 2024), which limits the distributional drift, they cannot certify hard constraints to be satisfied (Uehara et al., 2024a). This limitation arises because task-specific constraints may not be encoded in the original dataset or may be learned only imperfectly from finite training data. A naive approach to address such explicit constraints would be to include them as rewards, i.e., as another term in a manu-ally weighted objective function. However, this approach is 1
+
+> arXiv:2605.30610v1 [cs.LG] 28 May 2026 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design
+
+unreliable in practice, as the appropriate weighting between rewards and constraints varies across tasks and training phases, and needs to be determined through inefficient trial and error. Furthermore, as optimization explores high-reward regions, the chosen weights can unexpectedly favor reward at the expense of constraint satisfaction, yielding samples with attractive rewards, which, however, violate the domain-specific constraints. Driven by these limitations of current flow adaptation methods for constraint satisfaction, we pose the following question: 
+
+How can we fine-tune a pre-trained flow or diffusion model to reliably and predictably trade-off reward optimization and constraint satisfaction? 
+
+Our approach. A growing body of work demonstrates that classical optimization ideas can be meaningfully adapted to the fine-tuning of flow and diffusion models, including formulations motivated by mirror descent (Nemirovskij & Yudin, 1983; De Santi et al., 2025b), chance constraints (Ben-Tal & Nemirovski, 2000; Zhang et al., 2025a), and bilevel optimization (Bracken & McGill, 1973; Xiao et al., 2025). Analogously, in this work, we aim to tackle this question by introducing a formal framework for 
+
+Constrained Generative Optimization (Sec. 3) via flow model fine-tuning, which entails adapting a pre-trained flow model to generate samples maximizing a reward function while satisfying arbitrary constraints. Moreover, the proposed formulation retrieves the relevant task of constrained generative modeling as the sub-case where the reward function is constant. Next, we introduce 
+
+Constrained Flow Optimization ( CFO ), a dual approach based on the augmented Lagrangian scheme (Birgin & Mart ´ınez, 2014) that turns the constrained objective into a sequence of ordinary generative optimization subproblems. At a high level, CFO alternates between two steps: solving a KL-regularized fine-tuning problem (Domingo-Enrich et al., 2024; Uehara et al., 2024b) to maximize an augmented reward function, and updating the parameters of the augmented reward using estimated constraint violations on generated samples (see Sec. 4). This sequentially tunes the penalty on constraint violations, thereby avoiding the need to manually trade-off weight selection. CFO renders it possible to adapt a pre-trained flow model to maximize expected rewards while enforcing satisfaction of arbitrary constraints and preserving closeness to the pre-trained model. We provide guarantees that ensure constraint sat-isfaction under the realistic assumptions of an approximate solver, and that achieve reward maximization under a more idealized setting (Sec. 5). Finally, we evaluate CFO for both constrained generative optimization and modeling problems, showcasing its performance in both visually interpretable settings and in molecular design tasks, showing constrained optimization of quantum mechanical properties (Sec. 6). 
+
+Our contributions. We present the following contributions: • We formulate Constrained Generative Optimization via flow fine-tuning, capturing the practically relevant task of reward-guided adaptation under given constraints (Sec. 3). • We introduce Constrained Flow Optimization ( CFO ), an augmented Lagrangian-based method that provably tackles the introduced problem via sequential fine-tuning (Sec. 4). • We provide guarantees for constrained generation and optimization via CFO under two oracle assumptions, leveraging augmented Lagrangian theory (Sec. 5). • We demonstrate CFO ’s ability to trade-off reward maximization and constraint satisfaction in both a visually interpretable setting and a high-dimensional molecular design task (Sec. 6). 
+
+## 2. Background and Notation 
+
+Flow Models. Flow-based generative models constitute a prominent class of approaches for transforming a simple base pbase distribution (e.g., Gaussian) into a complex data distribution pdata (Song et al., 2022; 2020; Lipman et al., 2022). Formally, a flow is a time-dependent map ψ : [0 , 1] ×
+
+Rd → Rd, where ψt(x0) denotes the position at time t of a sample that started at x0. The trajectory of xt is governed by a time-dependent velocity field u : [0 , 1] × Rd → Rd
+
+through the ordinary differential equation (ODE):  
+
+> ddt
+
+ψt(x0) = ut(ψt(x0)) , ψ0(x0) = x0. (1) A generative flow model defines a continuous-time Markov process {Xt}t∈[0 ,1] , by sampling an initial value X0 ∼ pbase 
+
+and evolving it according to the flow map, Xt = ψt(X0).The terminal state X1 = ψ1(X0) is required to follow the target distribution, i.e., X1 ∼ pdata . Equivalently, the flow induces a family of intermediate marginal densities pt
+
+describing the law of Xt at each time t ∈ [0 , 1] . We say that a velocity field u generates the probability path {pt}t∈[0 ,1] if the random variable Xt = ψt(X0) ∼ pt for all t < 1. In prac-tice, choosing pbase = N (0 , I ) makes sampling tractable while ut provides the complexity needed to reach pdata .
+
+Flow Matching. Flow Matching (Lipman et al., 2022) is a simulation-free algorithm to learn a vector field uθ ,such that the induced marginal densities puθ 
+
+> t
+
+coincide with a prescribed probability path {pt}t∈[0 ,1] and satisfying 
+
+puθ 
+
+> 0
+
+= pbase and puθ 
+
+> 1
+
+= pdata . Lipman et al. (2022) demonstrate that the Flow Matching and Conditional Flow Matching objectives share identical gradients, ensuring they converge to the same optimal vector field. In practice, this is achieved by introducing a reference flow and regressing the learned field uθ (xt, t ) against the reference velocity: 
+
+min  
+
+> θ
+
+Et,p (x0,x 1)
+
+h
+
+uθ (xt, t ) − ddt ψref  
+
+> t
+
+(x) 2i
+
+. (2) With an appropriate choice of the reference flow, specifically one that follows a diffusion trajectory, the Flow Matching 2Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design                 
+
+> (a) Constrained generative optimization via fine-tuning problem. (b) Adaptation to low-cost area within black line.
+> Figure 1. (1a) Pre-trained and fine-tuned policies inducing densities ppre
+> 1and optimal density p∗
+> 1w.r.t. reward rincreasing downwards and in red a high-cost area. (1b) Pre-trained model ppre
+> 1adapts into p∗
+> 1to maximize rand stay within the constraint region inside the black line.
+
+framework recovers diffusion models as a particular case, showing that diffusion training objectives can be viewed as special instances of flow-based learning (Lipman et al., 2022; Domingo-Enrich et al., 2024). In practice, uθ is parameterized by a neural network, and sampling from puθ
+
+> 1
+
+(≈ pdata ) is performed via simulating the ODE in Eq. 1. 
+
+Reinforcement Learning in continuous-time. Finite-horizon continuous-time reinforcement learning (RL) (Wang et al., 2020; Treven et al., 2023; Zhao et al., 2025) provides a framework for decision-making in dynamical systems and can be cast as an instance of optimal control. The state space is X := Rd × [0 , 1] and actions are taken from an action space A. A policy π : X → A prescribes an action for each state (x, t ) ∈ X , yielding the dynamics:  
+
+> ddt
+
+ψt(x) = at(ψt(x)) , a t = π(Xt, t ), X 0 ∼ pbase . (3) The resulting process {Xt}t∈[0 ,1] induces a family of marginals {pπt }t∈[0 ,1] . The aim is to optimize the expected performance, typically expressed through an integral reward accumulated along the trajectory and a terminal reward at 
+
+t = 1 (Wang et al., 2020). In our setting, we focus solely on the terminal reward. We use RL notation to emphasize its generality and connection to standard practice, while noting that the setting coincides with deterministic optimal control since both the dynamics and the objective are known. 
+
+Pre-trained Flow Models as RL Policy. A pre-trained flow can be viewed as a feedback policy: at each time 
+
+t and state x, the velocity field upre (x, t ) prescribes the action that determines how the system evolves. Defining 
+
+at = πpre (Xt, t ) := upre (Xt, t ) for a policy πpre : X → A 
+
+(De Santi et al., 2025a), and substituting into Eq. 3, yields deterministic closed-loop dynamics. Starting from X0 ∼ p0,rolling out πpre produces a trajectory {Xt}t∈[0 ,1] with in-duced marginals {pπpre  
+
+> t
+
+}t∈[0 ,1] . Intuitively, the policy selects the direction and speed to steer samples so that their dis-tribution progressively matches the data, with the terminal marginal ppre  
+
+> 1
+
+:= pπpre  
+
+> 1
+
+≈ pdata . Viewing flow models through this policy lens not only unifies flow-based generation and control theory but also enables downstream fine-tuning as policy improvement with a terminal reward. For brevity, we refer to the pre-trained flow by its implicit policy πpre .
+
+## 3. Constrained Generative Optimization via Flow Fine-Tuning 
+
+In this work, we aim to fine-tune a pre-trained flow model 
+
+πpre to obtain a new model π∗ inducing a process:  
+
+> ddt
+
+ψt(x) = afine  
+
+> t
+
+(ψt(x)) , with afine  
+
+> t
+
+= π∗(xt, t ). (4) such that its induced distribution p∗ 
+
+> 1
+
+:= pπ∗ 
+
+> 1
+
+maximizes the expected value of a property of interest, while satisfying arbi-trary constraints and preserving prior information from πpre .We denote this problem by constrained generative optimiza-tion via fine-tuning , illustrated in Figure 1 and defined as: 
+
+Constrained Generative Optimization via Flow Fine-Tuning 
+
+arg max 
+
+> π
+
+Ex∼pπ 
+
+> 1
+
+[r(x)] − αD KL (pπ 
+
+> 1
+
+|| ppre  
+
+> 1
+
+)
+
+s.t. Ex∼pπ 
+
+> 1
+
+[c(x)] ≤ B
+
+(5) Where r : X → R and c : X → R are a scalar reward and con-straint functions, α ∈ R+ determines the KL-regularization strength, and B ∈ R is the upper bound on the constraint. At the level of the problem statement, no differentiability of r
+
+or c is assumed: Eq. 5 is posed for arbitrary r, c . Any addi-tional regularity arises only from the particular inner solver we instantiate later, not from the problem itself. Setting the reward term r to be constant (e.g., r = 0 ) in Eq. 5, reduces the objective to a formulation of constrained generation 
+
+as minimization of a KL divergence between the fine-tuned model density pπ 
+
+> 1
+
+and the pre-trained model (i.e., ppre  
+
+> 1
+
+), while satisfying the expected constraint bound in Eq. 5: 
+
+arg min 
+
+> π
+
+αD KL (pπ 
+
+> 1
+
+|| ppre  
+
+> 1
+
+) s.t. Ex∼pπ 
+
+> 1
+
+[c(x)] ≤ B (6) This problem has been studied before by Chamon et al. (2024); Khalafi et al. (2025). A first approach to tackle Eq. 5 is to optimize a fixed-weight Lagrangian (Chamon 3Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+et al., 2024; Zhang et al., 2025b): 
+
+max  
+
+> π
+
+Lμ(π) = Ex∼pπ 
+
+> 1
+
+[r(x)] − αD KL (pπ 
+
+> 1
+
+|| ppre  
+
+> 1
+
+)
+
+−μ  Ex∼pπ 
+
+> 1
+
+[c(x)] − B s.t. μ ≥ 0 (7) Here, μ ∈ R≥0 denotes the Lagrange multiplier that penal-izes constraint violations. However, optimizing Lμ with a fixed μ is unreliable for enforcing the constraint. First, feasibility (i.e., Ex∼pπ 
+
+> 1
+
+[c(x)] ≤ B) is not guaranteed for any given μ, unless it exceeds an unknown, problem-dependent threshold. Second, μ must be tuned by hand, and there is no guaranteed or monotone mapping from μ to the resulting violation, so trial-and-error often leads to either infeasible or overly conservative solutions. Finally, if r is unbounded or approximate (e.g., a learned proxy reward function), maximizing Lμ may shift probability mass toward high-reward regions, yielding invalid designs. Toward overcoming such limitations, in the next section, we propose an algorithm that can provably tackle the con-strained generative optimization problem introduced in Eq. 5 by sequentially fine-tuning the initial pre-trained model via established methods (e.g., Domingo-Enrich et al., 2024). 
+
+## 4. Constrained Flow Optimization ( CFO )
+
+In the following, we introduce Constrained Flow 
+
+Optimization (Alg. 1), which addresses the constrained generative optimization problem as formulated in Eq. 5 by solving a sequence of unconstrained entropy-regularized fine-tuning subproblems, each with a different objective function computed via an augmented Lagrangian (AL) scheme (Rockafellar, 1976; Fortin, 1975; Birgin &Mart ´ınez, 2014). Intuitively, CFO tackles the problem by embedding the given constraint into an augmented 
+
+reward via two adaptive dual parameters, so that at each iteration, a standard entropy-regularized fine-tuning solver steers the model toward feasibility while improving reward. Concretely, CFO maintains two dual variables, the penalty parameter ρk and the Lagrange multiplier λk, whose updates effectively realize a proximal-point-style scheme on the dual variables (Birgin & Mart´ ınez, 2014). 
+
+Overview of the Algorithm. CFO (Alg. 1) takes as input a pre-trained model πpre , a number of iterations K, a minimal Lagrange multiplier λmin < 0, an initial penalty parameter 
+
+ρinit > 0, a penalty growth rate η ≥ 1, and a contraction value 
+
+0 < τ < 1. At each iteration k, CFO performs 5 main steps: 
+
+Step 1: An augmented objective fk (Eq. 8) is formed as the difference between the reward and a penalty term: 
+
+fk(x) = r(x) − ρk
+
+2
+
+
+
+max 
+
+
+
+0, c (x) − B − λk
+
+ρk
+
+ 2
+
+,
+
+where the offset λk/ρ k ≤ 0 shifts the term toward the current expected constraint (Birgin & Mart´ ınez, 2014). 
+
+Algorithm 1 C onstrained Flow Optimization ( CFO ) 
+
+> 1:
+
+Input: πpre : pre-trained model, K: number of itera-tions, λmin < 0: min. Lagrange multiplier, ρinit > 0: ini-tial penalty parameter, η ≥ 1: growth rate, 0 < τ < 1:contraction value  
+
+> 2:
+
+Init: Set initial Lagrange multiplier λ1 = 0 and penalty 
+
+ρ1 = ρinit parameters  
+
+> 3:
+
+for k = 1 , 2, . . . , K do  
+
+> 4:
+
+Step 1: Update fine-tuning AL objective: 
+
+fk(x) := r(x) − ρk
+
+2
+
+
+
+max 
+
+
+
+0, c (x) − B − λk
+
+ρk
+
+ 2
+
+(8)  
+
+> 5:
+
+Step 2: Compute πk via fine-tuning: 
+
+πk ← FINE TUNING SOLVER (fk, π pre ) (9)  
+
+> 6:
+
+Step 3: Set the empirical constraint gap Gk and contraction statistic Vk:
+
+Gk = Ex∼pπk
+
+> 1
+
+[c(x)] − BVk = min {Gk, −λk/ρ k} (10)  
+
+> 7:
+
+Step 4: Compute Lagrange multiplier proposal: 
+
+λk+1 ← max {λmin , min {0, λ k − ρkGk}} (11)  
+
+> 8:
+
+Step 5: Set the new penalty: 
+
+ρk+1 =
+
+(
+
+ρk, if k = 1 or Vk ≤ τ V k−1,ηρ k, otherwise (12)  
+
+> 9:
+
+end for  
+
+> 10:
+
+Return: πK
+
+Step 2: A FINE TUNING SOLVER (e.g., Domingo-Enrich et al., 2024) computes πk by solving a standard KL-regularized control (or RL) subproblem, with the current objective fk:
+
+πk ∈ arg max  
+
+> π
+
+Ex∼pπ 
+
+> 1
+
+[fk(x)] − αD KL (pπ 
+
+> 1
+
+|| ppre  
+
+> 1
+
+), (13) For completeness, we report a detailed implementation of this oracle step in Appendix A. Other established fine-tuning schemes can be used in place of Adjoint Matching, includ-ing gradient-free choices such as DiffusionNFT (Zheng et al., 2025) and Flow-GRPO (Liu et al., 2026), which addi-tionally enable non-differentiable rewards and constraints. 
+
+Step 3: CFO computes a Monte Carlo estimate of the constraint c under the current policy πk (see Eq. 10), and subtracts the user-defined bound B, thus obtaining the 
+
+empirical constraint gap Gk. Furthermore, a contrac-tion statistic Vk is computed, which measures the current progress toward feasibility by comparing the recent estimate 
+
+Gk of the constraint gap with the λk/ρ k ≤ 0 offset term. 
+
+Step 4: Next, CFO uses the empirical constraint gap Gk
+
+to apply a projected dual update to the Lagrange multiplier (Eq. 11). If Gk > 0, i.e., the constraint is violated, the multi-plier λk+1 is decreased, this strengthens the penalty. Instead, 4Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+if Gk < 0, i.e., the constraint is fulfilled, the Lagrange multi-plier λk is increased toward 0 to relax the penalty strength. 
+
+Step 5: The contraction statistic Vk (Eq. 10) assesses progress toward feasibility. If Vk does not contract sufficiently, i.e., Vk > τ V k−1, where τ is a user-defined contraction rate, then CFO infers that the penalty is not sufficiently high and thus increases it by a factor η. Instead, if Vk is contracting, ρ is kept fixed (Eq. 12). Ultimately,  
+
+> CFO
+
+returns the fine-tuned policy πK .A discussion of hyperparameters appears in Appendix D. Nevertheless, it is a priori unclear whether CFO is guaran-teed to solve the constrained generative optimization prob-lem (Eq. 5). In the next section, we answer this affirmatively by showing that, under oracle assumptions, CFO achieves reward optimality and arbitrary constraint satisfaction. 
+
+## 5. Guarantees for CFO 
+
+Before presenting the convergence properties of CFO ,we first establish a mild and realistic assumption on the  
+
+> FINE TUNING SOLVER
+
+used in Alg. 1, which formalizes the approximate nature of its optimization steps and serves as the foundation for the theoretical guarantees that follow. 
+
+Assumption 5.1 (Approx. Solver) . At every iteration k, the solver outputs a policy πk satisfying: 
+
+Lρk (πk, λ k) ≥ Lρk (π, λ k) − ϵk, ∀π (14) where Lρk (πk, λ k) = Ex∼pπk
+
+> 1
+
+[fk(x)] −αD KL (pπ 
+
+> 1
+
+|| ppre  
+
+> 1
+
+) and the sequence {ϵk} ⊆ R+ is bounded. This assumption captures the approximate nature of practical fine-tuning or optimization oracles, and is standard in augmented Lagrangian (AL) frameworks. It has been adopted in recent works (e.g., De Santi et al., 2025a). The key requirement is that the approximation error remains bounded. We define the infeasibility of a policy π as: 
+
+G(π) = Ex∼pπ 
+
+> 1
+
+[c(x)] − B. (15) If the infeasibility G(π) of a given policy is positive, the policy is infeasible, i.e., its average constraint is larger than the permissible bound. If G(π) is negative, the policy is feasible and thus fulfills the constraint. Using Assumption 5.1 and Eq. 15, we state our main convergence results for CFO . The proofs are in Appendix E and draw on the analysis developed by Birgin & Mart´ ınez (2014). 
+
+Theorem 5.2 (Feasibility of CFO ). Let {πk} be a sequence generated by Alg. 1 under Assumption 5.1 on the FINE TUN -
+
+> ING SOLVER
+
+. Let ¯π be a limit of the sequence {πk}. Then, we have: 
+
+⟨G(¯ π)⟩+ ≤ ⟨ G(π)⟩+ ∀π (16) 
+
+where G(π) is defined in Eq. 15 and ⟨·⟩ + := max {0, ·} 
+
+Concretely, Theorem 5.2 states that CFO returns a policy that minimizes the introduced infeasibility measure (Eq. 15). Thus, returning either a feasible policy or one which minimizes the infeasibility as far as possible. 
+
+Corollary 5.3 (Feasibility of the Limiting Policy) . Under the same conditions as Theorem 5.2, if the underlying prob-lem admits a feasible policy, then the limiting policy ¯π is feasible, i.e., it satisfies the constraint (i.e., G(¯ π) ≤ 0). 
+
+Theorem 5.2 and Corollary 5.3 establish constraint satisfia-bility of CFO but do not yet show optimality of the returned policy. To achieve optimality, CFO requires a stronger assumption on the FINE TUNING SOLVER , namely that the approximation error vanishes asymptotically, i.e., ϵk → 0.
+
+Theorem 5.4 (Optimality of CFO ). Let {πk} be the se-quence generated by Alg. 1 under Assumption 5.1 with 
+
+lim k→∞ ϵk = 0 (see Eq. 14). Let ¯π be a limit of the sequence {πk}. If the problem in Eq. 5 is feasible, i.e., 
+
+⟨G(¯ π)⟩+ = 0 , then the limiting policy ¯π is a global maxi-mizer. 
+
+In practice, a FINE TUNING SOLVER achieving ϵk → 0 is rarely available, and the attainable error bounds required by our guarantees depend strongly on the experimental setting. Nevertheless, we show in our experiments (Sec. 6) that using Adjoint Matching (Domingo-Enrich et al., 2024) is sufficient in practice, consistently yielding near-optimal rewards while satisfying the constraints. The convergence guarantees of CFO do not require r or c to be differentiable. Any differentiability assumptions are inherited from the underlying FINE TUNING SOLVER . Consequently, if a gradient-free FINE TUNING SOLVER is used, such as DiffusionNFT (Zheng et al., 2025) or Flow-GRPO (Liu et al., 2026), then CFO can be applied in settings where r
+
+and c are available only through function evaluations. 
+
+## 6. Experimental Evaluation 
+
+We demonstrate the ability of Constrained Flow 
+
+Optimization (Alg. 1) to solve the constrained generative optimization problem (see Eq. 5) on both low-dimensional illustrative settings, and on molecular design tasks. In particular, we evaluate: (i) the performance of CFO to solve Problem 5 given visually interpretable reward and constraint functions, also for (ii) the sub-case of constrained generation, recovered via a constant reward (see Eq. 6). We further show that (iii) CFO scales to high-dimensional molecular design tasks, and that (iv) it shows promising per-formances even with an approximate FINE TUNING SOLVER ,or when run with a limited number of iterations K. 
+
+> CFO
+
+reliably solves constrained generative optimization low-dimensional tasks. We evaluate CFO to solve the 
+
+constrained generative optimization problem (Eq. 5) on a visually interpretable setting, where ppre  
+
+> 1
+
+is a mixture of two non-overlapping Gaussians as shown in Figure 2a, enabling 5Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 10 0 10  
+
+> 6
+> 0
+> 6
+> PRE
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0 Reward
+
+(a) ppre  
+
+> 1
+
+samples 10 0 10  
+
+> 6
+> 0
+> 6
+> CFO
+> 16
+> 12
+> 8
+> 4
+> 0
+> Reward
+
+(b) CFO samples 10 0 10  
+
+> 6
+> 0
+> 6
+> AM
+> 16
+> 12
+> 8
+> 4
+> 0
+> Reward
+
+(c) AM samples                                    
+
+> E[r(x)] ↑E[c(x)] ↓
+> PRE −7.62 ±0.03 0.58 ±0.07
+> CFO AM −4.75 ±0.04 0.12 ±0.06
+> AM −2.93 ±0.03 2.47 ±0.11
+> CFO NFT −5.28 ±0.14 0.06 ±0.01
+> DiffusionNFT −3.59 ±0.11.76 ±0.05
+
+(d) Evaluation 2 0 2 
+
+> 2
+> 0
+> 2
+> PRE
+> 0.0
+> 0.8
+> 1.6
+> 2.4
+> 3.2 Reward
+
+(e) ppre  
+
+> 1
+
+samples 2 0 2  
+
+> 2
+> 0
+> 2
+> CFO
+> 0.0
+> 0.8
+> 1.6
+> 2.4
+> 3.2 Reward
+
+(f) CFO with B=0 2 0 2  
+
+> 2
+> 0
+> 2
+> B=1.0
+> CFO
+> 0.0
+> 0.8
+> 1.6
+> 2.4
+> 3.2 Reward
+
+(g) CFO with B=1 
+
+E[c(x)] Violation Rate PRE 0.57 -
+
+B=0 0.01 ± 0.002 8.5 ± 2.5%
+
+B=1 0.48 ± 0.3 6.1 ± 1.5%
+
+(h) Evaluation 
+
+Figure 2. Top Constrained Generative Optimization: Samples from the pre-trained policy (2a) and policies fine-tuned with CFO (with AM as F INE TUNING SOLVER ) (2b) and Adjoint Matching (2c) (AM) (Domingo-Enrich et al., 2024). Bottom Constrained generation: Samples from the pre-trained policy (2e) and policies fine-tuned with CFO for B=0 (2f) and B=1 (2g). The constraint-free area is inside the red triangles. Tables 2d and 2h present numerical results for their row. 
+
+visualization of constraint satisfaction during fine-tuning. In this setting, the reward r is the negative squared distance to the white cross in Figures 2a-2c (color-coding in Figure 2b and 2c). The constraint c is zero within the red triangles in Figures 2a-2c, and increases linearly outside (color-coding in Figure 2a). As shown in Figure 2b, CFO , run with K = 20 ,and ρinit = 0 .5, steers the pre-trained flow model so its in-duced density p∗ is located predominantly within the valid regions (i.e., red triangles) where the constraint is fulfilled, while simultaneously optimizing the reward by moving sam-ples toward the inner boundaries of both triangles. CFO 
+
+increases the mean reward from −7.62 to −4.75 compared to the base model, while it reduces estimated constraint violations from 0.58 to 0.12 , as reported in Table 2d. The minor residual violations of CFO , in Figure 2b, are likely due to Monte Carlo approximation errors during fine-tuning. In contrast to CFO , Adjoint Matching (Domingo-Enrich et al., 2024), a well-established reward-guided fine-tuning scheme, which does not take into account any constraint, raises the expected reward to −2.93 , but significantly de-grades the model’s ability to satisfy the given constraints, increasing constraint violations from 0.58 to 2.47 (Figure 2c). The same pattern holds when swapping the inner FINE -TUNING SOLVER with a gradient-free alternative, such as Dif-fusionNFT (Zheng et al., 2025). DiffusionNFT (Zheng et al., 2025) alone increases the reward to −3.59 but violates the constraint ( 1.76 ), whereas CFO NFT attains −5.28 ± 0.14 
+
+reward at 0.06 ± 0.01 expected constraint (see Table 2d; qualitative samples in Apx. Figure 7), confirming that CFO 
+
+transfers cleanly across first-order (AM) and zeroth-order (NFT) solvers. We also benchmarked against DiffOpt (Kong et al., 2024), a recent inference-time constrained-generation method that keeps model weights fixed: on this task, Dif-fOpt (Kong et al., 2024) exhibits a per-sample violation rate of 10 –21% versus 8.5% for CFO , while incurring 44 –55 ×
+
+higher per-sample sampling cost. 
+
+Constant reward recovers Constrained Generation. To illustrate the constrained generation (see Eq. 6) capabili-ties, we consider a correlated Gaussian base density ppre  
+
+> 1
+
+,visualized in Figure 2e, and a constraint c penalizing sam-ples outside the red central triangle (see Figure 2e). In the following, we vary the bound B ∈ { 0.0, 1.0} (see Eq. 5) to obtain diverse flow models inducing fine-tuned distribu-tions p∗. As shown in Figures 2f–2g, increasing B causes the resulting densities to visibly expand beyond the zero-constraint region, illustrating the relaxation of constraint enforcement. Quantitatively, the selected degree of permis-sible violation (i.e., the value of B) is reflected in the mean constraint violations incurred by the respective flow models, obtained by running CFO with K = 20 , and ρinit = 0 .5. As shown in Table 2h, while setting B = 1 leads to expected constraint value of 0.01 , choosing B = 1 .0 renders CFO less restrictive, inducing a policy π∗ with a mean constraint of 
+
+0.48 . While the base model exhibits Eppre  
+
+> 1
+
+[c(x)] = 0 .57 , the violation decreases to 0.48 under B = 1 .0 and further to 
+
+0.01 under B = 0 .0. These results illustrate how the choice of B controls tolerance to constraint violations, offering a mechanism to adapt CFO to domain-specific requirements. 
+
+CFO scales to high-dimensional molecular design tasks. 
+
+To demonstrate the practical relevance of CFO in high-dimensional settings, we apply CFO to a molecular design task, where satisfying constraints is critical. Specifically, we adapt a pre-trained flow model, FlowMol (Dunn & Koes, 2024), on GEOM Drugs (Axelrod & Gomez-Bombarelli, 2022), and maximize the dipole moment (Minkin, 2012) 6Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 0 1 2 3 4 5 6
+
+> K
+> 6.5
+> 7.0
+> 7.5
+> 8.0
+> 8.5
+> Dipole (in D)
+> Reward
+> CFO
+> AM
+> PRE
+
+(a) Dipole (D), CFO and AM 0 1 2 3 4 5 6 
+
+> K
+> 83
+> 82
+> 81
+> 80
+> 79
+> 78
+> Energy (in Ha)
+> Constraint
+> CFO
+> AM
+> PRE
+> Bound: -80.0 Ha
+
+(b) Energy (Ha), CFO and AM 0 1 2 3 4 5 
+
+> K
+> 6.5
+> 7.0
+> 7.5
+> 8.0
+> 8.5
+> Dipole (in D)
+> Reward
+> CFO
+> PRE
+> NFT
+
+(c) Dipole (D), CFO and NFT 0 1 2 3 4 5 
+
+> K
+> 82
+> 81
+> 80
+> 79
+> 78
+> 77
+> Energy (in Ha)
+> Constraint
+> CFO
+> PRE
+> Bound: -80.0 Ha
+> NFT
+
+(d) Energy (Ha), CFO and NFT PRE CFO AM AM CFO NFT DiffusionNFT 
+
+E[r(x)] ↑ 6.55 ±0.07 8.39 ±0.10 8.37 ±0.07 8.27 ±0.19 8.30 ±0.07 
+
+E[c(x)] −77 .86 ±0.22 −82 .28 ±0.41 −78 .31 ±0.38 −80 .72 ±0.93 −78 .67 ±0.62 
+
+(e) Evaluation across both F INE TUNING SOLVER choices ( 95% CI). 
+
+Figure 3. Energy-constrained dipole moment maximization of FlowMol (Dunn & Koes, 2024) on GEOM Drugs (Axelrod & Gomez-Bombarelli, 2022). CFO attains a dipole moment comparable to the unconstrained baselines, but unlike AM and NFT keeps the expected energy inside the feasible region. (3a-3b): Evolution of the constraint and reward during CFO fine-tuning with ( K = 6 , N = 10 ) in comparison to AM (Domingo-Enrich et al., 2024) ( N = 60 ), and we show the final iterate in yellow. (3c-3d): Analogous trajectories with DiffusionNFT (Zheng et al., 2025) as the inner F INE TUNING SOLVER ; CFO ( K = 5 ) drives the expected energy below the −80 Ha bound that NFT alone fails to meet, while preserving comparable dipole moment. 
+
+under constraint fulfillment. As constraints, we impose an upper bound on the total xTB energy (i.e., −80 Ha), to be used as a proxy for chemical stability. Further details on the constraint and reward functions employed are provided in Appendix B. Both functions are computed via GNN-based predictors (see Appendix B) trained on GFN2-xTB 
+
+(Bannwarth et al., 2019). We employ differentiable rewards and constraints, because the specific FINE TUNING SOLVER 
+
+we use in our implementation, namely Adjoint Matching (Domingo-Enrich et al., 2024), requires first-order access to these functions. Our method would also be compatible with non-differentiable rewards and constraints (see Sec. 5). In Figure 3, we show the performance of CFO for the energy-constrained dipole moment maximization molecular design task. The optimal policy π∗ computed by CFO 
+
+(K = 6 , N = 10 ) increases the dipole moment from 6.55 
+
+Debye of the pre-trained model to 8.39 Debye (Figure 3a). Simultaneously, π∗ shifts the flow model density to generate predominantly low-energy samples, effectively achieving an expected energy of −82 .28 Ha, thus satisfying the upper bound B of −80 Ha. In Figure 4a-4c, we present drug-like samples from the fine-tuned model, together with their ground-truth reward and constraint values. For reference, running Adjoint Matching ( N=60 ) (Domingo-Enrich et al., 2024) purely for reward maximization, without enforcing the constraint, achieves a similar reward of 8.37 Debye, yet results in an expected energy of −78 .31 Ha, thus not fulfilling the constraint (see Table 3e). In Appendix B, we show that the GNN predictors are accurate throughout the optimization, with ground truth values of reward and constraint being optimized to the same extent. To showcase that CFO is agnostic to the inner fine-tuning solver, we additionally run CFO with DiffusionNFT (Zheng et al., 2025) ( K = 5 ) (Figures 3c-3d). CFO with NFT in-creases the dipole moment from 6.55 to 8.27 Debye while reducing the expected energy to −80 .72 Ha, thus satisfy-ing the −80 Ha bound. In contrast, unconstrained NFT alone achieves a comparable reward of 8.30 Debye but only 
+
+−78 .67 Ha in expected energy, violating the constraint. This confirms that CFO transfers across both first-order (AM) and gradient-free (NFT) solvers, while consistently steering the policy into the feasible region. Optimizing molecular properties reduces validity, from 34% 
+
+for PRE to 9% for CFO and to 4% for AM. Since valid-ity is not explicitly enforced but only implicitly learned, fine-tuning steers the model toward sparsely represented regions of chemical space where this notion degrades un-der our stringent validity criteria (see definition in Apx. C); 
+
+CFO still maintains higher validity than AM at compara-ble reward. In Appendix C, we discuss how base model improvements and differentiable geometry relaxation could increase the validity of generated molecules. We also report standard molecular statistics for CFO and AM to contextu-alize reward-guided fine-tuning. Although not optimization targets, these metrics reflect shifts from the initial model, which is trained on GEOM Drugs and then fine-tuned to maximize the dipole under energy constraints. As shown in Table 4d, CFO exhibits slightly smaller shifts compared to AM, e.g., a QED of 0.37 for CFO , which is closer to the 0.45 of PRE than the 0.34 for AM. Beyond the expecta-tion, we also report per-sample feasibility: CFO satisfies the energy constraint on 61 .4% of generated molecules, com-pared to 40 .6% for unconstrained AM. To further illustrate 
+
+CFO ’s flexibility, in Appendix C we report an additional experiment where the energy constraint is replaced by a learned PoseBusters -based validity criterion (Butten-schoen et al., 2024), which CFO uses to reduce the predicted 7Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+(a) 15 .7 D / −86 .9 Ha (b) 9.1 D / −83 .4 Ha (c) 12 .5 D / −93 .8 Ha                                      
+
+> Feature PRE CFO AM AM CFO NFT DiffusionNFT
+> Constraint (Ha) −78 −82 −78 −81 −79
+> Validity (%) 34 9416 17
+> Sanitization (%) 47 13 821 23
+> QED 0.45 0.37 0.34 0.28 0.29
+> Lipinski (%) 88 77 71 49 51
+> logP 0.89 −0.51 −0.95 −3.00 −2.70
+
+(d) Molecular Statistic 
+
+Figure 4. (4a-4c) Drug-like molecules sampled from the fine-tuned model, together with ground-truth dipole moments (D) and energies (Ha). (4d): Molecular statistics for 2000 molecules sampled from polices fine-tuned with CFO and AM. Validity (Definition in Apx. C), RDKit-Sanitization (Landrum, 2025), QED (Ertl & Schuffenhauer, 2009), Lipinski’s rule of 5 (Lipinski, 2004), log P (PubChem, 2010). CFO preserves F INE TUNING SOLVER -level molecular statistics (e.g., QED, Lipinski) while additionally satisfying the energy budget, i.e., constraint satisfaction comes at essentially no cost in chemical quality compared to pure reward maximization. 
+
+violation rate from 53% to 39% while still increasing the dipole moment. 
+
+CFO outperforms a manually tuned penalty baseline. 
+
+We compare CFO to a manually tuned fixed-μ penalty base-line, which optimizes the Lagrangian with a fixed constraint weight μ (Eq. 7). To select μ, we run the baseline over 18 values covering 13 orders of magnitude, μ ∈ [10 −6, 10 6]
+
+(Figure 5a). We observe high sensitivity to μ. For small 
+
+μ (e.g., μ ≤ 0.01 ), the baseline attains high reward but ex-hibits severe constraint violations (e.g., 8.34 D, −78 .94 Ha for μ = 0 .01 ) and fails to satisfy the constraint. Conversely, for large μ (≥ 1.0), the constraint is enforced, but reward degrades substantially ( 6.69 Debye for μ = 50 .0), falling be-low CFO . In contrast, CFO satisfies the constraint across all tested hyperparameter settings, while the achieved reward remains stable around 8.39 Debye (ablation study in Apx. D). Overall, only two μ out of 18 values achieve a reward comparable to CFO while satisfying the constraint (Figure 5c), confirming that manual tuning is unreliable and ineffi-cient (Sec. 3). Since both methods use the same number of gradient steps per run, this exhaustive tuning makes the base-line about 18 × more expensive. In contrast, CFO adapts the parameters online, yielding a more robust trade-off between reward maximization and constraint satisfaction. 
+
+CFO can run with approximate fine-tuning oracles and a limited number of iterations K. While CFO performs 
+
+K outer iterations, standard fine-tuning solvers (Domingo-Enrich et al., 2024; Uehara et al., 2024c) require N inner steps. To avoid a double loop, we fix the total solver budget to M = K · N in all experiments. Increasing K reallocates compute from a more accurate inner solver to more frequent dual updates, trading solver precision for update frequency. Under a fixed budget M = 6000 (Figures 2a–2c), varying 
+
+K shows a clear reward-constraint trade-off. Few updates (K = 3 , N = 2000 ) yield high reward but large constraint violation ( 0.40 ), while frequent updates ( K = 100 , N =60 ) nearly eliminate violations ( 0.10 ) at the cost of reward (−5.91 ). An intermediate setting ( K = 20 ) achieves both low violation ( 0.12 ) and high reward ( −4.75 ), see Figure 6. Overall, CFO effectively allocates a fixed compute budget, balancing solver accuracy and dual update frequency, to match the computational cost of the FINE TUNING SOLVER .Importantly, this observation also holds for the molecular design task in Figure 3. CFO (K = 6 , N = 10 ) and AM (N = 60 ) have comparable computational cost, as both perform 60 gradient steps. Concretely, CFO has a total runtime of 44 .5 min and compares well to the runtime of AM with 40 .25 min. This 5% increase arises from the extra sampling and constraint evaluation performed in Step 3 of Alg. 1. Thus demonstrating that CFO can operate effectively in high-dimensional domains even with an approximate oracle. In Appendix C, we additionally report molecular-design results on QM9 (Ramakrishnan et al., 2014) using a differentiable simulator ( dxTB (Friede et al., 2024)) as exact reward and constraint functions, complementing the GEOM Drugs experiments shown here. 
+
+## 7. Related Work 
+
+Control-based fine-tuning of flow and diffusion models. 
+
+Recent works have tackled fine-tuning of diffusion and flow models to maximize expected rewards under KL regulariza-tion as an entropy-regularized optimal control problem (e.g., Uehara et al., 2024b; Tang & Zhou, 2024; Uehara et al., 2024c; Domingo-Enrich et al., 2024). Such methods have been successfully applied to real-world domains such as image generation (Domingo-Enrich et al., 2024), molecular design (Uehara et al., 2024c), or protein engineering (Ue-hara et al., 2024c). These methods have also been adopted as subroutines to tackle settings beyond reward maximiza-tion, such as manifold exploration (De Santi et al., 2025a; 2026b) or optimization of distributional objectives, such as conditional value at risk (De Santi et al., 2025b; Wang et al., 2026) or reward-guided model merging (De Santi et al., 2026a). CFO extends fine-tuning methods for reward maximization to leverage known constraint functions and can be straightforwardly used as a plug-in oracle in more complex settings (e.g., exploration and distributional fine-tuning). Importantly, CFO is agnostic to the underlying data 8Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 85.0 82.5 80.0   
+
+> Energy (in Ha)
+> 6.6
+> 7.2
+> 7.8
+> 8.4
+> Dipole (in D)
+> CFO and Baseline
+> CFO
+> Bound
+> 10 6
+> 10 3
+> 10 0
+> 10 3
+> 10 6
+
+(a) CFO and fixed μ-Baseline                   
+
+> E[r(x)] ↑E[c(x)] ≤B
+> PRE 6.55 ±0.07 ✗
+> CFO 8.39 ±0.10 ✓
+> AM μ=0 .58.38 ±0.14 ✓
+> AM μ=0 .18.33 ±0.13 ✓
+> Total Runtime
+> CFO ≈44 min AM μ≈727 min
+
+(b) Evaluation 7.0 7.5 8.0  
+
+> Dipole (D)
+> 1
+> 2
+> 3
+> 4
+> 5
+> Count
+> maximize
+> Manual sweep:
+> Constraint fulfilled
+> Manual sweep:
+> Constraint not fulfilled
+> CFO (ours): 1 run
+
+(c) Counts vs. Dipole 
+
+Figure 5. (5a-5b): Pareto comparing CFO ( K = 6 , N = 10 ) against fixed-μ baselines (Eq. 7) run with AM ( N = 60 ) (i.e., same number of gradient steps). The baseline with 18 values uniformly across μ ∈ [1e −6, 1e6] . Manual μ-tuning is unreliable: out of 18 values of μ,only 2 simultaneously achieve CFO-level dipole moments and satisfy the energy constraint. Histogram shows dipole moments for all baseline runs, separated (in color) by feasibility compared to CFO, indicated by the purple dashed line which is feasible without any tuning. 5b: Numeric Evaluation of (5a), ( 95% CI) B = −80 Ha. 5c: Distribution of dipole moments for fixed-μ baselines separated by constraint satisfaction, CFO result indicated. 
+
+modality (continuous, discrete, or mixed): the choice of in-ner FINE TUNING SOLVER determines this. First-order solvers such as Adjoint Matching (Domingo-Enrich et al., 2024) are well-suited to differentiable rewards and constraints, while gradient-free schemes such as DiffusionNFT (Zheng et al., 2025) and Flow-GRPO (Liu et al., 2026) enable non-differentiable objectives, and discrete-space solvers such as DRAKES (Wang et al., 2025) or SEPO (Zekri & Boull ´e, 2026) unlock direct application to fully discrete generative models (e.g., for peptide or protein design). 
+
+Constrained Generative Modeling and Optimization. 
+
+Most prior work addresses constraint-aware generative modeling, developing tools for handling linear (Graikos et al., 2024), differentiable (Khalafi et al., 2024), and black-box (Kong et al., 2024) constraints. Enforcement spans training-time dual/penalty formulations (Khalafi et al., 2024) and inference-time strategies such as reward-weighted denoising for non-differentiable objectives (Kong et al., 2024) and classifier or classifier-free guidance for differentiable surrogates (Dhariwal & Nichol, 2021; Ho & Salimans, 2022). These techniques have been applied in domains such as molecular design (Kong et al., 2024) and constrained planning (Ma et al., 2025). The closest work to ours is arguably Khalafi et al. (2024), with the main difference that our setting is for post-training, i.e., at fine-tuning time, constrained generative optimization rather than a training-time scheme enforcing given constraints. Concretely, Khalafi et al. (2024) keep the pre-trained model weights fixed and instead enforce the constraint through inference-time guidance, whereas CFO fine-tunes the model so the constraint is internalized into the weights, and inference proceeds as standard sampling at base-model cost. 
+
+Augmented Lagrangian and Dual Methods in Con-strained Sampling. Augmented Lagrangian and dual for-mulations turn equality and inequality constraints into auxil-iary updates that run with the sampler, enabling draws from unnormalized targets while enforcing feasibility either per-sample or in expectation (Khalafi et al., 2025; Blanke et al., 2025; Chamon et al., 2024; Smith et al., 2025). For exam-ple, Zhang et al. (2025b) employ an augmented Lagrangian method to steer diffusion rollouts toward time-varying safety sets without retraining of the base model. Dual schemes sim-ilarly maintain physical invariants during sampling or data assimilation while still retaining sufficient exploration of feasible states (Blanke et al., 2025). In addition to constraint generation or sampling, CFO also performs reward-driven optimization with the augmented formulation. 
+
+## 8. Conclusion 
+
+This work tackles the problem of constrained generative optimization via fine-tuning of pre-trained flow and diffu-sion models, a relevant and challenging task in discovery applications such as drug discovery. After proposing a constrained optimization formulation of the problem, we introduced Constrained Flow Optimization, a method that transforms the constrained objective into a sequence of fine-tuning steps, and provides feasibility and optimality guarantees. Empirical results on both illustrative settings and molecular design tasks demonstrate the ability of CFO 
+
+to steer pre-trained flow models toward high-reward regions while satisfying the given constraints. Promising directions include adding zero-order oracles to CFO beyond the current first-order choice, and developing inference-time constraint handling rather than fine-tuning, and testing on protein engineering tasks. 
+
+## Acknowledgments 
+
+This publication was made possible by the ETH AI Center doctoral fellowship to Riccardo De Santi. The project has re-ceived funding from the Swiss National Science Foundation 9Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+under NCCR Catalysis (grant number 180544 and 225147) and NCCR Automation (grant agreement 51NF40 180545), a National Centre of Competence in Research funded by the Swiss National Science Foundation. This work was supported by an ETH Zurich Research Grant. 
+
+## Impact Statement 
+
+This paper presents work whose goal is to advance the field of generative optimization. There are many potential soci-etal consequences of our work, none which we feel must be specifically highlighted here. 
+
+## References 
+
+Amorim, A. M., Piochi, L. F., Gaspar, A. T., Preto, A. J., Rosario-Ferreira, N., and Moreira, I. S. Advancing drug safety in drug development: bridging computational pre-dictions for enhanced toxicity prediction. Chemical re-search in toxicology , 37(6):827–849, 2024. Axelrod, S. and Gomez-Bombarelli, R. Geom, energy-annotated molecular conformations for property predic-tion and molecular generation. Scientific Data , 9(1):185, 2022. Bannwarth, C., Ehlert, S., and Grimme, S. Gfn2-xtb—an accurate and broadly parametrized self-consistent tight-binding quantum chemical method with multipole elec-trostatics and density-dependent dispersion contributions. 
+
+Journal of chemical theory and computation , 15(3):1652– 1671, 2019. Ben-Tal, A. and Nemirovski, A. Robust solutions of linear programming problems contaminated with uncertain data. 
+
+Mathematical programming , 88(3):411–424, 2000. Bickerton, G. R., Paolini, G. V., Besnard, J., Muresan, S., and Hopkins, A. L. Quantifying the chemical beauty of drugs. Nature chemistry , 4(2):90–98, 2012. Birgin, E. G. and Mart ´ınez, J. M. Practical augmented Lagrangian methods for constrained optimization . SIAM, 2014. Blanke, M., Qu, Y., Shamekh, S., and Gentine, P. Strictly constrained generative modeling via split augmented langevin sampling. arXiv preprint arXiv:2505.18017 ,2025. Bracken, J. and McGill, J. T. Mathematical programs with optimization problems in the constraints. Operations research , 21(1):37–44, 1973. Buttenschoen, M., Morris, G. M., and Deane, C. M. Pose-busters: Ai-based docking methods fail to generate physi-cally valid poses or generalise to novel sequences. Chem-ical Science , 15(9):3130–3139, 2024. Chamon, L. F., Karimi, M. R., and Korba, A. Constrained sampling with primal-dual langevin monte carlo. Ad-vances in Neural Information Processing Systems , 37: 29285–29323, 2024. Corso, G., St ¨ark, H., Jing, B., Barzilay, R., and Jaakkola, T. Diffdock: Diffusion steps, twists, and turns for molecular docking. arXiv preprint arXiv:2210.01776 , 2022. De Santi, R., Vlastelica, M., Hsieh, Y.-P., Shen, Z., He, N., and Krause, A. Provable maximum entropy manifold exploration via diffusion models. In ICLR 2025 Workshop on Deep Generative Model in Machine Learning: Theory, Principle and Efficacy , 2025a. De Santi, R., Vlastelica, M., Hsieh, Y.-P., Shen, Z., He, N., and Krause, A. Flow density control: Genera-tive optimization beyond entropy-regularized fine-tuning. 
+
+Advances in Neural Information Processing Systems (NeurIPS) , 2025b. De Santi, R., Franke, M., Hsieh, Y.-P., and Krause, A. A unified density operator view of flow control and merging. 
+
+arXiv preprint arXiv:2602.08012 , 2026a. De Santi, R., Protopapas, K., Hsieh, Y.-P., and Krause, A. Verifier-constrained flow expansion for discovery beyond the data. arXiv preprint arXiv:2602.15984 , 2026b. Dhariwal, P. and Nichol, A. Diffusion models beat gans on image synthesis. Advances in neural information processing systems , 34:8780–8794, 2021. Domingo-Enrich, C., Drozdzal, M., Karrer, B., and Chen, R. T. Adjoint matching: Fine-tuning flow and diffusion generative models with memoryless stochastic optimal control. arXiv preprint arXiv:2409.08861 , 2024. Dunn, I. and Koes, D. R. Mixed continuous and categorical flow matching for 3d de novo molecule generation. arXiv preprint arXiv:2404.19739 , 2024. Ertl, P. and Schuffenhauer, A. Estimation of synthetic acces-sibility score of drug-like molecules based on molecular complexity and fragment contributions. Journal of Chem-informatics , 1(1):8, 2009. Fortin, M. Minimization of some non-differentiable func-tionals by the augmented lagrangian method of hestenes and powell. Applied Mathematics and Optimization , 2 (3):236–250, 1975. Friede, M., H ¨olzer, C., Ehlert, S., and Grimme, S. dxtb—an efficient and fully differentiable framework for extended tight-binding. The Journal of Chemical Physics , 161(6), 2024. 10 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+Graikos, A., Jojic, N., and Samaras, D. Fast constrained sampling in pre-trained diffusion models. arXiv preprint arXiv:2410.18804 , 2024. Ho, J. and Salimans, T. Classifier-free diffusion guidance. 
+
+arXiv preprint arXiv:2207.12598 , 2022. Ho, J., Jain, A., and Abbeel, P. Denoising diffusion proba-bilistic models. Advances in neural information process-ing systems , 33:6840–6851, 2020. Hoogeboom, E., Satorras, V. G., Vignac, C., and Welling, M. Equivariant diffusion for molecule generation in 3d. In 
+
+International conference on machine learning , pp. 8867– 8887. PMLR, 2022. Khalafi, S., Ding, D., and Ribeiro, A. Constrained diffusion models via dual training. Advances in Neural Information Processing Systems , 37:26543–26576, 2024. Khalafi, S., Hounie, I., Ding, D., and Ribeiro, A. Composi-tion and alignment of diffusion models using constrained learning. arXiv preprint arXiv:2508.19104 , 2025. Kong, L., Du, Y., Mu, W., Neklyudov, K., De Bortoli, V., Wu, D., Wang, H., Ferber, A., Ma, Y.-A., Gomes, C. P., et al. Diffusion models as constrained samplers for optimization with unknown constraints. arXiv preprint arXiv:2402.18012 , 2024. Landrum, G. Rdkit: Open-source cheminformatics. https://www.rdkit.org. https://www.rdkit.org , 2025. Li, Z., Yuan, H., Huang, K., Ni, C., Ye, Y., Chen, M., and Wang, M. Diffusion model for data-driven black-box optimization. arXiv preprint arXiv:2403.13219 , 2024. Lipinski, C. A. Lead-and drug-like compounds: the rule-of-five revolution. Drug discovery today: Technologies , 1 (4):337–341, 2004. Lipman, Y., Chen, R. T., Ben-Hamu, H., Nickel, M., and Le, M. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. Liu, J., Liu, G., Liang, J., Li, Y., Liu, J., Wang, X., Wan, P., Zhang, D., and Ouyang, W. Flow-grpo: Training flow matching models via online rl. Advances in neural information processing systems , 38:40783–40818, 2026. Ma, H., Bodmer, S., Carron, A., Zeilinger, M., and Muehlebach, M. Constraint-aware diffusion guidance for robotics: Real-time obstacle avoidance for autonomous racing. arXiv preprint arXiv:2505.13131 , 2025. Minkin, V. I. Dipole moments in organic chemistry . Springer Science & Business Media, 2012. Neeser, R. M., Correia, B., and Schwaller, P. Fsscore: A personalized machine learning-based synthetic feasibility score. Chemistry-Methods , 4(11):e202400024, 2024. Nemirovskij, A. S. and Yudin, D. B. Problem complexity and method efficiency in optimization. 1983. Pantsar, T. and Poso, A. Binding affinity via docking: fact and fiction. Molecules , 23(8):1899, 2018. PubChem. AID 19623 - Partition coefficient (logP) - Pub-Chem, 2010. URL https://pubchem.ncbi.nlm. nih.gov/bioassay/19623 .Ramakrishnan, R., Dral, P. O., Rupp, M., and Von Lilienfeld, O. A. Quantum chemistry structures and properties of 134 kilo molecules. Scientific data , 1(1):1–7, 2014. Rockafellar, R. T. Augmented lagrangians and applications of the proximal point algorithm in convex programming. 
+
+Mathematics of operations research , 1(2):97–116, 1976. Rombach, R., Blattmann, A., Lorenz, D., Esser, P., and Ommer, B. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF con-ference on computer vision and pattern recognition , pp. 10684–10695, 2022. Smith, H. D., Diamant, N. L., and Trippe, B. L. Calibrating generative models. arXiv preprint arXiv:2510.10020 ,2025. Song, J., Meng, C., and Ermon, S. Denoising diffusion implicit models. arXiv preprint arXiv:2010.02502 , 2022. Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Er-mon, S., and Poole, B. Score-based generative modeling through stochastic differential equations. arXiv preprint arXiv:2011.13456 , 2020. Stark, H., Jing, B., Wang, C., Corso, G., Berger, B., Barzi-lay, R., and Jaakkola, T. Dirichlet flow matching with applications to dna sequence design. arXiv preprint arXiv:2402.05841 , 2024. Tang, W. and Zhou, F. Fine-tuning of diffusion models via stochastic control: entropy regularization and beyond. 
+
+arXiv preprint arXiv:2403.06279 , 2024. Treven, L., H ¨ubotter, J., Sukhija, B., Dorfler, F., and Krause, A. Efficient exploration in continuous-time model-based reinforcement learning. Advances in Neural Information Processing Systems , 36:42119–42147, 2023. Uehara, M., Zhao, Y., Biancalani, T., and Levine, S. Un-derstanding reinforcement learning-based fine-tuning of diffusion models: A tutorial and review. arXiv preprint arXiv:2407.13734 , 2024a. 11 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+Uehara, M., Zhao, Y., Black, K., Hajiramezanali, E., Scalia, G., Diamant, N. L., Tseng, A. M., Biancalani, T., and Levine, S. Fine-tuning of continuous-time diffusion models as entropy-regularized control. arXiv preprint arXiv:2402.15194 , 2024b. Uehara, M., Zhao, Y., Black, K., Hajiramezanali, E., Scalia, G., Diamant, N. L., Tseng, A. M., Levine, S., and Bian-calani, T. Feedback Efficient Online Fine-Tuning of Diffusion Models. In Proceedings of the 41st Inter-national Conference on Machine Learning , pp. 48892– 48918. PMLR, July 2024c. Wang, C., Uehara, M., He, Y., Wang, A., Lal, A., Jaakkola, T., Levine, S., Regev, A., Wang, H., and Biancalani, T. Fine-tuning discrete diffusion models via reward opti-mization with applications to dna and protein design. In 
+
+International Conference on Learning Representations ,volume 2025, pp. 47871–47899, 2025. Wang, H., Zariphopoulou, T., and Zhou, X. Y. Reinforce-ment learning in continuous time and space: A stochastic control approach. Journal of Machine Learning Research ,21(198):1–34, 2020. Wang, Z., De Santi, R., Mo, X., Zavlanos, M. M., Krause, A., and Johansson, K. H. Efficient tail-aware generative optimization via flow model fine-tuning. arXiv preprint arXiv:2602.16796 , 2026. Wohlwend, J., Corso, G., Passaro, S., Getz, N., Reveiz, M., Leidal, K., Swiderski, W., Atkinson, L., Portnoi, T., Chinn, I., et al. Boltz-1 democratizing biomolecular interaction modeling. BioRxiv , pp. 2024–11, 2025. Wu, K. E., Yang, K. K., van den Berg, R., Alamdari, S., Zou, J. Y., Lu, A. X., and Amini, A. P. Protein structure generation via folding diffusion. Nature communications ,15(1):1059, 2024. Xiao, Q., Yuan, H., Saif, A., Liu, G., Kompella, R., Wang, M., and Chen, T. A first-order generative bilevel opti-mization framework for diffusion models. arXiv preprint arXiv:2502.08808 , 2025. Zekri, O. and Boull ´e, N. Fine-tuning discrete diffusion models with policy gradient methods. Advances in Neu-ral Information Processing Systems , 38:152868–152906, 2026. Zhang, B., Wang, Z., and Liu, Y.-F. A gradient guided dif-fusion framework for chance constrained programming. 
+
+arXiv preprint arXiv:2510.12238 , 2025a. Zhang, J., Zhao, L., Papachristodoulou, A., and Umenberger, J. Constrained diffusers for safe planning and control. 
+
+arXiv preprint arXiv:2506.12544 , 2025b. Zhao, H., Chen, H., Zhang, J., Yao, D., and Tang, W. Score as action: Fine tuning diffusion generative models by continuous-time reinforcement learning. In Forty-second International Conference on Machine Learning , 2025. Zheng, K., Chen, H., Ye, H., Wang, H., Zhang, Q., Jiang, K., Su, H., Ermon, S., Zhu, J., and Liu, M.-Y. Diffusion-nft: Online diffusion reinforcement with forward process. 
+
+arXiv preprint arXiv:2509.16117 , 2025. 12 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+## A. Implementation of F INE TUNING SOLVER - Adjoint Matching (Domingo-Enrich et al., 2024) 
+
+To ensure completeness, below we provide pseudocode for one concrete realization of a FINE TUNING SOLVER as in Eq. 9. We describe exactly the version employed in Sec. 6, which builds on the Adjoint Matching framework (Domingo-Enrich et al., 2024), casting linear fine-tuning as a stochastic optimal control problem and tackling it via regression. Let upre be the initial, pre-trained vector field, and ufinetuned its fine-tuned counterpart. We also use ¯α to refer to the accumulated noise schedule from Ho et al. (2020), effectively following the flow models notation introduced by Adjoint Matching (Domingo-Enrich et al., 2024, Sec. 5.2). The full procedure is in Alg. 2. 
+
+Algorithm 2 FINE TUNING SOLVER - Adjoint Matching (Domingo-Enrich et al., 2024) 
+
+1: Input: N : number of iterations, uk : current finetuned flow vector field, upre : pre-trained flow vector field, α
+
+regularization coefficient (Eq. 5), ∇f : objective function gradient, m batch size, h step size 
+
+2: Init: ufinetuned := uk with parameter θ
+
+3: for n = 0 , 1, 2, . . . , N − 1 do 
+
+4: Sample m trajectories {Xt}0≤t≤1 via a memoryless noise schedule σ(t) (Domingo-Enrich et al., 2024), e.g., sample ϵt ∼ N (0 , I ), X 0 ∼ N (0 , I ), then: (17) 
+
+Xt+h = Xt + h
+
+
+
+2ufinetuned  
+
+> θ
+
+(Xt, t ) − ¯αt
+
+αt
+
+Xt
+
+
+
++ √hσ (t)ϵt (18) 
+
+5: Use objective function gradient: 
+
+˜a1 = − 1
+
+α ∇X1 f (X1)
+
+6: For each trajectory, solve the lean adjoint ODE, (Domingo-Enrich et al., 2024, Eq. 38-39), from t = 1 to 0:
+
+˜at−h = ˜ at + h˜a⊤ 
+
+> t
+
+∇Xt
+
+
+
+2upre (Xt, t ) − ¯αt
+
+αt
+
+Xt
+
+
+
+(19) 
+
+7: Where Xt and ˜at are computed without gradients, i.e., Xt = stopgrad (Xt), ˜at = stopgrad (˜ at). For each trajectory, compute the Adjoint Matching objective (Domingo-Enrich et al., 2024, Eq. 37): 
+
+Lθ = X
+
+> t∈{ 0,h,..., 1−h}
+
+2
+
+σ(t)
+
+ ufinetuned  
+
+> θ
+
+(Xt, t ) − upre (Xt, t ) + σ(t)˜ at
+
+> 2
+
+(20) 
+
+8: Compute the gradient ∇θ L(θ) and update θ.
+
+9: end for 
+
+10: Output: Fine-tuned flow vector field ufinetuned 
+
+> θ
+
+For further implementation details, we refer to Domingo-Enrich et al. (2024, Appendix G). 13 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+## B. Further Experiments and Details - Illustrative Examples 
+
+Reward-only rejection sampling. We also compare against a simple rejection-sampling baseline, complementary to the fixed-μ baseline in Eq. 7. We fine-tune a policy purely on the reward signal using Adjoint Matching and then enforce feasibility only by rejecting samples that violate the constraint. On the example in Figure 2c, this reward-only policy attains a constraint satisfaction rate of 13 .40% , compared to 84 .40% for the policy fine-tuned with CFO , i.e., accounting for the constraint during fine-tuning. Inspecting the samples further reveals that (1) violations under CFO occur predominantly near the constraint boundary, and (2) rejection sampling is ineffective when the reward optimum and the constraint region are poorly aligned. 
+
+Details for visually interpretable settings (Figure 2). The Mixture of Gaussians (Figure 2a) is generated by 
+
+p(x) = 12
+
+
+
+N
+
+
+
+x |
+
+−7
+
+−2
+
+
+
+, Σ
+
+
+
++ N
+
+
+
+x |
+
+27
+
+
+
+, Σ
+
+ 
+
+, with Σ =
+
+3 00 3
+
+
+
+,
+
+We sample 20 k points ( 80 /20 train/validation split) and train a MLP with 3 hidden layers, each with 256 nodes, for the vector field v. The same setting is used for the experiment on the correlated Gaussian (Figure 2e), with: 
+
+p(x) = N
+
+
+
+x |
+
+0.50.5
+
+
+
+,
+
+ 1 0.50.5 1
+
+ 
+
+The constraint triangles have the following vertices: 1. MoG: 
+
+△I :
+
+ −10 
+
+−4
+
+
+
+,
+
+−5
+
+−4
+
+  −52
+
+ 
+
+and △II :
+
+ 4
+
+−1
+
+
+
+,
+
+10 2
+
+
+
+,
+
+54
+
+ 
+
+2. Correlated Gaussian: 
+
+△ :
+
+ −1
+
+−0.5
+
+
+
+,
+
+ 1
+
+−0.5
+
+
+
+,
+
+01
+
+ 
+
+Computational Cost of: CFO compared to AM. We plot the computational cost of CFO for a fixed budget M = 6000 and a varying K ∈ { 3, 15 , 20 , 100 } and compare it to AM (Domingo-Enrich et al., 2024) with N = 6000 (see Sec. 6). 8       
+
+> 6
+> 4
+> 2
+> Reward
+> Reward ( )
+> PRE
+> AM
+> 3/2000
+> 15/400
+> 20/300
+> 100/60
+> PRE AM 3/2000 15/400 20/300 100/60
+> (K / N)
+> 0.0
+> 0.8
+> 1.6
+> 2.4
+> Constraint
+> Constraint ( )
+> PRE
+> AM
+> 3/2000
+> 15/400
+> 20/300
+> 100/60
+
+Figure 6. Reward and constraint for different values of (K/N) 
+
+Comparison to DiffOpt (Kong et al., 2024), an inference-time constrained-generation method. DiffOpt is a recent inference-time scheme that keeps the pre-trained model weights fixed and instead modifies the sampling procedure to satisfy constraints (a fundamentally different setting from CFO , which fine-tunes the model). For completeness, we report a comparison on the illustrative MoG task (Figure 2a-2c); the qualitative sample distributions are shown in Figure 7, and numerical results are summarized in Table 1. Across three settings of DiffOpt’s guidance and Langevin-MCMC hyperparameters ( βr , β c, L, η ) DiffOpt achieves a per-sample violation rate of 10 –50% versus 8.5% for CFO , and incurs a 14 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 10 0 10  
+
+> 6
+> 0
+> 6CFO (w/ NFT)
+> 0
+> 5
+> 10
+> 15
+> Reward
+
+(a) CFO (NFT) 10 0 10   
+
+> 6
+> 0
+> 6DiffOPT (Default)
+> 0
+> 5
+> 10
+> 15
+> Reward
+
+(b) DiffOpt (default) 10 0 10   
+
+> 6
+> 0
+> 6DiffOPT (High Reward)
+> 0
+> 5
+> 10
+> 15
+> Reward
+
+(c) DiffOpt (high reward) 10 0 10   
+
+> 6
+> 0
+> 6DiffOPT (Gentle + Long)
+> 0
+> 5
+> 10
+> 15
+> Reward
+
+(d) DiffOpt (gentle+long) 
+
+Figure 7. Qualitative comparison of samples on the MoG task. (7a) CFO with DiffusionNFT (Zheng et al., 2025) as the inner FINE TUNING SOLVER , as a fine-tuning-based reference. (7b-7d) DiffOpt (Kong et al., 2024) under three hyperparameter regimes; see Table 1 for the corresponding numerical results. 
+
+Table 1. DiffOpt (Kong et al., 2024) on the MoG task across three hyperparameter regimes, compared against CFO. All values are mean 
+
+± 95% CI. 
+
+Method Settings Reward ↑ Violation ↓ KL ↓
+
+CFO K = 20 , N = 300 −4.75 ± 0.04 8.5% –DiffOpt (default) βr = 1 , β c = 10 , L = 200 , η = 10 −3 −7.54 ± 0.09 49 .4% ± 0.6% 2.05 ± 0.03 
+
+DiffOpt (high reward) βr = 5 , β c = 20 , L = 500 , η = 5 ·10 −4 −4.52 ± 0.05 21 .4% ± 1.7% 1.48 ± 0.02 
+
+DiffOpt (gentle+long) βr = 2 , β c = 15 , L = 1000 , η = 3 ·10 −4 −5.05 ± 0.05 10 .4% ± 0.6% 1.31 ± 0.02 
+
+substantially higher per-sample sampling cost (between 44 × and 55 × slower than CFO ) because every sample requires repeated guidance steps. Tuning DiffOpt is therefore essential: aggressive settings ( βc ≥ 50 ) caused sample divergence and were discarded. Even when tuned to either favor reward (“high reward”) or constraint satisfaction (“gentle+long”), DiffOpt either violates the constraint substantially (twice the rate of CFO ) or, when constraint-tight, sacrifices both reward and sampling efficiency. CFO , on the contrary, fine-tunes the policy once, retains the per-sample inference cost of the base model, and reaches a reward of −4.75 at 8.5% violation without any per-sample guidance. 15 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 1 2 3 4 5 6
+
+> K
+> 7
+> 8
+> 9
+> 10
+> Dipole (in D)
+> Reward
+> CFO
+> True
+
+(a) Dipole Moment (in D) 1 2 3 4 5 6 
+
+> K
+> 82
+> 81
+> 80
+> 79
+> 78
+> Energy (in Ha)
+> Constraint
+> CFO
+> True
+> Bound: -80.0 Ha
+
+(b) Energy (in Ha)                       
+
+> MD E[r(x)] ↑E[c(x)] ↓
+> True PRE 6.68 ±0.28 −77 .71 ±0.55
+> CFO 8.37 ±0.26 −81 .68 ±0.71
+> xtb 10 .31 ±0.46 −81 .42 ±0.88
+
+(c) Evaluation 
+
+Figure 8. Energy-Constrained Dipole Moment Maximization for Molecular Design (MD) (8a-8b): Evolution of the constraint and reward during CFO compared to the true xtb Value. 8c: Numeric Comparison between of CFO and xtb .
+
+## C. Further Results on Molecular Design Experiments 
+
+Molecular Design. For the molecular design task, we fine-tune FlowMol (Dunn & Koes, 2024), which jointly models continuous atomic coordinates and discrete categorical variables (atom types, formal charges, bond orders). We refer to Dunn & Koes (2024) for the sampling of categorical and initial values. We use Gaussian sampling for the experiments on GEOM-Drugs and CTMC for the experiments on QM9. 
+
+GNN Details and Generalization. To verify that optimization targets the intended physical objective rather than exploiting the surrogate, we evaluate the ground-truth xTB values for every molecule sampled during the execution of CFO and compare their properties to the GNN predictions. For the energy (used as a constraint), surrogate predictions are essentially indistinguishable from xTB , indicating faithful approximation within the explored region. For the dipole moment (the maximization target), the surrogate systematically underestimates the true xTB values by 10% , yet the two remain strongly correlated and move in lockstep throughout the fine-tuning. Consequently, improvements under the surrogate translate to larger gains under xTB . Overall, these checks indicate that CFO does not exploit model artifacts and remains within the training distribution. 0 60 120 180 
+
+> Step
+> 0
+> 5
+> 10
+> Debye
+> |Dipole|
+
+(a) Dipole Moment (in D) 0 60 120 180 
+
+> Step
+> 40
+> 30
+> 20
+> Hartree
+> Energy
+
+(b) Energy (in Ha) 
+
+Figure 9. Energy-constrained dipole moment maximization on QM9 (Ramakrishnan et al., 2014) and using dxtb (Friede et al., 2024) as reward and constraint functions, with exact gra-dients of the simulation. 
+
+Additional Results with Exact Rewards and Constraints using dxtb . In a complementary experiment, we employ dxtb (Friede et al., 2024) instead of neural approximators to obtain rewards and constraints, which offers exact gradients over atomic positions. For this experiment, we fine-tune FlowMol pre-trained on QM9 (Ramakrishnan et al., 2014). We again maximize the dipole moment while constraining the total energy to remain below −18 
+
+Ha, a value that differs from the constraint in the main paper due to the different atomic number distribution. As shown in Table 2, the pre-trained model πpre violates such a constraint with 65% of samples. In contrast, the model fine-tuned via CFO can successfully achieve zero constraint violation (30 Monte Carlo samples, all below the threshold) while increasing the average norm of the dipole moment from 3.43 ± 3.45 to 8.66 ± 4.50 , as shown in Fig. 9a. As a baseline comparison, we compare to just using Adjoint Matching (Domingo-Enrich et al., 2024), which increases the dipole to 9.04 D but also the energy to −15 .5Ha. 
+
+Results using posebuster validity score function. To further highlight 
+
+CFO ’s flexibility, we replace the energy constraint with a molecular-validity criterion based on posebuster (Buttenschoen et al., 2024), while keeping the dipole moment as reward. We train a GNN on a custom validation score that equals zero when a molecule is connected and passes the basic 
+
+posebuster checks, and 1 otherwise, running CFO with K = 2 , N = 50 ,and B = 0 .3. The pre-trained model attains a dipole moment of 6.92 D but has a 53% constraint-violation rate. In contrast, CFO increases the reward to 9.60 D while reducing the predicted violation rate to 39% . In contrast to the energy constraints presented in the main text, the predicted violation rate also differs from the ground truth violation rate, which might be circumvented by an online learning of the constraint function. 16 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+Additional Discussion on Validity of Molecules. For the molecular design experiments on drug-like molecules presented in the main text, we further apply an RDKit validation step, including stereochemistry reassignment, hydrogen count correction, and full sanitization (valences, kekulization, bond orders). Approximately 7% of final molecules pass, which can be attributed to several reasons: Already in the base FlowMol model, only 34% of molecules fulfill the RDKit validation step, highlighting the need for more diverse pre-training datasets and further base model improvements. Furthermore, the FlowMol-generated geometries used during optimization are not geometrically relaxed, which can lead to invalid bond lengths or angles (see examples in Figure 10). This motivates the development of fully differentiable geometry relaxation methods for molecular design or the extension of CFO to different solvers.  
+
+> Figure 10. Generated drug-like molecules failing the validity test and showing unreasonable bond lengths and angles, highlighted with red circles.
+
+Definition of stringent validity criteria. We evaluate validity on a more stringent criterion than pure RDKit -Sanitization. Namely, we add two criteria before that to make the workflow as follows: Is sample connected? → Can generated conformer can be embedded? → RDKit − Sanitization    
+
+> Table 2. Numeric results for CFO on QM9 using dxtb for dipole and energy.
+
+Property Stage Value 
+
+Dipole moment Pre 3.43 ± 3.45 D 
+
+> CFO
+
+8.66 ± 4.50 D
+
+Energy Pre −16 .72 ± 2.48 Ha  
+
+> CFO
+
+−39 .40 ± 4.01 Ha Violations Pre 65%  
+
+> CFO
+
+0% 
+
+17 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 0 20 40 60 80 
+
+> N
+> 7
+> 8
+> 9
+> Dipole (in D)
+
+Reward        
+
+> 45
+> 60
+> 75
+> 90
+> (a) Dipole (in D) for different N.020 40 60 80
+> N
+> 80
+> 79
+> 78
+> 77
+> 76
+> Energy (in Ha)
+
+Constraint           
+
+> 45
+> 60
+> 75
+> 90
+> Bound (b) Energy (in Ha) for different N.
+> Figure 11. Unconstrained Dipole maximization of AM (Domingo-Enrich et al., 2024), i.e., μ= 0 in Eq. 7, for different N.
+
+## D. Parameter Details, Ablation Studies, and Algorithmic Extensions for CFO and Adjoint Matching 
+
+Discussion of the most important Hyperparameters of CFO and FINE TUNING SOLVER :• Initial penalty ρinit . A larger ρinit penalizes constraint violations more strongly, effectively reducing early exploration within the base distribution. Smaller ρinit does the opposite. • Penalty growth rate η ≥ 1. Controls the penalty growth across updates. Larger η accelerates enforcement and thus can reduce exploration of high-reward regions. Smaller η tightens feasibility more gradually, allowing for early reward progress, but potentially slower constraint satisfaction. • Contraction rate τ ∈ (0 , 1) . Determines when to update the penalty parameter ρ. Smaller τ triggers more frequent updates, values near one update conservatively. • Multiplier lower bound λmin < 0. Safeguards the Lagrange multiplier via clipping. Smaller λmin permits larger corrective signals of the offset, see Sec. 4. If set to a large negative value, its influence on the final output is typically small, since λmin is not achieved. • FINE TUNING SOLVER regularization α. Trade-off between staying close to the base distribution and reallocating mass. Larger α enforces stronger KL-regularization of the policy. A smaller α allows greater deviation from the base policy. • Sampling for constraint estimation (sample count/batch size). Larger samples reduce estimator variance, stabilizing updates and improving feasibility. If the sample size is too small, this yields volatile or biased estimates that can steer  
+
+> CFO
+
+to off-target solutions. 
+
+Multi-Constraint Extension of CFO . CFO straightforwardly extends to multiple constraints {cj }Jj=1 with bounds {Bj }Jj=1 
+
+by introducing one Lagrange multiplier λjk and penalty ρjk per constraint, yielding the multi-constraint augmented reward 
+
+fk(x) = r(x) −
+
+> J
+
+X
+
+> j=1
+
+ρjk
+
+2
+
+"
+
+max 0, c j (x) − Bj − λjk
+
+ρjk
+
+!# 2
+
+.
+
+All steps in Alg. 1 apply coordinate-wise to (λjk, ρ jk), and the feasibility and optimality guarantees of Sec. 5 carry over by standard arguments in the augmented Lagrangian literature (Birgin & Mart ´ınez, 2014). This enables, for instance, jointly enforcing an energy constraint and a validity constraint on the molecular design task. 18 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design  
+
+> Table 3. Hyperparameters for CFO and Adjoint Matching
+
+SG (2e-2g) MoG (2a-2c) MD-QM9 (9a-9b) MD-GEOM (3a-3b) 
+
+> CFO
+
+Lagrangian Updates K 20 20 20 6
+
+ρinit 0.5 0.5 2 1.0 
+
+η 1.25 1.25 1.1 1.25 
+
+τ 0.99 0.99 0.99 0.99 
+
+λmin -50.0 -50.0 -50.0 -50.0 
+
+Adjoint Matching 
+
+(1/α ) 1e5 1e5 1e2 50 Number of Iterations N 300 300 10 10 Effective Batch Size 256 256 40 20 Learning Rate 5e-6 5e-6 1e-4 5e-6 
+
+Ablation study for ρinit , η, τ, and λmin .. In the following, we provide an ablation study for the molecular design task (Figure 3a-3b) as well as the MoG task (Figure 2b).  
+
+> Table 4. Ablation Study for MoG (2b) and Molecular Design Tasks (3a-3b)
+
+value MoG Task Molecular Design Task 
+
+E[r(x)] ↑ E[c(x)] ↓ E[r(x)] ↑ E[c(x)] ↓
+
+PRE 
+
+– −7.32 ± 0.08 0.58 ± 0.02 6.55 ± 0.07 −77 .86 ± 0.22 
+
+ρinit 
+
+0.1 −4.49 ± 0.06 0.24 ± 0.02 8.43 ± 0.12 −82 .21 ± 0.33 
+
+1.0 −4.88 ± 0.07 0.10 ± 0.01 8.36 ± 0.11 −81 .99 ± 0.45 
+
+10.0 −5.62 ± 0.09 0.10 ± 0.01 8.22 ± 0.08 −81 .91 ± 0.37 
+
+η
+
+1.0 −4.56 ± 0.05 0.17 ± 0.01 8.33 ± 0.11 −82 .22 ± 0.39 
+
+1.25 −4.75 ± 0.06 0.12 ± 0.01 8.30 ± 0.12 −81 .99 ± 0.34 
+
+2.0 −5.34 ± 0.15 0.10 ± 0.01 8.39 ± 0.27 −81 .98 ± 0.46 
+
+λmin 
+
+0.0 −4.84 ± 0.04 0.16 ± 0.01 8.39 ± 0.10 −81 .85 ± 0.31 
+
+-1.0 −4.40 ± 0.76 0.26 ± 0.02 8.30 ± 0.12 −81 .80 ± 0.42 
+
+-10.0 −4.75 ± 0.06 0.12 ± 0.01 8.26 ± 0.11 −82 .13 ± 0.39 
+
+-50.0 −4.75 ± 0.06 0.12 ± 0.01 8.35 ± 0.13 −82 .16 ± 0.48 
+
+τ
+
+0.5 −5.02 ± 0.05 0.10 ± 0.01 8.34 ± 0.11 −82 .06 ± 0.32 
+
+0.75 −4.98 ± 0.05 0.10 ± 0.01 8.31 ± 0.13 −82 .05 ± 0.40 
+
+0.9 −4.82 ± 0.07 0.11 ± 0.01 8.31 ± 0.12 −81 .93 ± 0.40 
+
+0.99 −4.75 ± 0.06 0.12 ± 0.01 8.39 ± 0.13 −82 .27 ± 0.33 
+
+Across tasks, CFO’s sensitivity to hyperparameters varies: while the MoG task exhibits clear shifts in reward and constraint satisfaction across settings, the molecular design task remains highly robust, with only minor fluctuations. Larger initial ρinit 
+
+and higher η consistently tighten constraint satisfaction at the cost of modestly reduced reward, whereas λmin and τ have a lower effect. The lower effect of λmin likely stems from λ rarely reaching its lower bound, and the contraction parameter barely impacts updates. A separate batch-size ablation on MoG shows that larger batches significantly improve constraint 19 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+satisfaction and reward maximization.  
+
+> Table 5. Ablation Study for the MoG task with different batch sizes
+
+value E[r(x)] ↑ E[c(x)] ↓
+
+Batch Size 
+
+8 −5.16 ± 0.11 0.36 ± 0.04 32 −4.93 ± 0.08 0.27 ± 0.05 128 −4.74 ± 0.06 0.14 ± 0.02 512 −4.68 ± 0.05 0.11 ± 0.01 
+
+20 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+## E. Proofs 
+
+Before we present a proof of the theorems in Section 5. We will transform the main problem in Eq. 5 to a simpler form. First, we recall that the policy π is a vector field. It has been shown before that the ODE in Eq. 1 and a stochastic differential equation (SDE) of the form 
+
+dX t = b(Xt, t )dt + σ(t)dB t, X 0 ∼ p0, (21) with drift b : Rd × [0 , 1] → Rd, diffusion coefficient σ : [0 , 1] → R≥0 and Brownian motion Bt induce the same marginals 
+
+{pt}. For an exact definition of b and a proof of this statement, we refer to (Domingo-Enrich et al., 2024). Controlling this SDE can be done by adjusting the drift as follows (Tang & Zhou, 2024; Domingo-Enrich et al., 2024): 
+
+dX t = ( b(Xt, t ) + σ(t)u(Xt, t )) dt + σ(t)dB t, X 0 ∼ p0,
+
+where u : Rd × [0 , 1] → Rd is a control vector field, this means the pre-trained model is a controlled model with u ≡ 0.With these notational changes, we reformulate the optimization problem in Eq. 5 in terms of the controlled diffusion process 
+
+Xu ∼ pu:
+
+max  
+
+> u∈U
+
+EXu∼pu [r(X1)] − αD KL (pu 
+
+> 1
+
+(·)|| ppre  
+
+> 1
+
+(·)) 
+
+s.t. EXu∼pu [c(X1)] ≤ B
+
+(22) Eq. 22 may seem the same as Eq. 5, but it is in terms of a diffusion process. This way we can calculate the KL efficiently, see (Eq. 18, Domingo-Enrich et al., 2024), by using Girsanov’s theorem, which gives the relationship between the control process u and the KL-Divergence: 
+
+DKL (pu(X|X0) || ppre (X|X0)) = EXu∼pu
+
+Z 10
+
+12 ∥u(Xt, t )∥2 dB t
+
+
+
+Meaning if both processes have the same initial value X0, the KL divergence between the controlled and uncontrolled process is equal to the expected value of the squared norm of the control u (Domingo-Enrich et al., 2024; Uehara et al., 2024b; Tang & Zhou, 2024). This dependence on the initial value can be dropped when using a specific noise schedule (Domingo-Enrich et al., 2024). Recalling that marginals at time t are pt(x), i.e. Xt ∼ pt(x), then we can equivalently write the optimization problem as: 
+
+max  
+
+> u∈U
+
+EXu∼pu [r(X1)] − αE
+
+Z 10
+
+12 ∥u(Xut , t )∥2dt 
+
+
+
+s.t. EXu∼pu [c(X1)] ≤ B
+
+Where the expectation is taken over the controlled process Xu. For numerical optimization, we now assume that the control 
+
+u is a parametric model, typically a neural network, with parameters θ. The resulting optimization problem is then: 
+
+max  
+
+> θ∈Rm
+
+F (θ) := Fr (θ) − αF KL (θ)= Ex∼puθ
+
+> 1
+
+[r(x)] − αE
+
+Z 10
+
+12 ∥uθ (Xt, t )∥2dt 
+
+
+
+s.t. G(θ) := Ex∼puθ
+
+> 1
+
+[c(x)] − B ≤ 0
+
+(23) For some function F : Rm → R and function G : Rm → R. This is finite-dimensional optimization over θ.Next, we present a proof that Alg. 1 can find a parameterized policy πθ , with θ ∈ Rm that minimizes the infeasibility while maximizing the reward. The proof is adapted from “Practical Augmented Lagrangian Methods for Constrained Optimization” (Birgin & Mart´ ınez, 2014, Chapter 5). The augmented Lagrangian objective in Eq. 13 becomes: 
+
+Lρ(θ, λ ) = F (θ) − ρ
+
+2
+
+
+
+max 
+
+
+
+0, G (θ) − λρ
+
+ 2
+
+(24) where λ ∈ R≤0 is the Lagrange multiplier, ρ > 0 is a penalty parameter. With this notation, the assumption on the solver becomes: 21 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+Assumption E.1 (Solver) . For all k ∈ N, we obtain u such that: 
+
+Lρk (θk, λ k) ≥ Lρk (θ, λ k) − ϵk ∀ θ ∈ Rm (25) where the sequence {ϵk} ⊆ R+ is bounded. This corresponds to Assumption 5.1 from (Birgin & Mart ´ınez, 2014). Assumption E.1 states that the solver can find an approximate maximizer of the subproblem. Next we state and prove the main result for the algorithm. Namely, in the limit, we obtain a minimizer of the infeasibility measure. 
+
+Theorem E.2 (Feasibility of Constrained Flow Optimization) . Let {θk} be a sequence generated by Alg. 1 under the solver Assumption E.1. Let ¯θ be a limit of the sequence {θk}. Then, we have: 
+
+G(¯θ) + ≤ ⟨ G(θ)⟩+ ∀θ ∈ Rm, (26) 
+
+where G(θ) := Ex∼puθ
+
+> 1
+
+[c(x)] − B ≤ 0 and ⟨·⟩ + := max {0, ·} .Proof. By definition Rm is closed and θk ∈ Rm thus ¯θ ∈ Rm. We consider two cases: {ρk} bounded and ρk → ∞ . First we assume {ρk} is bounded, there exists k0 such that ρk = ρk0 for all k ≥ k0. Therefore, for all k ≥ k0, the upper bracket of Eq. 12 holds. This implies that |Vk| → 0, so ⟨G(θk)⟩+ → 0. Thus, the limit point is feasible. Now, assume that ρk → ∞ . Let K ⊆ N be such that: 
+
+θk → ¯θ for k ∈ K and k → ∞ 
+
+Assume by contradiction that there exists θ ∈ Rd such that 
+
+G(¯θ) 2+ > ⟨G(θ)⟩2+
+
+By the continuity of G, the boundedness of {λk}, and the fact that ρk → ∞ , there exists c > 0 and k0 ∈ N such that for all 
+
+k ∈ K, k ≥ k0: 
+
+G(θk) − λk
+
+ρk
+
+2+
+
+>
+
+
+
+G(θ) − λk
+
+ρk
+
+2+
+
++ c
+
+Therefore, for all k ∈ K, k ≥ k0:
+
+F (θk) − ρk
+
+2
+
+"
+
+G(θk) − λk
+
+ρk
+
+2+
+
+#
+
+< F (θ) − ρk
+
+2
+
+"
+
+G(θ) − λk
+
+ρk
+
+2+
+
+#
+
+− ρkc
+
+2 + F (θk) − F (θ)
+
+Since lim k∈K θk = ¯θ, the continuity of F , and the boundedness of {ϵk}, there exists k1 ≥ k0 such that, for k ∈ K k ≥ k1:
+
+ρkc
+
+2 − F (θk) + F (θ) > ϵ k
+
+Therefore, 
+
+F (θk) − ρk
+
+2
+
+"
+
+G(θk) − λk
+
+ρk
+
+2+
+
+#
+
+< F (θ) − ρk
+
+2
+
+"
+
+G(θ) − λk
+
+ρk
+
+2+
+
+#
+
+− ϵk
+
+for k ∈ K, k ≥ k1. This contradicts Assumption E.1. Theorem E.2 and its proof correspond to (Birgin & Mart ´ınez, 2014, Sec. 5.1). Theorem E.2 establishes that Alg. 1, under the iterates given in Assumption E.1, identifies minimizers of the infeasibility, i.e., 
+
+⟨G(θ)⟩+ := 
+
+D
+
+Ex∼puθ
+
+> 1
+
+[c(x)] − B ≤ 0
+
+E
+
+> +
+
+.
+
+Consequently, if the original optimization problem is feasible, then every limit point of the sequence produced by the algorithm is also feasible. Next, we will see that, assuming that ϵk tends to zero, it is possible to prove that, in the feasible case, the algorithm asymptotically finds a global maximizer of the problem in Eq. 5. 22 Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design 
+
+Theorem E.3 (Optimality of Constrained Flow Optimization) . Let {θk} ⊂ Rd be a sequence generated by Alg. 1 under Assumption E.1 and lim k→∞ ϵk = 0 . Let ¯θ ∈ Rm be a limit of the sequence {θk}. Suppose that ⟨G(θ)⟩+ = 0 , then ¯θ is a global maximizer of Eq. 5. Proof. Let K ⊆ N be such that. 
+
+θk → ¯θ for k ∈ K and k → ∞ 
+
+By assumption, the problem is feasible, thus, by Theorem E.2, we have that ¯θ is feasible. Let θ ∈ Rm be such that G(θ) ≤ 0.By the definition of the algorithm, we have that 
+
+F (θk) − ρk
+
+2
+
+"
+
+G(θk) − λk
+
+ρk
+
+2+
+
+#
+
+≥ F (θ) − ρk
+
+2
+
+"
+
+G(θ) − λk
+
+ρk
+
+2+
+
+#
+
+− ϵk (27) for all k ∈ N, as well as by assumption G(θ) ≤ 0, we have that 
+
+
+
+G(θ) − λk
+
+ρk
+
+2+
+
+≤
+
+ λk
+
+ρk
+
+2
+
+. (28) We again consider the two cases: ρk → ∞ and {ρk} bounded. In the first case, we assume ρk → ∞ . By Eq. 27 and Eq. 28, we have 
+
+F (θk) ≥ F (θk) − ρk
+
+2
+
+"
+
+G(θk) − λk
+
+ρk
+
+2+
+
+#
+
+≥ F (θ) − (λk)2
+
+2ρk
+
+− ϵk.
+
+Taking limits for k ∈ K, and using that θk → ¯θ, we have that lim k∈K (λk)2/ρ k = 0 and lim k∈K ϵk = 0 , by the continuity of F and the convergence of θk, we get 
+
+F (¯θ) ≥ F (θ).
+
+Since θ is an arbitrary feasible element of Rm, ¯θ is a global optimizer. For the second case, we assume {ρk} is bounded, there exists k0 ∈ N such that ρk = ρk0 for all k ≥ k0. Therefore, by Assumption E.1, Eq. 27 holds for all k ≥ k0, and Eq. 28 holds with ρ = ρk0 . Thus, 
+
+F (θk) − ρk0
+
+2
+
+"
+
+G(θk) − λk
+
+ρk0
+
+2+
+
+#
+
+≥ F (θ) − (λk)2
+
+2ρk0
+
+− ϵk.
+
+for all k ≥ k0. Let K1 ⊆ N and λ∗ ∈ R≤0 be such that: lim k∈K1 λk = λ∗. By the feasibility of ¯θ, taking limits in the inequality above for k ∈ K1, we get 
+
+F (¯θ) − ρk0
+
+2
+
+"
+
+G(¯θ) − λ∗
+
+ρk0
+
+2+
+
+#
+
+≥ F (θ) − (λ∗)2
+
+2ρk0
+
+− ϵk. (29) Now, if G(¯θ) = 0 , since λ∗/ρ k0 ≥ 0, we have that 
+
+
+
+G(¯θ) − λ∗
+
+ρk0
+
+2+
+
+=
+
+ λ∗
+
+ρk0
+
+2
+
+Therefore, by Eq. 29, 
+
+F (¯θ) − ρk0
+
+2
+
+"
+
+G(¯θ) − λ∗
+
+ρk0
+
+2+
+
+#
+
+≥ F (θ) − (λ∗)2
+
+2ρk0
+
+. (30) But, by Eq. 10, lim k→∞ min {G(θk), −λ∗/ρ k0 } = 0 . Therefore, if G(¯θ) < 0, we necessarily have that λ∗ = 0 . Therefore, Eq. 30 implies that F (¯θ) ≥ F (θ). Since θ is an arbitrary feasible element of Rm, ¯θ is a global optimizer. We want to make two remarks about Theorem E.3: first, as mentioned in Sec. 5, having access to such a solver is difficult and, in practice, rarely the case. Secondly, we refer the reader to (Birgin & Mart ´ınez, 2014, Sec. 5.2) for a discussion about the sets K and K1, how they are connected to the convexity of F and G, and the corresponding theorem and proof. 23

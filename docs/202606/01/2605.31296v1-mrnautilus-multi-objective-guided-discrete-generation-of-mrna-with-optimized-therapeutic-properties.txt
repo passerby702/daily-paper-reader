@@ -1,0 +1,1101 @@
+Title: mRNAutilus: Multi-Objective-Guided Discrete Generation of mRNA with Optimized Therapeutic Properties
+
+URL Source: https://arxiv.org/pdf/2605.31296v1
+
+Published Time: Mon, 01 Jun 2026 01:15:54 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# mRNAutilus: Multi-Objective-Guided Discrete Generation of mRNA with Optimized Therapeutic Properties 
+
+Sawan Patel, 1,* Sophia Tang, 2,* Yesol Kim, 3,* Yinuo Zhang, 3,4 Divya Srijay, 3
+
+Ping-Jung Lin, 5 Shambhavi Shubham, 5 Fengmei Pi, 5 Cedric Wu, 5 Sherwood Yao 1, †
+
+Pranam Chatterjee 2,3, †
+
+> 1
+
+Atom Bioworks, Inc. 
+
+> 2
+
+Department of Computer and Information Science, University of Pennsylvania 
+
+> 3
+
+Department of Bioengineering, University of Pennsylvania 
+
+> 4
+
+Center of Computational Biology, Duke-NUS Medical School 
+
+> 5
+
+GenScript USA, Inc. 
+
+> *
+
+Equal contribution 
+
+Correspondence: s.yao@atombioworks.com and pranam@seas.upenn.edu 
+
+Interface: https://autona.atombio.ai 
+
+Abstract 
+
+Therapeutic mRNA design requires coordinating multiple interacting sequence features across the full transcript, where codon usage, untranslated regions (UTRs), and their coupling jointly determine stability, translation efficiency, and protein expression. Here, we present mRNA generation via unrolled trajectories and informed latent update s (mRNAutilus ), a framework for simultaneous codon optimization and de novo UTR design directly from sequence. mRNAutilus combines a masked discrete diffusion model trained on millions of full-length mRNAs with Monte Carlo Tree Guidance to generate Pareto-efficient sequences under multiple functional objectives, using lightweight regressors over model embeddings to predict half-life, translation efficiency, and protein abundance. Unlike recent methods that design coding sequences and UTRs separately or rely on post hoc assembly and screening, mRNAutilus generates complete transcripts in a single process optimized across properties. Across diverse targets, zero-shot mRNAs encoding P. pyralis luciferase achieve over 400-fold higher expression than wild-type and outper-form commercial and machine learning-designed baselines, including zero-shot generative approaches. Zero-shot SARS-CoV-2 Spike mRNAs exceed clinically used and commercial constructs and match or surpass lab-optimized designs with improved durability. We further demonstrate generality in therapeutic settings, including prime editing (PEMax) and programmable proteome modulation, where mRNAutilus-designed constructs enhance expression of peptide-guided E3 ligases (uAbs) for β-catenin degradation. These results establish a sequence-based, multi-objective framework for generating functional mRNAs tailored to diverse biological applications. 
+
+# 1 Introduction 
+
+Messenger RNA (mRNA) has emerged as a transformative therapeutic modality, with applications spanning vaccines, protein replacement therapies, gene editing, and diagnostics [Pardi et al., 2018, 2020, Jackson et al., 2020, Zhang et al., 2019, Barbier et al., 2022, Rohner et al., 2022, Popovitz et al., 2023]. The COVID-1  
+
+> arXiv:2605.31296v1 [q-bio.BM] 29 May 2026 RFUs
+> Time
+> Plasma  concentration
+> Time
+> Ribosomal Load Translation Rate Half-Life
+
+A B
+
+C D      
+
+> Flow cytometry
+> Forward light scatter (FSC)
+> Side light scatter (SSC)
+> 400 600 800 01000 200
+> 400
+> 600
+> 0
+> 1000
+> 800
+> 200
+> Plate Reader
+> Flow Cytometry
+> Fold Change (to Positive Control)
+> Fold Change  (vs PCl)
+> Time
+> APC Level  (Mean ± SD)
+> Timepoint
+> Construct Name
+> BNT162b2 Genscript ABW-Spike-1
+
+Figure 1: Overview of mRNAutilus. (A) Masked diffusion model pretraining and de novo mRNA sequence generation. 
+
+(B) mRNA function and property prediction using XGBoost regression analysis from model embeddings. (C) Multi-objective codon optimization and UTR generation using Monte Carlo Tree Guidance, which leverages tree search to optimize a set of Pareto-optimal sequences. (D) In vitro experiments demonstrate that zero-shot mRNAs generated with mRNAutilus achieve higher expression and half-life than those produced by other machine-learning-driven methods and commercial mRNAs. 
+
+19 pandemic underscored this potential, as novel mRNA vaccines were developed, manufactured, and distributed globally within months [Park et al., 2021], and several mRNA candidates have since advanced into Phase 3 clinical trials [Soens et al., 2025, Weber et al., 2024, Wilson et al., 2023]. Yet mRNAs are inherently unstable and susceptible to nuclease-mediated degradation [Ross, 1995], thereby limiting protein expression and therapeutic efficacy. Optimizing mRNA for stability, translation, and expression is therefore a central design objective, and one complicated by the fact that these properties are jointly determined by codon choice in the coding sequence (CDS) [Mauro and Chappell, 2014], the 5’ and 3’ untranslated regions (UTRs) that govern translation initiation and stability [Xiao et al., 2020, Leppek et al., 2018, Mauger et al., 2019, Ng et al., 2017], and the inter-region interactions coupling them [Lin and Bundschuh, 2015, Lin et al., 2022, Leppek et al., 2022]. Existing mRNA design strategies fall short of this multi-property challenge. Traditional codon-optimization approaches maximize the codon adaptation index via species-specific codon-usage tables [Sharp and Li, 1987], but treat codons in isolation and ignore broader sequence context [Mauro and Chappell, 2014, Fu et al., 2020, Leppek et al., 2022, Rosa et al., 2022, Gebre et al., 2022, Kim et al., 2022]. In-silico screening with predictive models [Li et al., 2025, Zheng et al., 2025a] and graph-based or language-model approaches 2[Zhang et al., 2023, Yazdani-Jahromi et al., 2025, Zhang et al., 2025a, Wood et al., 2025, Patel et al., 2025] similarly offer useful fitness estimates but do not directly generate optimized sequences. Recent generative efforts have targeted individual components: stability-guided 3’UTRs [Morrow et al.], 5’UTRs [Chu et al., 2024, Castillo-Hair et al., 2024], or component-wise CDS and UTR models [Zhang et al., 2025b]. However, piecewise design misses the cross-component couplings that collectively shape mRNA fitness [Lin and Bundschuh, 2015, Lin et al., 2022, Metkar et al., 2024], and stability alone does not determine efficacy. Reward-guided autoregressive methods have recently been applied for this problem but demonstrate inconclusive results in silico [Li et al., 2026]. Ensemble-based workflows integrating independent modules for modeling mRNAs have similarly been explored, yet underperform on zero-shot design tasks [Kim et al., 2026]. Addressing this gap requires generative models capable of simultaneously designing the full transcript under multiple objectives. Masked discrete diffusion models (MDMs) provide a natural architecture: they support flexible, any-order generation, capture bidirectional dependencies [Shi et al., 2024a, Austin et al., 2021, Sahoo et al., 2024], and have proven effective for biomolecular design in proteins and peptides. On their own, however, MDMs sample from the data distribution and must be steered toward desired properties. Multi-objective guidance methods have enabled joint optimization of competing therapeutic properties with minimal tradeoffs [Abeer et al., 2024, Jin et al., 2020], and Monte Carlo Tree Guidance (MCTG) [Tang et al., 2025a,b] in particular couples a pre-trained discrete diffusion backbone with arbitrary reward functions, having been shown to navigate the vast design space of non-canonical and cyclic peptides toward Pareto-optimal sequences. In this work, we present mRNA generation via unrolled trajectories and informed latent update s (mRNAutilus )(Figure 1), a multi-objective-guided MDM that jointly performs codon optimization and full UTR design, steered by lightweight regressors over model embeddings predicting half-life, translation efficiency, and protein abundance. A hybrid tokenization scheme supports UTR-only, CDS-only, or whole-transcript design. Across diverse targets, zero-shot mRNAutilus designs for P. pyralis luciferase express over 400-fold above wild-type and up to 6-fold above other zero-shot machine-learning-designed mRNAs across cancer cell lines; zero-shot SARS-CoV-2 Spike express nearly 2-fold above commercially-optimized constructs and achieve more durable expression than lab-in-the-loop designs, while designed PEMax mRNA sequences demonstrate improved editing efficiency over commercially-optimized designs. To demonstrate general-ity beyond reporters and antigens, we further apply mRNAutilus to peptide-guided E3 ubiquitin ligases, termed ubiquibodies (uAbs) [Portnoff et al., 2014, Brixi et al., 2023, Bhat et al., 2025, Chen et al., 2025a], where optimized constructs drive enhanced intracellular expression and proteasome-dependent degrada-tion of endogenous β-catenin. Together, these results establish mRNAutilus as a unified, sequence-based framework for programmable mRNA optimization spanning vaccines, reporters, and intracellular degraders. 
+
+# 2 Results 
+
+2.1 Pretraining a Masked Discrete Diffusion Model on Full-Length mRNAs 
+
+Effective mRNA design requires a generative model that can represent full transcripts faithfully, and that can be readily tuned toward external reward signals. Masked discrete diffusion models (MDMs) are a natural fit: they enable flexible, any-order generation from partially or fully masked sequences, capture bidirectional dependencies across long contexts, and have proven amenable to property guidance in both protein [Gruver et al., 2023] and peptide [Tang et al., 2025a] design. We therefore trained an MDM on 14.2 million vertebrate mRNA sequences from the Ensembl corpus [Dyer et al., 2025], using a hybrid tokenization scheme that separately encodes CDSs (by codon) and UTRs (by single nucleotide) to enable targeted design of each region (see Section 4.2.2). The resulting model, mRNAutilus, parameterizes a denoiser over the joint UTR–CDS–UTR vocabulary (Figure 1A). To verify that mRNAutilus had learned a faithful distribution of natural mRNAs before applying any guidance, 35’UTR 
+
+> CDS
+> 3’UTR
+
+G
+
+> Average Half-life Over Iterations
+
+NX 
+
+> Log-10 Hours
+> Iterations
+
+B
+
+C
+
+A D
+
+> Average Translation Efficiency over Iterations
+> Predicted Translation Efficiency
+> Iterations
+
+3x 
+
+0.5x 
+
+> Spearman Correlation: 0.923
+> Training Predicted vs. True Translation Efficiency
+> True Translation Efficiency
+> Predicted Translation Efficiency
+> Spearman Correlation: 0.949
+> Spearman Correlation: 0.926 Spearman Correlation: 0.565
+> Spearman Correlation: 0.716
+> Spearman Correlation: 0.551
+> Training Predicted vs. True Half Life
+> True Half Life
+> Predicted Ribosomal Load
+> Training Predicted vs. True Protein Abundance
+> True Protein Abundance
+> Predicted Protein Abundance
+> Validation Predicted vs. True Protein Abundance
+> True Protein Abundance
+> Predicted Protein Abundance
+> Validation Predicted vs. True Translation Efficiency
+> True Translation Efficiency
+> Predicted Translation Efficiency
+> Validation Predicted vs. True Half Life
+> True Half Life
+> Predicted Half Life
+
+20x 
+
+> Average Protein Abundance over Iterations
+> Iterations
+> Log-10 Protein Abundance per mRNA per hour
+
+E
+
+FFigure 2: Correlation plots for property regressors. (A) Half-life, (B) translation efficiency, and (C) protein abundance correlation for validation (left) and training (right) data. Optimization curves for (D) half-life, (E) translation efficiency, and (F) protein abundance for conditional generation of P. pyralis luciferase mRNA via Monte Carlo Tree Guidance (MCTG). Shown are Pareto front scores with standard error (purple), WT P. pyralis luciferase score (navy), and median classifier property score from the entire dataset (teal). (G) Predicted structure for a single generated P. pyralis luciferase mRNA colored by sequence component (5’UTR: teal, CDS: purple, 3’UTR: navy). 
+
+we generated three libraries of 200 sequences at token lengths 1,000, 2,500, and 5,000 via fully-masked ancestral sampling, and compared each against length-matched vertebrate mRNAs from the Ensembl corpus [Dyer et al., 2025]. Because our hybrid tokenization admits variable coding-sequence lengths, we normalized all length-dependent metrics for fair comparison. mRNAutilus-generated mRNAs exhibited slightly elevated GC content relative to natural mRNAs, converging toward the natural distribution at longer lengths (Figure S1A), and lower length-normalized minimum free energies (MFEs) across all lengths as predicted by ViennaRNA [Lorenz et al., 2011], indicating greater thermodynamic stability [Zhang et al., 2025c] (Figure S1B). The frequency of Kozak consensus motifs [Kozak, 1999, 1987, 1991], computed via the regular expression (A|G)CCATGG , closely matched natural frequencies (Figure S1C), while pairwise sequence diversity (Figure S1D) and per-sequence Shannon entropy (Figure S1E) were nearly identical to those of evolutionarily selected Ensembl sequences, confirming that mRNAutilus does not collapse into the repetitive-token failure modes common to generative language models. Together, these results establish that mRNAutilus generates full-length mRNAs that recapitulate the statistical hallmarks of natural transcripts, providing a reliable foundation for downstream property guidance. 
+
+2.2 mRNAutilus Embeddings Enable Functional Property Prediction from Sequence 
+
+Guided generation requires reward signals that score candidate sequences for therapeutic fitness. Because mRNAutilus is a BERT-style MDM, we hypothesized that its internal representations should encode both coding structure and functional context, properties that could be exploited by lightweight regressors without retraining the backbone. We first confirmed that mRNAutilus embeddings discriminate coding 4from non-coding RNAs: projecting token-averaged embeddings for 100 mRNAs and 100 non-coding RNAs (ncRNAs) onto their first two principal components cleanly separated the two populations (Figure S4A). We then trained XGBoost regressors [Chen and Guestrin, 2016] on mRNAutilus embeddings to predict three functional properties central to mRNA fitness: half-life [Agarwal and Kelley, 2022], which modulates protein-product abundance and dosing; translation efficiency [Zheng et al., 2025a], which captures ribosome recruitment as measured by polysome profiling; and protein abundance [Eichhorn et al., 2014], the ultimate functional readout of an mRNA therapeutic. Hyperparameters are provided in Table S1. All three regressors achieved moderate-to-high correlation with ground truth on held-out validation sets (Figure 2A-C), and XGBoost consistently outperformed KNN alternatives [Nguyen-Sy, 2024, Guo et al., 2022] on these mRNA-specific tasks (Table S2). We then benchmarked mRNAutilus embeddings against other nucleic acid language models proposed for (m)RNA design [Wood et al., 2025, Brixi et al., 2026, Penić et al., 2025, Nguyen et al., 2023]. mRNAutilus achieved the highest validation R2 on half-life prediction and remained competitive on translation efficiency and protein abundance despite having an order of magnitude fewer parameters than Evo-2 (Table S4. These three regressors, combined with mRNAutilus itself, supply the reward vector needed to steer generation toward jointly optimal therapeutic properties. 
+
+2.3 Multi-Objective Guided Generation Produces Functionally Superior mRNAs In Silico 
+
+Having established a generator and a set of embedding-based property predictors, we combined them via Monte-Carlo Tree Guidance (MCTG), following the multi-objective guidance strategy previously validated on peptide design by PepTune [Tang et al., 2025a]. MCTG couples the pre-trained MDM with the regressor-derived reward vector to navigate the vast mRNA design space toward Pareto-optimal sequences under half-life, translation efficiency, and protein abundance. We designed transcripts encoding three targets of engineering and therapeutic relevance: P. pyralis luciferase (Fluc), SARS-CoV-2 Spike glycoprotein (S-Protein), and human mucin 1 (MUC1). Notably, neither luciferase nor spike was present in the mRNAutilus pretraining or regressor-training corpora, as they derive from invertebrate and viral sources, respectively, providing a stringent out-of-distribution test. Simultaneous codon optimization and UTR design yielded transcripts with enhanced predicted half-life, translation efficiency, and protein abundance across all three targets, with the sole exception of predicted protein abundance for MUC1 (Table S3). Across MCTG iterations, average property values of rolled-out sequences increased consistently along almost all objectives, confirming effective multi-property guidance (Figure 2D for Fluc; analogous curves for S-Protein and MUC1 in Figure S5). Characterizing the Fluc library further, we found that the generated 5’ and 3’UTRs were slightly more thermodynamically stable and more GC-rich than natural vertebrate UTRs (Figure S2A,B) – both hallmarks of improved translation efficiency [Metkar et al., 2024, Sample et al., 2019, Mauger et al., 2019] – yet highly diverse at the level of predicted secondary structure, indicating minimal structural homology across the library (Figure S2C). An ablation over the number of MCTG iterations and Pareto-front size confirmed robustness across hyperparameters (Figure S6). We next benchmarked mRNAutilus directly against GEMORNA [Zhang et al., 2025b], a component-wise autoregressive mRNA design method, and against a random-design baseline generated by sampling each UTR nucleotide uniformly from {A, C, G, T} and each codon uniformly from the synonymous-codon al-phabet. Across 200-sequence libraries targeting the GenScript F-Luc protein, mRNAutilus-designed CDSs achieved superior codon adaptation index (CAI), length-normalized MFE, optimal-codon frequency, and uridine percentage (Figure 3A), and produced more thermodynamically stable and diverse UTRs than either comparator (Figure 3B,C). The less-negative tail of the mRNAutilus UTR MFE distribution has been linked to improved translation efficiency in certain contexts [Mauger et al., 2019], suggesting that this exploration reflects productive diversification of the UTR design space rather than instability. 5Better Better Better Better Better                    
+
+> Frequency Frequency Frequency
+> GEMORNA
+> Random
+> mRNAutilus
+> Codon Adaptation Index Normalized MFE Frequency of Optimal Codons GC Content Uridine % A
+> Better
+> Better Better
+> Better
+> Better Better
+> BNormalized Minimum Free Energy
+> Normalized MFE of 5’UTRs
+> mRNAutilus GEMORNA Random
+> C
+> Normalized MFE of 3’UTRs
+> mRNAutilus GEMORNA Random
+> Average Pairwise Diversity
+> Avg Pairwise Diversity of 5’UTRs
+> mRNAutilus GEMORNA Random
+> Avg Pairwise Diversity of 3’UTRs
+> mRNAutilus GEMORNA Random
+> GC Content
+> GC Content of 5’UTRs
+> mRNAutilus GEMORNA Random
+> GC Content of 3’UTRs
+> mRNAutilus GEMORNA Random
+
+Figure 3: Metric-driven evaluation of in-silico full-sequence mRNA generation methods. A library of 250 luciferase mRNAs was produced using mRNAutilus, randomness, and GEMORNA. All three methods were prompted to design a luciferase mRNA encoding the GenScript F-Luc protein. (A) Coding sequence comparison using all three methods. Considered metrics are codon adaptation index (CAI), length-normalized minimum-free energy (MFE), optimal codon frequency, GC content, and uridine percentage. Metric distributions are also shown for all generated (B) 5’UTRs and (C) 
+
+3’UTRs. 
+
+2.4 mRNAutilus-Designed mRNAs Achieve Superior Expression and Stability In Vitro 
+
+Having demonstrated strong in silico performance, we next tested whether mRNAutilus-designed sequences translate into functional gains in cells. We selected three targets with distinct biological and therapeutic relevance – P. pyralis luciferase, SARS-CoV-2 Spike glycoprotein, and PEMax (a prime-editor payload) – and for each, drew candidate sequences from libraries jointly optimized for half-life and translation efficiency, benchmarking against a human alpha-globin (HAB) UTR composition as an in silico baseline (Table S5). For each target, the top five designs by predicted fold-change over the HAB baseline were synthesized by 
+
+in vitro transcription and evaluated in cell-based expression assays (Figure 4A), following the protocols detailed in Section 4. For luciferase, these zero-shot designs produced luminescence signals comparable to or significantly greater than the wild-type control in HEK293T cells, with ABW2 exhibiting approximately 400-fold higher expression than wild-type P. pyralis luciferase at 48 h post-transfection (Figure 4B,C). Extending across three additional cell lines, the same mRNAutilus designs outperformed both a zero-shot GEMORNA-designed luciferase mRNA (GMR-FL) and a composition combining the GenScript F-Luc CDS with human alpha-globin UTRs in Jurkat (Figure 4D), A549 (Figure 4E), and HepG2 (Figure 4F) cells. We then applied the same design procedure to SARS-CoV-2 Spike glycoprotein, using the GenScript Spike mRNA v2 ORF as the template. Three of the four designs (ABW-Spike-1, ABW-Spike-2, ABW-Spike-3) expressed above both BNT162b2 and the commercial GenScript Spike v2 mRNA in A549 cells, matched the expression profile of the lab-in-the-loop multi-shot GEMORNA sequence GMR-CV-F2 [Zhang et al., 2025b] across all measured time points, and in the case of ABW-Spike-1, exhibited improved intracellular stability (Figure 4G). 6D Timepoint 
+
+> Normalized Jurkat Expression (Mean ± SD)
+> AG-CAI-I-hHbA1
+> GMR-FL
+> ABW-FL-1
+> ABW-FL-2
+> ABW-FL-3
+> ABW-FL-4
+> ABW-FL-5
+
+ENormalized A549 Expression (Mean ± SD) 
+
+> AG-CAI-I-hHbA1
+> GMR-FL
+> ABW-FL-1
+> ABW-FL-2
+> ABW-FL-3
+> ABW-FL-4
+> ABW-FL-5
+
+FNormalized HepG2 Expression (Mean ± SD) 
+
+> AG-CAI-I-hHbA1
+> GMR-FL
+> ABW-FL-1
+> ABW-FL-2
+> ABW-FL-3
+> ABW-FL-4
+> ABW-FL-5
+> Construct Name
+
+B C 
+
+> Construct Name Construct Name
+> Timepoint Timepoint
+
+G
+
+> BNT162b2
+> GMR-CV-F2
+> Genscript
+> ABW-Spike-1
+> ABW-Spike-2
+> ABW-Spike-3
+> ABW-Spike-4
+> ABW-Spike-5
+> Construct Name
+> Normalized A549 Expression (Mean ± SD)
+> Timepoint
+
+H
+
+> AG-PEMax-hHbA1
+> GMR-PEMax
+> Genscript
+> ABW-PEMax-1
+> ABW-PEMax-2
+> ABW-PEMax-3
+> ABW-PEMax-4
+> ABW-PEMax-5
+> Construct Name
+> Timepoint
+
+A
+
+> Normalized A549 Expression)
+> AG-PEMax-hHbA1
+> GMR-PEMax
+> Genscript
+> ABW-PEMax-1
+> ABW-PEMax-2
+> ABW-PEMax-3
+> ABW-PEMax-4
+> ABW-PEMax-5
+> Construct Name
+> Timepoint
+> T→A Percentage (Mean ± SD)
+
+IFigure 4: mRNAs designed by mRNAutilus achieve superior zero-shot performance over competing methods 
+
+in vitro . (A) Schematic of the experimental validation workflow for mRNAutilus-designed sequences. (B) Absolute expression levels for P. pyralis luciferase mRNAs. (C) Normalized expression levels of P. pyralis luciferase mRNAs over time in HEK293T cells (n=3 biological replicates). Error bars denote the standard deviation from the mean across replicates. Sequences produced by mRNAutilus (abbreviated as ABW-) are compared to WT P. pyralis luciferaese mRNA. Normalized expressions for P. pyralis luciferase mRNAs were then compared to a zero-shot GEMORNA-designed luciferase mRNA and a GenScript F-Luc mRNA coding sequence paired with human alpha-globin UTRs in (D) Jurkat, (E) 
+
+A549, and (F) HepG2 cells. (G) Zero-shot mRNAs were generated for SARS-CoV-2 Spike glycoprotein using mRNAutilus, which were compared alongside several benchmarks. Displayed are normalized expressions in A549 cells. All mRNAs encode the same Spike glycoprotein antigen. (H) PEMax zero-shot mRNAs were designed using mRNAutilus alongside benchmark sequences in an expression assay within A549 cells. All mRNAs encode the same PEMax enzyme. (I) PEMax mRNAs were evaluated for editing efficiency at the HEK3 locus in A549 cells, where we evaluate the T →A edit percentage to quantify functional efficacy. 
+
+We further extended our evaluation to PEMax, an optimized prime editor that enables precise, programmable genome edits (substitutions, insertions, and deletions) without requiring double-strand breaks [Chen et al., 2021]. As a large fusion of a nickase Cas9, a codon-optimized reverse transcriptase, and multiple nuclear localization signals, PEMax presents a demanding test case for mRNA design, with a long coding sequence and complex domain architecture relative to compact reporters. Several mRNAutilus-designed constructs show expression comparable to or exceeding the commercial GenScript PEMax mRNA, with the advantage becoming more pronounced at 48h (Figure 4H). ABW-PEMax-2 achieves the highest editing efficiency of all tested constructs, surpassing GenScript PEMax in T →A conversion (Figure 4I), with ABW-PEMax-3 and ABW-PEMax-4 also editing at comparable rates. In contrast, our zero-shot PEMax sequences express and edit an order of magnitude higher than the GEMORNA zero-shot PEMax, which shows negligible editing activity. Together, these results demonstrate that zero-shot mRNAutilus generation produces mRNAs with superior expression and durability across reporter, antigen, and genome editing payloads without any lab-in-the-loop iteration. 7A B  
+
+> D
+> 37 kDa —
+> anti-GAPDH
+> β-cat uAb PC
+> β-cat uAb 1
+> β-cat uAb 2
+> β-cat uAb 3
+> β-cat uAb 4
+> untreated control
+> -+MG132 (1uM) 48h
+> β-cat uAb PC
+> β-cat uAb 1
+> β-cat uAb 2
+> β-cat uAb 3
+> β-cat uAb 4
+> untreated control
+> anti-β-Catenin
+> 100 kDa —
+> 75 kDa —
+> C
+
+Figure 5: Design of therapeutic mRNAs with mRNAutilus and in vitro evaluation. (A) Architecture and mechanism of the uAb degradation system with sequences optimized by mRNAutilus. CHIP ∆TPR fused to the C-terminus of 
+
+β-catenin-specific peptides targets endogenous proteins for ubiquitin-mediated degradation via the proteasome following mRNA transfection. Created with BioRender. (B) Quantitative PCR analysis of uAb mRNA expression levels. Cells were harvested at 9 h and 24 h post-transfection. Values were normalized to the untreated control. (C) TOPFlash luciferase reporter assay of Wnt/ β-catenin transcriptional activity. The FOPFlash reporter served as a negative control. All values were normalized to the TOPFlash + polyG uAb control condition. (D) Left: Degradation of endogenous 
+
+β-catenin in cytosolic fractions of DLD-1 cells analyzed by immunoblotting using anti-β-catenin and anti-GAPDH antibodies. Right: Densitometric analysis of immunoblots ( n = 3 ) was performed using ImageJ to quantify β-catenin levels. Statistical analysis for each condition was performed using a two-tailed unpaired Student’s t-test. Data are presented as mean ± SD, and calculated p values are represented as follows: * p ≤ 0.05 ; ns, not significant. 
+
+2.5 mRNAutilus Enables Functional Intracellular Protein Degradation via Opti-mized Degrader mRNAs 
+
+To probe whether mRNAutilus generalizes beyond reporters and antigens to functionally demanding intracellular payloads, we turned to ubiquibodies (uAbs): synthetic E3 ligases in which the native substrate-binding domain of CHIP is replaced with a language model-designed peptide binder, redirecting the endogenous ubiquitin-proteasome machinery to degrade a target of choice [Portnoff et al., 2014, Brixi et al., 2023, Chen et al., 2025a, Bhat et al., 2025, Ye et al., 2024]. uAbs are particularly attractive as mRNA payloads because mRNA-LNP delivery enables transient, tunable intracellular expression of the degrader without genomic integration. We targeted β-catenin, a driver of Wnt-pathway oncogenesis whose stabilization promotes c-Myc and cyclin D-1 expression, using an existing uAb previously validated in our PepPrCLIP work [Bhat et al., 2025] (Figure 5A). Four mRNAutilus-designed mRNAs with the highest predicted fold-change over the HAB baseline were synthesized; upon transfection, the encoded uAb is expressed intracellularly, binds β-catenin via its peptide-binding domain, and recruits CHIP ∆TPR to drive proteasomal degradation (Figure 5A). We first assessed transcript abundance by qPCR at 9 and 24 h post-transfection in DLD-1 cells. At both 8time points, optimized uAb mRNAs exhibited markedly higher expression than the human α-globin-based positive control, while deoptimized negative controls showed poor expression (Figure 5B), confirming that mRNAutilus sequence optimization translates to substantially improved transcript-level output even for this complex payload. We next asked whether elevated expression preserved (or enhanced) downstream degrader function. In the TOPFlash Wnt/ β-catenin reporter assay, optimized uAb mRNAs fully retained their intended activity, suppressing Wnt/ β-catenin transcriptional signaling relative to the TOPFlash + polyG uAb control, with some designs showing modestly greater suppression than the positive control (Figure 5C). Immunoblot analysis of cytosolic fractions confirmed this functional engagement at the protein level: optimized constructs uAb1, uAb2, and uAb4 showed significant reductions in endogenous β-catenin by densitometry, and these reductions were abolished upon co-treatment with the proteasome inhibitor MG132, confirming that the observed loss of β-catenin is mediated through the ubiquitin–proteasome pathway rather than off-target effects (Figure 5D). Together, these findings demonstrate that mRNAutilus optimization improves both expression and functional efficacy of uAb mRNAs, enabling potent proteasome-dependent degradation of endogenous disease-relevant targets and establishing the framework as broadly applicable to programmable intracellular therapeutic modalities. 
+
+# 3 Discussion 
+
+The rational design of therapeutic mRNAs requires jointly optimizing multiple competing properties – stabil-ity, translation efficiency, and expression – a challenge that traditional single-objective approaches struggle to address systematically. Here we introduce mRNAutilus, to our knowledge the first multi-objective-guided generative model for full-length mRNA design, combining a masked discrete diffusion backbone with Monte Carlo Tree Guidance (MCTG) [Tang et al., 2025a] to produce Pareto-optimal sequences under simultaneous codon and UTR design. Unconditional generation recapitulates the statistical hallmarks of natural mRNAs, while lightweight XGBoost regressors over mRNAutilus embeddings provide reliable reward signals for MCTG-guided sampling. Critically, we demonstrate improved in vitro performance for protein-coding genes outside the mRNAutilus training distribution ( P. pyralis luciferase, SARS-CoV-2 Spike, PEMax gene-editor, and a designer β-catenin uAb), indicating that the framework generalizes beyond its pretraining corpus. This approach is gradient-free and remains viable in low-data regimes where regressor training sets fall below ∼100 points, as is typical for emerging experimental mRNA datasets. Several directions promise to extend these capabilities. On the algorithmic front, recent advances in guidance for discrete generative models – trajectory-aware tree search for discrete diffusion (TR2-D2 [Tang et al., 2025b]) and multi-objective guidance for discrete flow matching (MOG-DFM, AReUReDI [Chen et al., 2025b,c]) – offer complementary machinery that could be integrated into the mRNAutilus pipeline. A more immediate limitation, however, lies upstream of the model: property guidance is only as reliable as the regressors driving it, and public mRNA datasets remain sparse, cell-type-restricted, and heterogeneous in their readouts [Agarwal and Kelley, 2022, Zheng et al., 2025a, Eichhorn et al., 2014]. Addressing this will require close collaboration with experimentalists to generate large, uniformly measured datasets spanning half-life, translation efficiency, protein abundance, immunogenicity, and tissue-specific expression, ideally embedded in a design-build-test-learn loop that refines both regressors and generator. Looking ahead, we envision mRNAutilus as a general-purpose method for programmable mRNA therapeutic design. The demonstrated capacity to optimize reporter proteins, viral antigens, genome editing machinery (PEMax), and peptide-guided E3 ligases suggests broad applicability across vaccines, protein replacement therapies, prime and base editing, and programmable proteome modulation via uAbs and related proteome editing architectures [Hong et al., 2025, 2026]. Coupled with lipid nanoparticle delivery, mRNAutilus-designed transcripts enable transient, tunable, and target-specific protein expression, offering a template for how pretrained discrete diffusion paired with multi-objective guidance can transform sequence-based therapeutic design across biomolecular modalities. 94 Materials and Methods 
+
+4.1 Masked Discrete Diffusion Framework 
+
+4.1.1 Discrete Diffusion for Sequence Generation 
+
+Let x = ( x1, . . . , xL) ∈ V L denote a sequence with length L over a vocabulary V of V discrete states. For notational simplicity, we develop the masked discrete diffusion formulation for a single token x ∈ ∆V −1,where ∆V −1 denotes the probability simplex over V states. The extension to a sequence of length L follows from factorization. We denote p0(x) = pdata (x) as the target data distribution, p1(x) = pprior (x) as the prior (noisy) distribution, and pt(x) as the time-dependent marginal distribution for t ∈ [0 , 1] that interpolates between p0 at t = 0 
+
+and p1 at t = 1 . Given a clean sequence x0 ∼ p0, represented as a one-hot vector x0 ∈ { 0, 1}V , and a noisy sequence x1 ∼ p1, the reverse posterior as the conditional probability of obtaining x0 given xt as 
+
+p0|1(x0|x1).The discrete diffusion framework [Austin et al., 2021] enables the generation of sequences from the reverse posterior via a two-stage training algorithm. The forward noising process applies categorical noise to x0
+
+over continuous time steps t ∈ [0 , 1] according to: 
+
+pt|0(xt|x0) = Cat ( xt; αtx0 + (1 − αt) π) (1) where π ∈ ∆V −1 is a fixed noise distribution and αt is a time-dependent schedule specifying the proba-bility that a token remains unchanged. The marginal pt is then defined as the expectation of conditional distributions: 
+
+pt(xt) = Epdata 
+
+pt|0(xt|x0) (2) which yields a tractable learning objective by conditioning on training sequences in the dataset x0 ∼ pdata .The backward denoising process iteratively recovers the clean sequence from noise using the marginal reverse posterior ps|t(xs|xt) that defines the probability over slightly less noisy sequences xs at time 
+
+s = t − 1 
+
+> T
+
+, where T is the total number of sampling steps. Given a clean sequence x0, the conditional reverse posterior is defined as ps|t, 0(xs|xt, x0). We train a neural network with parameters θ to predict the distribution ps|t, 0(xs|xt, x0) at training time, and sample from the parameterized reverse posterior 
+
+pθs|t(xs|xt) at inference. 
+
+4.1.2 Masked Discrete Diffusion Models 
+
+We adopt the masked variant of discrete diffusion for its demonstrated efficacy in generating high-quality sequences with long-range dependencies [Sahoo et al., 2024, Shi et al., 2024b, Ou et al., 2025, Zheng et al., 2025b]. Under this formulation, the forward noising process applies an absorbing mask token via: 
+
+pmask  
+
+> t|0
+
+(xt|x0) = Cat ( xt; tx0 + (1 − t)m) (3) where m denotes the one-hot vector of the [MASK] token. At t = 1 , the distribution converges to only the fully masked sequence pmask  
+
+> t|0
+
+(xt|x0) = δ(xt − m), and at t = 0 , the distribution converges to the clean sequence pmask  
+
+> t|0
+
+(xt|x0) = δ(xt − x0). Applying Bayes’ rule yields the conditional reverse posterior: 
+
+ps|t, 0(xs|xt, x0) = 
+
+(  1 − st
+
+ x0 + st m xt = mxs xs̸ = m (4) which means that once a token is unmasked, it remains fixed for the remainder of the reverse process. Since the clean sequence x0 is unknown at inference, we train a parameterized denoiser pθs|t(xs|xt) with parameters θ to predict the conditional reverse posteriors from xt alone. The procedure is outlined in Figure 1A. 10 4.1.3 Training Objective 
+
+We approximate the denoising distribution p0|t(x0|xt) with a neural network pθ
+
+> 0|t
+
+(x0|xt). During training, each batch is corrupted with mask tokens at uniformly sampled time steps t ∼ U (0 , 1) , and the model predicts xθ 
+
+> 0
+
+∈ ∆V −1, which is a categorical distribution over the vocabulary indicating the predicted proba-bility that the clean token exists in each discrete state. The model parameters are optimized by minimizing the continuous-time negative evidence lower bound (NELBO) between the predicted distribution xθ 
+
+> 0
+
+and the clean one-hot vector x0 given by: 
+
+L(θ) = Et,p t|0(xt|x0),p 0(x0)
+
+
+
+− 1
+
+t log x0, xθ
+
+> 0
+
+
+
+(5) following the continuous-time formulation from [Sahoo et al., 2024]. This objective is equivalent to a time-weighted negative log-likelihood and vanishes when x0 = xθ
+
+> 0
+
+.
+
+4.1.4 Unconditional Sampling 
+
+To sample from the learned data distribution, we initialize a fully masked sequence x1 = [ M ]L of length L
+
+and take T discretized reverse-time steps t = {1, . . . , 1 
+
+> T
+
+}. At each step, we evaluate the denoiser to obtain 
+
+xθ 
+
+> 0
+
+≈ pθ
+
+> 0|t
+
+(x0|xt) and compute the marginal reverse posterior: 
+
+pθs|t(xs|xt) = 
+
+(  1 − st
+
+ xθ 
+
+> 0
+
++ st m xt = mxs xs̸ = m (6) To inject stochasticity, we apply Gumbel noise g ∼ − log (− log (u + ϵ) + ϵ), where u ∼ U (0 , 1) and 
+
+ϵ = 10 −10 , and sample the argmax token from the perturbed distribution: 
+
+xs = arg max(log pθs|t(xs|xt) + g) (7) Given our constraint that masked tokens remain unchanged after unmasking, we update xs only when 
+
+xt = m. After T unmasking steps, we ensure all tokens are unmasked and return the generated sequence 
+
+x0.
+
+4.2 Pre-Trained mRNA Masked Discrete Diffusion Model 
+
+4.2.1 Encoder Architecture 
+
+mRNAutilus is a BERT-style generative language model trained on a masked diffusion objective for mRNA sequence design, which parametrizes pθ
+
+> 0|t
+
+(x0|xt) defined above. Given an input sequence x = ( x1, ..., xL)
+
+of length L, the model maps it to a sequence of token embeddings of shape (L × d). The architecture consists of several transformer blocks, where each block contains a multi-head self-attention module with 20 attention heads, a feed-forward network (FFN) using the SwiGLU activation function [Shazeer, 2020], and Layer Normalization within residual connections to stabilize training dynamics. mRNAutilus adopts Rotary Positional Embeddings (RoPE) [Su et al., 2024] to encode both absolute and relative positional information, thereby improving its ability to model long-range dependencies in mRNA sequences. To enhance computational efficiency, we also utilize FlashAttention-2 [Dao, 2024]. In total, mRNAutilus has 150M parameters across all modules. 
+
+4.2.2 Data 
+
+Ensembl is a genome browser containing the largest curated, annotated deposit of vertebrate mRNA [Dyer et al., 2025]. Using the Ensembl Perl API, we queried the database released in version 113 and collected protein-coding mRNA transcripts across 342 vertebrate species. Overall, we obtained a total of approximately 14.2 million sequences. Transcripts were filtered to only include sequences with a valid 11 coding sequence length, appropriate start/stop codons, and no missing UTRs. Following this procedure, 5,526,848 sequences remained. An overview of the dataset is shown in Figure S3A,B. We additionally collect metrics for full-sequences and UTRs within the pretraining dataset in addition to the proportion of species represented in Figure S3C. We leverage a hybrid tokenization scheme, encoding the coding sequences (CDS) and UTRs for each mRNA transcript separately. We tokenize the coding sequence as 3-mers, effectively by codon. UTRs are separately encoded at single-base resolution. Following this process, the 5’UTR tokens, CDS tokens, and 3’UTR tokens are concatenated in that order. For the CDS, we reference the standard codon table, which spans 64 codons, 1 primary start codon, and 3 stop codons. For the UTR sequences, all uracil (U) bases are replaced with thymine (T) to maintain consistency across representations, resulting in a primary UTR vocabulary of four nucleotides: ’A’, ’C’, ’T’, and ’G’. Additionally, we include IUPAC degenerate nucleotide codes such as ’I’, ’R’, ’Y’, ’K’, ’M’, ’S’, ’W’, ’B’, ’D’, ’H’, ’V’, ’N’, and ’-’ to account for sequence ambiguities commonly found in biological datasets. We do not discard any sequences. Additionally, for all generated sequences, the Kozak motif (’GCCACC’) is appended to the 5’UTR before token unmasking. We include special tokens [CLS], [EOS], [MASK], [UNK], and [PAD], which denote sequence classification, end-of-sequence markers, masked tokens for pretraining, and padding, respectively. Sequences are truncated or padded to a total of 7,500 tokens for batched training. In total, our vocabulary spans 86 tokens. 
+
+4.2.3 Pretraining 
+
+Our model is trained for 100K updates from scratch, with a token batch size of 200K tokens per gradient step. We additionally utilize a batch sampler to construct batches using sequences of similar lengths. During training, tokens are sampled for masking uniformly at random at a rate modulated by the sampled timestep. Additionally, any codon token not coding for the same amino acid as the codon in the true mRNA sequence is rejected during denoising. We find that including this rule slightly improves empirical performance on the training objective (not shown). 
+
+4.3 Property Regressors 
+
+mRNA efficacy is highly dependent on factors that are largely influenced by sequence. We train XGBoost re-gressors for several key mRNA properties, including half-life, translation efficiency, and protein abundance, from mRNAutilus learned sequence embeddings. Parameters for the XGBoost regressors are listed in Table S1. 
+
+Half-Life The half-life of a substance is the time required for it to decay to half of its original amount (or concentration within a solution). While more complex in the context of therapeutics, as half-life partially controls protein product abundance, dosage, and overall design flexibility, it is a critical factor to consider and tune when designing an mRNA therapeutic. For example, the mRNA concentration must be controlled to produce an antigen that can produce an immune response, but not induce a severe immunogenic effect. 
+
+Translation Efficiency Following transcription, processing (5’capping, splicing, and 3’polyadenylation), and nuclear export, a mature mRNA transcript will interact with several proteins before ultimately forming a complex with ribosomal subunits to initiate translation. Several ribosomes bound to an mRNA transcript form a polysome, which serves as a proxy for mRNA fitness up until an actual protein product is formed. Polysome formation can be quantified by polysome profiling, an analog for how efficiently an mRNA can be recruited for protein translation. 
+
+Protein Abundance Protein expression is the ultimate purpose of mRNA therapeutics. Following polypep-tide release, folding, and trafficking, a mature protein product can perform its function within the cell. 12 Quantifying the projected protein product formed within the cell also fundamentally determines the effi-cacy of the originating transcript. In a therapeutic context, a sufficient concentration of antigen must exist in circulation to elicit an immune response. 
+
+Regressor Training For half-life prediction, we use an XGBoost boosted tree [Chen and Guestrin, 2016] regression model using mRNAutilus embeddings that predicts half-life directly from mRNA sequence (Table S1). Paired data was collected from [Agarwal and Kelley, 2022], which sourced transcriptome-wide half-life data from human samples across 16 publications and deposits. Overall, this dataset spans nearly 13,000 transcripts across 39 human samples. Similarly to half-life, we train an XGBoost regression model on ribosome profiling data collected from [Zheng et al., 2025a] spanning 1,282 human and 995 mouse datasets across several cell lines. This data serves as a proxy for translation efficiency .Lastly, we train a regression model that predicts protein abundance (log-10 scale) from conjoined mRNA sequencing and ribosomal profiling experiments conducted in human B2 and U2OS cells [Eichhorn et al., 2014]. Lightweight regressors implemented through XGBoost boosted trees, and K-Nearest Neighbor (KNN) algo-rithms have been widely adopted due to their computational efficiency and robustness in low-data settings [Nguyen-Sy, 2024, Guo et al., 2022]. We additionally trained KNN regressors to compare with the XGBoost regressors. 
+
+4.4 Multi-Objective-Guided Generation 
+
+4.4.1 Pareto Optimality 
+
+In multi-objective optimization, rather than a single optimal solution, there is a set of Pareto-optimal solutions , where not one objective can be improved without sacrificing performance in another objective. Intuitively, this set maximizes the trade-offs between solutions such that all objectives are exhausted to their limit. Given a vector of objective functions f (x) = [ f1(x), . . . , f K (x)] where fk : VL → R, suppose we aim to identify the set of solutions x that maximizes all K objective functions. For two sequences x, x′, we say 
+
+x dominates x′ if for all K objectives, the reward for sequence x is better than or equal to the score for sequence x′ and for at least one reward, the reward is strictly better: 
+
+∀k ∈ { 1, . . . , K } fk(x) ≥ fk(x′) and ∃k⋆ fk⋆ (x) > f k⋆ (x′)
+
+| {z }   
+
+> denoted as f(x)≻f(x′)
+
+(x dominates x′)A Pareto-optimal sequence x⋆ is non-dominated , such that no other sequence in the solution space x′ ∈ X 
+
+dominates it. This means it is just as optimal or more optimal than any other sequence in the solution space. Given that there are a potentially infinite number of trade-offs between objectives, we can define a 
+
+Pareto-optimal set P⋆ where all sequences in the set are non-dominated. 
+
+P⋆ = {x | ∄x′ ∈ X , f (x′) ≻ f (x)} (8) Since the size of P⋆ is potentially unbounded, the goal of multi-objective optimization is to approximate a finite set of Pareto-optimal solutions in a tractable manner. 
+
+4.4.2 Monte-Carlo Tree Guidance 
+
+To guide the unconditional MDM towards Pareto-optimality across multiple properties relevant to mRNA therapeutic efficacy, we leverage the Monte Carlo Tree Guidance (MCTG) algorithm introduced in Tang et al. [2025a] for multi-objective guidance of discrete diffusion across several pre-trained regressor models (Algorithm 1). This is outlined in Figure 1B. 13 4.4.3 Initialization 
+
+We initialize a tokenized sequence with a partially masked coding sequence (CDS), a masked 5’UTR se-quence, and a masked 3’UTR sequence. This becomes the root node of the MCTS tree with timestep t = 1 .Additionally, we construct a vector scoring function f : VL → RK that returns a score vector given a clean input sequence x0 ∈ V L and initialize an empty Pareto-optimal set P⋆ = {} . We define the following hyperparameters: number of MCTS iterations Niter and number of children nodes M . A template CDS is also provided at input, which is referenced during expansion. 
+
+4.4.4 Selection 
+
+To determine the next unmasking step from a parent node with an already expanded set of child sequences 
+
+xi 
+
+> child
+
+∈ children (x), we compute a selection score vector U(xi
+
+> child
+
+) defined as: 
+
+U(xi
+
+> child
+
+) = W(xi
+
+> child
+
+)
+
+Nvisit (xi
+
+> child
+
+) + c · pθs|t(xi
+
+> child
+
+|x)
+
+pNvisit (x)1 + Nvisit (xi
+
+> child
+
+) (9) which divides the cumulative reward vector W(xi
+
+> child
+
+) of a child node to the number of times it was visited 
+
+Nvisit (xi
+
+> child
+
+) in addition to an exploration term with constant c = 0 .1. This encourages exploration of child nodes that have not been visited, in addition to high-reward nodes. Then, we select from the Pareto-optimal set of child nodes based on the normalized selection score vector. 
+
+P⋆ 
+
+> select
+
+={xi 
+
+> child
+
+| ∄xj 
+
+> child
+
+∈ children (x) s.t. U(xj
+
+> child
+
+) ≻ U(xi
+
+> child
+
+)} (10) If we select a non-leaf node, we restart the selection process with the selected node as the new parent until we reach an expandable leaf node or a fully unmasked sequence. In the case of a fully unmasked sequence, we restart the selection from the root node. 
+
+4.4.5 Expansion 
+
+From the leaf node xt at time t, we sample M distinct sequences by applying Gumbel noise to the denoising distribution pθ
+
+> 0|t
+
+(x0|xt)
+
+xi 
+
+> 0
+
+∼ log pθ
+
+> 0|t
+
+(x0|xt) + gi (11) where gi ∼ Gumbel (0 , 1) ∈ RV . Then, for each child node xi
+
+> child
+
+, we randomly select k positions in xt to unmask according to xi
+
+> 1
+
+.During sampling, we employ constraints to ensure that an invalid mRNA sequence is not produced during generation. Specifically, we do not allow codon tokens to be sampled in the position of a UTR token. For any masked codon token, we permit only codons encoding for the same amino acid as the corresponding codon in the input template to be sampled. This constraint guarantees that the sampled mRNA sequence does not form an unintended protein product. 
+
+4.4.6 Rollout 
+
+For each child node xi
+
+> child
+
+, we use self-planned ancestral sampling to obtain a fully unmasked sequence 
+
+˜xi
+
+> child
+
+. Then, we feed each of the clean sequences into the vector score function f ( ˜xi
+
+> child
+
+) to obtain a score vector. We then compute the reward vector r(xi
+
+> child
+
+) ∈ RK of each child xi 
+
+> child
+
+where each element is the fraction of sequences in the Pareto-optimal set x⋆ ∈ P ⋆ that xi 
+
+> child
+
+dominates. 
+
+rk(xi
+
+> child
+
+) = 1
+
+|P ⋆|
+
+X
+
+> x⋆∈P ⋆
+
+1fk(xi
+
+> child
+
+) ≥ fk(x⋆) (12) For all M children sequences, we add xi 
+
+> child
+
+to P⋆ if it is non-dominated by all sequences x⋆ ∈ P ⋆ and remove all sequences in P⋆ dominated by some xi
+
+> child
+
+.14 4.4.7 Backpropagation 
+
+For each child node xi
+
+> child
+
+, we use its reward vector r(xi
+
+> child
+
+) to initialize the cumulative reward W(xi
+
+> child
+
+) = 
+
+r(xi
+
+> child
+
+) and the number of visits Nvisit (xi
+
+> child
+
+) is set to 1. We then trace backward from xi 
+
+> child
+
+through its ancestors up to the root node xroot , updating each node x along the path by accumulating the child rewards and incrementing the visit count: 
+
+W(x) ← W(x) + 
+
+> M
+
+X
+
+> i=1
+
+r(xi
+
+> child
+
+), Nvisit (x) ← Nvisit (x) + 1 (13) These cumulative updates influence future selection, prioritizing unmasking paths that lead to higher-reward sequences for further expansion. After Niter iterations of these four steps, we return the set of Pareto-optimal mRNA sequences optimized across the set of properties x⋆ ∈ P ⋆ and their corresponding score vectors f (x⋆).
+
+4.5 Plasmid Generation 
+
+4.5.1 F-Luc and uAb 
+
+The following plasmids were obtained from Addgene: M50 Super 8 × TOPFlash (Addgene # 12456), M51 Super 8 × FOPFlash (TOPFlash mutant) (Addgene # 12457), pCMV-3XFLAG-renilla-luciferase-beta-globin-control (Addgene # 184393), and our pcDNA3-ubiquibody (uAb) cloning vector (Addgene # 232088). For uAb assembly, oligos for candidate peptides were annealed and ligated via T4 DNA Ligase (NEB, Cat # M0202S) into the cloning backbones. For plasmid assembly of ABW sequences, equimolar amounts of backbone and insert DNA fragments were combined with 2 × HiFi DNA Assembly Master Mix (NEB, Cat # E2621) and incubated at 50 ◦C. 
+
+4.5.2 F-Luc, Spike, and PEMax 
+
+Optimized and benchmark sequences containing 5’ UTR, coding sequences ( P. pyralis luciferase, SARS-CoV-2 Spike, and PEmax), and 3’ UTR were synthesized as gene fragments and further cloned into a T7 promoter expression vector by GenScript. The final plasmid sequences were confirmed by Sanger sequencing. All mRNAs containing 5’ UTR, ORF, 3’ UTR, and a 103-nucleotide-long poly(A) tail were synthesized via in vitro 
+
+transcription (IVT) by GenScript. 
+
+4.6 Cell Culture 
+
+HEK293T and DLD-1 cell lines were maintained in Dulbecco’s Modified Eagle’s Medium (DMEM, Gibco, Cat # 11995073) supplemented with 100 units/mL penicillin, 100 mg/mL streptomycin (Gibco, Cat # 15140122), and 10% fetal bovine serum (FBS, Gibco, Cat # A5670402) at 37 ◦C in a humidified incubator with 5% CO 2.Jurkat (American Type Culture Collection, TIB-152), A549 (American Type Culture Collection, CCL-185), and HepG2 (American Type Culture Collection, HB-8065) cells were maintained in Roswell Park Memorial Institute 1640 medium (RPMI-1640) (Cytiva, SH30255.01), Dulbecco’s modified Eagle’s medium (DMEM) (Cytiva, SH30243.01), or Eagle’s Minimum Essential Medium (EMEM) (ATCC, 30-2003), respectively, and supplemented with 10% (v/v) fetal bovine serum (Avantor, 97068-085) and 1% penicillin/streptomycin (Gibco, 15140-122) at 37 °C and 5% CO2. A549 and HepG2 cells were maintained at confluency below 90%, and Jurkat cells were maintained below a density of 3 × 10 6 cells per mL. All cells were verified to be Mycoplasma negative (InvivoGen, rep-mys-20). For luciferase time-course assays, HEK293T cells were seeded at 3.5 × 10 4 cells (Figure 4B,C) per well in a white-bottom 96-well plate (Thermo Fisher Scientific, Cat # 136101). Jurkat, A549, and HepG2 cells were seeded at 1.0 × 10 4 cells per well (Figure 4D, E, F) in a 96-well plate. For flow cytometry, A549 cells were seeded at 8.0 × 10 4 cells per well (Figure 4G) in a 24-well plate. For in vitro PEmax assays, A549 15 cells were prepared at 2.5 × 10 5 per electroporation condition. For quantitative PCR and immunoblotting assays, DLD-1 cells were seeded at 2.5 × 10 5 cells per well in 12-well plates 20–24 h before transfection. For TOPFlash-specific samples, DLD-1 cells were seeded at 1.0×10 4 cells per well in white-bottom 96-well plates (Thermo Fisher Scientific). 100 ng plasmid DNA was added per well in a ratio of TOPFlash (or FOPFlash): Renilla luciferase: pcDNA3 vector = 1:0.1:3; samples were mixed with Lipofectamine ™ 2000 (Invitrogen, Cat # LMRNA003) in Opti-MEM (Gibco, Cat # 31985070), as per the manufacturer’s recommendations. For all transfection samples, mRNA constructs (100 ng/well for 96-well samples, 500 ng/well for 24-well samples, and 1000 ng/well for 12-well samples) were prepared and transfected with Lipofectamine ™ Messenger-MAX ™ Transfection Reagent (Invitrogen, Cat # LMRNA003) in Opti-MEM (Gibco), as per the manufacturer’s instructions. For in vitro gene editing assay and PEmax protein expression, A549 cells were electroporated with in vitro transcribed PEmax mRNA with or without pegRNA and nicking gRNA using the Neon NxT Electroporation System (Thermo Fisher Scientific) with 10 μl Neon NxT tips and the corresponding Neon NxT Electroporation Kit (Thermo Fisher Scientific). In brief, 2.5 × 10 5 cells were resuspended in 12 μl of buffer R with 100 ng in vitro transcribed PEmax mRNA, 22.5 pmol synthetic pegRNA (GenScript), and 15 pmol synthetic nicking sgRNA (GenScript), or in 12 μl of buffer R with 1 μg in vitro transcribed PEmax mRNA, for gene editing assay and PE expression, respectively. The cell-RNA mixture was electroporated with the condition of 1600 V, 10 ms, 3 pulses. Following electroporation, cells were suspended in 1 ml of prewarmed complete growth medium in a 24-well plate. For applicable immunoblotting samples, cells were treated with 1 μM MG132 (proteasome inhibitor, Millipore Sigma, Cat # M7449) 24 h post-transfection. Transfected or electroporated cells were returned to the incubator at 37 °C, 5% CO2, and processed for downstream assays at the indicated time points. 
+
+4.7 In Vitro Transcription 
+
+Assembled constructs were transformed into 30 μL NEB Turbo competent Escherichia coli cells (NEB, Cat # C2984H) and plated on LB agar supplemented with the appropriate antibiotic for subsequent sequence verification of colonies and plasmid purification (Genewiz). mRNA encoding Fluc and uAb constructs was synthesized via in vitro transcription from PCR-amplified DNA templates containing a T7 promoter using the HiScribe T7 ARCA mRNA Kit (NEB, Cat # E2060S). The mRNA was then concentrated and cleaned of impurities using the RNeasy MinElute Cleanup Kit (Qiagen, Cat # 74204) for downstream assays. For plasmids from Genscript, N1-methylpseudouridine (m1 ψ) (Hongene) instead of UTP was used in the IVT reaction, and the trinucleotide cap1 analogue (Hongene) was capped at the 5’ of mRNA using the co-transcriptional capping method. The IVT products were treated with DNase and then purified with lithium chloride precipitation. All mRNAs were quality-controlled by capillary electrophoresis (TapeStation, Agilent or Fragment Analyzer, Agilent) for integrity and were stored frozen at -20 °C. All mRNAs were used within 1 month after being synthesized. 
+
+4.8 Luciferase Time-Course Assay 
+
+Luciferase activity was measured at 12 indicated time points between 0.5 and 60 h post-transfection. Immediately before measurement, IVISbrite D-Luciferin Substrate (Revvity, Cat # 770505) was added to each well (1:200 dilution), and luminescence signals were collected using a GloMax plate reader (Promega). Luminescence values were background-corrected by subtracting the signal from untreated control wells. Firefly luciferase activity was measured at 7 h, 24 h, 48 h, and 72 h after transfection using the Steady-Glo Luciferase Assay System (Promega) according to the manufacturer’s instructions. Briefly, 100 μl of reagent was added to cells grown in 100 μl of medium in each well in the 96-well plate. After incubating at room temperature for 5 minutes, 100 μl of the mixture was transferred to an opaque white 96-well plate. The luminescence measurements were performed with a SpectraMax iD3 Microplate Reader, measuring the luminescence of all the wavelengths with the endpoint mode. Within each experiment, all samples were measured in technical triplicate. 16 4.9 Quantification of SARS-CoV-2 Spike Protein Expression by Flow Cytometry 
+
+Surface expression of SARS-CoV-2 Spike protein in cells was assessed 24 h, 48 h, and 72 h post-transfection by flow cytometry. Cells were harvested, washed once in ice-cold flow staining buffer (DPBS with 0.5% BSA and 2 mM EDTA), then stained with mouse anti-SARS-CoV-2 Spike (1:200; Cell Signaling, 42172S) for 1 h on ice. Following primary antibody staining, cells were washed twice with flow staining buffer and stained with Anti-mouse IgG (H+L), F(ab’)2 Fragment (Alexa Fluor 647 Conjugate) (1:500; Cell Signaling, 4410S) for 30 min on ice. After two final washes with flow staining buffer, surface SARS-CoV-2 Spike levels were analyzed using a BD Accuri C6 Plus Flow Cytometer (BD Biosciences). For each sample, 3,000 live cells were selected based on morphology. SARS-CoV-2 Spike levels were assessed by gating AlexaFluor 647 (excitation at 640nm, collection at 675/25nm) positive cells within the live cells. Analysis was carried out using BD CSampler Plus. Spike expression level was reported as the mean fluorescence intensity (MFI) of the spike signal among viable cells. 
+
+4.10 Chemically Synthesized Guide RNAs 
+
+Single guide RNAs (sgRNAs) and prime editing guide RNAs (pegRNAs) used for in vitro gene editing ex-periments were chemically synthesized by GenScript and were used directly. Both sgRNAs and pegRNAs contained 2’-O-methyl modifications at the first three and last three nucleotides and phosphorothioate link-ages between the first three and last three nucleotides. Oligonucleotides were purified by high-performance liquid chromatography (HPLC) and supplied lyophilized. 
+
+4.11 Quantification of Prime Editor Protein Expression by Western Blotting 
+
+PEmax protein expression was determined by Western blot 24 h and 48 h after electroporation of PE-max mRNA. Cells were washed with ice-cold DPBS and lysed in RIPA buffer (Thermo Fisher Scientific) supplemented with Halt 100X protease inhibitor (Thermo Fisher Scientific). Protein concentrations were determined using the Pierce BCA Protein Assay Kit (Thermo Fisher Scientific). Equal amounts of total protein (10 μg per lane) were denatured and separated by SDS-PAGE (Thermo Fisher Scientific) and transferred to 0.22 μm polyvinylidene difluoride (PVDF) membranes using the eBlot L1 Transfer system (GenScript). Membranes were blocked for 1 h at room temperature in 5% non-fat milk in TBST, cut at around 100kDa based on the protein ruler, then incubated with mouse anti-Cas9 (1:1,000; Cell Signaling, 14697S) or mouse anti-beta actin (1:10,000; Proteintech, 66009-1-Ig) overnight at 4 °C. After three washes in TBST, membranes were incubated for 1 h at room temperature with HRP-conjugated secondary antibody (1:10,000; Thermo Fisher Scientific, 31430), followed by another three washes in TBST. Pierce ECL Western Blotting Substrate (Thermo Fisher Scientific) was added onto the membranes, and the membranes were imaged on Syngene G:BOX Imager to detect chemiluminescent signals. Band intensities were quantified using ImageJ, and the PEmax signal was normalized to the beta actin signal within the same lane, and then to the benchmark (non-optimized sequence) on the same blot. 
+
+4.12 Quantification of Editing Efficiency by Sanger Sequencing 
+
+Editing efficiency at the HEK site 3 locus was quantified from bulk cell populations harvested 72 h after electroporation. Genomic DNA was extracted from the cells using QuickExtract DNA Extraction Solution (Biosearch Technologies) following the manufacturer’s instructions. Locus-specific primers (forward primer: CAGGGAAACGCCCATGCAATTAG; reverse primer: CTCTGTTGAGCTCGACCCTGAA) were used to generate tar-geted amplicons for Sanger sequencing. The target region was amplified from the genomic DNA in a 20 
+
+μl reaction using OneTaq 2X Master Mix (New England Biolabs, NEB, M0482S) with the following condi-tions: 94 °C for 2 min; 27 cycles of 94 °C for 20s, 60 °C for 20s, and 68 °C for 20s, followed by 68 °C for 1 min. PCR products were purified using Hieff NGS DNA Selection Beads (Yeasen) following the manufacturer’s instructions. Purified amplicons were submitted to Eurofins Genomics for Sanger sequencing using the 17 reverse PCR primer. The editing efficiency at the intended edit position was quantified using the EditR (https://moriaritylab.shinyapps.io/editr_v10/) with default parameters. 
+
+4.13 Quantitative PCR 
+
+Cells were harvested at 9 h and 24 h post-transfection, and total RNA was isolated using the Monarch ®
+
+Spin RNA Isolation Kit (Mini) (NEB, Cat # T2110S). RNA concentration was determined by NanoDrop and normalized before reverse transcription. cDNA was synthesized from normalized RNA using LunaScript ® RT SuperMix Kit (NEB, Cat # E3010L), and the resulting cDNA was diluted before qPCR analysis. Quantitative PCR was performed using PowerUp ™ SYBR ™ Green Master Mix (Thermo Fisher Scientific, Cat # A25776) in technical triplicates with gene-specific primers. Relative transcript levels were normalized to the indicated housekeeping gene (GAPDH) and analyzed using the ∆∆ Ct method. Primers for each target gene were as follows: GAPDH: forward: ATGGGGAAGGTGAAGGTCG, reverse: TCCCGTTCTCAGCCTTGACG, β-catenin uAb: forward: GATCTGTACATCCCGGCCTTC, reverse: GCCTGGAGAGGTAGGAGTGTA. 
+
+4.14 TOPFlash Assay 
+
+48 h post-transfection, cells were lysed, and firefly and Renilla luciferase activities were measured sequen-tially using the Dual-Luciferase Reporter Assay System (Promega, Cat # E1980). Firefly luciferase activity was normalized to the corresponding Renilla signal, and all values were subsequently normalized to the TOPFlash + polyG uAb control condition. 
+
+4.15 Cell Fractionation and Immunoblotting 
+
+72 h post-transfection, DLD-1 cells were detached with 0.05% trypsin-EDTA, washed twice with ice-cold 1× PBS, and lysed in Pierce ™ RIPA Buffer (Thermo Fisher Scientific, Cat # 89900) supplemented with a 1:100 dilution of protease inhibitor cocktail (Millipore Sigma, Cat # P8340). Specifically, the protease inhibitor cocktail–RIPA buffer solution was added to the cell pellet, and the mixture was incubated at 4 ◦Cfor 30 min, followed by centrifugation at 12,000 rpm for 20 min at 4 ◦C. The supernatant was collected into tubes, and protein concentrations were quantified using the Pierce ™ BCA Protein Assay Kit (Thermo Fisher Scientific, Cat # 23227). 25 mg of total protein were mixed with 4 × Bolt ™ LDS Sample Buffer (Thermo Fisher Scientific, Cat # NP0007) containing 5% β-mercaptoethanol (Millipore Sigma, Cat # M3148) at a 3:1 ratio and heated at 95 ◦C for 10 min prior to electrophoresis. Samples were loaded at equal volumes into Bolt ™ Bis-Tris Plus Mini Protein Gels (Thermo Fisher Scientific, Cat # NW04125BOX) and separated by electrophoresis. Immunoblotting was performed according to standard protocols. iBlot ™ 2 Dry Blotting System with iBlot ™ 2 Transfer Stacks (Invitrogen) were used for membrane blot transfer. Membranes were then blocked in 5% milk in 1 × TBST for 1 h at room temperature and incubated overnight at 4 ◦Cwith rabbit anti-β-catenin antibody (Cell Signaling Technology, Cat # 8480S; diluted 1:1000) or mouse anti-GAPDH antibody (Santa Cruz, Cat # sc-47724; diluted 1:2500) for loading control. After three washes with 1 × TBST for 5 min each, membranes were incubated with a secondary antibody, goat anti-Mouse IgG (H+L), Alexa Fluor ™ 488 (Thermo Fisher Scientific, Cat # A11001; diluted 1:5000) or donkey anti-Rabbit IgG, IRDye 800 (Fisher Scientific, Cat # NC9523609; diluted 1:4000), for 1 h at room temperature. Following three additional washes with 1 × TBST, blots were detected by fluorescence signals using a LICOR Odyssey ®
+
+Imager. Densitometry analysis in immunoblots was performed using ImageJ software. Briefly, bands in each lane were grouped as a horizontal lane and quantified using FIJI’s gel analysis function. β-catenin band intensities were normalized to the band intensity of GAPDH in each lane, then to the average band intensity for untreated control cases across replicates. 
+
+4.16 Statistical Analysis and Reproducibility 
+
+Sample sizes were not predetermined based on statistical methods but were chosen according to standards of the field (three independent biological replicates for each condition, where possible), which provided 18 sufficient statistical power for the effect sizes of interest. All data are reported as mean values with error bars representing standard deviation (SD). Statistical analyses were performed using the two-tailed Student’s 
+
+t-test in GraphPad Prism 10 software, with calculated p values represented as follows: * p ≤ 0.05 , ** p ≤ 0.01 ,*** p ≤ 0.001 , **** p ≤ 0.0001 . No data were excluded from the analyses except for one technical outlier that was removed based on predefined criteria. The experiments were not randomized, and the investigators were not blinded to allocation during experiments or outcome assessment. 
+
+# Declarations 
+
+Data and Code Availability mRNAutilus is hosted and available as a part of AutoNA (Automatic Nu-cleic Acid) at https://autona.atombio.ai. Pretraining and regressor data is deposited at 10.5281/zen-odo.19600209. 
+
+Acknowledgments We thank the entire experimental team of the Chatterjee Lab and Atom Bioworks for productive input during the curation of these models and datasets. We also thank Lauren Hong for designing the mRNAutilus logo. 
+
+Author Contributions S.P. and S.T. developed the mRNAutilus algorithm and framework and performed all in silico benchmarking, with assistance from Y.Z. Y.K. and P.J.L. led experimental validation, with assis-tance from D.S, S.S, and F.P. F.P., C.W., S.Y., and P.C. supervised the work. S.P., S.T., Y.K., and P.C. wrote the manuscript, with input from all authors. S.P. proposed the initial idea. 
+
+Funding Statement This research was supported by a grant from the Hartwell Foundation to the lab of P.C., as well as funding from Atom Bioworks, Inc. We also acknowledge a seed grant from the ICLR Workshop on Generative and Experimental Perspectives for Biomolecular Design to the lab of P.C. and Atom Bioworks, Inc. 
+
+Competing Interests S.Y. and P.C. are co-founders of Atom Bioworks, Inc., which is involved in mRNA development. S.P. is an employee of Atom Bioworks, Inc. P.C. is a co-founder of Gameto, Inc., UbiquiTx, Inc. P.C.’s interests are reviewed and managed by the University of Pennsylvania in accordance with their conflict-of-interest policies. P.J.L, S.S., F.P., and C.W. are employees of GenScript, Inc. The remaining authors have no conflicts of interest to declare. 
+
+# References 
+
+Norbert Pardi, Michael J Hogan, Frederick W Porter, and Drew Weissman. mrna vaccines—a new era in vaccinology. Nature Reviews Drug Discovery , 17(4):261–279, 2018. Norbert Pardi, Michael J Hogan, and Drew Weissman. Recent advances in mrna vaccine technology. Current Opinion in Immunology , 65:14–20, 2020. Nicholas AC Jackson, Kent E Kester, Danilo Casimiro, Sanjay Gurunathan, and Frank DeRosa. The promise of mrna vaccines: a biotech and industrial perspective. npj Vaccines , 5(1):11, 2020. Cuiling Zhang, Giulietta Maruggi, Hu Shan, and Junwei Li. Advances in mrna vaccines for infectious diseases. 
+
+Frontiers in immunology , 10:594, 2019. Ann J Barbier, Allen Yujie Jiang, Peng Zhang, Richard Wooster, and Daniel G Anderson. The clinical progress of mrna vaccines and immunotherapies. Nature biotechnology , 40(6):840–854, 2022. Eduarde Rohner, Ran Yang, Kylie S Foo, Alexander Goedel, and Kenneth R Chien. Unlocking the promise of mrna therapeutics. Nature biotechnology , 40(11):1586–1600, 2022. Juliana Popovitz, Rohit Sharma, Reyhane Hoshyar, Beob Soo Kim, Niren Murthy, and Kunwoo Lee. Gene editing therapeutics based on mrna delivery. Advanced drug delivery reviews , 200:115026, 2023. 19 Jung Woo Park, Philip NP Lagniton, Yu Liu, and Ren-He Xu. mrna vaccines for covid-19: what, why and how. 
+
+International journal of biological sciences , 17(6):1446, 2021. Mieke Soens, Jintanat Ananworanich, Bryony Hicks, Kathryn Jean Lucas, Jose Cardona, Lawrence Sher, Greg Livermore, Kristi Schaefers, Carole Henry, Angela Choi, et al. A phase 3 randomized safety and immunogenicity trial of mrna-1010 seasonal influenza vaccine in adults. Vaccine , 50:126847, 2025. Jeffrey S Weber, Matteo S Carlino, Adnan Khattak, Tarek Meniawy, George Ansstas, Matthew H Taylor, Kevin B Kim, Meredith McKean, Georgina V Long, Ryan J Sullivan, et al. Individualised neoantigen therapy mrna-4157 (v940) plus pembrolizumab versus pembrolizumab monotherapy in resected melanoma (keynote-942): a randomised, phase 2b study. The Lancet , 403(10427):632–644, 2024. Eleanor Wilson, Jaya Goswami, Abdullah H Baqui, Pablo A Doreski, Gonzalo Perez-Marc, Khalequ Zaman, Jorge Monroy, Christopher JA Duncan, Mugen Ujiie, Mika Rämet, et al. Efficacy and safety of an mrna-based rsv pref vaccine in older adults. New England Journal of Medicine , 389(24):2233–2244, 2023. Jeff Ross. mrna stability in mammalian cells. Microbiological reviews , 59(3):423–450, 1995. Vincent P Mauro and Stephen A Chappell. A critical analysis of codon optimization in human therapeutics. 
+
+Trends in molecular medicine , 20(11):604–613, 2014. Jun Xiao, Bing Peng, Zhaowei Su, Ankun Liu, Yajing Hu, Christopher T Nomura, Shouwen Chen, and Qin Wang. Facilitating protein expression with portable 5’-utr secondary structures in bacillus licheniformis. 
+
+ACS synthetic biology , 9(5):1051–1058, 2020. Kathrin Leppek, Rhiju Das, and Maria Barna. Functional 5’ utr mrna structures in eukaryotic translation regulation and how to find them. Nature Reviews Molecular Cell Biology , 19(3):158–174, 2018. David M Mauger, B Joseph Cabral, Vladimir Presnyak, Stephen V Su, David W Reid, Brooke Goodman, Kristian Link, Nikhil Khatwani, John Reynders, Melissa J Moore, et al. mrna structure regulates protein expression through changes in functional half-life. Proceedings of the National Academy of Sciences , 116 (48):24075–24083, 2019. Wy Ching Ng, Ruben Soto-Acosta, Shelton S Bradrick, Mariano A Garcia-Blanco, and Eng Eong Ooi. The 5’ and 3’ untranslated regions of the flaviviral genome. Viruses , 9(6):137, 2017. Yi-Hsuan Lin and Ralf Bundschuh. Rna structure generates natural cooperativity between single-stranded rna binding proteins targeting 5’ and 3’ utrs. Nucleic acids research , 43(2):1160–1169, 2015. Jianan Lin, Yang Chen, Yuping Zhang, Haifan Lin, and Zhengqing Ouyang. Deciphering the role of rna structure in translation efficiency. BMC bioinformatics , 23(Suppl 3):559, 2022. Kathrin Leppek, Gun Woo Byeon, Wipapat Kladwang, Hannah K Wayment-Steele, Craig H Kerr, Adele F Xu, Do Soon Kim, Ved V Topkar, Christian Choe, Daphna Rothschild, et al. Combinatorial optimization of mrna structure, stability, and translation for rna-based therapeutics. Nature communications , 13(1):1536, 2022. Paul M Sharp and Wen-Hsiung Li. The codon adaptation index-a measure of directional synonymous codon usage bias, and its potential applications. Nucleic acids research , 15(3):1281–1295, 1987. Hongguang Fu, Yanbing Liang, Xiuqin Zhong, ZhiLing Pan, Lei Huang, HaiLin Zhang, Yang Xu, Wei Zhou, and Zhong Liu. Codon optimization with deep learning to enhance protein expression. Scientific reports , 10 (1):17617, 2020. Sara Sousa Rosa, Davide Nunes, Luis Antunes, Duarte MF Prazeres, Marco PC Marques, and Ana M Azevedo. Maximizing mrna vaccine production with bayesian optimization. Biotechnology and Bioengineering ,119(11):3127–3139, 2022. 20 Makda S Gebre, Susanne Rauch, Nicole Roth, Jingyou Yu, Abishek Chandrashekar, Noe B Mercado, Xuan He, Jinyan Liu, Katherine McMahan, Amanda Martinot, et al. Optimization of non-coding regions for a non-modified mrna covid-19 vaccine. Nature , 601(7893):410–414, 2022. Sun Chang Kim, Simranjeet Singh Sekhon, Woo-Ri Shin, Gna Ahn, Byung-Kwan Cho, Ji-Young Ahn, and Yang-Hoon Kim. Modifications of mrna vaccine structural elements for improving mrna stability and translation efficiency. Molecular & cellular toxicology , pages 1–8, 2022. Sizhen Li, Shahriar Noroozizadeh, Saeed Moayedpour, Lorenzo Kogler-Anele, Zexin Xue, Dinghai Zheng, Fer-nando Ulloa Montoya, Vikram Agarwal, Ziv Bar-Joseph, and Sven Jager. mrna-lm: full-length integrated slm for mrna analysis. Nucleic Acids Research , 53(3):gkaf044, 2025. Dinghai Zheng, Logan Persyn, Jun Wang, Yue Liu, Fernando Ulloa-Montoya, Can Cenik, and Vikram Agarwal. Predicting the translation efficiency of messenger rna in mammalian cells. Nature biotechnology , pages 1–14, 2025a. He Zhang, Liang Zhang, Ang Lin, Congcong Xu, Ziyu Li, Kaibo Liu, Boxiang Liu, Xiaopin Ma, Fanfan Zhao, Huiling Jiang, et al. Algorithm for optimized mrna design improves stability and immunogenicity. Nature ,621(7978):396–403, 2023. Mehdi Yazdani-Jahromi, Mangal Prakash, Tommaso Mansi, Artem Moskalev, and Rui Liao. Helm: Hierarchical encoding for mrna language modeling. In International Conference on Learning Representations , volume 2025, pages 94402–94425, 2025. Honggen Zhang, Xiangrui Gao, June Zhang, and Lipeng Lai. mrna2vec: mrna embedding with language model in the 5’utr-cds for mrna design. In Proceedings of the AAAI Conference on Artificial Intelligence ,volume 39, pages 1057–1065, 2025a. Matthew Wood, Mathieu Klop, and Maxime Allard. Helix-mrna: A hybrid foundation model for full sequence mrna therapeutics. arXiv preprint arXiv:2502.13785 , 2025. Sawan Patel, Fred Zhangzhi Peng, Keith Fraser, Adam D Friedman, Pranam Chatterjee, and Sherwood Yao. Evoflow-rna: Generating and representing non-coding rna with a language model. bioRxiv , pages 2025–02, 2025. Alyssa Morrow, Michal Jastrzebski, Jake Wintermute, Siqi Zhao, Justin Gardin, Lood van Niekerk, Valentin Zulkower, Elise Flynn, Joshua Moller, Porfirio Quintero Cadena, et al. mdd-0: mrna discrete diffusion for generation of stable mrna sequences. Yanyi Chu, Dan Yu, Yupeng Li, Kaixuan Huang, Yue Shen, Le Cong, Jason Zhang, and Mengdi Wang. A 5’ utr language model for decoding untranslated regions of mrna and function predictions. Nature Machine Intelligence , 6(4):449–460, 2024. Sebastian Castillo-Hair, Stephen Fedak, Ban Wang, Johannes Linder, Kyle Havens, Michael Certo, and Georg Seelig. Optimizing 5’utrs for mrna-delivered gene editing using deep learning. Nature Communications ,15(1):5284, 2024. He Zhang, Hailong Liu, Yushan Xu, Haoran Huang, Yiming Liu, Jia Wang, Yan Qin, Haiyan Wang, Lili Ma, Zhiyuan Xun, et al. Deep generative models design mrna sequences with enhanced translational capacity and stability. Science , 390(6773):eadr8470, 2025b. Mihir Metkar, Christopher S Pepin, and Melissa J Moore. Tailor made: the art of therapeutic mrna design. 
+
+Nature Reviews Drug Discovery , 23(1):67–83, 2024. Sizhen Li, Paul Chauvin, Ofek Gross, Michael Bailey, and Sven Jager. mrna-gpt: A generative model for full-length mrna design and optimization. bioRxiv , pages 2026–03, 2026. 21 Junsoo Kim, Yoojung Han, Chae Young Kwon, and Hyeshik Chang. Vaxlab: integrated platform for rapid multistrategy mrna vaccine design. Experimental & Molecular Medicine , pages 1–9, 2026. Jiaxin Shi, Kehang Han, Zhe Wang, Arnaud Doucet, and Michalis Titsias. Simplified and generalized masked diffusion for discrete data. Advances in Neural Information Processing Systems , 37:103131–103167, 2024a. Jacob Austin, Daniel D Johnson, Jonathan Ho, Daniel Tarlow, and Rianne Van Den Berg. Structured denoising diffusion models in discrete state-spaces. Advances in Neural Information Processing Systems ,34:17981–17993, 2021. Subham Sekhar Sahoo, Marianne Arriola, Yair Schiff, Aaron Gokaslan, Edgar Marroquin, Justin T Chiu, Alexander Rush, and Volodymyr Kuleshov. Simple and effective masked diffusion language models. 
+
+Advances in Neural Information Processing Systems , 2024. ANM Nafiz Abeer, Nathan M Urban, M Ryan Weil, Francis J Alexander, and Byung-Jun Yoon. Multi-objective latent space optimization of generative molecular design models. Patterns , 5(10), 2024. Wengong Jin, Regina Barzilay, and Tommi Jaakkola. Multi-objective molecule generation using inter-pretable substructures. In International Conference on Machine Learning , pages 4849–4859. PMLR, 2020. Sophia Tang, Yinuo Zhang, and Pranam Chatterjee. Peptune: De novo generation of therapeutic peptides with multi-objective-guided discrete diffusion. International Conference on Machine Learning , 2025a. Sophia Tang, Yuchen Zhu, Molei Tao, and Pranam Chatterjee. Tr2-d2: Tree search guided trajectory-aware fine-tuning for discrete diffusion. arXiv preprint arXiv:2509.25171 , 2025b. Alyse D Portnoff, Erin A Stephens, Jeffrey D Varner, and Matthew P DeLisa. Ubiquibodies, synthetic e3 ubiquitin ligases endowed with unnatural substrate specificity for targeted protein silencing. Journal of Biological Chemistry , 289(11):7844–7855, 2014. Garyk Brixi, Tianzheng Ye, Lauren Hong, Tian Wang, Connor Monticello, Natalia Lopez-Barbosa, Sophia Vincoff, Vivian Yudistyra, Lin Zhao, Elena Haarer, et al. Salt&peppr is an interface-predicting language model for designing peptide-guided protein degraders. Communications Biology , 6(1):1081, 2023. Suhaas Bhat, Kalyan Palepu, Lauren Hong, Joey Mao, Tianzheng Ye, Rema Iyer, Lin Zhao, Tianlai Chen, Sophia Vincoff, Rio Watson, et al. De novo design of peptide binders to conformationally diverse targets with contrastive language modeling. Science Advances , 11(4):eadr8638, 2025. Leo Tianlai Chen, Zachary Quinn, Madeleine Dumas, Christina Peng, Lauren Hong, Moises Lopez-Gonzalez, Alexander Mestre, Rio Watson, Sophia Vincoff, Lin Zhao, et al. Target sequence-conditioned design of peptide binders using masked language modeling. Nature Biotechnology , pages 1–9, 2025a. Nate Gruver, Samuel Stanton, Nathan Frey, Tim GJ Rudner, Isidro Hotzel, Julien Lafrance-Vanasse, Arvind Rajpal, Kyunghyun Cho, and Andrew G Wilson. Protein design with guided discrete diffusion. Advances in Neural Information Processing Systems , 36:12489–12517, 2023. Sarah C Dyer, Olanrewaju Austine-Orimoloye, Andrey G Azov, Matthieu Barba, If Barnes, Vianey Paola Barrera-Enriquez, Arne Becker, Ruth Bennett, Martin Beracochea, Andrew Berry, et al. Ensembl 2025. 
+
+Nucleic Acids Research , 53(D1):D948–D957, 2025. Ronny Lorenz, Stephan H Bernhart, Christian Höner zu Siederdissen, Hakim Tafer, Christoph Flamm, Peter F Stadler, and Ivo L Hofacker. Viennarna package 2.0. Algorithms for molecular biology , 6:1–14, 2011. He Zhang, Hailong Liu, Yushan Xu, Haoran Huang, Yiming Liu, Jia Wang, Yan Qin, Haiyan Wang, Lili Ma, Zhiyuan Xun, Xuzhuang Hou, Timothy K. Lu, and Jicong Cao. Deep generative models design mrna sequences with enhanced translational capacity and stability. Science , 390(6773), November 2025c. ISSN 1095-9203. Marilyn Kozak. Initiation of translation in prokaryotes and eukaryotes. Gene , 234(2):187–208, 1999. 22 Marilyn Kozak. An analysis of 5’-noncoding sequences from 699 vertebrate messenger rnas. Nucleic acids research , 15(20):8125–8148, 1987. Marilyn Kozak. An analysis of vertebrate mrna sequences: intimations of translational control. The Journal of Cell Biology , 115(4):887–903, 1991. Tianqi Chen and Carlos Guestrin. Xgboost: A scalable tree boosting system. In International Conference on Knowledge Discovery and Data Mining , pages 785–794, 2016. Vikram Agarwal and David R Kelley. The genetic and biochemical determinants of mrna degradation rates in mammals. Genome biology , 23(1):245, 2022. Stephen W Eichhorn, Huili Guo, Sean E McGeary, Ricard A Rodriguez-Mias, Chanseok Shin, Daehyun Baek, Shu-hao Hsu, Kalpana Ghoshal, Judit Villén, and David P Bartel. mrna destabilization is the dominant effect of mammalian micrornas by the time substantial repression ensues. Molecular cell , 56(1):104–115, 2014. Tuan Nguyen-Sy. Optimized hybrid xgboost-catboost model for enhanced prediction of concrete strength and reliability analysis using monte carlo simulations. Applied Soft Computing , 167:112490, 2024. Kaimin Guo, Han Yan, Dawei Huang, and Xiaojun Yan. Active learning-based knn-monte carlo simulation on the probabilistic fracture assessment of cracked structures. International Journal of Fatigue , 154:106533, 2022. Garyk Brixi, Matthew G Durrant, Jerome Ku, Mohsen Naghipourfar, Michael Poli, Gwanggyu Sun, Greg Brockman, Daniel Chang, Alison Fanton, Gabriel A Gonzalez, et al. Genome modelling and design across all domains of life with evo 2. Nature , pages 1–13, 2026. Rafael Josip Penić, Tin Vlašić, Roland G Huber, Yue Wan, and Mile Šikić. Rinalmo: General-purpose rna language models can generalize well on structure prediction tasks. Nature Communications , 16(1):5671, 2025. Eric Nguyen, Michael Poli, Marjan Faizi, Armin Thomas, Michael Wornow, Callum Birch-Sykes, Stefano Massaroli, Aman Patel, Clayton Rabideau, Yoshua Bengio, et al. Hyenadna: Long-range genomic sequence modeling at single nucleotide resolution. Advances in Neural Information Processing Systems , 36:43177– 43201, 2023. Paul J Sample, Ban Wang, David W Reid, Vlad Presnyak, Iain J McFadyen, David R Morris, and Georg Seelig. Human 5’ utr design and variant effect prediction from a massively parallel translation assay. Nature biotechnology , 37(7):803–809, 2019. Peter J Chen, Jeffrey A Hussmann, Jun Yan, Friederike Knipping, Purnima Ravisankar, Pin-Fang Chen, Cidi Chen, James W Nelson, Gregory A Newby, Mustafa Sahin, et al. Enhanced prime editing systems by manipulating cellular determinants of editing outcomes. Cell , 184(22):5635–5652, 2021. Tianzheng Ye, Azmain Alamgir, Cara M Robertus, Darianna Colina, Connor Monticello, Thomas Connor Donahue, Lauren Hong, Sophia Vincoff, Shrey Goel, Peter Fekkes, et al. Programmable protein degraders enable selective knockdown of pathogenic β-catenin subpopulations in vitro and in vivo. bioRxiv , 2024. Tong Chen, Yinuo Zhang, Sophia Tang, and Pranam Chatterjee. Multi-objective-guided discrete flow matching for controllable biological sequence design. In ICML 2025 Generative AI and Biology (GenBio) Workshop , 2025b. Tong Chen, Yinuo Zhang, and Pranam Chatterjee. Areuredi: Annealed rectified updates for refining discrete flows with multi-objective guidance. arXiv preprint arXiv:2510.00352 , 2025c. Lauren Hong, Tianzheng Ye, Tian Z Wang, Divya Srijay, Howard Liu, Lin Zhao, Rio Watson, Sophia Vincoff, 23 Tianlai Chen, Kseniia Kholina, et al. Programmable protein stabilization with language model-derived peptide guides. Nature Communications , 16(1):3555, 2025. Lauren Hong, Tai-Chen Ho, Yi-Shiuan Tseng, Sophia Vincoff, Tong Chen, Pohan chen, and Pranam Chatterjee. Pepreps: Peptide-retargeted phosphatases via generative language models. In ICLR 2026 Workshop on Foundation Models for Science: Real-World Impact and Science-First Design , 2026. Jiaxin Shi, Kehang Han, Zhe Wang, Arnaud Doucet, and Michalis K. Titsias. Simplified and generalized masked diffusion for discrete data. Advances in Neural Information Processing Systems , 2024b. Jingyang Ou, Shen Nie, Kaiwen Xue, Fengqi Zhu, Jiacheng Sun, Zhenguo Li, and Chongxuan Li. Your absorbing discrete diffusion secretly models the conditional distributions of clean data. In International Conference on Learning Representations , volume 2025, pages 64972–65009, 2025. Kaiwen Zheng, Yongxin Chen, Hanzi Mao, Ming-Yu Liu, Jun Zhu, and Qinsheng Zhang. Masked diffusion models are secretly time-agnostic masked models and exploit inaccurate categorical sampling. In 
+
+International Conference on Learning Representations , volume 2025, pages 63186–63227, 2025b. Noam Shazeer. Glu variants improve transformer. arXiv preprint arXiv:2002.05202 , 2020. Jianlin Su, Murtadha Ahmed, Yu Lu, Shengfeng Pan, Wen Bo, and Yunfeng Liu. Roformer: Enhanced transformer with rotary position embedding. Neurocomputing , 568:127063, 2024. Tri Dao. FlashAttention-2: Faster attention with better parallelism and work partitioning. In International Conference on Learning Representations , 2024. RNACentral Consortium. Rnacentral 2021: secondary structure integration, improved sequence search and new member databases. Nucleic acids research , 49(D1):D212–D220, 2021. TriLink BioTechnologies. CleanCap ® FLuc mRNA (5moU). https://www.trilinkbiotech.com/ cleancap-fluc-mrna-5mou.html , n.d. Accessed: 2025-06-21. National Center for Biotechnology Information. SARS-CoV-2 isolate Wuhan-Hu-1, complete genome, 2020. Kizzmekia S. Corbett, Robert A. Seder, Kristina McMahan, and Kaitlyn M. Morabito. Prefusion coronavirus spike proteins and their use. World Intellectual Property Organization (WIPO), August 2021. WO Patent WO2021159040A2. 24 Supplementary Information 
+
+Supplement A presents additional results, including unconditional generation metric distributions for CDSs ( A.1) and UTRs ( A.2), an investigation of the mRNA pretraining dataset, principal component analysis of the latent embeddings learned by our unconditional MDM ( A.4), the hyperparameters for the XGBoost regressors ( A.5), XGBoost regressor comparison against KNN ( A.6), the guidance curves for human MUC1 and SARS-CoV-2-S-Protein mRNA generation (A.7), comparative evaluation for property prediction against other language models ( A.8), and the protocol for producing the full-length mRNA sequences tested in vitro ( A.9). We also provide pseudo code for our multi-objective guidance algorithm in Appendix B. 
+
+# A Additional Results 
+
+A.1 Unconditional Generation 
+
+Before applying multi-objective guidance, we evaluated the ability of mRNAutilus to unconditionally generate mRNAs that resemble natural mRNAs by comparing them to natural eukaryotic mRNAs. Here, we generated three libraries of 200 mRNAs each, with token lengths of either 500b, 1000b, or 1,500b. These generated libraries were compared with natural eukaryotic mRNAs from the Ensembl pretraining dataset of near-equal length. Equal length was not guaranteed, as it was possible for the model to asymmetrically sample codon tokens over UTR tokens, resulting in inflated length. As such, we primarily consider length-normalized metrics such as GC Content and length-normalized minimum free energy. 
+
+A.2 Generated UTR evaluation 
+
+We also further characterized the UTRs designed by mRNAutilus in comparison to those designed through evolution in Figure S2. Notably, we observe that the generated 5’UTRs have slightly more positive predicted MFEs and GC contents than those existing in nature. More positive MFE values in RNA indicate reduced secondary structure, which has been associated with improved translation efficiency [Mauger et al., 2019]. 
+
+A.3 Pretraining dataset 
+
+In Figure S3, we investigated metrics distributions for the component CDSs and UTRs for all vertebrate mR-NAs included in the Ensembl pretraining corpus. We consider sequence-level quantities such as length, GC-content, and frequency of Kozak motifs per-sequence as defined by the regular expression (A|G)CCATGG .We additionally consider the lengths of both UTR populations and the distribution of mRNAs across all mammalian species considered in the Ensembl database. 
+
+A.4 PCA Analysis 
+
+To investigate the representations provided by mRNAutilus, we compared the model-produced embeddings for 100 mRNA sequences and 100 non-coding RNA (ncRNA) sequences. The mRNAs were sourced from the pretraining data validation set, and the non-coding RNAs were taken from RNACentral [Consortium, 2021]. All 200 sequences were embedded and flattened, after which they were projected onto the first two principal components of the resulting two-dimensional matrix. Per Figure S4, the mRNAs are separable from the ncRNAs. 
+
+A.5 Regressor Hyperparameters 
+
+Hyperparameters for the XGBoost regressors are included in Table S1. All regressors were trained on the data described in the Results section 4.2.2, without any modifications to the sequences or pre-processing. Regressor training/validation sets were 80/20% splits done at random. 25 GC Content Distributions Normalized MFE Distributions Kozak Consensus Frequency Distributions 
+
+Sequence Entropy Distributions Average Diversity Distributions 
+
+A B   
+
+> GC Content (%)
+> Generated True
+> Sequence Length
+> GC Content (%)
+> Sequence Length
+> Normalized Minimum Free Energy  Normalized Minimum Free Energy
+> Generated True
+> Kozak Count
+> Generated True
+> Sequence Length
+> Kozak Count
+
+C  
+
+> Sequence Length
+> Entropy
+> Entropy
+> Generated True
+> Diversity
+> Generated True
+> Sequence Length
+> Diversity
+
+D EFigure S1: Unconditional mRNA generation results. (A) GC content, (B) minimum free energy normalized by sequence length, and (C) Kozak motif frequency evaluations on unconditionally-generated sequences. (D) Average sequence diversity and (E) Shannon entropy evaluations on unconditionally-generated sequences. Sequences of length 1,000 have their distributions shown (left), while the average values for each property at each length are shown as line plots (right). The error bars on the line plots denote the standard error. Table S1: XGBoost Hyperparameters for Regression 
+
+Hyperparameter Value/Range 
+
+Objective reg:squarederror 
+
+Lambda [0 .1, 10 .0] (log scale) Alpha [0 .1, 10 .0] (log scale) Gamma [0 , 5] 
+
+Colsample by Tree [0 .5, 1.0] 
+
+Subsample [0 .6, 0.9] 
+
+Learning Rate [1 e−5, 0.1] 
+
+Max Depth [2 , 30] 
+
+Min Child Weight [1 , 20] 
+
+Tree Method hist 
+
+Scale Pos Weight [0 .5, 10 .0] (log scale) 
+
+A.6 Property Prediction 
+
+To facilitate property prediction using mRNAutilus language model embeddings, we considered three regressor implementations: linear probing, XGBoost, and K-Nearest Neighbors (KNN). We demonstrate the superiority of the XGBoost-based implementation in Table S2. Both methods were implemented using 26 A
+
+B
+
+C5’UTR Normalized Minimum Free Energy 5’UTR GC Content    
+
+> 3’UTR Normalized Minimum Free Energy 3’UTR GC Content
+> Normalized Minimum Free Energy GC Content (%)
+> Density
+> Density
+> Normalized Minimum Free Energy GC Content (%)
+> Density
+> Density
+> 3ʼUTR Secondary Structure Hierarchical Clustering
+> 5’UTR Secondary Structure Hierarchical Clustering
+> Sequences
+> Sequences
+> Edit Distance  Edit Distance
+
+Figure S2: Analysis of 5’ and 3’UTRs for P. pyralis luciferase mRNAs. (A) Normalized minimum free energy (left) and GC content (right) distributions (left) for 1,000 generated 5’UTRs in comparison with 1,000 vertebrate 5’UTRs from Ensembl. (B) Normalized minimum free energy (left) and GC content (right) distributions (left) for 1,000 generated 3’UTRs in comparison with 1,000 vertebrate 3’UTRs from Ensembl. (C) Hierarchical clustering of predicted 5’ (top) and 3’ (bottom) secondary structures for 12 generated P. pyralis luciferase mRNAs. 
+
+scikit-learn and Optuna. 
+
+A.7 Conditional guidance 
+
+P. pyralis luciferase protein P. pyralis luciferase, or Fluc, is an enzyme that catalyzes the oxidation of firefly luciferin, yielding bioluminescence. Due to this natural luminescence mechanism, it is commonly used in research as a reporter for evaluating the transcriptional activity profile in cells transfected with a construct containing the luciferase gene controlled by a promoter of interest. As a commonly used protein in R&D efforts, we designed a more optimal P. pyralis luciferase mRNA using mRNAutilus. The template luciferase was constructed referencing the GenScript F-Luc mRNA ORF [BioTechnologies, n.d.]. The lengths of the UTRs were arbitrarily set at 56 and 114 nt, respectively. 
+
+Table S2: Comparison of different mRNA property prediction methods. Each method was implemented using Optuna to fit an optimized regression model according to the constituent hyperparameters. In both implementations, sequences were truncated to 5,500 tokens before being embedded by mRNAutilus and used to fit either model. 
+
+Regressor Half-Life Translation Efficiency (TE) Protein Abundance 
+
+Train/ R2 Val/ R2 Train/ R2 Val/ R2 Train/ R2 Val/ R2
+
+XGBoost 0.949 0.551 0.923 0.716 0.926 0.565 
+
+KNN 1.0 0.486 1.0 579 1.0 0.511 
+
+27 Full-Sequence Statistics 
+
+> Length Distribution (Transcripts)
+> Length (bp)
+> Count
+> UTR Statistics
+> GC Content Distribution
+> GC Content %
+> Count
+> Kozak Sequence Frequency Distribution
+> Frequency per Sequence
+> Count
+> A
+> 5’UTR Lengths
+> Sequence Length (nt)
+> Number of Sequences
+> 3’UTR Lengths
+> Sequence Length (nt)
+> Number of Sequences
+> Species Distribution
+> Species (sorted)
+> Proportion of Sequences
+> Cumulative Proportion
+> B
+> C
+
+Figure S3: mRNA pretraining data. (A) Distributions for all 5.5 million protein-coding transcripts in the Ensembl dataset for sequence length (top-left), GC content (middle-left), and Kozak consensus sequence frequency (bottom-left). 
+
+(B) Sequence length distributions for the 5’ (left) and 3’UTRs (right) of all sequences used during pretraining. (C) The proportion of protein-coding transcripts attributed to each of the 342 vertebrate species in the pretraining corpus. 
+
+We performed guided design of Fluc mRNA by masking the coding sequence at a 15% masking rate uniformly at random and fully masking the UTRs. The Pareto front size was set to 24 sequences, with the number of MCTS iterations set to 200. 
+
+SARS-CoV-2 S-Protein The S-Protein is a trimeric class I fusion protein on the surface of the SARS-CoV-2 virus, which directly mediates viral entry into host cells. It contains several subunits, notably the receptor-binding domain (RBD), which binds the human ACE2 receptor. This protein, albeit across different isoforms, is the primary target for all current therapeutic efforts against COVID-19. For the design task, we constructed a template mRNA transcript for the wild-type S-protein around the publicly available CDS [National Center for Biotechnology Information, 2020]. Referencing an S-Protein mRNA vaccine patent [Corbett et al., 2021], we set lengths 56 and 114 for the 5’ and 3’UTRs, respectively. We performed simultaneous 5’/3’ UTR design and partial codon optimization of the CDS, with uniform masking at a 15% mask rate over the entire frame. The Pareto front size was set to 12 sequences, with the number of MCTS iterations set to 128. 
+
+Human MUC1 transmembrane protein The MUC1 transmembrane glycoprotein is typically expressed on the apical surface of epithelial cells and is responsible for lubrication, protection, and cell signaling. In epithelial cancers, such as in the lung, pancreas, ovaries, breast, and colon, MUC1 is overexpressed and atypically glycosylated. Its characteristic profile in the context of cancers qualifies it as a tumor-associated antigen. We define a template with the entire wild-type CDS, which we partially optimize, and set lengths to 66 and 311 for the 5’ and 3’UTRs, respectively. We performed simultaneous 5’/3’ UTR design and partial codon optimization of the CDS, with uniform masking at a mask rate of 15% throughout the frame. The Pareto front size was set to 12 sequences, with the number of MCTS iterations set to 128. 28 Number of Principal Components  
+
+> Cumulative Variance Explained (%)
+> Explained Variance by PCA Components PCA Projected Embeddings of RNA Sequences
+> Principal Component 1
+> Principal Component 2
+> AB
+
+Figure S4: PCA Analysis of mRNAutilus representations. (A) mRNAutilus embeddings are collected for 100 mRNAs and ncRNAs each, projected onto the two-dimensional vector space defined by the first two principal components of the flattened embeddings. (B) The associated scree plot for the PCA. Table S3: Comparison of property scores for wild-type mRNA transcript and codon optimized mRNA transcript with fully-designed UTR sequences. 24 sequences were generated for the Fluc template, and 12 were generated for the S-Protein and MUC1 templates. The scores of a single optimized transcript with the highest overall scores are shown in comparison to its wild-type counterpart. 
+
+Template Gene Half-Life (log-10 hours; ↑) Translation Efficiency (TE) ( ↑) Protein Abundance (log-10 scale; ↑)
+
+wild-type designed wild-type designed wild-type designed Fluc −0.112 0.537 −0.034 0.283 −1.22 −0.451 
+
+SARS-CoV-2-S-Protein −0.590 1.074 0.006 0.236 −0.741 −0.727 
+
+MUC1 −0.092 0.593 0.089 0.092 −0.630 −0.906 
+
+For the SARS-CoV-2 S-Protein and human MUC1 mRNA generation, we produced 12 Pareto-optimal mRNAs using 3 property-centric regressors over 128 MCTS iterations. Results for conditional generation are shown in Figure S5. We also perform an ablation on key parameters for the MCTG procedure, including the number of MCTG iterations and the number of sequences in the Pareto front. We demonstrate results for two target genes of different lengths - MUC-1 and GFP. Results are shown in Figure S6, where we find that a reduced number of MCTG iterations tends to correlate with greater mRNA fitness in the Pareto front. 
+
+A.8 Comparative Evaluation 
+
+Following the same methodology above for property prediction, we additionally trained XGBoost regressors using other commonly-used nucleic acid language model embeddings, namely Hyena-DNA-large-1M [Nguyen et al., 2023], RiNALMo-150M [Penić et al., 2025], and Evo-2 [Brixi et al., 2026]. We additionally include Helix-mRNA [Wood et al., 2025] as the only open-sourced pretrained mRNA language model, to our knowledge. The aforementioned models were also trained on full-length nucleic acid sequences, similar to mRNAutilus. They also tokenize nucleic acid sequences at single-nucleotide resolution, which was maintained in our evaluation. All sequences were kept to a maximum length of 5,500 tokens in our benchmarking. Results on the validation set are shown in Table S4. 29 Average Half-life over Iterations Average Translation Efficiency over Iterations Average Protein Abundance over Iterations B      
+
+> Iterations of MCTG Iterations of MCTG Iterations of MCTG
+> Iterations of MCTG Iterations of MCTG Iterations of MCTG
+> Average Half-life over Iterations Average Translation Efficiency over Iterations Average Protein Abundance over Iterations
+
+AFigure S5: Conditional generation results for (A) Human MUC1 and (B) SARS-CoV-2 S-Protein. Conditional sequence generation spanned 64 iterations, with a Pareto front size set to 12. Navy and teal lines correspond to the regressor dataset medians and the human alpha-globin (HAB)-UTR mRNA regressor scores, respectively. Error bars denote the standard error across all sequences in the Pareto front. 
+
+A.9 In vitro -tested mRNA sequences 
+
+To further evaluate our generated mRNAs, we generated libraries (N=200) encoding P. pyralis luciferase, SARS-CoV-2 Spike glycoprotein, PEMax gene editing enzyme, and β-catenin uAb. For all, we used the trans-lation efficiency and half-life regressors for reward computation. Additionally, sequences were produced following 64 iterations during the MCTG algorithm and sampled following 64 diffusion timesteps. Codon optimization was considered for 20% of codons in the CDS, and all UTRs were designed simultaneously. Template ORFs were taken from GenScript F-Luc mRNA, GenScript Spike V2, GenScript PEMax, the β-catenin uAb mRNA PpC 3 reported in Bhat et al. [2025]. In total, we produced 500 mRNAs for each gene and synthe-sized the top 4 or 5 sequences according to overall fold improvement in comparison to the HAB baseline. Score distributions for each gene and for each property are shown in Table S5. 30 A
+
+B    
+
+> Muc-1 mRNA Half-Life
+> Number of MCTS Iterations
+> Number of Sequences
+> Measurement
+> Muc-1 mRNA Protein Abundance Muc-1 mRNA Translation Efficiency
+> Number of Sequences Number of Sequences
+> GFP mRNA Half-Life
+> Number of MCTS Iterations
+> Number of Sequences
+> GFP mRNA Protein Abundance GFP mRNA Translation Efficiency
+> Number of Sequences Number of Sequences
+> Measurement
+
+Figure S6: Ablation of the key MCTG parameters. A gridded conditional generation was performed using an increas-ingly larger number of MCTG iterations and the number of sequences in the Pareto front. We demonstrate this study for 
+
+(A) MUC-1, a shorter mRNA with a CDS of length 795, and (B) GFP, a longer mRNA with a CDS of length 3,821. Table S4: Benchmarking property prediction across models. We report the Validation R2 for each predictive task, where annotated half-life, translation efficiency, and protein abundance datasets are embedded using each language model and used to train an XGBoost regressor for recapitulating the experimentally-determined value. 
+
+Model Parameters Half-Life ( R2, ↑) Translation Efficiency ( R2, ↑) Protein Abundance ( R2, ↑)
+
+Helix-mRNA 6M 0.481 0.767 0.544 
+
+Hyena-DNA 7M 0.426 0.514 0.518 
+
+RiNALMo 150 M 0.497 0.682 0.527 
+
+mRNAutilus 150 M 0.551 0.716 0.565 
+
+Evo-2 7B 0.538 0.794 0.566 
+
+Table S5: Generated sequences optimized for half-life and translation efficiency in human cell lines achieve superior property prediction distributions over the baseline human alpha-globin UTR construct. 500 mRNAs per gene were produced via the MCTG sampling algorithm and scored according to XGBoost property regressors predicting mRNA half-life and translation efficiency. 
+
+Template Gene Half-Life (log-10 hours; ↑) Translation Efficiency (TE) ( ↑)
+
+Baseline Designed Baseline Designed Fluc 0.68142 0.95149 ± 0.05839 0.10435 0.28258 ± 0.05600 
+
+SARS-CoV-2-S-Protein 0.41234 0.67300 ± 0.05917 0.05752 0.26410 ± 0.02014 
+
+PEMax 0.59335 0.58568 ± 0.03314 0.02213 0.02613 ± 0.01122 
+
+uAb 0.06028 0.46191 ± 0.02740 −0.55061 0.02371 ± 0.00896 
+
+31 B Algorithm 
+
+Here, we provide the pseudocode for Monte-Carlo Tree Guidance (MCTG) used in the mRNAutilus framework. 
+
+Algorithm 1 mRNAutilus with Monte-Carlo Tree Guidance 
+
+1: Input: Denoising model pθ
+
+> 0|t
+
+(x0|xt), score function f (x) : VL → RK , number of iterations Niter , number of children M
+
+2: Output: Set of Pareto-optimal mRNA sequences P⋆
+
+3: Initialize: x1 ← [m]L, P⋆ ← {} , t ← 1
+
+4: for i = 1 to Niter do 
+
+5: Selection: 
+
+6: ▷ Traverse tree to expandable leaf ◁
+
+7: xleaf ← SELECT (x0)
+
+8: Expansion: 
+
+9: for j = 1 to M do 
+
+10: Sample x(j)0 ∼ pθ
+
+> 0|t
+
+(·| xleaf ) with Gumbel noise 
+
+11: Create child x(j) 
+
+> child
+
+by unmasking k positions according to x(j)0
+
+12: Add x(j) 
+
+> child
+
+to children (xleaf )
+
+13: end for 
+
+14: Rollout: 
+
+15: for each x(j) 
+
+> child
+
+∈ children (xleaf ) do 
+
+16: ▷ Complete sequence using self-planned ancestral sampling ◁
+
+17: ˜x(j) ← SelfPlannedSampling (x(j)
+
+> child
+
+)
+
+18: ▷ Evaluate properties using trained regressors ◁
+
+19: s(j) ← f (˜ x(j))
+
+20: Update P⋆ with ˜x(j) if non-dominated 
+
+21: ▷ Compute reward based on Pareto dominance ◁
+
+22: r(j) ← COMPUTEREWARD (s(j), P⋆)
+
+23: end for 
+
+24: Backpropagation: 
+
+25: ▷ Update ancestor node statistics with child rewards ◁
+
+26: BACKPROPAGATE (xleaf , {r(j)})
+
+27: end for 
+
+28: return P⋆
+
+32
