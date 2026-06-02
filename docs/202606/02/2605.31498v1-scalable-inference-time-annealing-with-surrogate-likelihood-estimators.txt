@@ -1,0 +1,1131 @@
+Title: Scalable Inference-Time Annealing with Surrogate Likelihood Estimators
+
+URL Source: https://arxiv.org/pdf/2605.31498v1
+
+Published Time: Mon, 01 Jun 2026 01:31:20 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+Annealing Flows with Surrogate Likelihood Estimators 
+
+# Scalable Inference-Time Annealing with Surrogate Likelihood Estimators 
+
+Daniel Peñaherrera dap181@pitt.edu 
+
+Rishal Aggarwal rishal.aggarwal@pitt.edu 
+
+David Ryan Koes dkoes@pitt.edu 
+
+CMU-Pitt PhD Program in Computational Biology Dept. of Computational & Systems Biology, University of Pittsburgh, Pittsburgh, PA 15260, USA 
+
+Abstract 
+
+A long standing challenge in computational chemistry and biophysics is efficiently sampling the Boltzmann distribution of molecules. Advances in generative modeling have been proposed to address the limitations of conventional sampling techniques by eliminating the computational cost of simulation. A promising direction is iteratively finetuning diffusion models along a temperature ladder whereby training data is generated via importance sampling during inference-time annealing. Unfortunately, these methods require computing a divergence over the score field to estimate importance weights, rendering them intractable for larger systems. Here we present scalable inference-time annealing (SITA), which retrains flow-based models to generate samples at progressively lower temperatures using an energy-based model to facilitate fast surrogate likelihoods. We demonstrate state-of-the-art performance on both Alanine Dipeptide and Alanine Tripeptide while avoiding costly divergence terms. Our code is available at: https://github.com/countrsignal/sita.git 
+
+Keywords: boltzmann sampling, bootstrap generative models, temperature annealing, energy-based models, flow-matching 
+
+1 Introduction 
+
+Sampling the equilibrium ensemble of molecular configurations is a foundational task in statistical physics (Noé et al. (2019); Hénin et al. (2022); Faulkner and Livingstone (2024)), as it provides access to thermodynamic observables like free energies and binding affinities, yet remains notoriously difficult for all but the simplest systems. Molecular ensembles are defined by the Boltzmann distribution whose probability density function is defined by π(x) = Z−1 exp (− E(x)  
+
+> kBT
+
+) where E(·) is the energy function of the system x, kB is the Boltzmann constant, T is the temperature, and Z is the normalizing constant known as the partition function. The difficulty in sampling the Boltzmann distribution arises from the highly non-convex and rugged nature of the energy function. Traditional techniques such as Markov Chain Monte Carlo (MCMC) and molecular dynamics (MD) simulations often become trapped in energy minima, requiring long simulations with femtosecond timesteps that yield highly correlated samples. Furthermore, even minor modifications to the molecular system of interest necessitate entirely new simulations, limiting their suitability for high-throughput analysis. An established class of samplers are deep learning generative models (Hyvärinen, 2005; Sohl-Dickstein et al., 2015; Song et al., 2020; Ho et al., 2020; Lipman et al., 2022) that hold the promise for fast, amortized sampling of the Boltzmann distribution. However, the 
+
+1
+
+> arXiv:2605.31498v1 [cs.LG] 29 May 2026 Daniel Peñaherrera, Rishal Aggarwal and David Ryan Koes
+
+data-driven nature of these methods poses a severe limitation to realizing this promise as the current training paradigm is circular: it requires equilibrium ensembles for training data, yet generating such ensembles is precisely the intractable problem at hand. Recently, a new paradigm has emerged that facilitates a bootstrapping approach whereby generative models are iteratively retrained on their own outputs from a previous iteration of optimization. Existing generative bootstrapping methods can be broadly grouped into two families: those based on diffusion samplers and those based on importance sampling. Diffusion-based samplers are designed to approximately sample a target distribution by defining probability paths to either optimize over (Vargas et al., 2025) or derive regression targets for the optimal drift (Akhound-Sadegh et al., 2024; Liu et al., 2025; Blessing et al., 2026). In the absence of any initial dataset, these methods require incorporation the of unnormalized likelihoods under the target distribution into their loss functions. While compelling in principle, diffusion-based samplers tend to suffer from mode collapse when scaled to molecular systems. Although recent work has begun to address this (Blessing et al., 2026), the resulting methods still do not recover the equilibrium ensemble faithfully, trading mode collapse for an oversmoothed energy landscape. Importance-sampling-based bootstrapping emulates Annealed Importance Sampling Jarzynski (1997); Neal (1998) and Sequential Monte Carlo Moral and Doucet (2002) by defining a sequence of distributions that the model successively approximates. At each step, samples from the current model serve as proposals, reweighted by importance weights to target the next distribution. The sequence is typically constructed via geometric annealing (Midgley et al., 2023; von Klitzing et al., 2026; Albergo and Vanden-Eijnden, 2025) or temperature annealing (Schopmans and Friederich, 2025; Akhound-Sadegh et al., 2025). Under temperature annealing, one trains a generative model on high-temperature simulation data and iteratively fine-tunes on its own samples as the temperature is lowered. Two benefits follow: (i) high-temperature simulation enhances exploration and mode coverage, and (ii) recursive bootstrapping yields data-efficient recovery of the target distribution. One such annealing method is PITA Akhound-Sadegh et al. (2025), which combines diffusion models with inference-time modifications to the reverse-time generative process, enabling generation of samples that are approximately distributed by the lower temperature Boltzmann distribution. PITA relies on self-normalized importance sampling (SNIS) at each annealing step based on the Feynman-Kac formula. This SNIS estimator, however, requires evaluating the divergence of the score field along the full integration path of the reverse process. Such computational overhead poses a serious limitation for systems with many degrees of freedom. 
+
+Main Contributions. In this work, we present SITA (Figure 1), the first inference-time annealing for continuous flow-matching (Lipman et al. (2022)) models that circumvents path integral-based SNIS estimators via reliance on a new class of surrogate likelihood estimators called BoltzNCE (Aggarwal et al. (2025)). On the benchmark systems of alanine dipeptide and alanine tripeptide, we demonstrate the following: 
+
+• Annealing for flows. We develop a simple inference-time annealing procedure for continuous flow models that allows large temperature jumps across a pre-defined temperature ladder. 
+
+> 2Annealing Flows with Surrogate Likelihood Estimators
+
+Figure 1: SITA training loop: A flow model θ trained on high-temperature samples is used to generate proposals for training an energy-based model ϕ. Importance-weighted resampling with the learned surrogate likelihoods produces samples at lower temperatures, which seeds the next annealing step without expensive Jacobian computations. 
+
+• Surrogate-driven annealed importance sampling. We integrate a BoltzNCE-style surrogate into a temperature annealing ladder, enabling importance-weighted transport from the high-temperature Boltzmann distribution to the room temperature equilibrium target distribution — a regime where direct Jacobian-based reweighting would be prohibitive. 
+
+• Empirical validation. SITA achieves state-of-the-art results across several metrics despite the inherent bias introduced by the surrogate likelihood estimator. 
+
+2 Background 
+
+To address the prohibitive cost of likelihood evaluation in flow-based Boltzmann samplers, SITA combines a flow-based generative model with a surrogate likelihood estimator to enable efficient inference-time annealing for molecular Boltzmann sampling. We first review stochastic interpolants, a unifying framework for continuous-time generative modeling that subsumes diffusion models & flow matching, which provides the generative backbone of our approach. We then describe BoltzNCE, a recently developed energy-based surrogate likelihood estimator that yields the tractable density evaluations our reweighting procedure relies on. 
+
+> 3Daniel Peñaherrera, Rishal Aggarwal and David Ryan Koes
+
+2.1 Stochastic Interpolants and Flow Matching 
+
+A stochastic interpolant Albergo et al. (2023); Ma et al. (2024) defines a continuous-time process that transports samples from a base distribution ρ0 to a target distribution ρ1 = π.For paired samples x0 ∼ ρ0 and x1 ∼ ρ1, the interpolant takes the form 
+
+It = αtx0 + βtx1,
+
+where α, β : [0 , 1] → R are continuously differentiable scalar functions satisfying α0 = 1 ,
+
+α1 = 0 , β0 = 0 , and β1 = 1 . This formulation encompasses diffusion models Song et al. (2020); Ho et al. (2020), flow matching Lipman et al. (2022), and rectified flows Liu et al. (2022a) as special cases under appropriate choices of α and β.The time-marginal density ρt = Law (It) coincides with the density evolved by a probability flow transporting mass from ρ0 to ρ1:
+
+˙Xt = vt(Xt), vt(x) = E[ ˙It | It = x],
+
+where the velocity field vt is characterized as the conditional expectation of the interpolant’s time derivative. Given a coupling ρ(x0, x 1) between the base and target distributions, the velocity field can be learned by training a neural network ˆv via the regression loss 
+
+Lv(ˆ v) = E
+
+h
+
+∥ˆvt(It) − ˙It∥2i
+
+, (1) where the expectation is taken over (t, x 0, x 1). Samples are then generated by integrating the learned dynamics 
+
+˙xt = ˆ vt(xt), x0 ∼ ρ0.
+
+The density of the generated samples is given by the change-of-variables formula 
+
+ˆρ1(ˆ x1) = ρ0(x0) exp 
+
+
+
+−
+
+Z 10
+
+∇ · vt(xt) dt 
+
+
+
+.
+
+2.2 Surrogate Likelihood Estimators (BoltzNCE) 
+
+SITA employs a surrogate likelihood estimator parameterized as an energy-based model (EBM) to enable efficient reweighting of samples produced by the flow. Training EBMs was historically considered intractable, but recent advances, particularly BoltzNCE (Aggarwal et al. (2025)), have made it practical by combining score matching with noise contrastive estimation (NCE) (Gutmann and Hyvärinen (2010); Oord et al. (2018)). BoltzNCE training proceeds in two stages. First, samples ˆx1 ∼ ˆρ1 are drawn from the flow to serve as training data for the EBM. Second, the EBM is fitted to these samples to learn an energy function U over the flow’s output distribution ˆρ1.The training objective is derived by introducing an auxiliary stochastic interpolant from a Gaussian base to ˆρ1. The score matching component takes the form 
+
+LSM ( ˆU ) = E
+
+h
+
+|αt∇ ˆUt( ˜It) + x0|2i
+
+,
+
+> 4Annealing Flows with Surrogate Likelihood Estimators
+
+where the expectation is over (t, x 0, ˆx1) with ˜It = αtx0 + βt ˆx1. While score matching constrains the gradient of the energy, an additional NCE-based term is needed to anchor the energy values themselves. This is achieved by training the model to discriminate between samples from different time points: 
+
+LInfoNCE ( ˆU ) = −E
+
+"
+
+log exp( ˆUt( ˜It)) exp( ˆUt′ ( ˜It)) + exp( ˆUt( ˜It)) 
+
+!# 
+
+,
+
+where t′ denotes a contrastive time point and the expectation is over (t′, t, x 0, ˆx1). The full BoltzNCE objective combines both terms: 
+
+LBoltzNCE ( ˆU ) = LSM ( ˆU ) + LInfoNCE ( ˆU ). (2) 
+
+3 Scalable Inference-Time Annealing 
+
+In this section, we outline how through a combination of surrogate likelihood estimation and flow annealing we facilitate a highly scalable algorithm to model the Boltzmann distribution of physical systems. Let {Tk}Kk=0 denote a decreasing sequence of temperatures and E(·)
+
+be the energy function associated with the target Boltzmann distribution π(x1), which we can evaluate exactly. Given a flow with parameters θ pre-trained on high-temperature simulation data and an EBM with parameters ϕ pre-trained on flow generated outputs, SITA’s multi-phase annealing bootstrap proceeds as follows: (i) Anneal the flow. Samples ˆx1 ∼ ˆρTk+1  
+
+> 1
+
+are generated from the flow by drawing 
+
+x0 ∼ N (0 , Tk+1  
+
+> Tk
+
+I) and integrating the generative ODE. (ii) Finetune the EBM. Using flow generated samples, the EBM is finetuned to better approximate the likelihoods of ˆx1 ∼ ˆρTk+1  
+
+> 1
+
+.(iii) Importance sampling. We use the newly fitted EBM to compute importance weights ˜w( ˆx1) = exp (− 1  
+
+> κBTk+1
+
+E( ˆx1) − ˆUϕ( ˆx1)) for each sample generated by the flow. Subsequently, samples are re-weighted to provide a new dataset at temperature Tk+1 
+
+to retrain the flow. (iv) Finetune the flow. Using the set of importance weighted samples, the flow is finetuned to better approximate the annealed target distribution. Upon completion, the whole process begins again until the final temperature TK is reached. A workflow diagram of SITA is illustrated in Figure 1, accompanied with pseudocode in Algorithm 1. We emphasize that the same two models are maintained throughout the entire annealing bootstrap process. Their respective optimizers are simply re-initialized at the start of each new finetuning step. 
+
+> 5
+
+Daniel Peñaherrera, Rishal Aggarwal and David Ryan Koes 
+
+Algorithm 1 Scalable Inference-Time Annealing (SITA) 
+
+Require: Temperature ladder {Tk}Kk=0 (decreasing), energy function E(·) defining the target distribution π
+
+Require: Pre-trained flow ˆvθ, pre-trained EBM ˆUϕ
+
+Ensure: Flow model ˆvθ approximates π at the target temperature TK 
+
+> 1:
+
+for k = 0 to K − 1 do  
+
+> 2:
+
+// Anneal the flow  
+
+> 3:
+
+Draw x0 ∼ N (0 , Tk+1  
+
+> Tk
+
+I) 
+
+> 4:
+
+Generate ˆx1 ∼ ˆρTk+1  
+
+> 1
+
+by integrating generative ODE  
+
+> 5: 6:
+
+// Finetune the EBM  
+
+> 7:
+
+Reinitialize optimizer for ϕ 
+
+> 8:
+
+Update ϕ using LBoltzNCE ( ˆUϕ) (see Equation 2) for a total of NEBM epochs  
+
+> 9: 10:
+
+// Importance-weighted resampling  
+
+> 11:
+
+Compute log weights log ˜ w(ˆ x1) ← − 1  
+
+> kBTk+1
+
+E(ˆ x1) − ˆUϕ(ˆ x1) 
+
+> 12: 13:
+
+// Clip at 99th percentile  
+
+> 14:
+
+log ˜ w(ˆ x1) ← quantile_clip (log ˜ w(ˆ x1), 0.99)  
+
+> 15:
+
+Resample {ˆx1} according to self-normalized weights w(ˆ x1) 
+
+> 16: 17:
+
+// Finetune the flow  
+
+> 18:
+
+Reinitialize optimizer for θ 
+
+> 19:
+
+Update θ on resampled data using Lv( ˆvθ) (see Equation 1) for a total of NFlow epochs  
+
+> 20:
+
+end for  
+
+> 21:
+
+return ˆvθ
+
+3.1 Temperature Steering of the Probability Flow ODE 
+
+We observe that velocity field models can induce temperature changes in the generated distribution without explicit temperature conditioning during training. A velocity field ˆv
+
+trained on simulation data at temperature Thigh transports samples from the base distribution 
+
+ρ0(x0) = N (0 , I) to produce ˆx1 ∼ ˆρThigh  
+
+> 1
+
+, where 
+
+ˆρThigh  
+
+> 1
+
+(ˆ x1) = ρ0(x0) exp 
+
+
+
+−
+
+Z 10
+
+∇ · ˆvt(xt) dt 
+
+
+
+.
+
+Crucially, the flow learns to map ρ0 to an approximation of the high-temperature target with-out explicitly modeling the temperature dependence, this information is encoded implicitly in the flow’s output distribution. This implicit encoding enables a simple mechanism for temperature transfer. By raising the flow density to the power κ = Thigh /T low , we obtain the proportionality relation 
+
+ˆρTlow  
+
+> 1
+
+(ˆ x1) ∝
+
+h
+
+ˆρThigh  
+
+> 1
+
+(ˆ x1)
+
+iκ
+
+=
+
+
+
+ρ0(x0) exp 
+
+
+
+−
+
+Z 10
+
+∇ · ˆvt(xt) dt 
+
+ κ
+
+.
+
+6Annealing Flows with Surrogate Likelihood Estimators 
+
+Consequently, sampling an approximation of low-temperature distribution ˆρTlow  
+
+> 1
+
+simply requires a rescaling of the base distribution variance by κ−1 at inference time: 
+
+[ρ0(x)] κ = exp 
+
+
+
+− Thigh ∥x∥2
+
+2Tlow 
+
+
+
+∝ N (0 , κ −1I).
+
+This rescaling allows SITA to achieve large temperature jumps without modifying the velocity field model’s architecture or enforcing volume preservation under the instantaneous change of variables. Further details on temperature steerability are provided in Appendix A. 
+
+3.2 Importance sampling with Surrogate Likelihood Estimators 
+
+The reliance on an EBM as a surrogate to exact likelihoods of generated samples naturally introduces bias into the estimates of importance weights. Concretely, for any test function 
+
+f (·), generator ρθ, and density model qϕ, the self-normalized estimator converges to: 
+
+Eρθ [w(x)f (x)] 
+
+Eρθ [w(x)] =
+
+R ρθ(x) π(x) 
+
+> qϕ(x)
+
+f (x)dx 
+
+R ρθ(x) π(x) 
+
+> qϕ(x)
+
+dx =
+
+R ρθ (x) 
+
+> qϕ(x)
+
+π(x)f (x)dx 
+
+R ρθ (x) 
+
+> qϕ(x)
+
+π(x)dx 
+
+Clearly, the recovered distribution is a tilted version of the target 
+
+˜π(x) ∝ ρθ(x)
+
+qϕ(x) π(x) (3) where the target π is recovered exactly only when pθ = qϕ. Empirically, we demonstrate that despite the bias introduced by SITA’s surrogate likelihood estimator, the EBM derived importance weights deliver superior performance on benchmark molecular systems. 
+
+4 Related Work 
+
+Section 1 situates our contribution within the broader literature on bootstrap generative modeling, where temperature annealing for continuous-time flows remains conspicuously under-explored — a gap this work directly addresses. 
+
+Flow-based Boltzmann samplers. Normalizing flows were first applied to molecular sampling by (Noé et al. (2019)), who introduced Boltzmann Generators as bijections from a tractable base to a learned approximation of the Boltzmann distribution. Subsequent work improved expressivity via equivariant architectures (Köhler et al. (2020); Satorras et al. (2022)) and via classical force-field couplings (Wirnsberger et al. (2020)), but mode coverage has remained the binding empirical constraint: a maximum-likelihood objective evaluated on equilibrium data cannot, on its own, place mass on modes that are absent from the training set. SITA retains the architectural advantages of continuous-time flows while replacing the maximum-likelihood objective with a temperature-annealing bootstrap that progressively transfers samples from a tractable high-temperature distribution to the cold target, sidestepping the circularity that constrains direct equilibrium training. 
+
+> 7Daniel Peñaherrera, Rishal Aggarwal and David Ryan Koes
+
+Diffusion-based Sampling. Amortized samplers built on diffusion models have prolifer-ated rapidly, with methods distinguished primarily by how the optimal drift is estimated and the cost paid to obtain it. Simulation-based approaches (Zhang and Chen (2022); Richter and Berner (2024); Vargas et al. (2023, 2025)) train a learned diffusion against the Boltzmann log-density, exploiting the fast mode mixing of the forward process at the cost of full trajectory simulation during training. Conversely, simulation-free alternatives such as iDEM (Akhound-Sadegh et al. (2024)) and TSM (Bortoli et al. (2024)) sidestep this simulation cost by regressing on the score directly, achieving better scaling at the price of high-variance estimates of the score function. More recent work explores alternative bridge constructions, including Schrödinger bridges (Liu et al. (2025); Blessing et al. (2026)) and underdamped Langevin bridges (Blessing et al. (2025)). In parallel, iterative bootstrap pro-cedures (Akhound-Sadegh et al. (2025)) have been introduced to address the mode-coverage gap by progressively annealing the sampler toward the target temperature. 
+
+Bootstrapping via importance reweighting. A complementary line of work bootstraps a flow against itself by exploiting an importance-sampling correction along an annealing path, drawing on Annealed Importance Sampling (Neal (1998)) and Sequential Monte Carlo (Moral and Doucet (2002)). FAB (Midgley et al. (2023)) uses AIS to construct importance-weighted training targets along a geometric path; (von Klitzing et al. (2026)) extends this with constrained mass transport; TA-BG (Schopmans and Friederich (2025)) replaces the geometric path with a temperature schedule. 
+
+Continuous-time generative models. SITA’s parameterization builds on continuous-time generative models (Chen et al. (2019); Song et al. (2021)) and the stochastic interpolant framework (Albergo et al. (2023); Ma et al. (2024)), which subsumes flow matching (Lipman et al. (2023)) and rectified flows (Liu et al. (2022b)) as special cases. These models avoid the architectural restrictions of coupling-based flows but trade exact likelihood for ODE-based likelihood evaluation, whose cost scales prohibitively with the dimension of the state space and with the desired numerical accuracy of the ODE solver. 
+
+5 Experiments 
+
+We evaluate SITA against PITA on two molecular benchmark systems: alanine dipeptide and alanine tripeptide. For our bootstrapping experiments, we pre-train SITA’s flow model on the same 1200K MD simulation data as PITA. All evaluation metrics reported in this section are calculated against the same test-split used in PITA, containing randomized frames from a 300K MD simulation. All metrics were evaluated across 3 seeds by generating 10,000 samples from SITA’s flow post-bootstrap. To quantify mode coverage and precision, we compute Wasserstein distances over Ramachandran coordinates ( T-W2) and energy distributions (E-W1, E-W2). Additionally, we measure KL divergence between ground-truth and generated Ramachandran distributions (RAM-KL).Lastly, we account for all MD energy evaluations consumed by both methods. After the shared upfront cost of generating the training set (5 × 10 7 evaluations for each system), bootstrapping incurs one to two orders of magnitude fewer evaluations, reflecting the principal efficiency claim of SITA. 
+
+Baselines Beyond PITA, we include three baselines from Akhound-Sadegh et al. (2025): Temperature Annealed Boltzmann Generators (TA-BG; Schopmans and Friederich 2025), 
+
+> 8Annealing Flows with Surrogate Likelihood Estimators
+
+a diffusion model (MD-Diff), and a normalizing flow (MD-NF). MD-Diff and MD-NF are trained directly on MD samples simulated at 300K, while TA-BG is a normalizing flow trained via temperature-annealed bootstrapping. Energy-evaluation reporting for MD-Diff and MD-NF reflect the cost of generating their MD training data, while reporting for TA-BG reflects the cost of bootstrapping only. 
+
+Architecture. SITA’s flow model is a Geometric Vector Perceptron graph neural network, introduced by Jing et al. (2021b), equipped with E(3) -invariance in its scalar features and E(3)-equivariance in its vector features. To parameterize the EBM, we use the Graphormer architecture Ying et al. (2021) due to its successful application in Aggarwal et al. (2025). Both flow and score matching objectives used for training make use of trigonometric interpolants introduced in Albergo et al. (2023), where αt = cos( π 
+
+> 2
+
+t) and βt = sin( π 
+
+> 2
+
+t).
+
+5.1 Main results 
+
+Figure 2: Alanine dipeptide comparison on 30,000 samples from both SITA and MD simulation. Flow-generated samples closely match the MD reference in both energy distribution and Ramachandran free energy landscape, capturing all major conformational basins. 
+
+Alanine Dipeptide (ADP). SITA is applied to the task of sampling conformations of alanine dipeptide at the target temperature of 300K, having been initially pre-trained on an MD dataset simulated at 1200K. We define an annealing schedule over temperatures 755.95K, 555.52K, 408.24K, 300.00K. We note this includes one extra step of 408.24K compared to PITA applied to alanine dipeptide. At each annealing step, SITA’s annealed flow generates 200,000 samples to fine-tune the EBM. A new set of 100,000 samples is then produced by importance weighted re-sampling of the original 200,000 sample using a the EBM to calculate the SNIS estimate. We report the effective sample size (ESS) for each annealing step in Table 2. SITA achieves the best performance on Rama-KL and the energy Wasserstein-2 metric, as can be seen from Table 1.While SITA outperforms PITA on the energy Wasserstein-1 metric, it is itself outperformed by MD-NF, a baseline trained directly on equilibrium samples from MD at 300K. The poor Rama-KL of MD-NF, however, suggests this conclusion is misleading: MD-NF likely produces low-energy conformers from only a subset of the modes, a signature of mode collapse. Visual comparison confirms that SITA captures all major conformational basins and matches the reference energy distribution (Figure 2). SITA remains competitive 
+
+> 9
+
+Daniel Peñaherrera, Rishal Aggarwal and David Ryan Koes 
+
+with PITA on the torsion metric ( T-W2), where accurately recovering mode populations remains challenging. Rama-KL ↓ Energy-W1 ↓ Energy-W2 ↓ T-W2 ↓ #Energy Evals ↓
+
+PITA 4.773 ± 0.460 1.530 ± 0.068 1.615 ± 0.053 0.270 ± 0.023 5.01 × 10 7
+
+TA-BG 14 .993 ± 0.002 83 .457 ± 0.070 86 .176 ± 0.104 0.979 ± 0.012 5 × 10 7
+
+MD-Diff 1.308 ± 0.072 3.627 ± 0.023 3.704 ± 0.026 0.310 ± 0.001 5 × 10 7
+
+MD-NF 13 .533 ± 0.024 0.551 ± 0.062 1.198 ± 0.069 0.403 ± 0.045 5 × 10 7
+
+SITA 0.517 ± 0.013 0.865 ± 0.080 0.939 ± 0.079 0.326 ± 0.004 5.08 × 10 7
+
+Table 1: Alanine Dipeptide at 300K. Metrics calculated over 10,000 samples across 3 seeds. 755.95K 555.52K 408.24K 300.00K ESS ↑ 0.131 0.218 0.192 0.268 Table 2: ESS across temperatures for ADP. 
+
+Alanine Tripeptide (ATP). We further evaluate SITA on the larger alanine tripeptide system, using the same annealing schedule and bootstrapping procedure as in the alanine dipeptide experiment. Note that in this application, the annealing schedules between SITA and PITA are now the same. Here, we observe that SITA outperforms all methods on nearly all metrics (Table 3) with the exception of the torsion metric ( T-W2). Remarkably, SITA is able to achieve this superior performance without requiring any relaxation of generated samples. In contrast, PITA and TA-BG must run a short MD refinement on its generated samples at the target temperature to remain competitive. Rama-KL Energy-W1 ↓ Energy-W2 ↓ T-W2 #Energy Evals PITA 1.209 ± 0.144 2.567 ± 0.108 2.592 ± 0.107 0.521 ± 0.006 8 × 10 7                                                                           
+
+> PITA (w/o relaxation) 8.535 ±0.254 86 .270 ±0.294 87 .695 ±0.294 0.651 ±0.013 5.01 ×10 7
+> TA-BG 2.078 ±2.088 4.782 ±0.076 4.863 ±0.082 0.347 ±0.014 8×10 7
+> TA-BG (w/o relaxation) 14 .988 ±0.009 173 .042 ±0.717 178 .558 ±0.732 1.310 ±0.004 8×10 7
+> MD-Diff 9.662 ±0.085 7.416 ±0.130 7.599 ±0.137 0.424 ±0.011 8×10 7
+> SITA (w/o relaxation) 0.361 ±0.025 1.933 ±0.298 2.054 ±0.268 0.798 ±0.268 5.08 ×10 7
+
+Table 3: Alanine Tripeptide at 300K. Metrics calculated over 10,000 samples across 3 seeds. 755.95K 555.52K 408.24K 300.00K ESS ↑ 0.045 0.067 0.074 0.065 Table 4: ESS across temperatures for ATP. 
+
+10 Annealing Flows with Surrogate Likelihood Estimators 
+
+5.2 Metropolis Hastings Refinement 
+
+Lastly, we apply Independent Metropolis-Hastings (IMH) algorithm Gabrié et al. (2022) as a post-hoc refinement of generated samples, using both SITA’s flow and EBM in the accept-reject step. IMH is a Markov chain Monte Carlo (MCMC) method whose accept-reject mechanism guarantees convergence to a target distribution, provided the densities of both the target and the proposal can be evaluated. Our goal in this setting is to obtain samples whose empirical distribution more closely approximates the target Boltzmann distribution 
+
+π(x) at 300 K. In the absence of an exact proposal density, we replace the proposal in the IMH acceptance probability with a learned surrogate qϕ, yielding 
+
+α(x, y ) = min 
+
+
+
+1, π(y) qϕ(x)
+
+π(x) qϕ(y)
+
+
+
+.
+
+Inclusion of the EBM introduces a bias that breaks the guarantee of π(x) as the stationary distribution of the chain; the chain instead converges to the tilted distribution ˜π(x), defined in Equation 3 (see Appendix B for full derivation). Despite this bias, we demonstrate on alanine tripeptide that the IMH refinement still improves SITA’s performance. We compare IMH refinement, ran for 50 steps, against unadjusted SITA and SITA augmented with an additional importance sampling step (SITA-IS). Each experiment uses 10,000 samples and is repeated across three random seeds. Results appear in Table 5, with energy evaluation counts reflecting the post-bootstrap phase only. Further algorithmic details are available in Appendix G. ESS ↑ Rama-KL Energy-W1 ↓ Energy-W2 ↓ T-W2 #Energy Evals SITA — 0.361 ± 0.025 1.933 ± 0.298 2.054 ± 0.268 0.798 ± 0.268 —SITA-IS 0.191 ± 0.006 0.991 ± 0.042 0.681 ± 0.310 0.734 ± 0.287 0.770 ± 0.004 10 4                
+
+> SITA-IMH (50 steps) —0.313 ±0.020 0.996 ±0.029 1.702 ±0.025 0.704 ±0.029 5×10 5
+
+Table 5: Independent Metropolis Hastings refinement for Alanine Tripeptide at 300K. All metrics calculated over 10,000 samples across 3 seeds. From Table 5, we observe improvements over unadjusted SITA across the reported metrics. SITA-IS achieves the lowest Energy-W1 and Energy-W2 values; however, it incurs a marked degradation in Rama-KL and yields only a marginal improvement in T-W2. This trade-off reflects a loss of sample diversity introduced by importance-weighted resampling, as evidenced by the modest effective sample size of 0.191 . SITA-IMH improves every metric while preserving sample diversity, attaining the best Rama-KL and T-W2 scores, albeit at the cost of additional energy evaluations. 
+
+5.3 TICA Evaluations 
+
+We evaluate generative model performance using time-lagged independent component analysis (TICA) Pérez-Hernández et al. (2013); Schwantes and Pande (2013), reporting Wasserstein-1 and Wasserstein-2 distances between TICA projections of generated and MD samples. We find that two methodological choices — the lag time and the protocol for down-sampling MD trajectory frames — meaningfully affect the resulting metrics, and we outline below the 
+
+11 Daniel Peñaherrera, Rishal Aggarwal and David Ryan Koes 
+
+protocol we adopt. A fuller discussion, including comparison with the values reported in Akhound-Sadegh et al. (2025), is provided in Appendix F.1. 
+
+Figure 3: TICA projection density scatter plots comparing MD-generated and SITA flow-generated samples for alanine dipeptide (left) and alanine tripeptide (right). Each panel plots TICA projections of 30,000 samples, with color intensity reflecting local sample density. The close correspondence between MD and flow-generated distributions in both systems provides qualitative confirmation of the quantitative improvements reported in Table 6. MD trajectories are not I.I.D. samples and exhibit strong time correlations. Down-sampling frames for TICA projection by selecting a contiguous block of initial frames can drop modes or distort their relative weights. We therefore fit TICA on the full MD trajectory and uniformly subsample frames for the projection step. We also advocate a single standardized lag time across systems: small lag times render TICA sensitive to fast motions that may be indistinguishable from noise, and per-system tuning complicates cross-system comparison.To apply these conventions consistently in our comparison with Akhound-Sadegh et al. (2025), we regenerated MD trajectories for both alanine dipeptide and alanine tripeptide following the simulation configuration described therein, as the original trajectories were not publicly available. Table 6 reports TICA-W1 and TICA-W2 metrics under both down-sampling protocols, with significant improvement under uniform sampling. For direct comparability with the values in Akhound-Sadegh et al. (2025), we use lag times of 100 for ADP and 10 for ATP; recomputed results for ATP with a lag time of 100 show substantially closer agreement with MD and are reported in Appendix F.1. Figure 3 shows density scatter plots of the first two TICA components for both systems, illustrating qualitative agreement between SITA and MD. 
+
+6 Conclusion 
+
+We introduce SITA, a scalable framework that trains continuous flow models to recover target Boltzmann distributions via temperature annealing, achieving computational efficiency by avoiding vector-field divergence computations. Our method establishes a new state-of-the-art on both alanine dipeptide and alanine tripeptide. We further demonstrate empirically that surrogate likelihood estimators offer a tractable route to modeling molecular ensembles with many degrees of freedom, a regime in which existing methods struggle. Future directions include architectural optimization, cross-system transferability, and applications to larger molecular systems. 
+
+> 12
+
+Annealing Flows with Surrogate Likelihood Estimators                                                                                                                     
+
+> ADP TICA ATP TICA
+> W1W2W∗
+> 1W∗
+> 2W1W2W∗
+> 1W∗
+> 2
+> PITA ————0.272 ±0.017 0.952 ±0.055 ——PITA (w/o relax.) 0.118 ±0.006 0.379 ±0.028 ——0.405 ±0.014 0.999 ±0.043 ——TA-BG ————0.082 ±0.001 0.454 ±0.001 ——TA-BG (w/o relax.) 0.219 ±0.013 0.685 ±0.034 ——0.321 ±0.001 0.648 ±0.000 ——MD-Diff 0.113 ±0.001 0.579 ±0.004 ——0.059 ±0.006 0.426 ±0.010 ——MD-NF 0.138 ±0.003 0.586 ±0.003 ——————SITA (w/o relax.) 0.155 ±0.009 0.629 ±0.212 0.089 ±0.012 0.414 ±0.035 0.311 ±0.014 0.943 ±0.021 0.179 ±0.012 0.546 ±0.035
+
+Table 6: TICA-W1 and TICA-W2 metrics for alanine dipeptide (ADP) and alanine tripeptide (ATP). Columns marked with ∗ denote metrics computed using uniform frame sampling along the MD trajectory, while unmarked columns use the first-frame down-sampling method from the original PITA paper. All metrics are calculated over 10,000 samples across 3 seeds. 
+
+Acknowledgments and Disclosure of Funding 
+
+This research was undertaken thanks to funding through R35GM140753 from the National Institute of General Medical Sciences and the American Chemical Society’s Graduate Student Success Grant 
+
+13 Daniel Peñaherrera, Rishal Aggarwal and David Ryan Koes 
+
+Appendix A. Temperature Steerability in Flows 
+
+A.1 Normalizing Flows 
+
+In their original formulation, normalizing flows learn a differentiable bijection x = ϕθ(z) that maps samples from a simple base distribution ρZ (z), typically a multivariate Gaussian, to some target distribution π(x). By the change-of-variables formula, likelihoods under the normalizing flow can be evaluated as 
+
+ρθ(x) = ρZ (ϕ−1 
+
+> θ
+
+(x)) ∂ϕ −1
+
+> θ
+
+∂x (x) , (4) where z = ϕ−1 
+
+> θ
+
+(x) and ∂ϕ −1 
+
+> θ
+
+/∂x is the Jacobian determinant of the flow map ϕθ, which is comprised of a discrete sequence of invertible neural network layers with parameters θ.In the continuous time perspective, continuous normalizing flows (CNF) replaces this stack of maps with a time-indexed family of maps Xt(x) = ϕt(x0) with t ∈ [0 , 1] that acts as the pushforward of the base distribution ρ0 at time t = 0 to some time-varying density ρt
+
+that terminates at ρ1 at time t = 1 . Conveniently, the flow map ϕt is characterized by the ordinary differential equation (ODE) 
+
+˙Xt(x) = ddt ϕt(x) = vt(ϕt(x)) , Xt=0 (x) = x (5) where vt is the velocity field governing the transport of individual samples. From the density perspective, the pushforward of ρ0 under ϕt yields a time-varying density ρt that satisfies the continuity equation 
+
+∂tρt + ∇ · (vtρt) = 0 with boundaries ρt=0 = ρ0 and ρt=1 = ρ1. (6) Denoting ˆρ1 as the CNF’s output distribution, likelihoods for generated samples ˆx1 are given by the instantaneous change-of-variables formula, 
+
+ˆρ1(ˆ x1) = ρ0(x0) exp 
+
+
+
+−
+
+Z 10
+
+∇ · vt(xt)dt 
+
+
+
+. (7) Generative modeling thus reduces to estimating a velocity field vt such that (6) is satisfied. 
+
+A.2 Explicit Temperature Steering 
+
+As shown in Dibak et al. (2022), normalizing flows can be extended to model thermodynamic ensembles across a range of temperatures. When trained on high-temperature simulation data, a flow can generate samples at lower temperatures by explicitly accounting for temperature as a parameter of both the flow map and base distribution. Concretely, a change of temperature from Thigh → Tlow induces the following scaling relation in the output density: 
+
+ρTlow  
+
+> Z
+
+(z) ∂ϕ −1
+
+> Tlow
+
+∂x (x) ∝
+
+"
+
+ρThigh  
+
+> Z
+
+(z) ∂ϕ −1
+
+> Thigh
+
+∂x (x)
+
+#κ
+
+(8) 
+
+> 14 Annealing Flows with Surrogate Likelihood Estimators
+
+where κ = Thigh /T low . A flow satisfying this relation is said to be temperature steerable .Under volume preservation, the relation decouples: proportionality in the base distribution implies proportionality in the Jacobian determinants 
+
+ρTlow  
+
+> Z
+
+(z) ∝
+
+h
+
+ρThigh  
+
+> Z
+
+(z)
+
+iκ
+
+=⇒ ∂ϕ −1
+
+> Tlow
+
+∂x (x) ∝
+
+" ∂ϕ −1
+
+> Thigh
+
+∂x (x)
+
+#κ
+
+, (9) a condition satisfied by adopting a Gaussian base with temperature-scaled variance, 
+
+z ∼ N (0 , T low I). SITA implicitly accounts for temperature through these proportionality relations under the instantaneous change of variables. 
+
+Appendix B. Independent Metropolis-Hastings with Surrogate Likelihoods 
+
+Independent Metropolis-Hastings (IMH) is a special case of the Metropolis-Hastings algorithm in which the proposal distribution p(y) does not depend on the current state of the Markov chain. Given a target density π(x), a candidate y ∼ p(·) is accepted with probability 
+
+α(x, y ) = min 
+
+
+
+1, π(y) p(x) 
+
+> π(x)p(y)
+
+
+
+, producing a Markov chain whose stationary distribution is π.The efficiency of the sampler is governed by how closely p approximates π: when the two coincide every proposal is accepted, and the chain returns i.i.d. samples from the target. Substituting the proposal density with the surrogate q(·) yields a modified acceptance ratio, 
+
+ˆα(x, y ) = min 
+
+
+
+1, π(y) q(x)
+
+π(x) q(y)
+
+
+
+= min 
+
+
+
+1, w(y)
+
+w(x)
+
+
+
+, (10) where w(x) := π(x)/q (x) is the importance ratio. Note that candidate states continue to be drawn from the true proposal p. The resulting chain no longer satisfies detailed balance with respect to π; it instead admits a tilted stationary distribution ˜π(x) ∝ π(x) p(x)/q (x), whose deviation from π is governed entirely by the discrepancy between p and q. When q ≡ p the standard IMH chain is recovered. 
+
+Proposition 1. A Markov chain that proposes from p(·) and and accepts in accordance to the target π(·) and surrogate likelihood estimator q(·) admits the stationary distribution 
+
+˜π(x) = 1˜Z π(x) p(x)
+
+q(x) , ˜Z =
+
+Z
+
+π(x) p(x)
+
+q(x) dx (11) 
+
+Proof. Let μ denote the stationary distribution we seek to characterize. By the detailed balance relation we have 
+
+μ(x)T (x → y) = μ(y)T (y → x)
+
+where the transition kernels satisfy 
+
+T (x → y) = p(y)ˆ α(x, y ), T (y → x) = p(x)ˆ α(y, x )
+
+where ˆα(y, x ) is defined by equation 10. 
+
+> 15 Daniel Peñaherrera, Rishal Aggarwal and David Ryan Koes
+
+Substituting, 
+
+μ(x)p(y)ˆ α(x, y ) = μ(y)p(x)ˆ α(y, x )
+
+μ(x)p(y) min 
+
+
+
+1, w(y)
+
+w(x)
+
+
+
+= μ(y)p(x) min 
+
+
+
+1, w(x)
+
+w(y)
+
+
+
+Without loss of generality, assume that the w(y) ≥ w(x). Then 
+
+• The left min evaluates to min 
+
+
+
+1, w(y)
+
+> w(x)
+
+
+
+= 1 
+
+• The right min evaluates to min 
+
+
+
+1, w(x)
+
+> w(y)
+
+
+
+= w(x)
+
+> w(y)
+
+Subsequently, 
+
+μ(x)p(y) = μ(y)p(x) w(x)
+
+w(y)
+
+μ(x)
+
+μ(y) = p(x)
+
+p(y) · w(x)
+
+w(y)
+
+By equality of the ratio μ(x)/μ (y) , the stationary distribution must therefore be propor-tional to the quantity 
+
+μ(x) ∝ π(x) p(x)
+
+q(x)
+
+Appendix C. Architecture Details 
+
+C.1 Input Representation 
+
+We encode molecular conformers as fully connected graphs whose node attributes reflect the atom types specified by alanine dipeptide’s topology. Both the flow and EBM operate directly in Cartesian space, taking raw atomic coordinates as input. 
+
+C.2 Flow Architecture: Geometric Vector Perceptrons 
+
+The flow component of SITA is built on an E(3)-equivariant graph neural network employing geometric vector perceptrons Satorras et al. (2021) on molecular generation tasks Dunn and Koes (2024). 
+
+> 16 Annealing Flows with Surrogate Likelihood Estimators
+
+Following Dunn and Koes (2024), we incorporate architectural modifications shown to improve performance. Message passing follows the formulation of Jing et al. (2021a): 
+
+(m(s) 
+
+> i→j
+
+, m (v) 
+
+> i→j
+
+) = ψM
+
+
+
+[h(l) 
+
+> i
+
+: d(l) 
+
+> ij
+
+], v i :
+
+" x(l) 
+
+> i
+
+− x(l)
+
+> j
+
+d(l)
+
+> ij
+
+#
+
+(12) where m(v) 
+
+> i→j
+
+and m(s) 
+
+> i→j
+
+denote scalar and vector messages from node i to j, hi collects scalar node feature, dij encodes pairwise distances via a radial basis, and x gives atomic positions. Full details on node and position updates appear in Appendix C of Dunn and Koes (2024). 
+
+C.3 EBM Architecture: Graphormer 
+
+For SITA’s energy-based model, we employ the graphormer Ying et al. (2021), a transformer variant that has achieved strong results on molecular property prediction. The key departure from standard transformers lies in a structure-aware attention bias derived from graph topology. In the 3D setting, this bias emerges from the pairwise Euclidean distance matrix processed through an MLP. At a high level, graphormers interleave GNN-style operations within transformer blocks Yang et al. (2023). Each attention head computes: 
+
+head = softmax 
+
+ QK T
+
+√d + B
+
+
+
+V (13) In the original formulation, B is a learned bias matrix. Our implementation instead computes 
+
+B by passing the Euclidean distance matrix passed through an MLP, directly injecting geometric information into the attention mechanism. 
+
+Appendix D. Training Setup 
+
+D.1 Computational Resources 
+
+All training experiments were ran on a single NVIDIA L40 GPU with 46 GB GDDR6 memory. 
+
+D.2 Pre-training 
+
+For both the flow and EBM, each were pre-trained for a total of 500 epochs with a batch size 512. Each model was trained using separate Adam optimizers (Kingma and Ba (2017)) with learning rates of 1e − 3 for the flow and 5e − 4 for the EBM. Both models utilized separate reduce-on-plateau learning rate schedulers that monitored for loss convergence at a patience of 30 epochs and a reduction factor of 0.5. An exponential moving average with a decay of 0.999 was used for each. The flow was trained on 500,000 conformations of alanine dipeptide simulated at 300K. In turn, the EBM was trained on 200,000 alanine dipeptide conformers generated by the flow model. 
+
+D.3 Annealing Bootstrap 
+
+Training setup for the annealing bootstrap is nearly identical to that of the pre-training phase. We highlight the training modifications during the annealing bootstrap in Table 7. 
+
+> 17 Daniel Peñaherrera, Rishal Aggarwal and David Ryan Koes
+
+Table 7: Bootstrap Modifications Model Epochs Learning Rate EBM 400 5e − 4
+
+Flow 200 5e − 4
+
+Appendix E. Metrics 
+
+Effective Sample Size Reported ESS is calculate by ESS ({wi}Ni ) = 1
+
+P 
+
+> i
+
+w2
+
+> i
+
+(14) where weights wi are normalized. 
+
+Evaluation via optimal transport. We measure sample quality through the lens of optimal transport. Let {xi}ni=1 and {yj }mj=1 denote samples from the generated and reference distributions, respectively. The 2-Wasserstein distance seeks the minimum-cost coupling π
+
+between these point clouds: 
+
+W2(μ, ν ) = 
+
+ min 
+
+> π∈Π( μ,ν )
+> n
+
+X
+
+> i=1
+> m
+
+X
+
+> j=1
+
+πij c(xi, y j )2
+
+
+
+> 1/2
+
+(15) where Π( μ, ν ) contains all joint distributions with the correct marginals. Optimal couplings are obtained via the POT library Flamary et al. (2021). Below we describe two cost functions tailored to alanine dipeptide. 
+
+Energetic Cost. Potential energy provides a global summary sensitive to both local bonded geometry and long-range interactions. We assess agreement in energy space by setting 
+
+cE (x, y )2 =  E(x) − E(y)2 (16) yielding the metric E-W2.
+
+Torsional Cost. Ramachandran angles (ϕ, ψ ) offer a compact descriptor of backbone geometry. For alanine dipeptide, the backbone geometry is fully characterized by two dihedral angles, ϕ and ψ. Since these angles live on a torus, we adopt a periodic cost: 
+
+cT (x, y )2 =
+
+h ϕx − ϕy + π mod 2 π − π
+
+i2
+
++
+
+h ψx − ψy + π mod 2 π − π
+
+i2
+
+(17) 
+
+Ramachandran KL divergence. We discretize the (ϕ, ψ ) torus into a uniform grid and estimate densities via 2D histograms over [−π, π ]2. The KL divergence between reference and generated distributions is then approximated as 
+
+DKL (p∥q) ≈ X
+
+> i,j
+
+pij log pij + ϵqij + ϵ · ∆2 (18) where pij and qij are the normalized histogram densities in bin (i, j ), ϵ is a small constant for numerical stability, and ∆ = 2 π/N bins is the bin width. 
+
+> 18 Annealing Flows with Surrogate Likelihood Estimators
+
+Appendix F. TICA Evaluations 
+
+Time-lagged Independent Component Analysis. TICA identifies linear projections of multivariate time-series data along which the projected signal is maximally autocorrelated. In molecular dynamics, it is commonly used to recover the slow modes that separate metastable states. Let ˜xt ∈ Rn denote a centered (mean-zero) time series. For lag time τ ,the instantaneous and time-lagged empirical covariance matrices are given by Consider a centered scalar observable w⊤ ˜xt, formed by linearly combining the entries of a featurized trajectory ˜xt ∈ Rn through a weight vector w. Its autocorrelation at lag τ is given by the Rayleigh quotient 
+
+ρ(w; τ ) = w⊤ ˆC0τ ww⊤ ˆC00 w , (19) in which ˆC00 and ˆC0τ are the empirical instantaneous and lagged covariance matrices of the trajectory, 
+
+ˆC00 = 1
+
+T − τ 
+
+> T−τ
+
+X
+
+> t=1
+
+˜xt ˜x⊤ 
+
+> t
+
+, ˆC0τ = 1
+
+T − τ 
+
+> T−τ
+
+X
+
+> t=1
+
+˜xt ˜x⊤ 
+
+> t+τ
+
+. (20) TICA selects the weight vectors that maximize ρ(w; τ ). Stationarity of the Rayleigh quotient produces the generalized eigenvalue problem 
+
+ˆC0τ wj = λj ˆC00 wj , (21) whose eigenvalues λj ∈ (0 , 1] rank candidate directions by how slowly their projections lose correlation: values of λj near unity correspond to dynamics that persist over many lag times, while values near zero indicate fast modes interchangeable with noise. 
+
+Wasserstein Metrics. For each frame of both the reference MD trajectory and the model-generated samples, an identical featurization is applied. Heavy atoms (C, N, S) are first selected; from these we compute and concatenate (i) the upper-triangular pairwise distances and (ii) the sin and cos encodings of the backbone dihedral angles. Encoding the dihedrals via sine and cosine respects their angular periodicity in the feature representation. A TICA model is then fit on the featurized MD trajectory at the specified lag time. Once fit, the TICA basis {wj } is applied to both the MD and model-sample features, yielding empirical distributions over the projections. We then compute the Wasserstein-p distance between these empirical distributions by solving the discrete optimal transport problem 
+
+Wp(ˆ μ, ˆν)p = min 
+
+> Π∈Π(ˆ μ, ˆν)
+
+X
+
+> i,k
+
+Πik ∥ˆxi − ˆyk∥p
+
+> 2
+
+, (22) where Π( ˆμ, ˆν) is the set of couplings with the prescribed uniform marginals and the ground cost is Euclidean. Setting p = 1 yields W1 directly; for W2, the transport problem is solved with squared-Euclidean ground cost and the square root of the resulting optimum is returned. 
+
+F.1 Sources TICA Evaluation Error 
+
+In this section we discuss the use of time-lagged independent component analysis (TICA) Pérez-Hernández et al. (2013); Schwantes and Pande (2013) for assessing generative model 
+
+> 19 Daniel Peñaherrera, Rishal Aggarwal and David Ryan Koes
+
+performance. In the application of generative modeling to MD data, it is common to quantify the discrepancy between TICA projections of model generated samples and MD simulation generated samples. In fact, the original PITA paper reports Wasserstein-1 and Wasserstein-2 metrics on such TICA projections. However, on inspection of PITA’s publicly available code, we discovered two sources of error in their TICA evaluations: (i) choice of lagtimes and (ii) downsampling trajectory frames. 
+
+Choice of lag time. The sensitivity of TICA projections to the lag time τ stems directly from what the method is constructed to optimize: the projections that maximize the autocorrelation at exactly the chosen separation, recovered as the leading eigenvectors of the generalized problem ˆC0τ wj = λj ˆC00 wj . Because ˆC0τ encodes correlation structure at a single timescale rather than aggregating information across timescales, different choices of τ define genuinely different optimization problems whose top eigenvectors need not be related. At small τ , the autocorrelation criterion rewards any motion that persists over short windows such as including high-frequency vibrations and side-chain rearrangements. Therefore the leading components mix biophysically meaningful fast processes (e.g. loop fluctuations or local hydrogen-bond dynamics that are genuinely correlated on picosecond scales) with thermal noise and integration artifacts that happen to be autocorrelated over a few frames. Larger τ filters these out by demanding persistence over longer windows, but at the cost of discarding fast processes that may be physically meaningful. Thus the choice of τ
+
+is fundamentally a choice about which timescale of dynamics one is willing to treat as signal. TICA metrics reported in Akhound-Sadegh et al. (2025) were computed with system-specific lag times: 10 for ATP and 100 for ADP. The small lag time small chosen for ATP therefore demands a functional justification, which, to our knowledge, has not been established for ATP. We visualize TICA’s sensitivity to τ for both alanine dipeptide and alanine tripeptide alongside different downsampling techniques in Figure 4. 
+
+Downsampling. Because MD trajectories are temporally correlated rather than i.i.d., the leading N frames do not constitute a representative sample of the equilibrium distribution. Using them as a reference introduces systematic bias into model evaluation which can clearly be seen in Figure 4. TICA metrics reported in Akhound-Sadegh et al. (2025) relied on projecting the first 10,000 frames of the MD trajectory of each molecular system studied in order to match the number of samples generated by the diffusion model at test-time. Selection of the first 10,000 frames results in the dropping of modes. Wasserstein metrics computed on biased TICA projections can therefore rank mode-collapsed models above more diverse alternatives: when the reference itself underrepresents certain modes, a model that also underrepresents them is not penalized for doing so. This pathology is apparent in Akhound-Sadegh et al. (2025), where MD-Diff attains the best TICA-W1 and TICA-W2
+
+values across the reported baselines despite clear mode collapse in their own Figure 5. In Table 8, we report SITA’s performance on TICA-W1 and TICA-W2 for alanine tripeptide using a lag time of 100 for completeness where we once again observe a stark reduction in both metrics when uniformly downsampling. 
+
+> 20 Annealing Flows with Surrogate Likelihood Estimators
+
+(a) TICA with τ = 10 .
+
+(b) TICA with τ = 100 .Figure 4: TICA downsampling comparison at different lag times. All plots represent projections of MD derived samples. 
+
+## W1 W2 W∗ 
+
+> 1
+
+## W∗
+
+> 2
+
+## SITA 0.184 ± 0.007 0.723 ± 0.012 0.073 ± 0.009 0.315 ± 0.038 
+
+## SITA-IS — — 0.212 ± 0.007 0.439 ± 0.025 
+
+## SITA-IMH — — 0.155 ± 0.001 0.219 ± 0.016 
+
+Table 8: TICA-W1 and TICA-W2 metrics for alanine tripeptide computed using a lag time of τ = 100 . Columns marked with ∗ denote metrics computed using uniform frame sampling along the MD trajectory, while unmarked columns use the first-frame down-sampling method from the original PITA paper. All metrics are calculated over 10,000 samples across 3 seeds. 
+
+> 21
+
+Daniel Peñaherrera, Rishal Aggarwal and David Ryan Koes 
+
+Appendix G. Pseudocode 
+
+Algorithm 2 Independent Metropolis–Hastings Refinement with a Learned Surrogate 
+
+Require: Target Boltzmann distribution π(x) at temperature TK with energy function E(·)
+
+Require: Pre-trained flow ˆvθ, pre-trained EBM surrogate qϕ
+
+Require: Number of steps K, initialized chain x0 ∼ ˆρTK 
+
+> 1
+> 1:
+
+for i = 1 to K do  
+
+> 2:
+
+// Propose from the flow  
+
+> 3:
+
+Generate y ∼ ˆρTK 
+
+> 1
+
+by integrating generative ODE  
+
+> 4: 5:
+
+// Evaluate target and surrogate densities  
+
+> 6:
+
+Compute π(xk−1), π (y) via Boltzmann weights ∝ exp( −E(·)/k B TK ) 
+
+> 7:
+
+Compute qϕ(xk−1), q ϕ(y) from the learned surrogate  
+
+> 8: 9:
+
+// Acceptance probability  
+
+> 10:
+
+α(xk−1, y ) ← min 
+
+
+
+1, π(y) qϕ(xk−1)
+
+π(xk−1) qϕ(y)
+
+ 
+
+> 11: 12:
+
+// Accept–reject  
+
+> 13:
+
+Draw u ∼ U (0 , 1)  
+
+> 14:
+
+if u ≤ α(xk−1, y ) then  
+
+> 15:
+
+xk ← y 
+
+> 16:
+
+else  
+
+> 17:
+
+xk ← xk−1 
+
+> 18:
+
+end if  
+
+> 19:
+
+end for  
+
+> 20:
+
+return xk
+
+22 Annealing Flows with Surrogate Likelihood Estimators 
+
+References 
+
+R. Aggarwal, J. Chen, N. M. Boffi, and D. R. Koes. BoltzNCE: Learning likelihoods for boltz-mann generation with stochastic interpolants and noise contrastive estimation. arXiv preprint arXiv:2507.00846 , 2025. T. Akhound-Sadegh, J. Rector-Brooks, A. J. Bose, S. Mittal, P. Lemos, C.-H. Liu, M. Sendera, S. Ravanbakhsh, G. Gidel, Y. Bengio, N. Malkin, and A. Tong. Iterated denoising energy matching for sampling from boltzmann densities, 2024. URL https://arxiv.org/abs/2402.06121 .T. Akhound-Sadegh, J. Lee, A. J. Bose, V. De Bortoli, A. Doucet, M. M. Bronstein, D. Beaini, S. Ravanbakhsh, K. Neklyudov, and A. Tong. Progressive inference-time annealing of diffusion models for sampling from boltzmann densities. arXiv preprint arXiv:2506.16471 , 2025. M. S. Albergo and E. Vanden-Eijnden. Nets: A non-equilibrium transport sampler, 2025. URL 
+
+https://arxiv.org/abs/2410.02711 .M. S. Albergo, N. M. Boffi, and E. Vanden-Eijnden. Stochastic interpolants: A unifying framework for flows and diffusions. arXiv preprint arXiv:2303.08797 , 2023. D. Blessing, J. Berner, L. Richter, and G. Neumann. Underdamped diffusion bridges with applications to sampling, 2025. URL https://arxiv.org/abs/2503.01006 .D. Blessing, L. Richter, J. Berner, E. Malitskiy, and G. Neumann. Bridge matching sampler: Scalable sampling via generalized fixed-point diffusion matching, 2026. URL https://arxiv.org/abs/ 2603.00530 .V. D. Bortoli, M. Hutchinson, P. Wirnsberger, and A. Doucet. Target score matching, 2024. URL 
+
+https://arxiv.org/abs/2402.08667 .R. T. Q. Chen, Y. Rubanova, J. Bettencourt, and D. Duvenaud. Neural ordinary differential equations, 2019. URL https://arxiv.org/abs/1806.07366 .M. Dibak, L. Klein, A. Krämer, and F. Noé. Temperature steerable flows and boltzmann generators. 
+
+Phys. Rev. Res. , 4:L042005, Oct 2022. doi: 10.1103/PhysRevResearch.4.L042005. URL https: //link.aps.org/doi/10.1103/PhysRevResearch.4.L042005 .I. Dunn and D. R. Koes. Mixed continuous and categorical flow matching for 3d de novo molecule generation. arXiv:2404.19739 [q-bio.BM] , 2024. URL https://arxiv.org/abs/2404.19739 .M. F. Faulkner and S. Livingstone. Sampling algorithms in statistical physics: A guide for statistics and machine learning. Statistical Science , 39(1), Feb. 2024. ISSN 0883-4237. doi: 10.1214/23-sts893. URL http://dx.doi.org/10.1214/23-STS893 .R. Flamary, N. Courty, A. Gramfort, M. Z. Alaya, A. Boisbunon, S. Chambon, L. Chapel, A. Corenflos, K. Fatras, N. Fournier, L. Gautheron, N. T. Gayraud, H. Janati, A. Rakotomamonjy, I. Redko, A. Rolet, A. Schutz, V. Seguy, D. J. Sutherland, R. Tavenard, A. Tong, and T. Vayer. Pot: Python optimal transport. Journal of Machine Learning Research , 22(78):1–8, 2021. URL 
+
+http://jmlr.org/papers/v22/20-451.html .M. Gabrié, G. M. Rotskoff, and E. Vanden-Eijnden. Adaptive monte carlo augmented with normalizing flows. Proceedings of the National Academy of Sciences , 119(10):e2109420119, 2022. doi: 10.1073/ pnas.2109420119. URL https://www.pnas.org/doi/abs/10.1073/pnas.2109420119 .23 Daniel Peñaherrera, Rishal Aggarwal and David Ryan Koes 
+
+M. Gutmann and A. Hyvärinen. Noise-contrastive estimation: A new estimation principle for unnormalized statistical models. In Proceedings of the thirteenth international conference on artificial intelligence and statistics , pages 297–304. JMLR Workshop and Conference Proceedings, 2010. J. Ho, A. Jain, and P. Abbeel. Denoising diffusion probabilistic models. Advances in neural information processing systems , 33:6840–6851, 2020. A. Hyvärinen. Estimation of non-normalized statistical models by score matching. Journal of Machine Learning Research , 6(24):695–709, 2005. URL http://jmlr.org/papers/v6/hyvarinen05a.html .J. Hénin, T. Lelièvre, M. R. Shirts, O. Valsson, and L. Delemotte. Enhanced sampling methods for molecular dynamics simulations [article v1.0]. Living Journal of Computational Molecular Science , 4(1):1583, Dec. 2022. ISSN 2575-6524. doi: 10.33011/livecoms.4.1.1583. URL http: //dx.doi.org/10.33011/livecoms.4.1.1583 .C. Jarzynski. Nonequilibrium equality for free energy differences. Physical Review Letters , 78 (14):2690–2693, Apr. 1997. ISSN 1079-7114. doi: 10.1103/physrevlett.78.2690. URL http: //dx.doi.org/10.1103/PhysRevLett.78.2690 .B. Jing, S. Eismann, P. N. Soni, and R. O. Dror. Equivariant graph neural networks for 3d macromolecular structure. arXiv preprint arXiv:2106.03843 , 2021a. B. Jing, S. Eismann, P. Suriana, R. J. L. Townshend, and R. Dror. Learning from protein structure with geometric vector perceptrons, 2021b. URL https://arxiv.org/abs/2009.01411 .D. P. Kingma and J. Ba. Adam: A method for stochastic optimization, 2017. URL https: //arxiv.org/abs/1412.6980 .J. Köhler, L. Klein, and F. Noé. Equivariant flows: Exact likelihood generative learning for symmetric densities, 2020. URL https://arxiv.org/abs/2006.02425 .Y. Lipman, R. T. Chen, H. Ben-Hamu, M. Nickel, and M. Le. Flow matching for generative modeling. 
+
+arXiv preprint arXiv:2210.02747 , 2022. Y. Lipman, R. T. Q. Chen, H. Ben-Hamu, M. Nickel, and M. Le. Flow matching for generative modeling, 2023. URL https://arxiv.org/abs/2210.02747 .G.-H. Liu, J. Choi, Y. Chen, B. K. Miller, and R. T. Q. Chen. Adjoint schrödinger bridge sampler, 2025. URL https://arxiv.org/abs/2506.22565 .X. Liu, C. Gong, and Q. Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. arXiv preprint arXiv:2209.03003 , 2022a. X. Liu, C. Gong, and Q. Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow, 2022b. URL https://arxiv.org/abs/2209.03003 .N. Ma, M. Goldstein, M. S. Albergo, N. M. Boffi, E. Vanden-Eijnden, and S. Xie. Sit: Exploring flow and diffusion-based generative models with scalable interpolant transformers. In European Conference on Computer Vision , pages 23–40. Springer, 2024. L. I. Midgley, V. Stimper, G. N. C. Simm, B. Schölkopf, and J. M. Hernández-Lobato. Flow annealed importance sampling bootstrap, 2023. URL https://arxiv.org/abs/2208.01893 .P. D. Moral and A. Doucet. Sequential monte carlo samplers, 2002. URL https://arxiv.org/abs/ cond-mat/0212648 .24 Annealing Flows with Surrogate Likelihood Estimators 
+
+R. M. Neal. Annealed importance sampling, 1998. URL https://arxiv.org/abs/physics/9803008 .F. Noé, S. Olsson, J. Köhler, and H. Wu. Boltzmann generators: Sampling equilibrium states of many-body systems with deep learning. Science , 365(6457):eaaw1147, 2019. F. Noé, S. Olsson, J. Köhler, and H. Wu. Boltzmann generators: Sampling equilibrium states of many-body systems with deep learning. Science , 365(6457):eaaw1147, 2019. doi: 10.1126/science.aaw1147. URL https://www.science.org/doi/abs/10.1126/science.aaw1147 .A. v. d. Oord, Y. Li, and O. Vinyals. Representation learning with contrastive predictive coding. 
+
+arXiv preprint arXiv:1807.03748 , 2018. G. Pérez-Hernández, F. Paul, T. Giorgino, G. De Fabritiis, and F. Noé. Identification of slow molecular order parameters for markov model construction. The Journal of Chemical Physics , 139(1), July 2013. ISSN 1089-7690. doi: 10.1063/1.4811489. URL http://dx.doi.org/10.1063/1.4811489 .L. Richter and J. Berner. Improved sampling via learned diffusions, 2024. URL https://arxiv. org/abs/2307.01198 .V. G. Satorras, E. Hoogeboom, and M. Welling. E (n) equivariant graph neural networks. In 
+
+International conference on machine learning , pages 9323–9332. PMLR, 2021. V. G. Satorras, E. Hoogeboom, and M. Welling. E(n) equivariant graph neural networks, 2022. URL 
+
+https://arxiv.org/abs/2102.09844 .H. Schopmans and P. Friederich. Temperature-annealed boltzmann generators, 2025. URL https: //arxiv.org/abs/2501.19077 .C. R. Schwantes and V. S. Pande. Improvements in markov state model construction reveal many non-native interactions in the folding of ntl9. Journal of Chemical Theory and Computation , 9(4): 2000–2009, 2013. doi: 10.1021/ct300878a. URL https://doi.org/10.1021/ct300878a . PMID: 23750122. J. Sohl-Dickstein, E. A. Weiss, N. Maheswaranathan, and S. Ganguli. Deep unsupervised learning using nonequilibrium thermodynamics, 2015. URL https://arxiv.org/abs/1503.03585 .Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole. Score-based generative modeling through stochastic differential equations. arXiv preprint arXiv:2011.13456 , 2020. Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole. Score-based generative modeling through stochastic differential equations, 2021. URL https://arxiv.org/abs/2011. 13456 .F. Vargas, W. Grathwohl, and A. Doucet. Denoising diffusion samplers, 2023. URL https://arxiv. org/abs/2302.13834 .F. Vargas, S. Padhy, D. Blessing, and N. Nüsken. Transport meets variational inference: Controlled monte carlo diffusions, 2025. URL https://arxiv.org/abs/2307.01050 .C. von Klitzing, D. Blessing, H. Schopmans, P. Friederich, and G. Neumann. Learning boltzmann generators via constrained mass transport, 2026. URL https://arxiv.org/abs/2510.18460 .P. Wirnsberger, A. J. Ballard, G. Papamakarios, S. Abercrombie, S. Racanière, A. Pritzel, D. Jimenez Rezende, and C. Blundell. Targeted free energy estimation via learned mappings. The Journal of Chemical Physics , 153(14), 2020. 25 Daniel Peñaherrera, Rishal Aggarwal and David Ryan Koes 
+
+J. Yang, Z. Liu, S. Xiao, C. Li, D. Lian, S. Agrawal, A. Singh, G. Sun, and X. Xie. Graphformers: Gnn-nested transformers for representation learning on textual graph, 2023. URL https://arxiv. org/abs/2105.02605 .C. Ying, T. Cai, S. Luo, S. Zheng, G. Ke, D. He, Y. Shen, and T.-Y. Liu. Do transformers really perform badly for graph representation? Advances in neural information processing systems , 34: 28877–28888, 2021. Q. Zhang and Y. Chen. Path integral sampler: a stochastic control approach for sampling, 2022. URL https://arxiv.org/abs/2111.15141 .26

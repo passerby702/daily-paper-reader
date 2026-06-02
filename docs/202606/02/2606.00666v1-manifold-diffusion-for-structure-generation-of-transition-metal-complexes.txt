@@ -1,0 +1,368 @@
+Title: Manifold Diffusion for Structure Generation of Transition Metal Complexes
+
+URL Source: https://arxiv.org/pdf/2606.00666v1
+
+Published Time: Tue, 02 Jun 2026 00:45:27 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# Manifold Diffusion for Structure Generation of Transition Metal Complexes 
+
+## Luca Schaufelberger 1,2 and Kjell Jorner 1,2* 
+
+1Institute of Chemical and Bioengineering, Department of Chemistry and Applied Biosciences, ETH Zurich. 
+
+2NCCR Catalysis, Switzerland. *Corresponding author(s). E-mail(s): kjell.jorner@chem.ethz.ch; 
+
+Abstract 
+
+Transition metal complexes are central to catalysis, drug design, and materials science, with relevant properties strongly sensitive to their three-dimensional geometry. However, the electronic diversity and unconventional bonding environments of transition metal com-plexes pose a major challenge for accurate structure generation. In this work, we introduce TMCgen, a manifold diffusion machine learning model that efficiently and accurately gen-erates geometries of transition metal complexes. By formulating the diffusion process over the metal-ligand coordination angles, combined with torsional and rotational diffusion of the ligands, TMCgen focuses on the key geometric degrees of freedom of transition metal complexes. TMCgen shows strong performance in generating accurate coordination environments on a diverse set of experimentally derived bioinorganic and organometal-lic complexes while requiring only few inference steps, enabling efficient generation. Our results demonstrate the potential of manifold-based generative modeling for data-efficient geometry generation, paving the way for property-conditioned design of transition metal complexes. 
+
+Keywords: Generative machine learning, transition metal complexes, manifold diffusion, coordination environments 
+
+# 1 Introduction 
+
+Transition metal complexes (TMCs) play a crucial role in catalysis [1], drug design [2] and materials science [3] due to their unique structural diversity and electronic proper-ties. Monometallic TMCs consist of a central transition metal atom bonded to surrounding molecules or ions, called ligands (see Fig. 1a). In catalysis, transition metal complexes are 1 
+
+> arXiv:2606.00666v1 [cond-mat.mtrl-sci] 30 May 2026 Fig. 1 Overview of this work. (a) Left: Examples of transition metal complexes used as catalysts, drugs and functional materials, with the central metal atom and the ligating atoms highlighted. Right: Simplified depiction of two exemplary coordination environments, tetrahedral and square planar (b) Challenges addressed by (c) the manifold diffusion model TMCgen introduced in this work.
+
+crucial to achieving important transformations such as C–H activation [4], asymmetric hydro-genation [5], and cross-coupling reactions [6], many of which underpin sustainable synthesis and green energy storage technologies [7]. Transition metal complexes have also found broad appli-cation as drugs, where they have demonstrated inhibitory effects on various proteins [8–10]. The tunable electronic structure of transition metal complexes enables their use in functional materials, for example in spintronics [11] and molecular electronics [12]. The unique properties of TMCs are determined by the three-dimensional arrangement of ligands surrounding the metal center. Specifically, both the metal coordination environment, 
+
+i.e. , the angular distribution of ligands around the metal center ( e.g. , tetrahedral or square planar, see Fig. 1a), and the relative positioning of ligands ( e.g. , cis or trans ) strongly affect their electronic structure. For example, for Ni 2+ (d8) complexes, strong-field ligands favor square planar geometries ( e.g. , [Ni(CN) 4]2 – ), which are low-spin and diamagnetic, whereas weak-field ligands favor tetrahedral geometries ( e.g. , [NiCl 4]2 – ), which are high-spin with two unpaired electrons and therefore paramagnetic [1]. To achieve a large-scale computational design of transition metal complexes [13], accurate generation of their three-dimensional geometries is essential. However, these geometries are heavily modulated by steric and electronic ligand effects that cause them to often deviate significantly from idealized coordination environments [14]. For instance, bulky ligands tend to adopt positions that minimize steric hindrance, while multidentate ligands — those with multiple metal-binding sites — can impose rigid geometries due to the constrained bite angle. Due to these complexities, generating realistic coordination geometries for TMCs remains highly challenging. 2Traditional approaches to 3D-geometry generation include metadynamics methods [15], which however have limited usability in large-scale discovery campaigns due to their com-putational expense. Knowledge-based cheminformatics methods such as RDKit’s ETKDG algorithm [16] have been primarily designed for generating conformers of organic molecules and exhibit limited applicability for TMCs, as they do not incorporate experimentally derived coordination-angle preferences for TMCs analogously to how torsional preferences are incorpo-rated for organic molecules. Instead, they use default coordination environments and position ligands randomly on the available coordination sites if this has not been defined a priori in the input. Among approaches that produce transition metal complex geometries [17–22], mol-Simplify [23], which combines cheminformatics methods with classical force fields, has been widely used for automatic screening of TMCs. However, it requires prior input of the coor-dination environment, and either places ligands randomly at coordination sites or based on explicit input, limiting its effectiveness for targeted design — particularly since TMCs often possess numerous stereoisomers. Generative models such as those based on diffusion have recently surpassed the perfor-mance of cheminformatics tools for 3D-geometry generation in terms of precision and coverage of the conformational space [24, 25] , while being sufficiently fast to be used in large-scale dis-covery campaigns. They further allow for conditional geometry generation based on desired target properties [26, 27], enabling inverse design workflows wherein molecular geometries are generated to meet specific functional or electronic criteria. Generative models have also been used to design new ligands or whole transition metal complexes [13, 28, 29]. In chemistry and biology, diffusion models fall into two categories: Euclidean diffusion models, which operate directly on 3D atomic positions, and manifold diffusion models, which operate on a lower-dimensional manifold, i.e. , a chemically-relevant coordinate space such as torsion angles [24, 30–33]. Euclidean diffusion models provide flexibility but rely on large and diverse training datasets, which are not available in many target domains such as transition metal complexes. For instance, while the GEOM dataset for small organic molecules [34] contains 37 million conformers, the experimentally derived TMC dataset [35] used in this work comprises only 61 thousand structures, i.e. , nearly three orders of magnitude fewer. On the other hand, manifold generative models incorporate domain-specific information by limiting diffusion to the most chemically meaningful degrees of freedom, leading to data-efficient learning and providing guarantees for chemical validity, e.g. reasonable bond lengths [24, 30, 31, 33, 36]. For example, diffusion over torsion angles exhibits strong performance by reducing the degrees of freedom, which are the most important for most small organic molecules. Recently, the PuckerFlow model introduced by us has demonstrated the strength of manifold generative models in the accurate generation of cyclic conformers [33]. Manifold generative models have also been shown to allow for sampling with few inference steps, enabling compute-efficient generation [24]. Despite these advances, current manifold diffusion models are limited to organic molecules, as they address insufficient degrees of freedom to generate the coordination environments of transition metal complexes. For example, the approach used in torsional diffusion keeps all bond lengths and angles fixed, including the coordination bonds and angles of ligands around a metal center. Therefore, new methodologies are required that can model the coordination environments of transition metal complexes effectively. 3Fig. 2 Simulation-free manifold diffusion on the sphere. (a) Sampling from the analytical conditional diffusion kernel on S2 using a closed-form heat kernel expansion while keeping metal-ligand bond lengths fixed. (b) Training diffusion model via regression to the score, precomputed by numerical differentiation. The model output is projected onto the tangent space. (c) Coupling with ligand rotations and torsional updates to model full transition metal complex degrees of freedom. 
+
+Here, we introduce TMCgen, a manifold diffusion model that achieves strong performance in generating three-dimensional geometries of transition metal complexes. We demonstrate the performance of TMCgen on a highly diverse set of transition metal complexes extracted from experimental crystal structures, on which our model generates geometries with accu-rate quantum-mechanical properties. By constraining the diffusion process over the relevant manifold, i.e. , the angular distribution of ligands around the metal center combined with ligand rotations and internal torsion angles, TMCgen shows strong performance with few inference steps. TMCgen lays the foundation for conditional geometry generation of metal com-plexes in inverse design settings, enabling the targeted exploration of structures with desired characteristics for drug discovery and sustainable catalyst development. 
+
+# 2 Methods 
+
+TMCgen formulates the geometry generation task for transition metal complexes via manifold diffusion, i.e. , it operates in an internal coordinate system reducing the number of degrees of freedom. The most relevant degree of freedom of TMCs is the coordination geometry around the central metal atom, which is characterized by the relative angles between the ligands and their distance to the central metal atom (see Fig. 1a). Therefore, we formulate the diffusion process on the angular distribution of the ligands around the metal center, corresponding to the surfaces of a set of spheres centered on the metal atom and with radii equal to the corresponding metal-ligand bond lengths for each ligand. We introduce a diffusion on the sphere based on the explicit spherical diffusion kernel and combine it with the well-established diffusion over 4rotational and torsional degrees of freedom of each ligand (see Fig. 2). Unlike previous manifold diffusion models on the sphere for other application domains [37], our approach is simulation-free, i.e. , it avoids solving the diffusion stochastic differential equation during training (see Secs. 2.1 and 2.2). Specifically, we apply updates to the diffusion over the coordination environment, the rotations and the torsions for each ligand separately, and design our architecture to handle an arbitrary number of ligands and torsion angles (see Fig. 3 and Sec. 2.2.1). 
+
+## 2.1 Simulation-free Manifold Diffusion 
+
+Diffusion generative models consider a forward noising process that corrupts the training data distribution p(x0) via the stochastic differential equation (SDE): 
+
+dx = pdσ 2(t)/dt dw (1) where w is the corresponding Brownian motion and σ(t) a predefined noise schedule. The model then learns the score ∇ log pt of the noisy data distribution, with which it is possible to generate new samples via the reverse SDE starting from a simple noise distribution: 
+
+dx = [ −g2(t)∇x log pt(x)] dt + g(t)d ¯w. (2) where g(t) = pdσ 2(t)/dt and ¯ w is a reverse-time Brownian motion. To train the score model, a procedure is required to generate samples xt with different amounts of noise added and compute their conditional score ∇ log pt|0(xt | x0), which serves as the regression target. This can either be performed by simulation, i.e. , explicitly solving the forward SDE (Eq. 1) during each training step, or analytically by adding all the noise corresponding to a certain time step at once. More formally, the latter simulation-free approach requires to sample directly from the conditional diffusion kernel pt|0(xt | x0) and to compute its conditional score ∇ log pt|0(xt | x0). In Euclidean diffusion, the diffusion kernel is a Gaussian around the data point x0, making simulation-free training straightforward. However, formulating diffusion on non-Euclidean spaces relevant in many chemical or biological applications requires a generalization to Riemannian manifolds, which intuitively correspond to smoothly curved spaces equipped with a local notion of distance, allowing to define e.g. , angles and curvature [38]. Examples of Riemannian manifolds include the n-sphere, ellipsoids, paraboloids and certain Lie groups such as SO(n). On many manifolds, the diffu-sion kernel pt|0 is not easily accessible, and ∇ log pt|0 needs to be calculated on the tangent space, which is a linear approximation at a given point on the manifold. In chemistry and biology, simulation-free training has been developed for the torus T (parametrizing molecular torsion angles), and the group SO(3) (parametrizing rotations), where the diffusion kernel is given by the wrapped normal and IGSO(3) distributions, respectively [24, 31, 39]. For example, the molecular docking model DiffDock [30] treats the diffusion process over ligand transla-tions, rotations and torsion angles, pre-computing the diffusion kernels and their corresponding scores for efficient training. Building on these ideas, we extend manifold diffusion to transition metal complexes, which involve structurally diverse coordination geometries not addressed by previous manifold diffusion models. 52.2 Manifold Diffusion for Transition Metal Complexes 
+
+In this work, we formulate the diffusion process over the angular distribution of the ligands around the metal center corresponding to the sphere S2, and pair it with the established manifold diffusion over rotations and torsion angles (see Fig. 3). Diffusion models on the sphere have been formulated by De Bortoli et al. [37] in other domains in terms of projecting a geodesic random walk in R3 space onto the sphere. However, the forward diffusion process (Eq. 1) was explicitly solved by simulation during training, which is impractical for large-scale model training. We instead base our training routine on the explicit conditional diffusion kernel pt|0(θ, σ (t)), which can be obtained by rescaling the heat kernel G(θ, σ (t)) that solves the heat equation on the sphere (see Fig. 2a). The heat kernel is given by the uniformly and absolutely convergent power series [40]: 
+
+G(θ, σ (t)) = 14π
+
+> ∞
+
+X
+
+> ℓ=0
+
+e−ℓ(ℓ+1) σ(t)2/2(2 ℓ + 1) Pℓ(cos( θ)) (3) where θ is the (polar) angle between xt and x0, i.e. , θ = arccos 
+
+ ⟨xt,x 0⟩∥xt∥ ∥ x0∥
+
+
+
+and Pℓ is the ℓ-th Legendre polynomial, which can be computed with Bonnet ’s recursion formula. For practi-cal implementation, we cut the infinite series upon numerical convergence, and use efficient parallelization, leveraging that only the exponential term depends on the noise schedule σ(t). By symmetry, the diffusion kernel depends only on the polar angle θ (see Fig. 2a), while the azimuthal angle ϕ relative to x0 can be sampled uniformly from [0 , 2π]. While the diffusion modeling framework presented here can be phrased for any n-sphere with n ≥ 2 that might be relevant in specific application domains, such as for the conformational ensembles of molecular ring systems, we focus on the 2-sphere in the main text. The generalization to n > 2 is presented in SI A.1, where the Legendre polynomials are replaced by the more general Gegenbauer polynomials [40]. To sample from the conditional diffusion kernel pt|0(θ, σ (t)), G is weighted by the surface area element of the uniform distribution on the sphere: 
+
+pt|0(θ, σ (t)) ∝ sin( θ)G(θ, σ (t)) (4) During training, we regress the model output against the true score, as visualized in Fig. 2b. This corresponds to a SE(3)-equivariant vector on the tangent space of S2, i.e., TpS2, given by: 
+
+TpS2 = {ξ ∈ R3 : ⟨xt, ξ ⟩ = 0 }
+
+where ⟨· , ·⟩ denotes the Euclidean inner product and xt ∈ S2. We precompute the magnitude of the true score via numerical differentiation of the logarithm of Eq. 4, with the direction defined by the projection of x0 − xt onto TpS2. During training, we project the model output, an irreducible representation of SO(3) [41], onto the tangent space TpS2 and regress against the true score vector. At inference, we sample from the prior p(x1), which due to compactness of the manifold is not a Gaussian, but the uniform distribution. We perform a geodesic random walk by performing an Euler-Maruyama step with noise zt on the tangent space and projecting the 6Fig. 3 Coupled manifold diffusion for transition metal complexes. (a) Ground-truth structure, illustrating the noising on coordination sphere (red), ligand rotations (blue), and torsions (green). For ease of visualization, only a single ligand is shown. (b) Independent noising on the product manifold S2 × SO(3) × Tm producing the (c) noised sample. (d) Score learning with an equivariant GNN, predicting tangent-space updates for each degree of freedom via tensor product convolutions. 
+
+resulting tangent vector ξ back onto the sphere through the exponential map: exp x(ξ) = cos( ∥ξ∥2)x + sin( ∥ξ∥2) ξ
+
+∥ξ∥2
+
+(5) which intuitively corresponds to a rotation by the magnitude of ξ along the geodesic. 
+
+2.2.1 Coupling Sphere Diffusion to Ligand Degrees of Freedom 
+
+We combine the diffusion over the spherical coordination environment derived above with manifold diffusion over the ligand rotation and torsion angles (see Fig. 2c). Especially, we separately diffuse over the rotation of each ligand and update the torsion angles of each ligand (see Fig. 3a), thus ensuring that the relevant degrees of freedom of transition metal complexes are covered. We adapt the rotational and torsional diffusion methods from [24, 42] to better disentangle the degrees of freedom in transition metal complexes, as shown in Fig. 3b. Instead of rotating ligands around their center of mass, we rotate them around the ligating atom, while keeping the metal center stationary. After torsional updates, ligands are realigned to keep the ligating atoms fixed, preserving metal-ligand bond lengths. To avoid high variance in the true score due to the metal center’s spherical symmetry, one ligand is not rotated, reducing training variance without introducing bias or data leakage. While our adapted diffusion process ensures feasible metal-ligand bond lengths, it does not guarantee the correct orientation of multidentate ligands, which coordinate to the metal via multiple binding atoms. Therefore, we adjust the rotation of multidentate ligands after the last diffusion step based on the target bond lengths. Like previous manifold diffusion models, TMCgen requires a reference structure for the 
+
+local environment of each ligand, i.e. , intra-ligand bond lengths, bond angles and cycle con-formations. The conformer matching procedure of Jing et al. [24] is not directly applicable to transition metal complexes as it treats the metal coordination environment rigidly. There-fore, we train on the ground truth local structure environments, while at inference using the 7local environments extracted from RDKit’s ETKDG algorithm of the ligands in their metal binding configuration, as is common across other manifold diffusion models such as torsional diffusion [24] or DiffDock [30]. Alternatively to the local environments sampled from RDKit’s ETKDG algorithm, users may separately supply ligand structures as reference local environ-ments. This could, e.g. , be structures from the tmQMg-L dataset [43], or incorporate recent generative modeling of cyclic local environment with PuckerFlow [33]. Our model can be used for sampling either by initializing from RDKit geometries (presented in Sec. 3) or with fully random initialization, e.g. , including random rotations of all ligands (see Sec. D.2). In the for-mer option, TMCgen starts with the default RDKit initialization of the coordination geometry and random placements of ligands, and improves on this initialization acting as a structure refinement model. 
+
+## 2.3 Computational Details 
+
+2.3.1 Model architecture 
+
+In TMCgen, we employ an equivariant neural network based on e3nn [41] for representation learning, and adapt the model output layers to the problem of generating transition metal complexes. Specifically, we adapt the output layers to account for the varying dimensional-ity of the output depending on the number of ligands N and torsion angles m, enabling the architecture to scale naturally to any number of ligands. Our score model outputs 2 N SE(3)-equivariant vectors in the tangent spaces of translation and rotation (Euler angles), similar to [44], and extends it to model the variable number of torsion angles of the ligands. For each ligand, rotational and translational updates are computed via a tensor product convolution between the learned atomic features and the ligating atom (see Fig. 3d). This allows the model to naturally handle a varying number of ligands across training and inference. The score model consists of a four-layer E3NN with 48 scalar and 10 vector channels using spherical harmonics up to ℓmax = 2. Pairwise distances and diffusion times are encoded through sinusoidal embed-dings and processed with tensor-product convolutions over radius graphs with a 5 ˚ A cutoff (see SI B.1 for full hyperparameters, and publicly available codebase). 
+
+2.3.2 Data 
+
+We trained our model on the tmQMg dataset [35], which consists of TMCs derived from experimental data with a large diversity of coordination environments, thus constituting a chal-lenging real-world learning target. The tmQMg dataset includes complexes based on a large variety of organic ligands and all thirty elements from the 3d, 4d, and 5d series. As the tmQMg dataset contains only a single geometry per complex, the learning task is different compared to conformer sampling, where multiple geometries are available during training. Generating the coordination environment is also strictly not conformer generation as it can produce dif-ferent stereoisomers ( e.g. , cis , trans ) of the same complex. We preprocess the tmQMg dataset based on the connectivity information provided in the dataset to identify ligands and bond-ing patterns. Random splitting results in 58,000 train complexes, and 1,400 validation and test set complexes each; with preprocessed data available at the Zenodo repository (see Data Availability). For benchmarking, two generative models (ConfGF [45], GeoDiff [32]) were trained from scratch on the tmQMg training set with the originally reported hyperparameters. RDKit 8RMSE ang . (rad) Frac. RMSE ang . < τ RMSD pos . (˚ A) Method Mean( ↓) Med.( ↓) < 0.5( ↑) < 0.4( ↑) < 0.3( ↑) < 0.2( ↑) Mean( ↓) Med.( ↓)
+
+TMCgen (ours) 0.43 0.41 0.60 0.49 0.41 0.31 2.31 2.24 RDKit 0.63 0.66 0.27 0.17 0.10 0.04 2.37 2.28 GeoDiff 0.48 0.47 0.54 0.39 0.29 0.18 1.23 1.32 
+
+ConfGF 0.55 0.55 0.45 0.31 0.22 0.12 div. 1.54      
+
+> Table 1 Benchmark on angular error (RMSE ang ., rad) and all-atom positional error (RMSD pos ., ˚ A). The four middle columns report the fraction of samples whose angular error falls below different thresholds τ. div. = diverged, with median computed excluding diverged samples. Best values are in bold and second best are underlined. Estimates of the standard errors are given in Tab. SI 10
+
+geometries were created using the SMILES extracted with xyz2mol tm [46] and the ETKDG algorithm [16]. For each method, we generated a single molecular geometry per test complex and report the error of geometric and electronic properties relative to those of the reference structure. For the electronic properties, we used GFN2-xTB [47] with SCF convergence of 10 −6
+
+Eh, singlet spin states and an electronic temperature of 300 K. 
+
+# 3 Results 
+
+To demonstrate the performance of TMCgen, we show that (i) the model produces more accu-rate coordination environments compared to cheminformatics methods and other generative models. We further (ii) show that TMCgen generates transition metal complex geometries with quantum-mechanical properties similar to those of the reference ground truth structure and (iii) exemplify TMCgen’s performance on representative systems relevant to catalysis, drug design and functional materials. We first quantify the accuracy of the generated coordination environments, i.e. , the geo-metric arrangements of ligands around the metal center, by computing the root-mean-square error of the relative angles of ligating atoms (RMSE ang .) between the generated structure and the ground-truth structure (see Sec. C.1 for definition). This metric specifically captures coordination geometry fidelity of interest for transition metal complexes, in contrast to all-atom RMSD, which reflects global structural similarity and is more influenced by changes distant to the metal center. We benchmark TMCgen against RDKit’s ETKDG, a widely used cheminformatics algorithm, and generative models from the literature; ConfGF and GeoDiff. As shown in Table 1, TMCgen achieves the lowest angular errors across all methods, demon-strating its capability to generate accurate coordination environments and ligand placements. Specifically, TMCgen shows a median angular error (RMSE ang .) of 0.41 rad, outperforming RDKit (0.66 rad) and ConfGF (0.55 rad), and slightly improving over GeoDiff (0.47 rad). Beyond average errors, TMCgen consistently yields a substantially higher fraction of high-quality coordination environments. In particular, 41% of generated structures lie below 0.3 rad (∼17 °), compared to 29% for GeoDiff and 10% for RDKit. At the more stringent threshold of 0.2 rad ( ∼11.5 °), TMCgen still generates 31% of samples below the cutoff, compared to 18% for GeoDiff and 4% for RDKit. To assess the robustness of these estimates, we computed standard errors as shown in Table SI 10. The resulting uncertainties are small relative to the 9Model |μ| (↓) ∆EHOMO-LUMO (↓) |μTM | (↓) qTM (↓) Tr( QTM ) ( ↓)(D) (eV) (D) (a.u.) (a.u.) 
+
+TMCgen (ours) 1.73 1.06 0.32 0.42 0.66 
+
+RDKit 2.11 1.27 0.50 0.66 0.91 GeoDiff 4.85 1.18 0.31 0.38 0.69 ConfGF 8.46 1.33 0.52 0.74 0.77  
+
+> Table 2 Mean absolute errors of electronic and transition-metal properties on the tmQMg benchmark, unrelaxed. Lower values are better ( ↓). Best values are highlighted in bold, second-best underlined.
+
+observed performance differences ( ∼ 0.01–0 .02), indicating that the improvements in coor-dination geometry generation are robust. The low performance of RDKit can be attributed to the default coordination environment and random placement of ligands on available sites when using the SMILES extracted with xyz2mol without any prior stereogenic information. Without the RDKit initialization, the performance of TMCgen on the angular coordination environment metrics is reduced, but remains on par with GeoDiff, with, e.g. , a median angu-lar error 0.47 rad, equal to GeoDiff (see Tab. SI 8). In terms of heavy-atom RMSD, GeoDiff achieves the best performance (mean 1.23 ˚ A), while TMCgen attains a higher RMSD (2.3 ˚ A) comparable to RDKit (2.3 ˚ A, see Table 1). The comparably lower performance of TMCgen on heavy-atom RMSD can be attributed to the challenging learning of the rotational degrees of freedom, i.e. , SO(3) diffusion. This can be seen in the training dynamics shown in SI Fig. SI 1, where the normalised rotational loss [39] remains significantly higher ( ℓrot ≈ 0.85) than the sphere-manifold loss introduced in this work ( ℓsphere ≈ 0.25). Errors in learning the SO(3) [39] rotational degrees of freedom, which show the highest loss in training and evaluation, lead to larger contributions to RMSD away from the metal center due to the rotation axis going through the coordinating atom (see Sec. 2.2.1). However, for relevant properties of transition metal complexes, we argue that the coordination environment often plays a dominant role in determining quantum mechanical properties, which we show in the following paragraph. We now evaluate the generated structures based on quantum-mechanical properties com-puted with GFN2-xTB. We show that TMCgen generates transition metal complex geometries with quantum-mechanical properties close to the reference ground-truth structures, as eval-uated by GFN2-xTB calculations on generated and relaxed samples (see Tabs. 2 and 3). As 
+
+Model |μ| (↓) ∆EHOMO-LUMO (↓) |μTM | (↓) qTM (↓) Tr( QTM ) ( ↓)(D) (eV) (D) (a.u.) (a.u.) 
+
+TMCgen (ours) 1.99 1.18 0.43 0.42 0.84 RDKit 2.21 0.78 0.39 0.31 0.90 GeoDiff 2.70 1.17 0.36 0.35 0.77 
+
+ConfGF 8.49 1.46 0.76 0.60 1.23  
+
+> Table 3 Mean absolute errors of electronic and transition-metal properties on the tmQMg dataset, relaxed. Lower values are better ( ↓). Best values are highlighted in bold, second-best underlined.
+
+10 Fig. 4 Representative examples of generated transition metal complexes with applications in (a) catalysis, (b) drug discovery and (c) functional materials. 
+
+properties, we consider both molecular properties (HOMO–LUMO gap, dipole moment), and atomic properties of the transition metal center, such as the atomic charge qTM , the magni-tude of the atomic dipole |⃗μ TM | and quadrupole Tr( QTM ) moments. While the HOMO–LUMO gap serves as a proxy for molecular reactivity and influences optical properties in materials, the metal charge, dipole and quadrupole moments characterize the local electron distribution. As shown in Table 2, TMCgen achieves the lowest or second-lowest errors across all proper-ties. In particular, it attains the best performance for the dipole moment (1.73 D) and the HOMO–LUMO gap (1.06 eV), improving over RDKit (2.11 D, 1.27 eV) and GeoDiff (4.85 D, 1.18 eV). For metal-centered quantities, TMCgen closely matches the best-performing model. After relaxation with GFN2-xTB, the comparable performance of TMCgen is reduced, but remains within the range of the diffusion baselines (see Table 3). Importantly, TMCgen requires only 20 model evaluations at inference time, compared to 5000 steps for GeoDiff and ConfGF, making it substantially more efficient and enabling efficient large-scale geometry generation. Fig. 4 highlights test-set complexes relevant to (a) catalysis, (b) drug design, and (c) photochemistry, selected using application-specific keywords extracted via natural language processing [48]. These examples, named in the following after their CSD entry, illustrate the ability of TMCgen to sample stereoisomers — including enantiomers and cis -trans isomers — and to handle complex multidentate ligands. DIFBEB (Fig. 4a) is a Pd complex rele-vant to homogeneous catalysis [49] and is reported to possess both cis and trans geometry. TMCgen samples both the cis and trans isomers. This demonstrates the model’s ability to recover functionally relevant isomeric ensembles rather than a single minimum-energy struc-ture. FECBOH (Fig. 4b) exemplifies complexes investigated for anticancer activity, motivated by the clinical success of cisplatin along with oxaliplatin and carboplatin as anticancer drugs, 11 which has raised significant interest in developing transition metal complexes with DNA/pro-tein binding ability [50]. This example illustrates the ability of TMCgen to generate geometries containing multiple bulky ligands, including a tridentate one, around a five-coordinate metal center. FUNCIC (Fig. 4c) represents Cu(I) complexes of interest in photochemistry due to their favorable photophysical properties, including solid-state emission and ligand-centered excited states. These features make such compounds attractive for applications in luminescent sensors, optoelectronic devices, and solar energy conversion, underscoring TMCgen’s applica-bility to electronically and optically active transition-metal systems [51]. In this tetrahedral complex, TMCgen generates both enantiomers (see Fig. SI 2 for visualization), demonstrating its ability to capture stereochemical diversity in chiral coordination environments. 
+
+# 4 Conclusion 
+
+We introduced TMCgen, a manifold diffusion model designed to efficiently and accurately generate three-dimensional geometries of transition metal complexes (TMCs). By restricting the generative process to chemically meaningful internal coordinates — specifically, the angular metal coordination environment and ligand torsions and rotations — TMCgen achieves high geometric and quantum-chemical fidelity while requiring few inference steps. This makes it a scalable and data-efficient alternative to Euclidean generative models, particularly well-suited to the limited-data regime characteristic of TMC datasets. Our approach can be extended for conditional generation based on target properties, enabling control over stereochemistry (e.g. , cis /trans or axial/equatorial configurations) to optimize desired electronic or catalytic properties. This could be achieved for example by classifier-free guidance; or other model adaptation and finetuning methods [52–54]. Here, TMCgen would guarantee valid metal-ligand bond lengths even under domain shift incurred under finetuning. Therefore, TMCgen opens up the possibility for the efficient inverse design of transition metal complexes in a variety of applications across catalysis, drug design and materials science. 
+
+# Data availability 
+
+We used the tmQMg dataset from Kneiding et al. [35]. Our processed version is available at Zenodo (10.5281/zenodo.20072262). 
+
+# Code availability 
+
+The code used to train and evaluate the model is available at GitHub (https://github.com/digital-chemistry-laboratory/TMCgen) and Zenodo (10.5281/zen-odo.20072262). 
+
+# Competing interests 
+
+The authors declare no competing interests. 12 Author contributions 
+
+L.S. developed the methodology, implemented the model, and performed the experiments and data analysis. K.J. supervised the project and contributed to the conceptual design. L.S. and K.J. jointly wrote and revised the manuscript. 
+
+# Acknowledgements 
+
+We thank Vignesh Ram Somnath and Andreas Krause for constructive discussions. This publi-cation was created as part of NCCR Catalysis (grant numbers 180544 and 225147), a National Centre of Competence in Research funded by the Swiss National Science Foundation. 
+
+# References 
+
+[1] Hartwig, J. F. Organotransition metal chemistry: from bonding to catalysis (University Science Books, 2009). [2] Ndagi, U., Mhlongo, N. & Soliman, M. Metal complexes in cancer therapy – an update from drug design perspective. Drug Design, Development and Therapy 11 , 599–616 (2017). [3] Kalyanasundaram, K. & Gr¨ atzel, M. Applications of functionalized transition metal com-plexes in photonic and optoelectronic devices. Coordination Chemistry Reviews 177 ,347–414 (1998). [4] Docherty, J. H. et al. Transition-Metal-Catalyzed C–H Bond Activation for the Formation of C–C Bonds in Complex Molecules. Chemical Reviews 123 , 7692–7760 (2023). [5] Wen, J., Wang, F. & Zhang, X. Asymmetric hydrogenation catalyzed by first-row transition metal complexes. Chemical Society Reviews 50 , 3211–3237 (2021). [6] Jana, R., Pathak, T. P. & Sigman, M. S. Advances in Transition Metal (Pd,Ni,Fe)-Catalyzed Cross-Coupling Reactions Using Alkyl-organometallics as Reaction Partners. 
+
+Chemical Reviews 111 , 1417–1492 (2011). [7] Che Lah, N. A. Late transition metal nanocomplexes: Applications for renewable energy conversion and storage. Renewable and Sustainable Energy Reviews 145 , 111103 (2021). [8] Bindoli, A. et al. Thioredoxin reductase: A target for gold compounds acting as potential anticancer drugs. Coordination Chemistry Reviews 253 , 1692–1707 (2009). [9] Shagufta & Ahmad, I. Transition metal complexes as proteasome inhibitors for cancer treatment. Inorganica Chimica Acta 506 , 119521 (2020). [10] D¨ orr, M. & Meggers, E. Metal complexes as structural templates for targeting proteins. 
+
+Current Opinion in Chemical Biology 19 , 76–81 (2014). 13 [11] Coronado, E. & Yamashita, M. Molecular spintronics: the role of coordination chemistry. 
+
+Dalton Transactions 45 , 16553–16555 (2016). [12] Amin, N. A. A. M. et al. Review of Fe-based spin crossover metal complexes in multiscale device architectures. Inorganica Chimica Acta 544 , 121168 (2023). [13] Strandgaard, M. et al. A Deep Generative Model for the Inverse Design of Transition Metal Ligands and Complexes. JACS Au 5, 2294–2308 (2025). [14] Ketkaew, R. et al. OctaDist: a tool for calculating distortion parameters in spin crossover and coordination complexes. Dalton Transactions 50 , 1086–1096 (2021). [15] Pracht, P. et al. CREST—A program for the exploration of low-energy molecular chemical space. The Journal of Chemical Physics 160 , 114110 (2024). [16] Riniker, S. & Landrum, G. A. Better Informed Distance Geometry: Using What We Know To Improve Conformation Generation. Journal of Chemical Information and Modeling 
+
+55 , 2562–2574 (2015). [17] Sobez, J.-G. & Reiher, M. Molassembler: Molecular Graph Construction, Modification, and Conformer Generation for Inorganic and Organic Molecules. Journal of Chemical Information and Modeling 60 , 3884–3900 (2020). [18] Taylor, M. G. et al. Architector for high-throughput cross-periodic table 3D complex building. Nature Communications 14 , 2786 (2023). [19] Chernyshov, I. Y. & Pidko, E. A. MACE: Automated Assessment of Stereochemistry of Transition Metal Complexes and Its Applications in Computational Catalysis. Journal of Chemical Theory and Computation 20 , 2313–2320 (2024). [20] Lee, K., Park, S., Park, M. & Kim, W. Y. MetalloGen: Automated 3D Conformer Genera-tion for Diverse Coordination Complexes. Journal of Chemical Information and Modeling 
+
+65 , 11878–11891 (2025). [21] Toney, J. W., St. Michel, R. G., Garrison, A. G., Kevlishvili, I. & Kulik, H. J. Graph neural networks for predicting metal–ligand coordination of transition metal complexes. 
+
+Proceedings of the National Academy of Sciences of the United States of America 122 
+
+(2025). [22] Clarke, C., Sommer, T., Kleuker, F. & Garc´ ıa-Melchor, M. DART: Unlocking Coordi-nation Chemistry Beyond the Cambridge Structural Database. ChemRxiv 2024 (2024). 10.26434/chemrxiv-2024-tljj9. [23] Ioannidis, E. I., Gani, T. Z. H. & Kulik, H. J. molSimplify: A toolkit for automating discovery in inorganic chemistry. Journal of Computational Chemistry 37 , 2106–2117 (2016). 14 [24] Jing, B., Corso, G., Chang, J., Barzilay, R. & Jaakkola, T. S. Torsional Diffusion for Molecular Conformer Generation . Advances in Neural Information Processing Systems 
+
+(2022). [25] Wang, Y., Elhag, A. A. A., Jaitly, N., Susskind, J. M. & Bautista, M. A. Swallowing the Bitter Pill: Simplified Scalable Conformer Generation . International Conference on Machine Learning (2024). [26] Ho, J. & Salimans, T. Classifier-Free Diffusion Guidance (2022). ArXiv:2207.12598 [cs]. [27] Weiss, T. et al. Guided diffusion for inverse molecular design. Nature Computational Science 3, 873–882 (2023). Number: 10. [28] Jin, H. & Merz, K. M. J. LigandDiff: de Novo Ligand Design for 3D Transition Metal Complexes with Diffusion Models. Journal of Chemical Theory and Computation 20 ,4377–4384 (2024). [29] Cornet, F., Benediktsson, B., Hastrup, B., Schmidt, M. N. & Bhowmik, A. OM-Diff: inverse-design of organometallic catalysts with guided equivariant denoising diffusion. 
+
+Digital Discovery 3, 1793–1811 (2024). [30] Corso, G., St¨ ark, H., Jing, B., Barzilay, R. & Jaakkola, T. S. DiffDock: Diffusion Steps, Twists, and Turns for Molecular Docking . International Conference on Learning Representations (2023). [31] Yim, J. et al. Diffusion models in protein structure and docking. WIREs Computational Molecular Science 14 , e1711 (2024). [32] Xu, M. et al. GeoDiff: A Geometric Diffusion Model for Molecular Conformation Generation . International Conference on Learning Representations (2022). [33] Schaufelberger, L., Hartgers, A. & Jorner, K. Generating Cyclic Conformers with Flow Matching in Cremer-Pople Coordinates (2026). ArXiv:2601.12859 [cs]. [34] Axelrod, S. & G´ omez-Bombarelli, R. GEOM, energy-annotated molecular conformations for property prediction and molecular generation. Scientific Data 9, 185 (2022). [35] Kneiding, H. et al. Deep learning metal complex properties with natural quantum graphs. 
+
+Digital Discovery 2, 618–633 (2023). [36] Elhag, A. A., Wang, Y., Susskind, J. M. & Bautista, M. A. Manifold Diffusion Fields .
+
+International Conference on Learning Representations (2024). [37] De Bortoli, V. et al. Riemannian Score-Based Generative Modelling. Advances in Neural Information Processing Systems (2022). [38] Lee, J. M. Introduction to Riemannian Manifolds Vol. 176 of Graduate Texts in Mathematics (Springer International Publishing, Cham, 2018). 15 [39] Leach, A., Schmon, S. M., Degiacomi, M. T. & Willcocks, C. G. Denoising Diffusion Prob-abilistic Models on SO(3) for Rotational Alignment. ICLR 2022 Workshop on Geometrical and Topological Representation Learning (2022). [40] Zhao, C. & Song, J. S. Exact Heat Kernel on a Hypersphere and Its Applications in Kernel SVM. Frontiers in Applied Mathematics and Statistics 4 (2018). [41] Geiger, M. & Smidt, T. e3nn: Euclidean Neural Networks (2022). ArXiv:2207.09453 [cs]. [42] Yim, J. et al. SE(3) diffusion model with application to protein backbone generation .
+
+International Conference on Machine Learning (2023). [43] Kneiding, H., Nova, A. & Balcells, D. Directional multiobjective optimization of metal complexes at the billion-system scale. Nature Computational Science 4, 263–273 (2024). [44] Somnath, V. R., Sessa, P. G., Martinez, M. R. & Krause, A. DockGame: Cooperative Games for Multimeric Rigid Protein Docking (2023). ArXiv:2310.06177 [cs]. [45] Shi, C., Luo, S., Xu, M. & Tang, J. Learning Gradient Fields for Molecular Conformation Generation . International Conference on Machine Learning (2021). [46] Rasmussen, M. H. et al. SMILES all around: structure to SMILES conversion for transition metal complexes. Journal of Cheminformatics 17 , 63 (2025). [47] Bannwarth, C., Ehlert, S. & Grimme, S. GFN2-xTB—An Accurate and Broadly Parametrized Self-Consistent Tight-Binding Quantum Chemical Method with Multipole Electrostatics and Density-Dependent Dispersion Contributions. Journal of Chemical Theory and Computation 15 , 1652–1671 (2019). [48] Kevlishvili, I. et al. Leveraging natural language processing to curate the tmCAT, tmPHOTO, tmBIO, and tmSCO datasets of functional transition metal complexes. 
+
+Faraday Discussions 256 , 275–303 (2025). [49] Hohloch, S., Frey, W., Su, C.-Y. & Sarkar, B. Abnormal carbenes derived from the 1,5-cycloaddition product between azides and alkynes: structural characterization of Pd(II) complexes and their catalytic properties. Dalton Transactions 42 , 11355–11358 (2013). [50] Yilmaz, V. T. et al. Synthesis, structures, DNA/protein binding, molecular docking, anticancer activity and ROS generation of Ni(II), Cu(II), Zn(II) 5,5-diethylbarbiturate complexes with bis(2-pyridylmethyl)amine and terpyridine. New Journal of Chemistry 
+
+41 , 8092–8106 (2017). [51] Safin, D. A., Mitoraj, M. P., Robeyns, K., Filinchuk, Y. & Velde, C. M. L. V. Lumines-cent mononuclear mixed ligand complexes of copper(I) with 5-phenyl-2,2’-bipyridine and triphenylphosphine. Dalton Transactions 44 , 16824–16832 (2015). [52] Domingo-Enrich, C., Drozdzal, M., Karrer, B. & Chen, R. T. Q. Adjoint Matching: Fine-tuning Flow and Diffusion Generative Models with Memoryless Stochastic Optimal 
+
+16 Control . International Conference on Learning Representations (2024). [53] Gutjahr, S., Santi, R. D., Schaufelberger, L., Jorner, K. & Krause, A. Constrained Flow Optimization via Sequential Fine-Tuning for Molecular Design . NeurIPS 2025 Workshop on Structured Probabilistic Inference & Generative Modeling (2025). [54] Jensen, C. P., Schaufelberger, L., Santi, R. D., Jorner, K. & Krause, A. Value Matching: Scalable and Gradient-Free Reward-Guided Flow Adaptation. International Conference on Learning Representations (2026). [55] Cameron, A. C., Gelbach, J. B. & Miller, D. L. Bootstrap-Based Improvements for Inference with Clustered Errors. The Review of Economics and Statistics 90 , 414–427 (2008). 17 Supplementary Information A Manifold diffusion: extended formulation 
+
+## A.1 Generalization of the heat kernel to the n-sphere 
+
+The heat kernel on Sn (Eq. 3 in the main text for n = 2) generalizes to arbitrary n ≥ 2 by replacing the Legendre polynomials with Gegenbauer (ultraspherical) polynomials C(α) 
+
+> ℓ
+
+with 
+
+α = ( n − 1) /2 [40]: 
+
+Gn(θ, σ (t)) = 1
+
+ωn
+
+> ∞
+
+X
+
+> ℓ=0
+
+e−ℓ(ℓ+n−1) σ(t)2/2 2ℓ + n − 1
+
+n − 1 C(α) 
+
+> ℓ
+
+(cos θ), (6) where ωn = 2 π(n+1) /2/Γ(( n + 1) /2) is the surface area of Sn. For n = 2, C(1 /2)  
+
+> ℓ
+
+= Pℓ recovers Eq. 3. The corresponding conditional density is obtained by weighting Gn with the surface area element sin n−1(θ). Gegenbauer polynomials are evaluated through the recurrence 
+
+ℓ C (α) 
+
+> ℓ
+
+(x) = 2( ℓ + α − 1) x C (α)
+
+> ℓ−1
+
+(x) − (ℓ + 2 α − 2) C(α)
+
+> ℓ−2
+
+(x), (7) with C(α)0 = 1 and C(α)1 (x) = 2 αx .
+
+# B Model architecture and training 
+
+## B.1 Hyperparameters 
+
+Tables SI 1–SI 7 list the hyperparameters used to train and sample from the E3NN score model for sphere–rotation–torsion diffusion on tmQMg.          
+
+> Hyperparameter Value
+> Number of convolutional layers 4Scalar features ( ns)48 Vector features ( nv)10 Spherical harmonics ( ℓmax )2Activation ReLU Dropout 0.1
+> Table SI 1 Architecture of the E3NN score model.
+
+18 Hyperparameter Value 
+
+Distance embedding dim. 64 Center distance embedding dim. 64 Cross distance embedding dim. 64 Sigma embedding dim. 32 Time embedding type sinusoidal Time embedding scale 10,000 Position embedding type sinusoidal Position embedding scale 10,000  
+
+> Table SI 2 Embedding dimensions and types.
+
+Hyperparameter Value 
+
+Cutoff (lower / upper) 0 / 5 Max neighbours 30 Center max radius 30  
+
+> Table SI 3 Graph construction parameters.
+
+Hyperparameter Value 
+
+Rotation σmin , σ max 0.02, 1.65 Torsion σmin , σ max 0.0314, 3.14 Sphere σmin , σ max 0.08, 1.55  
+
+> Table SI 4 Diffusion noise schedule.
+
+# C Metric definitions 
+
+## C.1 Angular RMSE 
+
+To assess the fidelity of the generated coordination environment, we evaluate the root-mean-square error of the pairwise angles formed by the ligating atoms at the transition metal (TM) center. Let ri = xi − xTM denote the position of ligating atom i relative to the metal center, and let 
+
+θij = arccos 
+
+ ri · rj
+
+∥ri∥ ∥ rj ∥
+
+
+
+(8) 19 Hyperparameter Value 
+
+wrot 1
+
+wtor 1
+
+wsphere 2 
+
+> Table SI 5 Loss weights.
+
+Hyperparameter Value 
+
+Optimiser Adam Learning rate 1 × 10 −4
+
+Weight decay 0Gradient clip 0.8 EMA decay 0.999  
+
+> Table SI 6 Optimisation settings.
+
+Hyperparameter Value 
+
+Inference steps 20  
+
+> Table SI 7 Sampling / inference settings.
+
+be the angle subtended at the TM by the pair ( i, j ). The angular RMSE between a generated structure and its ground-truth reference is then defined as RMSE ang . =
+
+s 1
+
+Npairs 
+
+X
+
+> i<j
+
+
+
+θpred  
+
+> ij
+
+− θtrue 
+
+> ij
+
+2
+
+, Npairs =
+
+N
+
+2
+
+
+
+, (9) where the sum runs over all unordered pairs of the N ligating atoms. By construction, this metric is invariant to global translations and rotations of the complex. 
+
+## C.2 Multidentate ligands 
+
+Multidentate ligands have bite angles, which according to the terminology introduced by [24] count towards the local environment and are kept fixed during training and inference, for example using reference angles based of RDKit or libraries such as tmQMg-L [43]. Following this approach, in the results shown in the main text, we keep the bite angles fixed with values from RDKit. However, the publicly available implementation allows choosing the bite angles to be diffused over, i.e. , treating them like other torsion angles. The ligating atom which is used for the sphere diffusion is chosen randomly in the case of multidentate ligands. 20 D Additional results 
+
+## D.1 Comparison of loss magnitudes 
+
+Fig. SI 1 compares the per-component training losses (sphere, rotation, torsion), each nor-malised. The sphere loss converges rapidly to roughly 0 .25 of its normalized values, whereas the rotational loss plateaus near 0 .85, indicating that rotational alignment is the dominant bottleneck and that the residual error in our generated structures is driven primarily by the rotational component.   
+
+> Fig. SI 1 Per-component training losses (sphere, rotation, torsion) over the first 130 epochs, each normalised. The sphere loss introduced in this work converges quickly to ∼0.25, while the rotational loss [39] plateaus near 0.85.
+
+## D.2 Additional results for different initialization scheme 
+
+With random initialization of the structures, especially random ligand rotations, TMCgen remains stable but shows a moderate performance drop compared to the performance presented in the main text (see Tabs. SI 8 and SI 9). The angular RMSE increases from 0.43 to 0.51 rad, and RMSD rises from 2.31 ˚ A to 2.38 ˚ A, indicating a slightly less accurate generation. Electronic property errors also degrade mildly ( e.g. , HOMO–LUMO gap from 1.06 eV to 1.31 eV, unrelaxed), while overall trends across metrics remain consistent, suggesting that the model does not collapse under fully uninformative starting geometries. This result indicates that TMCgen can refine randomly initialized complexes into chemi-cally reasonable structures, but benefits from a chemistry-informed initialization ( e.g. , RDKit ETKDG) for optimal performance. 
+
+## D.3 Error estimation 
+
+To assess the statistical robustness of the reported benchmark metrics, uncertainties were esti-mated using a cluster bootstrap [55] over generated transition metal complexes ( B = 10 ,000 21 RMSE ang . (rad) Frac. RMSE ang . < τ RMSD pos . (˚ A) Method Mean( ↓) Med.( ↓) < 0.5( ↑) < 0.4( ↑) < 0.3( ↑) < 0.2( ↑) Mean( ↓) Med.( ↓)TMCgen (random init.) 0.51 0.47 0.54 0.43 0.31 0.18 2.38 2.32    
+
+> Table SI 8 Results of TMCgen with random initialization on angular error (RMSE ang ., rad) and all-atom positional error (RMSD pos ., ˚ A). The four middle columns report the fraction of samples whose angular error falls below different thresholds τ.
+
+Model |μ| (↓) ∆EHOMO-LUMO (↓) |μTM | (↓) qTM (↓) Tr( QTM ) ( ↓)(D) (eV) (D) (a.u.) (a.u.) 
+
+Unrelaxed 
+
+TMCgen (random initialization) 2.65 1.31 0.57 0.78 0.89 
+
+Relaxed 
+
+TMCgen (random initialization) 2.64 0.82 0.39 0.41 0.77  
+
+> Table SI 9 Results of TMCgen with random initialization of electronic and transition-metal properties on the tmQMg benchmark. Lower values are better ( ↓). Best values are highlighted in bold, second-best underlined.
+
+RMSE ang . (rad) RMSD pos . (˚ A) Method Mean( ↓) Med.( ↓) < 0.5( ↑) < 0.4( ↑) < 0.3( ↑) < 0.2( ↑) Mean( ↓) Med.( ↓)
+
+Our method 0.43 ±0.01 0.41 ±0.02 0.60 ±0.02 0.49 ±0.02 0.41 ±0.02 0.31 ±0.02 2.31 ±0.04 2.24 ±0.06    
+
+> Table SI 10 Subscripts show ±1 SE from a cluster bootstrap over molecules ( B= 10 ,000 resamples).
+
+resamples). We generated three samples per test complex while keeping the train/valida-tion/test split and the trained model fixed. These uncertainty estimates therefore quantify variability arising from stochastic generation, but do not capture uncertainty due to changes in the training data, model initialization, or retraining of the model. Transition metal com-plexes were sampled with replacement, while retaining all associated samples for each selected transition metal complex (total of 3 samples), thereby preserving within-molecule correla-tions. Metrics were recomputed for each bootstrap replicate, and the standard deviation across replicates was reported as the standard error (SE). As shown in Table SI 10, the uncertainties are small for both angular and positional metrics. For example, the mean angular RMSE of TMCgen is 0 .43 ± 0.01 rad and the median angular RMSE is 0 .41 ± 0.02 rad, indicating that the observed improvements over competing methods are substantially larger than the estimated statistical uncertainty. Positional RMSD metrics also show low uncertainty, with standard errors below 0 .06 ˚ A. 22 Fig. SI 2 Enantiomers of FUNCIC 
+
+23

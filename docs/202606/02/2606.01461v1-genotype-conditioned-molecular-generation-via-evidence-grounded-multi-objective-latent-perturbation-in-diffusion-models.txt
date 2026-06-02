@@ -1,0 +1,398 @@
+Title: Genotype-Conditioned Molecular Generation via Evidence-Grounded Multi-Objective Latent Perturbation in Diffusion Models
+
+URL Source: https://arxiv.org/pdf/2606.01461v1
+
+Published Time: Tue, 02 Jun 2026 01:47:45 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Genotype-Conditioned Molecular Generation via Evidence-Grounded Multi-Objective Latent Perturbation in Diffusion Models 
+
+Brenda Nogueira 
+
+Department of Computer Science and Engineering University of Notre Dame Notre Dame, IN, 46556 
+
+bcruznog@nd.edu 
+
+Gisela A. González-Montiel 
+
+Department of Chemistry and Biochemistry University of Notre Dame Notre Dame, IN, 46556 
+
+ggonzal6@nd.edu 
+
+Nitesh V. Chawla 
+
+Department of Computer Science and Engineering University of Notre Dame Notre Dame, IN, 46556 
+
+nchawla@nd.edu 
+
+Nuno Moniz 
+
+Lucy Family Institute for Data & Society University of Notre Dame Notre Dame, IN, 46556 
+
+nunomoniz@nd.edu 
+
+Abstract 
+
+Developing effective anticancer therapeutics remains challenging due to tumor heterogeneity and the absence of well-defined molecular targets across cancer subtypes. Generative models conditioned on cancer genotypes offer a promising avenue for personalized drug discovery, yet existing approaches lack explicit op-timization for simultaneous sensitivity, synthesizability, and mechanistic binding plausibility. We present a latent-space optimization approach for a pretrained genotype-to-drug diffusion model, introducing a learnable perturbation over the molecular latent space optimized via gradient ascent to maximize a composite reward combining predicted drug sensitivity (AUC), drug-likeness (QED), and syn-thetic accessibility (SAS). Critically, biological realism is enforced by grounding both reward design and evaluation in experimentally-derived cancer cell line data and validated pharmacologic signals, anchoring candidate generation in real-world clinical evidence. Mechanistic consistency plausibility is further assessed by a multi-agent LLM pipeline grounded in the diffusion model’s attention mecha-nism. Experiments across 15 cancer cell lines from three held-out evaluation sets demonstrate consistent and noticeable improvements over competing baselines in sensitivity, drug-likeness, synthesizability, and chemical validity. 
+
+1 Introduction 
+
+The design of novel anticancer therapeutics remains a central challenge in modern medicine, largely due to tumor heterogeneity and the limited availability of well-defined molecular targets across cancer subtypes [ 24 ]. Recent advances in deep generative models have enabled the exploration of vast 
+
+> Preprint.
+> arXiv:2606.01461v1 [cs.LG] 31 May 2026
+
+chemical spaces, offering a promising paradigm for automated molecular design and personalized drug discovery [ 20 , 38 ]. In particular, generative approaches conditioned on biological context, such as gene expression or genomic alterations, have shown potential in producing hit-like candidate compounds with target biological traits. AI-driven drug discovery methods can be broadly categorized into target-based and phenotype-based approaches. The former focuses on generating molecules that bind to predefined proteins, often leveraging docking simulations or reinforcement learning (RL) with binding affinity predictors [ 21 ,37 , 41 , 14 , 1, 33 , 3 ]. These approaches rely heavily on prior knowledge of targets, which is often incomplete or unavailable in complex cases such as cancer. In contrast, phenotype-based approaches aim to generate compounds that induce desired cellular responses, bypassing the need for explicit target specification [ 16 , 44 , 28 , 31 ]. While promising, these methods typically depend on gene expression data, which can be noisy, biased, and difficult to obtain in clinical settings [24]. Studies have explored anti-cancer compound generation conditioned on cancer characteristics using conditional variational autoencoders [ 23 ] and RL–based generative models [ 34 ]. Recent genotype-conditioned models address some of these issues by using genomic alteration profiles as conditioning signals, improving clinical relevance and interpretability [ 24 ]. Regardless, a critical gap remains: most generative models focus on sampling from learned distributions rather than explicitly optimizing molecules for multiple clinically relevant objectives. For example, effective drug candidates must simultaneously satisfy several criteria, including high sensitivity (efficacy), drug-likeness (QED), synthetic accessibility (SAS), and mechanistic plausibility of target engagement (i.e., binding inter-actions). Existing approaches often address these objectives through post hoc filtering or weakly integrated reward signals, leading to suboptimal exploration of the molecular space [11, 14, 27]. In this work, we propose a latent-space optimization approach for genotype-conditioned molecular generation that extends pretrained diffusion models with multi-objective optimization and mechanistic reasoning. Rather than relying solely on generative sampling, we introduce a learnable perturbation over the molecular latent space, optimized via gradient-based updates to maximize a composite reward encompassing predicted drug response, physicochemical properties, and mechanistic binding signals. To incorporate biological plausibility, we further extend our approach with a large language model (LLM)-based multi-agent pipeline that evaluates candidate molecules based on literature-grounded plausibility with model-identified targets, grounded in the diffusion model’s internal attention mechanisms and real-world feedback from published academic/clinical evidence. The code is available at https://anonymous.4open.science/r/GenDiff_Evidence_Opt-1E5B. Our contributions are summarized as follows: • Multi-objective latent perturbation with online surrogate critics. We propose a unified perturbation method for frozen genotype-conditioned diffusion models that, unlike related work [ 45 , 27 ], which requires either optimizing a single differentiable objective or retraining the generative model, jointly optimizes multiple reward axes: predicted sensitivity, drug-likeness, and synthetic plausibility. We address this by training online property surrogate networks in real time on decoded outputs and extending the pattern to sparse LLM feedback via an analogous LLM surrogate critic, enabling dense gradient flow at every optimization step without backbone retraining. Results demonstrate a remarkable improvement over state-of-the-art methods. • Multi-agent pipeline for mechanistic plausibility scoring. We propose an agent-based pipeline that 1) extracts per-gene importance scores directly from the genotype conditioning-encoder’s internal transformer attention weights, identifying cell-line-specific target genes from NeST adjacency (Biology Agent), then 2) leverages an LLM-based agent to produce a structured non-covalent interaction (NCI) report grounded in retrieved docking literature (Chemistry Agent), then 3) integrating this report with molecular descriptors and biological context using another LLM-based agent, which will produce a scalar mechanistic plausibility score rllm ∈ [0 , 1] . This allows the injection of real-world (and verifiable) biomedical knowledge regarding chemical reasoning as a differentiable surrogate approximation of sparse LLM feedback within an optimization loop. Results demonstrate further improvement in key metrics, particularly drug-likeness and synthetic plausibility metrics, as well as on target-engagement generation. 22 Related Work 
+
+Diffusion Models and Multi-Objective Optimization. Diffusion models have recently achieved state-of-the-art performance in molecular generation, with geometry-aware and flow-based extensions such as GeoLDM [ 46 ] and PropMolFlow [ 47 ] improving structural validity through SE(3)-equivariant 3D representations. Reinforcement learning (RL) has been widely adopted to guide generation toward drug-relevant objectives, as demonstrated by DrugGen [ 39 ], uncertainty-aware RL-diffusion frameworks [ 14 ], and transformer-based generators such as MolGPT [ 5] and Taiga [ 30 ]. However, RL-based approaches often suffer from reward sparsity, training instability, and overfitting to imperfect predictors. Continuous latent space optimization offers a complementary strategy, with gradient-based and particle swarm methods enabling efficient chemical space navigation [ 45 ] and constrained frameworks enforcing validity during search [ 27 ], yet these approaches typically lack integration of biological context and mechanistic binding rationale into the optimization objective. 
+
+Genotype- and Phenotype-Conditioned Molecular Generation. Prior work has explored phenotype-conditioned generation using gene expression profiles, with approaches such as Pac-cMannRL [ 11 ] combining transcriptomic inputs with RL to bias generation toward cancer-specific compounds, and subsequent methods extending this to diffusion and latent generative frame-works [ 16 , 44 , 28 ]. However, gene expression data is noisy, variable, and often impractical in clinical settings. Genotype-conditioned models offer a more clinically grounded alternative: G2D-Diff [ 24 ] conditions diffusion-based generation directly on genomic alteration profiles, producing diverse, drug-like candidates tailored to specific cancer cell lines with interpretable attention mecha-nisms. Despite these strengths, G2D-Diff optimizes solely for genotype-conditioned sensitivity and lacks multi-objective control over drug-likeness properties such as QED and synthetic accessibility, motivating the optimization approach proposed in this work. 
+
+LLMs and Agent-Based Reasoning for Drug Discovery Large language models (LLMs) are increasingly applied to drug discovery for molecular representation, reaction prediction, and hy-pothesis generation [ 9, 48 ], with models such as DrugLLM [ 26 ] demonstrating few-shot molecular design through learned transformation patterns. Agent-based frameworks, where specialized models collaborate across generation, evaluation, and reasoning roles, have emerged as a promising paradigm for complex scientific tasks [ 13 , 36 ], with examples such as scDrugMap integrating multiple large models for multi-modal drug response prediction [ 19 ]. However, the use of LLMs as mechanistic evaluators within molecular optimization loops remains underexplored — most existing approaches either rely purely on learned predictors or treat LLMs as passive knowledge sources rather than active, biologically-grounded scoring agents. 
+
+3 Methodology 
+
+We propose a cell-line-conditioned latent space search method for generating molecular candidates that simultaneously optimize three clinically relevant axes: sensitivity (predicted drug response as AUC), drug viability (drug-likeness as QED and synthesizability as SAS), and mechanistic target engagement . The overall approach adopts a multi-agent architecture: a BiologyAgent leverages a conditional diffusion model [ 24 ] to produce all quantitative biological and cheminformatic signals from its internal representations. These signals are then consumed by two LLM-based agents, a 
+
+ChemistryAgent and a ScoreAgent , that reason over mechanistic plausibility and produce a final binding-effectiveness score. This score is fed back into a latent-space gradient ascent loop, making the overall procedure analogous to a reinforcement learning setting operating over a continuous molecular manifold. Figure 1 summarizes the full pipeline. 
+
+3.1 Optimization Targets Sensitivity (AUC). To assess the sensitivity of a generated candidate, we use a pretrained G2D-Pred [ 24 ], a genotype-based drug response predictor trained on top of G2D-Diff’s condition encoder architecture. G2D-Pred takes the cell-line genotype and a compound latent vector as input and predicts the AUC value of the pair. We use an ensemble predictor of K = 5 G2D-Pred pre-trained 3Figure 1: Latent Optimization Architecture : Using a pretrained genotype-conditioning diffusion model, our candidate molecules are passed through a mechanism-scoring pipeline, and summed with drug viability and sensitivity scores, and optimized in the latent space. networks with different random seeds; the ensemble mean provides a robust sensitivity estimate: 
+
+rauc (z) = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+fθk (z, c), (1) with fθk being the k predictor that takes z (latent vector) and c as the genotype condition. In the methodology, lower AUC corresponds to higher sensitivity [24]. 
+
+Drug viability (QED, SAS). From the decoded SMILES, we use the RDKit package [ 25 ] to compute the Quantitative Estimate of Drug-likeness (QED) [ 8] and the Synthetic Accessibility Score (SAS) [ 17 ], together with a full molecular descriptor profile (MW, LogP, HBD, HBA, TPSA, rotatable bonds, aromatic ring count). The QED and SAS are normalized into rewards rqed ∈ [0 , 1] and 
+
+rsas ∈ [0 , 1] . Note that G2D-Diff itself is trained to generate drug-like molecules and has been shown to produce distributions of QED and SAS comparable to those of reference compound sets [ 12 ]; our viability rewards further refine this within the optimization loop. 
+
+3.2 Molecule Generator 
+
+For generating our candidates, we use the frozen G2D-Diff [ 24 ]. We selected this model as our backbone because it includes a diffusion process and genotype-conditioning, which are ideal for our pathway enrichment analysis. The model takes as input the binary genotype profile of a cancer cell line. This includes encoding mutations (MUT), copy-number amplifications (CNA), and deletions (CND) across G clinically relevant genes. The encoding process involves two main modules: genetic alteration embedding and a three-layer transformer encoder Eϕ [ 43 ]. The first transformer layer restricts attention to genes within the same biological subsystem using the NeST ontology [ 49 ], capturing how mutations propagate through interacting pathways. The remaining two layers allow un-restricted global gene-level attention. A response-class token, specifying the desired sensitivity level, is appended to the sequence and acts as a condition vector c that guides molecule generation [24]. The generative backbone is a denoising diffusion probabilistic model (DDPM) [ 22 ], conditioned on c
+
+via an adaptive instance normalization-based injection module applied in six denoising layers. The pretrained chemical VAE decodes the generated latent vectors to SMILES strings, with a three-layer LSTM encoder-decoder and a 128-dimensional latent space. 43.3 Agents: Drug-Effectiveness Scoring BiologyAgent. Our BiologyAgent uses the genotype conditional encoder as the source for the biological signals to derive attention-grounded genes. The system extracts internal attention weights directly from the G2D-Diff transformer-based condition encoder Eϕ to identify true cellular targets. Specifically, we compute per-gene importance scores by averaging the attention from the response-class token to each gene across all heads and layers. Genes are then ranked by their importance scores, and those in the top 10% that also exceed a uniform attention baseline ( 1/(G + 1) , where 
+
+G is the number of genes) are selected as the top-attended gene set (Appendix A). From this set, we further select the top-k genes (with k = 2 in our experiments) as the primary targets used for downstream reasoning. The raw genotype vectors are parsed to produce a human-readable context comprising the top mutated, amplified, and deleted genes per cell line (from MUT, CNA, and CND, respectively), provided to the LLM agents as supplementary evidence. 
+
+ChemistryAgent. The ChemistryAgent receives the full QED, SAS, molecular descriptors, attention-grounded genes, and gene context and is tasked with generating a non-covalent interaction (NCI) analysis report: reasoning over if and how the candidate molecule engages the model-identified target genes. The agent operates in two modes depending on availability. It retrieves literature from PubMed and Semantic Scholar (we do not consider supplementary information of the papers) on AlphaFold structure predictions and molecular docking studies specifically for the attention-grounded top genes, anchoring its NCI analysis in empirical binding data. The agent produces a structured NCI report describing relevant interaction types—hydrogen bonds, π-π stacking, halogen bonds, electrostatic contacts, and hydrophobic interactions—between the candidate and the model-identified targets. Critically, the ChemistryAgent produces a mechanistically grounded NCI evidence report that the next agent can reason over. See the full prompt strategy at GitHub. 
+
+ScoreAgent. The ScoreAgent integrates all available evidence into a final scalar binding-effectiveness score rllm ∈ [0 , 1] . Its inputs are: 1) Molecular profile: QED, SAS, the full molecular descriptors, and predicted AUC; 2) The ChemistryAgent’s NCI analysis report, based on surveying the literature; 3) All biology agent outputs: the attention-grounded enriched top-attended genes. The agent outputs structured JSON (example in Appendix B) comprising the final score, a confidence estimate, a mechanistic summary sentence, key factors supporting the score, and flagged concerns. 
+
+3.4 Latent Space Optimization 
+
+Given a target cell line with condition embedding c, we sample an initial molecule z0 ∼ pϕ(z|c) from the frozen G2D-Diff model: a cell line’s genotype-conditioned drug-like candidate. We then introduce a learnable perturbation δ, a vector of equal dimension to z0 initialized to zero, and optimized by gradient ascent to shift the molecule toward a higher-reward region of the latent space: 
+
+δ∗ = arg max  
+
+> δ
+
+R(z0 + δ) − λ∥δ∥22, (2) where the ℓ2 penalty λ∥δ∥22 prevents δ from growing so large that z0 + δ drifts outside the valid molecular manifold learned by G2D-Diff. The composite reward R balances three objectives: 
+
+R(z) = −wauc · rauc (z) + wqed · rqed (z) − wsas · rsas (z) + wllm · rllm (z). (3) 
+
+rqed ∈ [0 , 1] rewards drug-likeness, and rllm ∈ [0 , 1] rewards mechanistic target engagement as assessed by LLM agents. AUC and SAS terms are subtracted because rauc ∈ [0 , 1] rewards higher sensitivity (lower AUC means greater drug effect) and rsas because a higher value means harder to synthesize, i.e., minimizing it improves the reward. We define the weights as wauc = 1 .0, w qed =0.5, w sas = 0 .5, w llm = 1 .0, as we want the reward to reflect in equal parts sensitivity (predicted drug response), drug viability (drug-likeness and synthesizability), and mechanistic target engagement .
+
+3.4.1 Differentiability and Online Surrogates 
+
+The AUC term rauc is differentiable through the G2D-Pred ensemble predictors. The drug-viability terms rqed and rsas are not directly differentiable, since SMILES decoding via the VAE is discrete. We therefore maintain online property surrogate networks , lightweight three-layer MLPs sqed (z) and 
+
+ssas (z) with sigmoid output, trained online via MSE (mean squared error) regression against observed 5QED/SAS values decoded at each step. Gradients for drug viability flow through these differentiable surrogates. The LLM binding score rllm is handled analogously: an online LLM surrogate sllm (z) is updated from the sparse LLM feedback and queried at every gradient step (see Appendix C). 
+
+3.4.2 Sparse LLM Feedback and Surrogate Critic 
+
+Because LLM API calls are computationally expensive, the multi-agent pipeline is invoked every 
+
+∆llm = 10 steps on the top-n candidates by predicted AUC. Unscored candidates receive scores imputed via Tanimoto similarity to scored molecules using Morgan fingerprints, with a neutral fallback of rllm = 0 .5 when no sufficiently similar scored molecule exists. All scores, direct or imputed, update an online surrogate sllm (z) that provides a dense, differentiable approximation of 
+
+rllm between calls (see Appendix C.4). 
+
+4 Experimental Results 
+
+This section describes our experimental results, first detailing our experimental setup, then focusing on the quality of molecules generated by our overall approach, and finally zooming in on the impact of the proposed multi-agent system. All experiments were conducted on NVIDIA GPU A100 200 GiB RAM, and the LLM used to build the LLM-based agents was Anthropic Claude-sonnet-4-6. 
+
+4.1 Experimental Setup Dataset. We use cell lines in the NCI60 Growth Inhibition Data (accessed July 2022) [ 40 ], prepro-cessed at G2D-Diff [ 24 ]. The dataset binary genotype profile of a cancer cell line across G = 718 
+
+clinically relevant genes. Optimization is performed per cell line across 15 cancer cell lines drawn from three held-out evaluation sets (EV1, EV2, EV3): EV1 contains data-rich cell lines seen during training, EV2 contains data-scarce cell lines with known conditions but unseen compound pairs, and EV3 is a fully zero-shot set of unseen cell lines (Appendix D). We generated 2000 molecular latent vectors. Hyperparameter search for optimization was conducted with all cell lines contained in NCI60 (62), except for those in EV1 and EV2, with a total of 52 cell lines (Appendix E). 
+
+Baseline comparison. We used a generative model based on gene expression for hit-like anticancer molecules as baseline (G2D-Diff and PaccMannRL) along with the generation of molecular properties and conditional properties (MolGPT)(Appendix F), and a known drug-induced growth response dataset (NCI60). We generate and sample around 2000 molecules with each method. 
+
+4.2 Results 
+
+The results below address five questions: (1) does our approach generate higher-quality molecules than state-of-the-art baselines? (2) what is the contribution of each optimization component? (3) how does candidate pool size affect the multi-agent scoring pipeline? (4) does the agent-based scoring demonstrate consistency with expected trends on clinically validated drugs? and (5) are results stable given the stochasticity introduced by LLM-based interactions? 
+
+4.2.1 Quality of Generated Molecules 
+
+Table 1 and Figure 2 jointly characterize the quality of generated molecules across three evaluation sets for five methods: PaccmannRL, G2D-Diff, and our Agent-optimization latent optimization pipeline (Ours). We also evaluate the results using only the molecules generated with G2D-Diff under very sensitive and sensitive conditions (G2D-Diff (Sen)), and compare the generated molecules with the distribution of real AUC values in the NCI60 dataset. Our method achieves the strongest drug-likeness profile across all three evaluation sets, attaining the highest QED scores and the lowest SAS values among the conditional generation baselines. These results suggest the LLM reward signal actively steers optimization toward synthetically feasible, drug-like chemical space. LogP is also the most controlled of the three baselines in all evaluations, suggesting better membrane permeability characteristics and reduced likelihood of promiscuous binders. While MolGen-GPT reports superior QED and SAS, it operates as an unconditional 6generative model and does not optimize for cell-line-specific sensitivity, making it a reference upper bound for drug-likeness rather than a direct competitor for the conditional generation task. Regarding generation quality, our method maintains near-perfect validity while preserving high novelty and competitive uniqueness. The difference in diversity relative to G2D-Diff is consistent with the latent optimization landscape being constrained by the multi-objective reward, which narrows sampling toward a pharmacophore-compatible region of latent space. These results demonstrate that our LLM-augmented pipeline uniquely achieves the combination of high predicted sensitivity, strong drug-likeness, and valid novel chemistry that none of the individual baselines attain simultaneously. On predicted AUC, our method yields the lowest median predicted AUC across all three evaluation sets. Critically, in the context of drug response, lower AUC values indicate greater predicted sensitivity: our generated molecules are predicted to be substantially more potent against the target cell lines than those produced by competing methods. This sensitivity advantage is most pronounced in Eval #1, where our method achieves a median predicted AUC of approximately 0.08, versus approximately 0.75 for PaccmannRL and 0.85–0.90 for G2D-Diff. G2D-Diff (Sen) occupies an intermediate position, achieving lower predicted AUCs than G2D-Diff but substantially higher than our method, suggesting that sensitivity conditioning alone, without drug-likeness optimization, generates potent but chemically poor candidates. 
+
+Figure 2: Latent optimization results. (a) Predicted AUC distributions for generated molecules across evaluation sets. (b) Evolution of AUC, QED, SAS, and agent score across 100 optimization steps for three reward configurations. Table 1: Comparison of performance for molecule generation across evaluation sets. Eval Model Validity ( ↑) Uniqueness ( ↑) Novelty ( ↑) Diversity ( ↑) SAS ( ↓) QED ( ↑) LogP ( ↓)MolGen-GPT 0.9849 1.0000 0.9653 0.8643 2.588 ± 0.521 0.829 ± 0.076 2.555 ± 0.55                                                                                                                      
+
+> Eval #1 G2D-Diff 1.0000 0.9351 0.9573 0.9195 2.924 ±0.861 0.454 ±0.171 3.601 ±2.329 PaccmannRL 0.9254 1.0000 0.9952 0.8351 3.702 ±0.688 0.569 ±0.22 4.757 ±2.684
+> Ours 1.0000 0.9914 0.9986 0.8661 2.873 ±0.613 0.771 ±0.138 3.279 ±1.034
+> Eval #2 G2D-Diff 1.0000 0.9663 0.9761 0.9137 3.264 ±1.061 0.446 ±0.196 3.672 ±2.305 PaccmannRL 0.9299 0.9952 0.9968 0.8353 3.638 ±0.704 0.587 ±0.218 4.663 ±2.573
+> Ours 0.9986 0.9857 1.0000 0.8691 3.076 ±0.733 0.709 ±0.212 3.405 ±1.398
+> Eval #3 G2D-Diff 0.9983 0.9497 0.9524 0.9172 3.075 ±0.963 0.46 ±0.182 3.586 ±2.313 PaccmannRL 0.9149 0.9967 0.9967 0.8343 3.714 ±0.717 0.584 ±0.213 4.751 ±2.554
+> Ours 1.0000 0.9900 0.9957 0.8619 2.854 ±0.641 0.762 ±0.136 3.19 ±1.124
+
+4.2.2 Ablation Study 
+
+We conducted ablation studies to assess the contribution of each component in our approach (Table 7 in Appendix G). It can be seen that every component of our method has an important impact on our multi-objective optimization, and our method consistently outperforms across key metrics (SAS, QED, LogP, LLM Score). Although uniqueness, novelty, and diversity slightly decrease, the trade-off is acceptable given the substantial gains in other objectives. Simplified variants of our method show clear performance improvements, confirming the necessity of the full design. Figure 2 also presents the evolution of latent optimization reward configurations across 100 opti-mization steps. It shows that optimizing for AUC alone achieves the highest raw sensitivity score, 7but at the cost of drug-likeness: QED remains flat and synthetic accessibility degrades slightly throughout optimization. Adding QED and SAS as explicit reward terms substantially improves drug-likeness while only modestly reducing AUC performance, demonstrating the expected Pareto trade-off between potency and drug-likeness. Our full agent-augmented method achieves the best overall profile: it matches or exceeds QED and SAS optimization, while additionally optimizing biological relevance as measured by the LLM scorer. 
+
+4.2.3 Sensitivity to Candidate Molecules Scored 
+
+Because LLM API calls are computationally expensive, the multi-agent scoring pipeline is invoked periodically and applied only to the top-n candidate molecules ranked by predicted AUC at each optimization step. To evaluate the impact of this design choice, we performed latent optimization using different candidate pool sizes ( n ∈ 5, 10 , 25 , 50 ) presented in Table 2 using our 3 evaluation sets (Appendix D). The results indicate that increasing the number of sampled candidates does not consistently improve optimization performance. While larger candidate pools provide a broader search space, gains beyond 25 samples are marginal or inconsistent across metrics. In particular, the 25-sample configuration achieves the best overall trade-off, obtaining the highest mean LLM score, QED, and reward, while maintaining competitive AUC and validity. This suggests that moderate candidate pool sizes are sufficient to capture the benefits of LLM-guided re-ranking, whereas further increases incur additional computational cost without proportional improvements. These findings support the use of 25 candidates as an effective balance between optimization quality and computational efficiency. Table 2: Final performance (step = 100) across different sample sizes (5, 10, 25, 50). We report average values over all cell lines for AUC, QED, SAS (normalized), and LLM score, along with loss, validity, and mean reward. Model Loss ↓ Mean LLM Score ↑                                     
+
+> Mean AUC ↓Mean QED ↑Mean SAS ↓Validity ↑Mean Reward ↑
+> 5-0.277071 0.464271 0.268517 0.631614 2.954874 0.938571 0.312650 10 -0.266011 0.473477 0.267920 0.619528 2.984952 0.920476 0.301915 25 -0.299841 0.494878 0.268998 0.638203 3.021048 0.920000 0.335169
+> 50 -0.271069 0.462252 0.269359 0.630753 2.976875 0.928571 0.306834
+
+4.2.4 Clinically Validated Drugs Evaluation 
+
+We constructed an evaluation suite of 11 compound–cell-line pairs covering four FDA-approved targeted therapies (See Appendix H). The results are presented in Table 3. The Agent-based scoring component shows consistency with expected trends, assigning higher scores to known actives and lower scores to negative or irrelevant compounds. Erlotinib is an exception, as its drug-like kinase scaffold scores well on NCI features despite targeting EGFR rather than BCR-ABL in K562. Our Spearman correlation test demonstrates a significant correlation between the LLM Score and the estimated expected values (correlation=0.784, pvalue = 4 .27 e − 03 ). Notably, these trends are also aligned with NCI similarity assessments, suggesting that the LLM captures chemically and biologically meaningful features that are missed by the AUC estimation pipeline. Together, these results indicate that while AUC predictions using the molecules encoded by the VAE model may be unreliable due to encoder-induced biases (Appendix I), LLM-based evaluations provide a more robust and interpretable signal of compound relevance. This highlights the importance of incorporating alternative evaluation mechanisms and motivates the development of biologically grounded and relevance-aware scoring strategies. 
+
+4.2.5 Stability of LLM-Based Scoring 
+
+Our multi-agent pipeline was evaluated for stability on 50 randomly sampled cell-line pairs, each scored five times under identical conditions. The mean standard deviation of the final score across repetitions is 0.03, confirming high consistency. Score component analysis reveals a systematic asymmetry (Figure 3): descriptor scores are consistently higher than NCI scores, reflecting that unoptimized diffusion samples are generally drug-like but exhibit weak binding evidence for the model-identified target genes: precisely the gap that latent-space optimization addresses. Notably, 8Table 3: LLM scores for clinically validated drug binders across cancer cell lines. Name Cell Name Pred AUC 1 QED SAS Expected LLM Score NCI Similarity LLM Score imatinib K562 0.555 0.389 2.332 high moderate 0.380 dasatinib K562 0.527 0.463 2.675 high moderate 0.420 alpelisib MCF7 0.816 0.393 2.533 high moderate 0.360 vemurafenib LOXIMVI 0.799 0.261 2.415 high moderate 0.310 wortmannin MCF7 0.845 0.555 5.634 medium low 0.280 erlotinib K562 0.771 0.526 2.506 medium-low moderate 0.580 aspirin K562 0.792 0.550 1.580 low low 0.180 metformin K562 1.003 0.249 3.674 low low 0.280 caffeine K562 0.830 0.538 2.298 low low 0.210 PAINS quinone MCF7 0.827 0.575 1.926 low low 0.280 hexane K562 0.785 0.463 1.209 very low low 0.040 
+
+> 1
+> Predicted AUC values for known binders are systematically elevated due to the frozen G2D-Diff VAE encoder, which is not optimized on drug–response data and may map compounds to latent regions misaligned with the sensitivity-conditioned subspace, inflating AUC estimates (see Appendix I).
+
+molecules with moderate NCI overlap exhibit higher inter-run variability, suggesting that NCI similarity influences both score magnitude and stability, and that improvements in NCI overlap during optimization may increase both score variance and mean score. Recommendation stability is 88% and target gene pair identification is consistent in 80% of cases, confirming reliable qualitative outputs. 
+
+Figure 3: Score relationships. (a) Relationship between mean NCI score and descriptor score. (b) Consistency of scores across repeated evaluations. We also assessed Pearson correlations between molecular properties, predicted AUC, and the final LLM score. QED and SAS show statistically significant correlations ( r = 0 .356 , pvalue = 0 .011 
+
+and r = −0.283 , pvalue = 0 .046 respectively), confirming that the descriptor-based component contributes meaningfully to the overall score, while predicted AUC shows no significant correlation (r = −0.218 , pvalue = 0 .127 ). This indicates that the LLM score captures additional mechanistic and contextual information beyond the sensitivity predictor. Literature grounding is robust: only two gene pairs returned zero supporting papers, with an average of 11.04 papers per pair and 7.08 full-text articles, confirming that the pipeline anchors its reasoning in existing biomedical evidence. 
+
+5 Conclusion 
+
+In this work, we presented a genotype-conditioned molecular generation and multi-objective optimiza-tion that combines diffusion-based latent space optimization with an LLM-augmented biological scor-ing pipeline for cancer cell-line-specific drug design. Building on a pretrained genotype-conditioned generator, we introduce a multi-objective reward that jointly optimizes predicted drug sensitivity (AUC), drug-likeness (QED), synthetic accessibility (SAS), and a biologically grounded agent score. This was achieved by establishing a multi-agent system (Biologist, Chemistry, and Score Agents). We have extensively demonstrated how the proposed approach consistently achieves the lowest predicted AUC, indicating improved cell-line specificity, while also matching or exceeding conditional baselines in QED and SAS, with near-perfect validity and novelty. Latent-space optimization experiments show that incorporating the LLM agent score accelerates convergence toward biologically meaningful 9chemical space. Clinical validated drugs evaluation further confirms that the full pipeline, combining AUC prediction, RDKit descriptors, and gene-context attention, effectively ranks FDA-approved targeted therapies above decoys and reactive compounds. The positive impact of our work lies in reducing the cost and time required for in-vitro experiments to identify early-stage drug candidates for cancers with complex or poorly understood mutational landscapes. Acknowledging that generative models can be misused to design compounds with unintended biological activity, our approach still requires wet-lab validation, only producing candidates that are evaluated rather than synthesized. 
+
+Limitations and Future Work A key limitation in our pipeline is the LLM scorer’s dependence on the calibration quality of the upstream AUC predictor. Meaning, when sensitivity estimates are unreliable, biological reasoning cannot fully compensate. A second limitation in our work is that NeST is currently used only at the gene-level adjacency structure, without fully exploiting its pathway ontology for higher-level biological reasoning. Future work will extend the proposed approach to incorporate pathway-level reasoning, cross-pathway interactions, and hierarchical biological structure. Finally, we plan to incorporate structure-based validation using AlphaFold-derived docking estimates. Importantly, we will focus on wet-lab validation, aiming for real-world validation of our approach. 
+
+Acknowledgments and Disclosure of Funding 
+
+The project was partially supported by the National Science Foundation under the NSF Center for Computer Assisted Synthesis (C-CAS; grant no. CHE-2202693). 
+
+References 
+
+[1] S. R. Atance, J. V. Diez, O. Engkvist, S. Olsson, and R. Mercado. De novo drug design using reinforcement learning with graph-based deep generative models. Journal of chemical information and modeling , 62(20):4863–4872, 2022. [2] E. H. Awtry and J. Loscalzo. Aspirin. Circulation , 101(10):1206–1218, 2000. [3] B. Bae, H. Bae, and H. Nam. Logics: Learning optimal generative distribution for designing de novo chemical structures. Journal of Cheminformatics , 15(1):77, 2023. [4] J. B. Baell and G. A. Holloway. New substructure filters for removal of pan assay interference compounds (pains) from screening libraries and for their exclusion in bioassays. Journal of medicinal chemistry , 53(7):2719–2740, 2010. [5] V. Bagal, R. Aggarwal, P. Vinod, and U. D. Priyakumar. Molgpt: molecular generation using a transformer-decoder model. Journal of chemical information and modeling , 62(9):2064–2076, 2021. [6] C. J. Bailey and R. C. Turner. Metformin. New England Journal of Medicine , 334(9):574–579, 1996. [7] J. Barone and H. Roberts. Caffeine consumption. Food and Chemical Toxicology , 34(1):119– 129, 1996. [8] G. R. Bickerton, G. V. Paolini, J. Besnard, S. Muresan, and A. L. Hopkins. Quantifying the chemical beauty of drugs. Nature chemistry , 4(2):90–98, 2012. [9] A. Birhane, A. Kasirzadeh, D. Leslie, and S. Wachter. Science in the age of large language models. Nature Reviews Physics , 5(5):277–280, 2023. [10] G. Bollag, P. Hirth, J. Tsai, J. Zhang, P. N. Ibrahim, H. Cho, W. Spevak, C. Zhang, Y. Zhang, G. Habets, et al. Clinical efficacy of a raf inhibitor needs broad target blockade in braf-mutant melanoma. Nature , 467(7315):596–599, 2010. [11] J. Born, M. Manica, A. Oskooei, J. Cadow, G. Markert, and M. R. Martínez. Paccmannrl: De novo generation of hit-like anticancer molecules from transcriptomic data via reinforcement learning. Iscience , 24(4), 2021. 10 [12] N. Brown, M. Fiscato, M. H. Segler, and A. C. Vaucher. Guacamol: benchmarking models for de novo molecular design. Journal of chemical information and modeling , 59(3):1096–1108, 2019. [13] T. Brown, B. Mann, N. Ryder, M. Subbiah, J. D. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, et al. Language models are few-shot learners. Advances in neural information processing systems , 33:1877–1901, 2020. [14] L. Chen, D. E. Kim, M. Domaratzki, and P. Hu. Uncertainty-aware multi-objective rein-forcement learning-guided diffusion models for 3d de novo molecular design. arXiv preprint arXiv:2510.21153 , 2025. [15] S. Clough. Hexane. Encyclopedia of Toxicology, 3rd ed.; Wexler, P., Ed , pages 900–904, 2014. [16] D. Das, B. Chakrabarty, R. Srinivasan, and A. Roy. Gex2sgen: designing drug-like molecules from desired gene expression signatures. Journal of chemical information and modeling ,63(7):1882–1893, 2023. [17] P. Ertl and A. Schuffenhauer. Estimation of synthetic accessibility score of drug-like molecules based on molecular complexity and fragment contributions. Journal of cheminformatics , 1(1):8, 2009. [18] C. Gambacorti-Passerini, R. Piazza, L. Tornaghi, S. Pilotti, and E. Pogliani. Development of c-kit-expressing small-cell lung cancer in a chronic myeloid leukemia patient during imatinib treatment. Journal of the National Cancer Institute , 96(22):1723–1724, 2004. [19] Y. Goldstein, O. T. Cohen, O. Wald, D. Bavli, T. Kaplan, and O. Benny. Particle uptake in cancer cells can predict malignancy and drug resistance using machine learning. Science Advances ,10(22):eadj4370, 2024. [20] R. Gómez-Bombarelli, J. N. Wei, D. Duvenaud, J. M. Hernández-Lobato, B. Sánchez-Lengeling, D. Sheberla, J. Aguilera-Iparraguirre, T. D. Hirzel, R. P. Adams, and A. Aspuru-Guzik. Auto-matic chemical design using a data-driven continuous representation of molecules. ACS central science , 4(2):268–276, 2018. [21] A. Gupta, A. T. Müller, B. J. Huisman, J. A. Fuchs, P. Schneider, and G. Schneider. Generative recurrent networks for de novo drug design. Molecular informatics , 37(1-2):1700111, 2018. [22] J. Ho, A. Jain, and P. Abbeel. Denoising diffusion probabilistic models. Advances in neural information processing systems , 33:6840–6851, 2020. [23] S. Joo, M. S. Kim, J. Yang, and J. Park. Generative model for proposing drug candidates satisfying anticancer properties using a conditional variational autoencoder. ACS omega ,5(30):18642–18650, 2020. [24] H. Kim, B. Bae, M. Park, Y. Shin, T. Ideker, and H. Nam. A genotype-to-drug diffusion model for generation of tailored anti-cancer small molecules. Nature Communications , 16(1):5628, 2025. [25] G. Landrum, P. Tosco, B. Kelley, R. Vianello, D. Cosgrove, E. Kawashima, A. Dalke, G. Jones, B. Cole, M. Swain, et al. rdkit/rdkit: 2022_09_1b1 (q3 2022) release. Zenodo , 2022. [26] X. Liu, Y. Guo, H. Li, J. Liu, S. Huang, B. Ke, and J. Lv. Drugllm: Open large language model for few-shot molecule generation. arXiv preprint arXiv:2405.06690 , 2024. [27] Y. Liu, Y. Liu, J. Yang, X. Zhang, L. Wang, and X. Zeng. Multi-objective molecular design in constrained latent space. In 2024 International Joint Conference on Neural Networks (IJCNN) ,pages 1–8. IEEE, 2024. [28] Y. Liu, H. Yu, X. Duan, X. Zhang, T. Cheng, F. Jiang, H. Tang, Y. Ruan, M. Zhang, H. Zhang, et al. Transgem: a molecule generation model based on transformer with gene expression data. 
+
+Bioinformatics , 40(5):btae189, 2024. 11 [29] I. A. Mayer, V. G. Abramson, L. Formisano, J. M. Balko, M. V. Estrada, M. E. Sanders, D. Juric, D. Solit, M. F. Berger, H. H. Won, et al. A phase ib study of alpelisib (byl719), a pi3k α-specific inhibitor, with letrozole in er+/her2- metastatic breast cancer. Clinical cancer research ,23(1):26–34, 2017. [30] E. Mazuz, G. Shtar, B. Shapira, and L. Rokach. Molecule generation using transformers and policy gradient reinforcement learning. Scientific Reports , 13(1):8799, 2023. [31] O. Méndez-Lucio, B. Baillif, D.-A. Clevert, D. Rouquié, and J. Wichard. De novo generation of hit-like molecules from gene expression signatures using artificial intelligence. Nature communications , 11(1):10, 2020. [32] J. D. Moyer, E. G. Barbacci, K. K. Iwata, L. Arnold, B. Boman, A. Cunningham, C. DiOrio, J. Doty, M. J. Morin, M. P. Moyer, et al. Induction of apoptosis and cell cycle arrest by cp-358,774, an inhibitor of epidermal growth factor receptor tyrosine kinase. Cancer research ,57(21):4838–4848, 1997. [33] B. P. Munson, M. Chen, A. Bogosian, J. F. Kreisberg, K. Licon, R. Abagyan, B. M. Kuenzi, and T. Ideker. De novo generation of multi-target compounds using deep generative chemistry. 
+
+Nature Communications , 15(1):3636, 2024. [34] S. Park and H. Lee. A molecular generative model with genetic algorithm and tree search for cancer samples. arXiv preprint arXiv:2112.08959 , 2021. [35] G. Powis, R. Bonjouklian, M. M. Berggren, A. Gallegos, R. Abraham, C. Ashendel, L. Zalkow, W. F. Matter, J. Dodge, G. Grindey, et al. Wortmannin, a potent and selective inhibitor of phosphatidylinositol-3-kinase. Cancer research , 54(9):2419–2423, 1994. [36] A. Radford, K. Narasimhan, T. Salimans, I. Sutskever, et al. Improving language understanding by generative pre-training. 2018. [37] P. Renz, D. Van Rompaey, J. K. Wegner, S. Hochreiter, and G. Klambauer. On failure modes in molecule generation and optimization. Drug Discovery Today: Technologies , 32:55–63, 2019. [38] B. Sanchez-Lengeling and A. Aspuru-Guzik. Inverse molecular design using machine learning: Generative models for matter engineering. Science , 361(6400):360–365, 2018. [39] M. Sheikholeslami, N. Mazrouei, Y. Gheisari, A. Fasihi, M. Irajpour, and A. Motahharynia. Druggen enhances drug discovery with large language models and reinforcement learning. 
+
+Scientific Reports , 15(1):13445, 2025. [40] R. H. Shoemaker. The nci60 human tumour cell line anticancer drug screen. Nature Reviews Cancer , 6(10):813–823, 2006. [41] T. Song, Y. Ren, S. Wang, P. Han, L. Wang, X. Li, and A. Rodriguez-Paton. Dnmg: Deep molecular generative model by fusion of 3d information for de novo drug design. Methods ,211:10–22, 2023. [42] J. S. Tokarski, J. A. Newitt, C. Y. J. Chang, J. D. Cheng, M. Wittekind, S. E. Kiefer, K. Kish, F. Y. Lee, R. Borzillerri, L. J. Lombardo, et al. The structure of dasatinib (bms-354825) bound to activated abl kinase domain elucidates its inhibitory activity against imatinib-resistant abl mutants. Cancer research , 66(11):5790–5797, 2006. [43] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin. Attention is all you need. Advances in neural information processing systems ,30, 2017. [44] C. Wang, H. H. Ong, S. Chiba, and J. C. Rajapakse. Gldm: hit molecule generation with constrained graph latent diffusion model. Briefings in bioinformatics , 25(3):bbae142, 2024. [45] R. Winter, F. Montanari, A. Steffen, H. Briem, F. Noé, and D.-A. Clevert. Efficient multi-objective molecular optimization in a continuous latent space. Chemical science , 10(34):8016– 8024, 2019. 12 [46] M. Xu, A. S. Powers, R. O. Dror, S. Ermon, and J. Leskovec. Geometric latent diffusion models for 3d molecule generation. In International Conference on Machine Learning , pages 38592–38610. PMLR, 2023. [47] C. Zeng, J. Jin, C. Ambrose, G. Karypis, M. Transtrum, E. B. Tadmor, R. G. Hennig, A. Roitberg, S. Martiniani, and M. Liu. Propmolflow: property-guided molecule generation with geometry-complete flow matching. Nature Computational Science , pages 1–10, 2026. [48] Q. Zhang, K. Ding, T. Lv, X. Wang, Q. Yin, Y. Zhang, J. Yu, Y. Wang, X. Li, Z. Xiang, et al. Scientific large language models: A survey on biological & chemical domains. ACM Computing Surveys , 57(6):1–38, 2025. [49] F. Zheng, M. R. Kelly, D. J. Ramms, M. L. Heintschel, K. Tao, B. Tutuncuoglu, J. J. Lee, K. Ono, H. Foussard, M. Chen, et al. Interpretation of cancer mutations using a multiscale map of protein systems. Science , 374(6563):eabf3067, 2021. 
+
+A Attention-Grounded Target Identification 
+
+A.1 Overview 
+
+To identify which genes G2D-Diff associates with drug sensitivity for a given cell line, we extract and analyse the attention weights produced by the condition encoder Eϕ during a forward pass. This procedure follows the interpretability methodology described in [ 24 ]. The output feeds directly into the ChemistryAgent prompt as grounded biological evidence, replacing reliance on LLM prior knowledge about target genes. 
+
+A.2 Attention Extraction 
+
+The condition encoder Eϕ is instantiated in attention-logging mode, creating a weight-sharing copy of the original frozen encoder. A forward pass with the cell-line genotype batch returns a four-tuple: 
+
+(F, c, alast , [ATneigh , ATwhole , ATreout ]) 
+
+where F ∈ RB×719 ×128 is the full token sequence, c ∈ RB×128 is the condition embedding (CLS token), alast is the last-layer CLS-row attention, and A(·) ∈ RB×H×(G+1) ×(G+1) are the full attention tensors from each of the three transformer blocks ( G = 718 genes, +1 for the CLS token, H heads). 
+
+A.3 Gene Importance Aggregation 
+
+Per-gene importance scores are computed following the paper’s procedure: 1. For each layer l ∈ { Tneigh , T whole , T reout } and each attention head h, extract the CLS-to-gene attention row A(l)[0 ,1: G+1] ∈ RG (token 0 is CLS). 2. Apply a uniform attention threshold: retain only entries exceeding 1/(G + 1) , the value that would result from uniform attention over all tokens. 3. Average the retained scores across heads H to obtain a per-layer gene score s(l) ∈ RG.4. Average across all three layers: ¯s = 13
+
+P 
+
+> l
+
+s(l).The top-attended gene set G∗ is defined as genes in the top 10% of ¯s that additionally exceed the uniform baseline: 
+
+G∗ =
+
+
+
+g ¯sg ≥ top-10%(¯ s) and ¯sg > 1
+
+G + 1 
+
+
+
+. (4) 
+
+A.4 Output 
+
+The attention result is formatted into a structured block injected into the ChemistryAgent prompt, comprising: (i) top-attended genes with their exact attention scores, and (iii) the priority intersection genes explicitly flagged for docking literature search. 13 B LLM Agent Output 
+
+2 1 : 0 4 : 5 0 | INFO | Web s e a r c h ENABLED f o r C h e m i s t r y A g e n t 2 1 : 0 4 : 5 0 | INFO | C e l l : HS578T_BREAST 2 1 : 0 4 : 5 0 | INFO | M u t a t e d : [ ' DIS3L2 ' , ' PIK3R1 ' , ' SLIT2 ' , ' TP53 ' , 'HRAS ' , ' ING1 ' , ' PTCH1 ' , ' HNF1A ' ] 2 1 : 0 4 : 5 0 | INFO | A m p l i f i e d : [ ' PREX2 ' , ' ELOC ' , ' RNF139 ' , ' RUNX1T1 ' , ' RECQL4 ' , ' C8orf34 ' , ' RAD21 ' ] 2 1 : 0 4 : 5 0 | INFO | D e l e t e d : [ ' SMARCA1' , 'AMER1' , ' PAK3 ' , 'BTK ' , 'DMD' , ' DKC1 ' , ' PHF6 ' ] 2 1 : 0 4 : 5 0 | INFO | L o a d i n g d i f f u s i o n model from . / d a t a / m o d e l _ c k p t s / 1 2 2 9 _ 5 1 2 _ a d a n o r m _ 6 l a y e r s _ 2 4 7 4 . c k p t . . . NeST n e i g h b o r i n f o i s u s e d Load p r e t r a i n e d c o n d _ e n c o d e r . . . NeST n e i g h b o r i n f o i s u s e d 2 1 : 0 4 : 5 6 | INFO | C o n d i t i o n E n c o d e r W i t h A t t e n t i o n : c r e a t e d g e t _ a t t = Tru e e n c o d e r copy 2 1 : 0 4 : 5 6 | INFO | NeST a d j a c e n c y l o a d e d f o r h y b r i d r e − r a n k i n g : ( 7 1 8 , 7 1 8 ) 2 1 : 0 4 : 5 6 | INFO | Loaded 3 NeST g e n e s e t s from . / d a t a / N e S T _ n e i g h b o r _ a d j . npy 2 1 : 0 4 : 5 6 | INFO | A t t e n t i o n e x t r a c t e d : 71 t o p g e n e s , 0 e n r i c h e d p a t h w a y s 2 1 : 0 4 : 5 6 | INFO | Top g e n e s : [ ' TSHR ' , ' PTCH1 ' , ' PIK3R1 ' , ' RANBP2 ' , 'GABRA6' , ' ROS1 ' , ' ABCC3 ' , 'ARAF ' ] 2 1 : 0 4 : 5 6 | INFO |S c o r i n g : CC(C) (C[C@@] ( CC1=CC2=C( N1 )C=NC=C2 ) (C( F ) ( F ) F )O) C3=C(C=CC(= C3 ) F )O 2 1 : 0 4 : 5 6 | INFO | P i p e l i n e : C h e m i s t r y A g e n t ( NCI a n a l y s i s , a t t e n t i o n _ g r o u n d e d = Tru e ) S c o r e A g e n t ( f i n a l s c o r e ) 2 1 : 0 4 : 5 6 | INFO | [ l i t e r a t u r e ] s e a r c h i n g f o r TSHR . . . 2 1 : 0 4 : 5 7 | INFO | [ l i t e r a t u r e ] r e t r y i n g w i t h b r o a d e r q u e r y f o r TSHR . . . 2 1 : 0 5 : 0 9 | INFO | [ l i t e r a t u r e ] TSHR : 4 p a p e r ( s ) , 2 w i t h f u l l t e x t , 2 a b s t r a c t − o n l y 2 1 : 0 5 : 0 9 | INFO | [ l i t e r a t u r e ] s e a r c h i n g f o r PTCH1 . . . 2 1 : 0 5 : 1 1 | INFO | [ l i t e r a t u r e ] PTCH1 : 2 p a p e r ( s ) , 1 w i t h f u l l t e x t , 1 a b s t r a c t − o n l y 2 1 : 0 5 : 1 1 | INFO | [ C h e m i s t r y A g e n t ] l i t e r a t u r e r e t r i e v e d , i n j e c t i n g i n t o prompt {" s m i l e s " : "CC(C) (C[C@@] ( CC1=CC2=C( N1 )C=NC=C2 ) (C( F ) ( F ) F )O) C3=C(C=CC(= C3 ) F )O" , " p r e d _ a u c " : 0 . 3 , " qed " : 0 . 5 5 1 8 3 1 6 2 3 3 1 1 9 2 8 5 , " s a s " : 3 . 3 5 5 6 1 7 4 9 8 1 7 3 1 1 5 7 , " a t t e n t i o n _ g r o u n d e d " : t r u e , " f i n a l _ s c o r e " : 0 . 6 1 , " n c i _ s c o r e " : 0 . 5 5 , " d e s c r i p t o r _ s c o r e " : 0 . 7 , " c o n f i d e n c e " : 0 . 5 8 , " r e c o m m e n d a t i o n " : " i n v e s t i g a t e _ f u r t h e r " , " summary " : " The c a n d i d a t e shows s t r o n g p r e d i c t e d s e n s i t i v i t y (AUC= 0 . 3 0 ) i n HS578T b r e a s t c a n c e r c e l l s and c a r r i e s r e a s o n a b l e drug − l i k e n e s s (QED= 0 . 5 5 2 , SAS = 3 . 3 6 ) w i t h no L i p i n s k i v i o l a t i o n s . NCI o v e r l a p w i t h TSHR and PTCH1 known b i n d e r s i s m o d e r a t e : t h e f l u o r o p h e n o l − i n d o l e − p y r i d i n e s c a f f o l d s u p p o r t s p i − p i s t a c k i n g and HBD i n t e r a c t i o n s , b u t t h e b u l k y CF3− q u a t e r n a r y c a r b o n l i k e l y c l a s h e s w i t h n a r r o w b i n d i n g p o c k e t s and t h e a b s e n c e o f a b a s i c amine l i m i t s s a l t − b r i d g e f o r m a t i o n s e e n i n h i g h − a f f i n i t y h i t s . The PTCH1− m u t a n t Hedgehog d e p e n d e n c y i n HS578T p r o v i d e s a p l a u s i b l e g e n o t y p e − matched mechanism , t h o u g h s t r u c t u r a l g a p s v e r s u s v i s m o d e g i b and known PTCH1 b i n d e r s t e m p e r c o n f i d e n c e . " , " k e y _ f a c t o r s " : [" E x c e l l e n t p r e d i c t e d s e n s i t i v i t y : AUC= 0 . 3 0 i n PTCH1 / HRAS / TP53− m u t a n t HS578T " , " F l u o r o p h e n o l p h a r m a c o p h o r e mimics h y d r o q u i n o n e PTCH1 b i n d e r s ; i n d o l e / p y r i d i n e s u p p o r t p i s t a c k i n g " , " Good s y n t h e t i c a c c e s s i b i l i t y ( SAS = 3 . 3 6 ) and QED= 0 . 5 5 2 s u p p o r t o p t i m i z a t i o n t r a c t a b i l i t y " ] , " c o n c e r n s " : [" Bulky CF3− q u a t e r n a r y c a r b o n l i k e l y c a u s e s s t e r i c c l a s h i n TSHR TMD and PTCH1 Neck p o c k e t " , " Absence o f b a s i c amine weakens b i n d i n g v s . known TSHR h i t s ; m o d e r a t e LogP may i n c r e a s e o f f − t a r g e t h y d r o p h o b i c b i n d i n g " ] , " c h e m i s t r y _ r e p o r t " : {" t a r g e t _ g e n e s _ w i t h _ d o c k i n g _ d a t a " : ["TSHR " , "PTCH1" ] , " a t t e n t i o n _ g r o u n d e d " : t r u e , " n c i _ a n a l y s i s " : [{" g e n e " : "TSHR " , " a t t e n t i o n _ s c o r e " : " 0 . 0 7 6 5 " , " i n _ e n r i c h e d _ p a t h w a y " : f a l s e , " k n o w n _ h i t s " : ["NCATS−SM4420 ( A35 ) " , " NCGC00241808 " , " o r g 4 3 5 5 3 " , " compound 2" ] , " k e y _ n c i s " : {" p i _ p i " : " Small − m o l e c u l e a g o n i s t s s t a c k w i t h a r o m a t i c r e s i d u e s i n TMD s e r p e n t i n e b i n d i n g p o c k e t " , " h y d r o g e n _ b o n d i n g " : "NH/OH d o n o r s i n t e r a c t w i t h p o l a r TMD r e s i d u e s ( e . g . , D619 , N674 ) i n t r a n s m e m b r a n e c a v i t y " , " h a l o g e n _ b o n d i n g " : " F l u o r i n a t e d a n a l o g u e s show h a l o g e n c o n t a c t s w i t h b a c k b o n e c a r b o n y l s i n TMD" , " e l e c t r o s t a t i c " : " P r o t o n a t a b l e amine g r o u p s form s a l t b r i d g e s w i t h a c i d i c TMD r e s i d u e s " , " h y d r o p h o b i c " : " A l i p h a t i c and a r o m a t i c g r o u p s pac k i n t o h y d r o p h o b i c TMD p o c k e t l i n i n g h e l i c e s 3 −6" } , " c a n d i d a t e _ n c i _ o v e r l a p " : " C a n d i d a t e h a s 3 a r o m a t i c r i n g s , 3 HBDs (OH, NH) , and 2 f l u o r i n e s f o r p i − p i and h a l o g e n i n t e r a c t i o n s " , " c a n d i d a t e _ n c i _ g a p s " : " C a n d i d a t e l a c k s b a s i c amine f o r s a l t b r i d g e ; h i g h LogP may l i m i t s e l e c t i v i t y o v e r h y d r o p h o b i c TMD p o c k e t " } , {" g e n e " : "PTCH1 " , " a t t e n t i o n _ s c o r e " : " 0 . 0 5 0 1 " , " i n _ e n r i c h e d _ p a t h w a y " : f a l s e , " k n o w n _ h i t s " : [" p a n i c e i n A h y d r o q u i n o n e (PAH) " , 
+
+14 " d o x o r u b i c i n ( e f f l u x s u b s t r a t e ) " , " v i s m o d e g i b ( pa th wa y ) " ] , " k e y _ n c i s " : {" p i _ p i " : " A r o m a t i c h y d r o q u i n o n e r i n g s t a c k s w i t h i n PTCH1 Neck p o c k e t h y d r o p h o b i c c a v i t y " , " h y d r o g e n _ b o n d i n g " : " H y d r o q u i n o n e OH d o n o r s h y d r o g e n bond w i t h p o l a r Neck p o c k e t r e s i d u e s " , " h a l o g e n _ b o n d i n g " : " Not p r o m i n e n t l y d e s c r i b e d f o r PAH a n a l o g u e s i n PTCH1 Neck p o c k e t " , " e l e c t r o s t a t i c " : " L i m i t e d c h a r g e d i n t e r a c t i o n s ; p r i m a r i l y h y d r o p h o b i c Neck p o c k e t e n g a g e m e n t " , " h y d r o p h o b i c " : " C y l i n d r i c a l open c o n f o r m a t i o n o f l i g a n d f i l l s e l o n g a t e d h y d r o p h o b i c Neck p o c k e t " } , " c a n d i d a t e _ n c i _ o v e r l a p " : " C a n d i d a t e ' s p h e n o l OH and i n d o l e NH p r o v i d e HBD m a t c h i n g ; f l u o r o p h e n o l mimics h y d r o q u i n o n e p h a r m a c o p h o r e " , " c a n d i d a t e _ n c i _ g a p s " : " Bulky t e r t − b u t y l / CF3 g r o u p may c l a s h w i t h n a r r o w Neck p o c k e t ; c a n d i d a t e l a c k s c y l i n d r i c a l s h a p e p r e f e r r e d by PTCH1" }] , " o v e r a l l _ n c i _ s i m i l a r i t y " : " m o d e r a t e " , " s t r u c t u r a l _ r a t i o n a l e " : " The c a n d i d a t e ' s f l u o r o p h e n o l , i n d o l e , and p y r i d i n e r i n g s s u p p o r t p i − p i s t a c k i n g and HBD i n t e r a c t i o n s a n a l o g o u s t o known TSHR TMD and PTCH1 Neck p o c k e t b i n d e r s . However , t h e CF3− q u a t e r n a r y c a r b o n b u l k and a b s e n c e o f a b a s i c amine may l i m i t o p t i m a l f i t i n b o t h t a r g e t c a v i t i e s . " , " g e n o t y p e _ e x p l o i t a t i o n " : {" mechanism " : " p a t h w a y _ d e p e n d e n c y " , " k e y _ g e n e " : "PTCH1 " , " k n o w n _ t h e r a p y _ a n a l o g y " : " v i s m o d e g i b " , " r a t i o n a l e " : "PTCH1 m u t a t i o n i n HS578T a c t i v a t e s Hedgehog s i g n a l i n g ; c a n d i d a t e ' s h y d r o q u i n o n e − l i k e p h a r m a c o p h o r e may i n h i b i t PTCH1 e f f l u x f u n c t i o n , c o m p l e m e n t i n g TP53 m u t a t i o n − d r i v e n genomic i n s t a b i l i t y and HRAS− d r i v e n p r o l i f e r a t i o n i n t h i s b r e a s t c a n c e r c e l l l i n e . " }}}
+
+C Online Property Surrogate Networks 
+
+C.1 Motivation 
+
+Two of the three reward components — QED and SAS — require decoding a latent vector z
+
+into a SMILES string and then applying RDKit computations. This process is non-differentiable, which prevents gradient-based optimisation from directly using these signals. We address this with 
+
+online property surrogate networks : lightweight MLPs that are trained in real time on observed (latent, property) pairs and provide differentiable approximations of QED and SAS throughout the optimisation loop. 
+
+C.2 Architecture 
+
+Each surrogate s : Rd → [0 , 1] is a three-layer MLP: 
+
+s(z) = σ W3 ReLU (W2 ReLU (W1z + b1) + b2) + b3
+
+, (5) where d is the VAE latent dimension (128), hidden layers have dimensions 128 and 64, and σ is the sigmoid activation that maps the output to [0 , 1] . Two separate surrogates are maintained: sqed and 
+
+ssas . Note that for ssas , the raw SAS score is normalised by dividing by 10 before being used as the training target, so the surrogate always predicts in [0 , 1] regardless of which property it approximates. 
+
+C.3 Online Training Procedure 
+
+At each optimisation step t:1. Decode the current batch {zi}Ni=1 via the VAE decoder to obtain SMILES strings. 2. Compute ground-truth RDKit properties: QED i and SAS i/10 .3. For invalid SMILES, assign fallback values: QED = 0 , SAS/10 = 1 .4. Update each surrogate for ninner gradient steps using MSE loss: 
+
+Lqed = 1
+
+N
+
+NX
+
+i=1 
+
+ sqed (zsg 
+
+i ) − QED i
+
+2, (6) where zsg 
+
+i denotes a stop-gradient copy of zi, ensuring surrogate updates do not interfere with the main optimisation graph. 15 Warmup period. During the first τwarm = 5 optimisation steps, the surrogates have seen too few data points to be reliable. During this warmup, only the AUC gradient is used. The full reward at step 
+
+t is: 
+
+Rt(z) = 
+
+
+
+−wauc · ra (z) t < τ warm ,
+
+−wauc · r(z) + wqed · sqed (z) − wsas · ssas (z) τwarm ≤ t < τ llm ,
+
+−wauc · ra (z) + wqed · sqed (z) − wsas · ssas (z) + wllm · sllm (z) t ≥ τllm ,
+
+(7) where τllm denotes the first step at which the LLM surrogate sllm (z) has received sufficient updates to be reliable (i.e., after the first LLM invocation at step ∆llm ). The negative sign on ra (z) reflects that AUC is minimized — lower predicted AUC corresponds to greater predicted drug sensitivity — while QED and LLM score are maximized and SAS is minimized (lower SAS indicating easier synthesis). 
+
+C.4 LLM Surrogate 
+
+An online surrogate sllm (z) is maintained to convert sparse, expensive LLM feedback into a dense, differentiable reward signal. It shares the same architecture as the QED and SAS surrogates — a three-layer MLP with ReLU activations and a sigmoid output — and maps the latent vector z directly to a score in [0 , 1] .
+
+Invocation schedule. The multi-agent scoring pipeline is invoked every ∆llm = 10 optimization steps, applied only to the top-n candidates ranked by predicted AUC at that step, balancing evaluation quality against API cost. 
+
+Score imputation. Candidates not directly evaluated by the LLM receive imputed scores via Tanimoto similarity to the scored molecules, computed from Morgan fingerprints on the decoded SMILES. Formally, for each unscored candidate zj :
+
+rllm (zj ) = 
+
+P 
+
+> i∈S
+
+Tan (j, i ) ˆ ri
+
+P 
+
+> i∈S
+
+Tan (j, i ) if max i∈S Tan (j, i ) > τ sim ,
+
+0.5 otherwise, (8) where S is the set of directly scored candidates, ˆri their LLM scores, and Tan (j, i ) the Tanimoto coefficient between candidates j and i. The fallback value of 0.5 reflects genuine uncertainty rather than a positive or negative signal. 
+
+Surrogate update. All scores — direct or imputed — are used to update sllm (z) via ninner MSE gradient steps on stop-gradient latent copies, keeping surrogate updates decoupled from the main optimization graph. Between LLM calls, sllm (z) acts as a continuously queryable critic distilled from the episodic LLM feedback, providing a differentiable reward signal at every optimization step. 
+
+D Datasets 
+
+To evaluate our method, we use cell lines contained in the NCI60 Growth Inhibition Data (accessed July 2022) [ 40 ], preprocessed at G2D-Diff [ 24 ]. The dataset binary genotype profile of a cancer cell line across G = 718 clinically relevant genes. Optimization is performed per cell line across 15 cancer cell lines drawn from three held-out evaluation sets (EV1, EV2, EV3): EV1 contains data-rich cell lines seen during training, EV2 contains data-scarce cell lines with known conditions but unseen compound pairs, and EV3 is a fully zero-shot set of unseen cell lines(Table 4). 
+
+E Hyperparameter Search 
+
+E.1 Search Strategy 
+
+We conducted a random hyperparameter search over six parameters governing the latent-space optimisation loop. Each candidate configuration was evaluated on three fixed batches sampled from the training cell pool (sensitive cell lines, AUC class 0 or 1, excluding validation and test sets). Using 16 Table 4: Details of the evaluation set Dataset Cell Line Evaluation Set 1 HCT116 K562 LOXIMVI MCF7 CCRFCEM Evaluation Set 2 EKVX SKMEL28 SKOV3 NCIH226 OVCAR4 Evaluation Set 3 TK10 OVCAR5 HOP92 SKMEL2 HS578T fixed batches ensures a fair, consistent comparison across all configurations. The search scoring metric is: score = −AUC + 0 .5 · QED − 0.5 · SAS 
+
+10 , (9) where all values are ground-truth RDKit outputs (never surrogate estimates). This metric deliberately weights AUC most heavily, as sensitivity is the primary objective; QED and SAS contribute secondary regularisation. 
+
+E.2 Search Space 
+
+Table 5 summarises the discrete values explored for each hyperparameter. Table 5: Hyperparameter search space. All combinations are explored via random sampling ( ntrials =20 , seed=42).                        
+
+> Parameter Values searched Description
+> η(learning rate) {1e-3, 3e-3, 5e-3, 1e-2, 2e-2} Adam learning rate for δ
+> λ(ℓ2regularisation) {0.01, 0.03, 0.05, 0.10, 0.20} Penalty coefficient for ∥δ∥22
+> T(optimisation steps) {100, 150, 200, 300} Number of gradient ascent steps per batch
+> Sddim (diffusion steps) {30, 50} DDPM denoising steps during molecule generation
+> ηs(surrogate learning rate) {1e-4, 5e-4, 1e-3, 3e-3} Adam learning rate for QED/SAS surrogates
+> ninner (surrogate inner steps) {2, 3, 5} Surrogate update steps per outer optimisation step
+
+E.3 Best Hyperparameters 
+
+Table 6 reports the selected configuration and its validation performance. The selected configuration achieves near-perfect SMILES validity ( = 1 .0), a low mean predicted AUC of 0.117 (well within the sensitive range), and a mean SAS of 3.24 (below the drug-like threshold of 4.5). The relatively short optimisation ( T = 100 , Sddim = 30 ) indicates that meaningful latent improvements are achievable with a compact budget, consistent with the strong regularisation (λ = 0 .10 ) keeping δ close to the DDPM prior. 
+
+F Baselines 
+
+17 Table 6: Best hyperparameter configuration selected by random search and corresponding validation metrics on the held-out training-pool batches. 
+
+Hyperparameter Selected value 
+
+Learning rate η 0.02 
+
+ℓ2 regularisation λ 0.10 Optimisation steps T 100 Diffusion steps Sddim 30 Surrogate learning rate ηs 1e-4 Surrogate inner steps ninner 5Surrogate warmup τwarm 5 (fixed) 
+
+Reward weight Value 
+
+wauc 1.0 
+
+wqed 0.5 
+
+wsas 0.5 
+
+wllm 1.0 
+
+Validation metric Value 
+
+Search score 0.004 Mean predicted AUC 0.117 Mean QED 0.565 Mean SAS 3.24 SMILES validity 1.00 
+
+F.1 G2D-Diff 
+
+We used the weights pretrained in their work. The base model was trained with w=0 (no guidance scaling), but in the paper, they generated with w=7. This is a standard CFG practice — you train with dropout (prand=0.1 randomly zeros the condition) to enable unconditional predictions, then amplify guidance only at inference time. 
+
+F.2 PaccMannRL 
+
+To ensure a fair comparison with our proposed method, we retrained the key components of the baselines. For PaccMannRL, the framework uses the same datasets and evaluation protocol adopted in this study. Specifically, we retained the pretrained molecular generative model (SVAE) trained on the ChEMBL dataset, as in the original PaccMannRL implementation, and re-trained the remaining components using the drug–response and omics data used for training our generative model. The PaccMann predictor was retrained using the cell line–centric drug response dataset, where drug sensitivity values were paired with cell line omics profiles and molecular SMILES representations. Consistent with the evaluation protocol, cell lines belonging to evaluation set 3 were excluded from predictor training to prevent information leakage. For the conditioning information, we constructed omics feature vectors by concatenating mutation, copy-number amplification, and copy-number deletion profiles for each cell line, which were then used to train the omics variational autoencoder (PVAE) responsible for encoding cellular context. The PVAE was trained on the same conditioning dataset used during generator training, excluding cell lines from evaluation set 2 in order to match the experimental design used for the proposed model. Subsequently, the PaccMannRL generator was trained using reinforcement learning with the retrained predictor as the reward function. As reported in prior work, the generator exhibited rapid mode collapse, and therefore RL optimization was limited to a single training epoch. 
+
+F.3 MolGen-GPT 
+
+For MolGen-GPT, we do not retrain, as they already used the ChemBL dataset from which Guacamol is derived. 18 Figure 4: Distribution of predicted AUC values across evaluation sets for G2D-Diff and G2D-Diff (encoded). 
+
+G Ablation 
+
+We conducted ablation studies to assess the contribution of each component in our approach, presented in Table 7. Table 7: Ablation study on the contribution of each optimization component. Validity, Uniqueness, Novelty, and Diversity are averaged across Eval #1–3. To compute LLM Score, we choose the top 10 samples with a higher AUC predicted value for each method in each cell line in evaluation set. Optimization Components Generation Quality Molecular Properties LLM Score ↑AUC QED SAS LLM Validity ↑ Uniqueness ↑ Novelty ↑ Diversity ↑ SAS ↓ QED ↑ LogP ↓                                                                            
+
+> ————1.000 0.908 0.989 0.866 3.627 ±1.038 0.346 ±0.161 4.785 ±1.948 0.353 ±0.135
+> ✓———0.684 0.999 0.999 0.880 4.145 ±1.230 0.358 ±0.175 4.708 ±2.035 0.360 ±0.157
+> ✓✓✓—0.999 0.994 1.000 0.870 3.059 ±0.708 0.714 ±0.178 3.438 ±1.262 0.529 ±0.151
+> ✓✓✓✓1.000 0.989 0.998 0.866 2.934 ±0.672 0.747 ±0.168 3.291 ±1.198 0.569 ±0.131
+
+H Clinically Validated Drugs 
+
+We constructed an evaluation suite of 11 compound–cell-line pairs covering four FDA-approved targeted therapies with verified mechanism-of-action matches (imatinib [ 18 ]/dasatinib [ 42 ], alpelisib [ 29 ], vemurafenib [ 10 ]), one mechanistic decoy (erlotinib [ 32 ]), one tool compound with poor drug-likeness (wortmannin [35]), one canonical PAINS scaffold (quinone [4]), and three struc-turally simple pharmacologically inert controls (aspirin [ 2], metformin [ 6], caffeine [ 7], hexane [ 15 ]). 
+
+I VAE Encoder Bias in Known-Binder Evaluation 
+
+The G2D-Diff VAE encoder is pretrained on a large corpus of drug-like molecules without supervision from cell-line drug response data, and its weights are kept frozen throughout both diffusion model training and latent space optimization. As a result, the encoder maps molecules purely based on structural features, with no awareness of the sensitivity-conditioned latent subspace that the diffusion model and the ensemble predictor operate within. This can be seen in Figure 4, where the molecules generated with G2D-Diff when encoded with VAE encoder give higher AUC values. 19
