@@ -1,0 +1,814 @@
+Title: Fast Organic Crystal Structure Prediction with Unit Cell Flow Matching
+
+URL Source: https://arxiv.org/pdf/2606.03199v1
+
+Published Time: Wed, 03 Jun 2026 00:47:37 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# Fast Organic Crystal Structure Prediction with Unit Cell Flow Matching 
+
+Alston Lo 1,†, Luka Mucko 2,†, Austin H. Cheng 3,4,5,†, Andy Cai 3, Alastair J. A. Price 3, Wojciech Matusik 1,
+
+Alán Aspuru-Guzik 3,4,5,6,7,8,9,10 ,11 1MIT CSAIL, Cambridge, MA, USA 
+
+> 2
+
+University of Zagreb, Faculty of Electrical Engineering and Computing, Zagreb, Croatia 
+
+> 3
+
+Department of Chemistry, University of Toronto, Toronto, ON, Canada 
+
+> 4
+
+Department of Computer Science, University of Toronto, Toronto, ON, Canada 
+
+> 5
+
+Vector Institute for Artificial Intelligence, Toronto, ON, Canada 
+
+> 6
+
+Department of Materials Science & Engineering, University of Toronto, Toronto, ON, Canada 
+
+> 7
+
+Department of Chemical Engineering & Applied Chemistry, University of Toronto, Toronto, ON, Canada 
+
+> 8
+
+Institute of Medical Science, University of Toronto, Toronto, ON, Canada 
+
+> 9
+
+Acceleration Consortium, Toronto, ON, Canada 
+
+> 10
+
+Canadian Institute for Advanced Research (CIFAR), Toronto, ON, Canada 
+
+> 11
+
+NVIDIA 
+
+> †
+
+Equal contribution 
+
+Organic crystal structure prediction (CSP) is a requirement for computational modelling of organic solids, but traditionally costs several CPU-years per molecule. Generative models such as OXtal dramatically reduce this cost by sampling stable organic crystal structures directly. However, OXtal forgoes explicit lattice parametrization in favour of modelling large crops of the bulk material with expensive triangle layers, which can incur a computational cost of minutes per molecule. In this paper, we reduce this to seconds with Clari , a large-scale flow matching model that generates redundancy-free unit cells and replaces triangle layers with pure pair-bias attention. Clari requires only atom types and bonds as input and does not need an RDKit-sanitizable input molecule, which expands its applicability to challenging chemistries such as fullerenes, metal complexes, and atom clusters. We further ablate key design choices such as auxiliary losses, timestep distributions, noise priors, and self-conditioning. On OXtal’s test sets, we surpass OXtal’s solve rate while obtaining a speedup of 15 –30 ×. Because Clari also models explicit hydrogens, it supports inference-time scaling via direct energy ranking, without any decoration or relaxation step. When generating 150 crystals and selecting the top-30 by energy, we further improve solve rate while maintaining a speedup of 5–8×.We also introduce the CSD Teaching Subset as a new test split of diverse and complex molecules for future benchmarking. Our contributions enable CSP within seconds, making large-scale virtual screening of organic solids practical.  
+
+> Code:
+
+https://github.com/aspuru-guzik-group/clari 
+
+# 1 Introduction 
+
+The properties of organic solids depend strongly on crystal packing. Knowing a molecule’s crystal structure is therefore a prerequisite for modelling solid-state properties in applications spanning fertilizers (Honer et al., 2017), pesticides (Yang et al., 2017), pigments (Hao and Iqbal, 1997; Panina et al., 2008), food (Aguilera et al., 2008), energetic materials (Arnold and Day, 2023), pharmaceuticals (Price et al., 2016; Bowskill et al., 2021), and organic electronics (Forrest, 2004) such as organic light-emitting diodes (Sun et al., 2023) and organic photovoltaics, as well as emerging flexible materials (Bhattacharya et al., 2023; Koshima et al., 2011). Crystal structures also enable the design of templates that seed desired crystal forms of other molecules (Chadwick et al., 2011; Bučar et al., 2013). Yet in many practical settings, crystal structures are unknown experimentally and must instead be predicted computationally. 1    
+
+> arXiv:2606.03199v1 [cs.LG] 2 Jun 2026 Figure 1 Overview of Clari . Given a molecular graph as input, Clari directly generates a single unit cell comprising atom coordinates and lattice vectors via a flow-matching trajectory. No bulk expansion or triangle layers are required.
+
+The problem of crystal structure prediction (CSP) has challenged scientists for decades (Maddox, 1988), owing to the large and rugged search space of molecular crystals. Traditional CSP pipelines tackle this by executing a dense computational funnel. Starting from a large set of randomly generated candidate structures, they iteratively filter and re-rank candidates using successively more accurate but costly quantum chemistry methods, culminating in density functional theory (DFT) relaxations (Hunnisett et al., 2024a,b; Beran, 2023). While these methods are accurate (Hoja et al., 2019), exhaustive search pipelines can require several CPU-years per molecule (Zhou et al., 2025; Reilly et al., 2016), making them prohibitive for screening even modestly sized virtual libraries. In practice, this bottleneck confines traditional CSP to targeted pharmaceutical campaigns (Mortazavi et al., 2019) and renders large-scale screening on the basis of solid-state properties all but infeasible (Ishii et al., 2020). A given molecule can form multiple stable crystal forms in a phenomenon known as polymorphism (Bernstein, 2020). The one-to-many relationship between chemical identity and crystal polymorphism makes the problem map closely to generative modelling. Indeed, recent work has introduced generative models as a direct alternative to energy-based search. OXtal (Jin et al., 2026) demonstrated that a generative model can learn to sample the distribution of experimentally observed organic crystal structures end-to-end. While paradigm-shifting, OXtal inherits a number of expensive design choices from AlphaFold3 (Abramson et al., 2024): it represents crystals in bulk form, processing multiple symmetry-related copies of each molecule simultaneously, and it relies on triangle-update layers (Jumper et al., 2021) to propagate pairwise geometric information. Together, these choices impose a large computational footprint that makes training and inference costly, and poses barriers to screening ultra-large libraries. In this work, we show that two targeted refinements suffice to close the gap between generative CSP and practical screening. First, rather than modelling a bulk crop of symmetry-equivalent copies, we train Clari 
+
+directly on unit cells , jointly predicting atom coordinates and lattice vectors under a flow-matching objective. Second, we replace triangle-update layers with a pair-bias attention architecture, which transmits pairwise geometric information through attention logits without the cubic cost of triangle operations. Together, these choices make Clari surpass OXtal in prediction quality while also accelerating sampling by roughly 15 –30 ×
+
+on the CSP Blind Tests, or 5–8× end-to-end when ranking by energy with the Universal Model for Atoms (UMA) (Wood et al., 2025). We also train on all-atom structures including hydrogens, which enables direct energy-based ranking without any decoration or relaxation step. Ablations isolate the contribution of each component: self-conditioning, the choice of lattice source distribution, conformer-averaging features, and the timestep schedule. 2(a) YUGWUT (b) VISMOB (c) DORRAF (d) XADQUP            
+
+> Figure 2 Crystal structures predicted by Clari across chemically diverse classes: (a) YUGWUT, a C60 ·Co 2(CO )8
+> fullerene cocrystal; (b) VISMOB, the [( CH 3)3PtI ]4trimethylplatinum iodide tetramer with a Pt 4(μ3-I) 4cubane core; (c) DORRAF, an octaphenyl-substituted Si 8O12 POSS cage; (d) XADQUP, a tetrahedral transition-metal complex.
+
+In summary, our main contributions are: 
+
+• We introduce Clari , a flow-matching model for organic CSP that operates on a single unit cell with a pair-bias attention architecture, sampling roughly 15 –30 × faster than OXtal on the CSP Blind Tests (5–8× end-to-end with UMA energy ranking). Inference takes on the order of seconds per molecule. 
+
+• The resulting speed opens generative CSP to virtual library screening at scale (Omar et al., 2021), a regime previously accessible only to fast but coarse traditional heuristics. This throughput also facilitates inference-time scaling, including energy-based ranking via joint heavy-atom and hydrogen modelling. 
+
+• For a rigorous final evaluation, we combine complementary metrics into a single evaluation suite and introduce a new test split drawn from the CSD Teaching Subset, covering chemically complex systems including fullerenes, boranes, and organometallic complexes that were excluded from or underrepresented in prior benchmarks. We also conduct systematic ablations of architectural and training choices, revealing which components drive performance gains. 
+
+# 2 Related work  
+
+> Computational (simulation-based) organic crystal structure prediction.
+
+Organic CSP has historically been framed as a two-stage pipeline consisting of structure generation followed by energy ranking. This paradigm has been formalized and benchmarked through the Cambridge Crystallographic Data Centre (CCDC) Blind Tests (Lommerse et al., 2000; Motherwell et al., 2002; Day et al., 2005, 2009; Bardwell et al., 2011; Reilly et al., 2016; Hunnisett et al., 2024a,b), which evaluate CSP methods on unpublished experimental structures. Early approaches relied on extensive exploration of the configurational space using quasirandom sampling (Lin et al., 2016; Case et al., 2016), simulated annealing (Catlow et al., 1993), and evolutionary algorithms (Curtis et al., 2018). While these methods are general, they require generating and evaluating a large number of candidate structures, making CSP computationally expensive in practice.  
+
+> Machine learning for accelerating CSP.
+
+Subsequent work has focused on reducing the cost of the ranking stage rather than altering the search paradigm. In particular, machine learning interatomic potentials (MLIPs) have been widely adopted as surrogates for DFT, significantly accelerating energy and force evaluations (Hunnisett et al., 2024b). Systems such as FastCSP (Gharakhanyan et al., 2025) demonstrate that MLIPs can speed up traditional pipelines by orders of magnitude. However, these approaches still filter large candidate sets, leaving the combinatorial burden of structure generation largely unchanged.  
+
+> Generative CSP.
+
+More recently, generative approaches have emerged as an alternative to exhaustive search, aiming to directly sample low-energy crystal structures. OXtal (Jin et al., 2026) introduced this paradigm for organic CSP using an AlphaFold3-inspired architecture. Follow-up work explores different generative formulations, including reinforcement learning in PackFlow (Subramanian et al., 2026) and flow matching on rigid bodies in MolCrystalFlow (Zeng et al., 2026). These methods demonstrate that sufficiently expressive generative models can substantially reduce the reliance on downstream ranking. However, current approaches 3either employ computationally intensive architectures (e.g., triangle updates over large crops) or rely on restrictive representations such as rigid molecules, limiting efficiency and applicability.  
+
+> Generative models for chemistry.
+
+Outside of organic CSP, parallel work in inorganic materials has developed a range of generative models for periodic crystals, beginning with variational approaches such as CDVAE (Xie et al., 2022) and followed by models that more explicitly incorporate symmetry and periodicity (Jiao et al., 2023, 2024; Miller et al., 2024; Zeni et al., 2025; Höllmer et al., 2025; Luo et al., 2025; Levy et al., 2025). A consistent design choice across these methods is the use of explicit lattice parameterizations , in which the unit cell and atomic positions are modelled directly. Our work is also related to advances in generative modelling of molecular geometry, including proteins (Watson et al., 2023; Yim et al., 2023; Bose et al., 2024; Jing et al., 2023, 2024; Geffner et al., 2025, 2026), biomolecular complexes (Abramson et al., 2024; Didi et al., 2026), and molecules (Stark et al., 2024; Wang et al., 2024; Dunn and Koes, 2026; Irwin et al., 2025; Reidenbach et al., 2026; Vonessen et al., 2025). These works demonstrate the effectiveness of equivariant generative models for structured 3D data, from which we borrow several techniques. 
+
+# 3 Clari 
+
+3.1 Crystal structure prediction 
+
+We represent a crystal unit cell as a tuple (L, C, F , E), where L ∈ R3×3 is a lattice matrix with primitive vectors stored as rows, C ∈ RN ×3 are Cartesian atom coordinates with zeroed centroid, F ∈ RN ×d are atom features such as atomic numbers, and E ∈ RN ×N is an adjacency matrix of bond types. Unit cells periodically tile the space to produce full crystals through translations by L⊤z ∈ R3, for any z ∈ Z3. This defines a notion of periodic distance dL(p, q) = min z∈Z3 || p − q − L⊤z|| 2, which is the minimum distance between the periodic images of points p and q in the unit cell. The problem of crystal structure prediction is to infer the positions (L, C) given the crystal molecular graph 
+
+(F , E). Concretely, the input is the 2D molecular graph of each molecule in the unit cell; we do not consider the space group as input. We frame CSP as a conditional generative modelling problem and adopt a flow matching approach due to its simplicity and recent success in biomolecular modelling (Li et al., 2026). A key design choice is that we generate (L, C) as a unified object by treating the primitive lattice vectors as three additional virtual points. That is, we concatenate them row-wise into a matrix x = ( 12 L; C)/σ ∈ R(3+ n)×3
+
+with σ chosen to normalize x to roughly unit variance across the dataset. Assuming (F , E) is fixed, x is invariant under (i) signed permutations of the lattice rows, (ii) permutations of atomic rows that are also automorphisms of the crystal molecular graph, (iii) rotations, and (iv) independent periodic translations of any connected molecular subgraph, which we call a body or component .
+
+3.2 Flow matching 
+
+Flow matching (Lipman et al., 2023; Liu et al., 2023; Albergo and Vanden-Eijnden, 2023) learns a continuous-time vector field that transports a tractable source distribution p0 into the data distribution p1. Adopting the linear interpolant xt = (1 − t)x0 + tx1, a network vθ is trained to regress the target velocity: 
+
+LFM = Et, x0, x1
+
+h
+
+vθ (xt, t ) − (x1 − x0) 2 i
+
+, t ∼ p(t), x0 ∼ p0(x), x1 ∼ p1(x). (1) In practice, we split LFM into lattice and coordinate terms that are summed LL 
+
+> FM
+
++ LC
+
+> FM
+
+. Each term is computed using a mean-squared error so that they contribute equal weight to the final loss. A trained flow matching model vθ can then be used to generate samples by evolving x0 ∼ p0(x) from the source distribution according to dxt = vθ (xt, t )d t using any ordinary differential equation (ODE) solver.  
+
+> Time distribution and schedule.
+
+A rich and important design space lies in choosing the timestep training distribution p(t) and sampling discretization (ti)i. Prior work has found that skewing towards later timesteps leads to better results in biomolecular modelling (Geffner et al., 2025), where fine-grained local details matter more than, for example, in images. However, we argue that crystals also require attention to the overall global arrangement. In Section 4.2, we explore a variety of options including uniform, logit-normal (Esser et al., 2024), and beta (Geffner et al., 2025) distributions and linear and log discretizations (Figure 3a). 40                    
+
+> 2Logit-normal
+> Time Distributions
+> 0.05 0.10 0.15
+> Density (atoms/Å 3)
+> 0
+> 10
+> 20
+> 30
+> 40
+> Density
+> Atom density
+> 50 100 150
+> Angle (°)
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> Density
+> Lattice angles ( ,,)
+> CSD (train) Normal Ours
+> 0
+> 2
+> Density  a
+> Normalized Lengths
+> 0
+> 2Beta(1.8, 1)
+> 0
+> 2
+> Density  b
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 0
+> 2Ramp
+> 12
+> /V1/3
+> 0
+> 2
+> Density  c
+> (a) (b) Figure 3 (a)
+
+Time distributions p(t) considered in our ablations: uniform (not depicted), logit-normal, Beta (1 .8, 1) , and ramp. (b) Marginals of the lattice source distribution p0 versus the Cambridge Structural Database (CSD) training set: atom density (atoms/ Å3), the three unit cell angles, and the sorted volume-normalized lattice lengths ℓ/V 1/3. A standard Gaussian source concentrates mass at vanishing density, producing degenerate lattices, and badly misfits the length distribution. Our fitted prior closely tracks the data marginals. 
+
+Source distribution. The de facto choice of p0 is a unit normal distribution. However, a random normal matrix with high probability yields unrealistic cell densities and degenerate periodic images, which we find leads to a considerable degradation in performance. Instead, we use a data-informed prior p0 by decomposing the lattice into three components (atom density, cell angles, and volume-normalized cell lengths) and fitting a Gaussian distribution to each using the training data (Figure 3b). To sample from p0, we sample each component independently, reconstruct the lattice matrix, and then apply a random rotation and signed permutation. Further details are given in Appendix B.1. 
+
+Auxiliary losses. In order to improve physical quality, we enrich the base flow matching objective with auxiliary losses between the one-step estimate ˆx1 = xt + (1 − t) vθ (xt, t ) and the ground truth x1. In protein models, it is common to use a bond loss, smooth local distance difference test (LDDT), or distogram loss (Abramson et al., 2024; Geffner et al., 2025). We propose a new pair of losses relevant for crystal generation: (i) Lvol , the relative error between predicted and target lattice volumes; and (ii) Lpair , a pairwise periodic distance error that also penalizes steric clashes. The full objective is then LClari = LL 
+
+> FM
+
++ LC 
+
+> FM
+
++ Lvol + Lpair . The formal definitions of the auxiliary losses are provided in Appendix B.4. 
+
+Self-conditioning. Clari also uses self-conditioning (Chen et al., 2023; Stark et al., 2024; Dunn and Koes, 2026) whereby the model recycles its own endpoint estimate ˆx1 from the previous timestep as input. This incurs effectively no cost during inference, but slows training by ∼20% due to an extra forward pass (on a half batch) every step. Despite this, we find self-conditioning to yield a consistent performance improvement so we include it in our final models. 
+
+3.3 Architecture 
+
+An emerging paradigm in biomolecular structure modelling is using large scalable Transformers that are not inherently equivariant but instead learn it through large-scale training with data augmentation (Wang et al., 2024; Abramson et al., 2024; Geffner et al., 2025). In the same spirit, Clari implements vθ using the Diffusion Transformer (DiT) (Peebles and Xie, 2023) architecture with modern Transformer (Vaswani et al., 2017) tricks such as gated attention (Qiu et al., 2026), QKNorm (Chowdhery et al., 2023), and SwiGLU (Shazeer, 2020). Since the lattice is treated as virtual points, the lattice and atom tokens participate identically throughout the network and no special pooling layers are required. Pair features are created from bond, topological and geometric distance information, which modulate the DiT blocks through additive pair attention biasing. Finally, AdaLN-Zero blocks (Peebles and Xie, 2023) are used to modulate the DiT with global-level information such as the timestep, lattice, and molecular formulae. Importantly, Clari contains no triangular operations which results in a significantly more scalable and efficient architecture. This allows Clari to scale to over 100M parameters even for unit cells with up to 512 atoms. Further details are in Appendix B.2. 53.4 Optimal transport and augmentation 
+
+Standard flow matching draws x0 and x1 independently, but coupling them via an approximate optimal-transport map straightens trajectories and reduces variance of the regression target (Tong et al., 2024; Klein et al., 2023; Wohlwend et al., 2025). We aim to align x0 and x1 with respect to (i) signed lattice permutation, (ii) atomic permutation, and (iii) rotations, as described in Section 3.1. However, an exact coupling under the joint action is intractable. We therefore approximately align x1 to x0 by composing three tractable steps that each minimize squared deviation along individual symmetry groups: brute-force signed-permutation lattice alignment, atom-permutation alignment via the Hungarian algorithm (Kuhn, 1955), and a final weighted Kabsch (Kabsch, 1976) pose alignment. We refer readers to Appendix B.5 for further details. Note that alignment effectively performs augmentation due to the invariance of our prior with respect to these actions. We handle the last remaining symmetry of periodic translation (iv) through an augmentation step before alignment. Specifically, we randomly translate the unit cell, re-wrap the centroid of each component to lie in 
+
+[0 , 1) 3, and finally re-centre the centroid of the atomic coordinates. 
+
+3.5 Inference-time scaling 
+
+For an efficient model like Clari , one easy method of improving performance is through inference-time scaling or test-time compute (Ma et al., 2025). Recent work (Didi et al., 2026) has shown the value of these techniques for flow-based atomistic generation, applying methods like beam search and Feynman-Kac steering (Singhal et al., 2025; Skreta et al., 2025) to binder design. We leave a principled exploration of such methods for future work and, for now, opt for a simple best-of-N approach. Specifically, we generate multiple candidate structures per target, score them with the UMA model uma-s-1p2 (Wood et al., 2025), and report results on a subset of lowest-energy structures. Because Clari generates full all-atom crystals, we can immediately rank candidates by energy without having to perform any hydrogen decoration or relaxation steps. 
+
+# 4 Experiments 
+
+We evaluate Clari on held-out crystals ( Rigid and Flexible OXtal subsets), three crystal structure prediction (CSP) Blind Tests (CSP5–7), and the Cambridge Structural Database (CSD) Teaching Subset. We begin by motivating our design choices through a series of ablations that build up to Clari in Section 4.2. Then, we compare Clari against baselines in Section 4.3. 
+
+4.1 Experimental setup  
+
+> Dataset.
+
+We train Clari on the Cambridge Structural Database (CSD) (Groom et al., 2016), a million-scale database of experimentally determined organic and metal-organic crystal structures. We filter entries with a 3D structure that are non-polymeric and derived from single-crystal diffraction at ambient pressure. For non-test splits, we further filter for entries deposited up to May 1, 2025 (following Jin et al. (2026)), with R-factor below 10 %, and at most 512 atoms in the unit cell. Unlike prior efforts (Jin et al., 2026; Subramanian et al., 2026), we do not remove hydrogens or require RDKit sanitization, allowing us to retain a much larger set of entries. After metadata filtering, we found the dataset to still be relatively noisy due to unflagged polymers or superimposed molecules from improperly specified disorder. We attempt to catch these cases using distance-based thresholds, which are described in Appendix A among other details. The OXtal test crystal families and the CSD Teaching Subset are combined to create our held-out test pool.  
+
+> Training and inference.
+
+We train a medium model Clari -M ( 88 M parameters) for 150,000 steps on 4 NVIDIA H100 GPUs. We then scale the model to Clari -L ( 173 M parameters) on 8 H100 GPUs for final comparisons against baselines. Hyperparameters are given in Appendix B.6. During training, refcode families are sampled uniformly to avoid bias towards molecules with many polymorphs. We take the representative with the lowest R-factor from each refcode family for validation and testing. For inference, we use the Heun sampler (Karras et al., 2022) with 50 and 20 steps in Sections 4.2 and 4.3, respectively.  
+
+> Metrics.
+
+Robustly assessing predicted crystals is difficult (Mayo et al., 2022), so we report a battery of complementary metrics. For ablations, we use: (1) Clash Rate (%, ↓), the fraction of structures with an inter-body atom pair closer than their sum of covalent radii; (2) PoseBusters pass rate (%, ↑) (Buttenschoen 6Table 1 Ablation of design choices on the validation set. The first row reports the quality metrics on the Cambridge Structural Database (CSD) validation set for reference. We emphasize that quality metrics are designed not to be blindly optimized but instead to provide another dimension of characterization, as even the ground truth does not obtain a perfect score. PoseBusters is computed on the 71 .3% of applicable validation crystals. Clari -M is obtained from D by using Beta (1 .8, 1) for p(t) instead of the uniform distribution. Bootstrap means with standard errors are reported over 5000 resamples. Model Clash Rate PoseBusters Vol. Error EMD PDD CSD (Val.) 0.80 92.42 – – 
+
+> A
+
+(Base DiT) 25.00 ± 0.50 78.14 ± 0.42 2.07 ± 0.05 11.01 ± 0.05  
+
+> B
+
+(A + lattice tokens) 23.25 ± 0.49 79.04 ± 0.41 2.22 ± 0.05 11.09 ± 0.05  
+
+> C
+
+(B + auxiliary losses) 20.33 ± 0.47 80.11 ± 0.40 1.79 ± 0.04 10.37 ± 0.04  
+
+> D
+
+(C + self-cond.) 9.79 ± 0.35 85.23 ± 0.35 1.55 ± 0.04 9.66 ± 0.03  
+
+> E
+
+(D + normal p0) 9.32 ± 0.33 84.89 ± 0.36 2.88 ± 0.06 10.71 ± 0.05 
+
+Clari -M 9.56 ± 0.35 87.34 ± 0.34 1.59 ± 0.04 9.56 ± 0.03 
+
+Clari -L 7.69 ± 0.32 85.89 ± 0.39 1.50 ± 0.04 9.28 ± 0.03  
+
+> Table 2
+
+Ablation of inference discretization (ti)i and training-time distribution p(t) on the validation set. Model D
+
+from Table 1 corresponds to linear discretization with uniform distribution. Bootstrap means and standard errors over 5000 resamples are reported. 
+
+(ti)i p(t) Clash Rate PoseBusters Vol. Error EMD PDD Log Uniform 11.77 ± 0.37 77.75 ± 0.44 1.55 ± 0.04 9.80 ± 0.03 Logit-normal 6.84 ± 0.29 31.50 ± 0.34 1.55 ± 0.05 9.90 ± 0.07 Beta (1 .8, 1) 11.67 ± 0.38 82.46 ± 0.41 1.58 ± 0.04 9.72 ± 0.03 Ramp 11.26 ± 0.37 80.00 ± 0.42 1.57 ± 0.04 9.74 ± 0.03 Linear Uniform 9.79 ± 0.35 85.23 ± 0.35 1.55 ± 0.04 9.66 ± 0.03 Logit-normal 5.96 ± 0.27 75.98 ± 0.35 1.46 ± 0.04 9.56 ± 0.05 Beta (1 .8, 1) 9.56 ± 0.35 87.34 ± 0.34 1.59 ± 0.04 9.56 ± 0.03 Ramp 8.91 ± 0.33 86.08 ± 0.35 1.53 ± 0.04 9.55 ± 0.03 
+
+et al., 2024) on applicable fragments; (3) relative Volume Error (%, ↓); and (4) EMD PDD (↓), an earth mover’s distance (EMD) between pointwise distance distributions (PDD) (Widdowson and Kurlin, 2022), an isometry invariant of periodic point sets. We split these into quality (Clash Rate, PoseBusters) and reconstruction 
+
+(Vol. Error, EMD PDD) metrics. For baseline comparisons, we follow the OXtal evaluation protocol with COMPACK (Chisholm and Motherwell, 2005), which searches for matching clusters of molecules between the predicted and ground-truth crystals. Our primary metric is approximate solve rate Sol@ k (↑): a target counts as solved if at least one of its k samples matches the ground truth in at least 8 of 15 molecules with RMSD 15 < 2 Å and no inter-body clashes, where RMSD 15 is the root-mean-square deviation across the matched 15-molecule cluster. Throughout the paper Sol refers to this ≥ 8/15 variant, matching OXtal for direct comparison. The strict 15 /15 variant is reported in Table 7. 
+
+4.2 Ablations 
+
+We begin by ablating key design choices on the validation set that build up to Clari . We generate 20 samples per crystal and report bootstrap means over 5000 resamples. Each resample draws 5 values per crystal with replacement, aggregates them into a per-crystal score (using a mean for quality metrics and a minimum for reconstruction), and then averages across crystals. Table 1 provides our main results, whereas Table 2 provides ablations across time distribution and discretization. All models effectively use the same hyperparameters as 
+
+Clari -M (except Clari -L) provided in Appendix B.6.  
+
+> Architecture and loss.
+
+In A, we start with a standard flow matching model with a DiT architecture that predicts lattice vectors from mean-pooled atom features. Then, in B, we ablate the treatment of the lattice as three atom-level tokens and find that it is roughly quality-neutral, but simplifies the architecture to a single 7Table 3 Solved-crystal coverage Sol@ k across the OXtal benchmark subsets. ns is the generation budget (samples drawn from the model), while k is the number used to compute Sol@ k. DFT avg is the average across participants in the corresponding CSP Blind Test as evaluated by Jin et al. (2026) (they use ns = k = 464 /83 /868 for CSP5/CSP6/CSP7, respectively). When k < n s, our methods select the top-k by UMA energy. Best per column among our rows in bold .Bootstrap means over 5000 resamples are reported, and standard errors are given in Table 6. Rigid Flexible CSP5 CSP6 CSP7 Teach. Method ns k (50) (50) (6) (5) (8) (773) DFT avg – – – – 0.544 0.496 0.421 –OXtal 30 30 0.300 0.220 0.167 0.200 0.125 –                                                                
+
+> Clari -M 30 30 0.697 0.241 0.554 0.311 0.210 0.442
+> Clari -M 150 30 0.712 0.260 0.616 0.374 0.225 0.470
+> Clari -L 30 30 0.731 0.287 0.681 0.355 0.245 0.461
+> Clari -L 150 30 0.772 0.346 0.789 0.480 0.263 0.484
+> Clari -M 400 200 0.879 0.506 0.863 0.657 0.384 0.646
+> Clari -L 400 200 0.919 0.596 0.975 0.729 0.566 0.669
+> Clari -M 1000 1000 0.960 0.620 1.000 0.800 0.500 0.754
+> Clari -L 1000 1000 0.940 0.760 1.000 0.800 0.875 0.763
+
+token stream and qualitatively stabilizes optimization (Figure 7). Adding the auxiliary volume and pairwise distance losses ( C) and self-conditioning ( D) results in notable improvements across all metrics.  
+
+> Source distribution.
+
+Models A-D use a fitted lattice prior that closely matches the training distribution (Figure 3), as discussed in Section 3.2. In E, we test the standard normal prior and find it to be detrimental, pushing performance back to almost B in terms of reconstruction metrics. The clash rate is the only metric that improves (marginally), though this may be due to the model generating unrealistically large and sparse unit cells, as evidenced by the degraded EMD PDD.  
+
+> Timestep settings.
+
+Flow matching is sensitive to both the training-time distribution p(t) and inference discretization (ti)i. Models for protein and small-molecule generation tend to skew both toward the late-time regime, since it governs local detail (Geffner et al., 2025; Vonessen et al., 2025; Irwin et al., 2025). In Table 2, we explore such settings for our crystal domain. Unlike prior work, log discretization appears to be uniformly harmful, degrading most significantly the clash rate and EMD PDD. This supports our hypothesis that crystals are not purely local: global packing geometry is established at intermediate times, so over-emphasizing 
+
+t → 1 risks starving these stages. Indeed, a logit-normal distribution that focuses mass around the mid-range improves packing metrics over the uniform distribution. However, it also degrades the PoseBusters quality (in fact, collapsing when combined with log discretization), suggesting that an underemphasis of the late-stage can also be problematic. Conversely, a Beta (1 .8, 1) (Vonessen et al., 2025) distribution shows better PoseBusters validity but performs worse otherwise. Finally, we demonstrate that we can successfully trade off between these endpoints through a ramp distribution that places the majority of its mass uniformly on [0 .5, 1] (Figure 3b). However, its performance is relatively similar to the beta distribution, so our final models use Beta (1 .8, 1) 
+
+and we leave further exploration to future work.  
+
+> Model scale.
+
+Scaling Clari -M from 88 M to Clari -L at 173 M parameters results in a general improvement in reconstruction, which is made more apparent through our rigorous evaluations over the test set. Surprisingly, 
+
+Clari -L trains only ∼20% slower than Clari -M, despite having nearly 2× as many parameters. 
+
+4.3 Comparison to baselines 
+
+Leveraging the fast generation speed of Clari , we apply inference-time scaling through best-of-N sampling (Section 3.5). For each target crystal, we generate ns > k candidates, rank them by UMA energy without geometry optimization, and retain the k lowest-energy candidates (equivalently, the top-k candidates) to check Sol@ k. Figure 5 shows that Sol@ k increases sublinearly with both the sampling budget ns and the retained set size k. However, for fixed k, increasing ns does not always improve Sol@ k, indicating ranking noise. Thus, we tune ns with respect to Sol@ 30 on a held-out set of 50 crystals drawn from the CSD Teaching 8rigid flexible csp5 csp6 csp7         
+
+> 0
+> 100
+> 200
+> 300
+> GPU time (s)
+> Clari-M ( ns= 150 )Clari-L ( ns= 150 )UMA ranking ( ns= 150 )OXtal ( ns= 30 )Figure 4
+
+Per-dataset GPU wall-clock time on H100 for ns = 150 , where we sample and rank 150 candidates per target. Coloured bars are Clari sampling; the grey extension is the additional cost of UMA energy ranking on the 
+
+150 generated samples. OXtal timings (CSP5–7 only) are approximated for H100 bf16 by dividing the reported L40S timings by a factor of 2.5.30 100 200 300 400                 
+
+> ns
+> 0.450
+> 0.475
+> 0.500
+> 0.525
+> 0.550
+> Sol@30
+> OXtal
+> 30 100 200 300 400
+> ns
+> 0.450
+> 0.475
+> 0.500
+> 0.525
+> 0.550
+> Teaching
+> 30 100 200 300 400
+> k
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> Sol@ k
+> OXtal
+> 30 100 200 300 400
+> k
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> Teaching
+> Clari-M (energy) Clari-M (random) Clari-L (energy) Clari-L (random)
+> Figure 5
+
+Inference-time scaling on OXtal’s aggregated test set and the CSD Teaching Subset. Left: Sol@30 as a function of the sampling budget ns, with the top 30 samples per target selected by UMA energy. Scaling ns does not always improve Sol@ 30 , indicating ranking noise. Right: Sol@ k as a function of the selection size k. Solid lines select top-k by UMA energy with ns = max (200 , 2k), while dotted lines draw ns = k samples. Selecting top-k by UMA energy provides an advantage over random selection. Bootstrap means over 5000 resamples are plotted. 
+
+Subset, minimizing leakage onto the OXtal benchmark (Figure 8). We find that ns = 150 works best. Table 3 reports Sol across all subsets. To estimate uncertainty, we generate a pool of 1000 candidates per target and compute bootstrap estimates of Sol@ k using 5000 resamples. In each resample, we draw ns candidates with replacement from the 1000 -candidate pool, proceed with the above ranking procedure to compute Sol@ k,and then average Sol@ k over resamples. We report standard deviations across resamples in Table 6. The 
+
+ns = k = 1000 setting uses the full candidate pool and is therefore reported without uncertainty. In the setting of ns = k = 30 , which disables inference-time scaling, Clari -M outperforms OXtal across all subsets. Increasing the scale of Clari -M to Clari -L provides monotonic improvements. Inference-time scaling further improves performance, and Clari -L with top-30 energy selection achieves the strongest performance among our methods on every subset. When sampling ns = 400 candidates and retaining the top-200 by UMA energy, Clari -L surpasses the average DFT participant in CSP5 (top-464 ) and CSP7 (top-868 ). Averaged across OXtal’s test set, for each molecule it takes Clari -L only 2.2 seconds to generate 150 crystal structures, or 6.0 seconds when downselecting to 30 with energy ranking. 
+
+CSD Teaching Subset. To evaluate Clari on more realistic scenarios, we benchmark on the CSD Teaching Subset (Battle et al., 2010), a collection of > 1000 diverse crystals curated for educational purposes, covering a wide range of functional groups, valence-shell electron-pair repulsion (VSEPR) structure types, organometallic chemistry, flexible cycles, and stereochemistry. We apply the same standard filters as used for training (R-factor below 10% , at most 512 atoms in the unit cell), yielding 773 crystals. At ns = k = 1000 , which represents how 9Clari might be used in exhaustive search workflows, Clari -L attains a Sol@ 1000 of 0.763 , demonstrating 
+
+Clari ’s ability to handle a wide space of chemistry. Figure 9 shows that Clari can make predictions on complex molecules like metal complexes, fullerenes, and atom clusters, which are not RDKit-sanitizable and for which it would be nontrivial to produce the required input conformers for OXtal. 
+
+# 5 Conclusion 
+
+We present Clari , a flow-matching model for organic crystal structure prediction that operates directly on a single unit cell using a pair-bias DiT, avoiding both bulk expansion and triangle-update layers. These architectural refinements improve prediction quality while making sampling roughly 15 –30 × faster than OXtal on the CSP Blind Tests ( 5–8× end-to-end when UMA energy ranking is included). By jointly modelling heavy atoms and hydrogens, Clari produces structures amenable to direct energy-based ranking, enabling inference-time scaling through best-of-N sampling without decoration or relaxation. We further analyze the sources of these gains through ablations and introduce the CSD Teaching Subset, a benchmark spanning chemically complex systems that are excluded from or underrepresented in prior evaluations. Our results show that explicit lattice modelling provides an efficient route to generative CSP. Compared with bulk representations, modelling a single unit cell avoids redundancy and yields substantial computational savings, reducing crystal generation from minutes to seconds. This speed unlocks a different use case for CSP: in the case of screening large virtual libraries of millions of candidate molecules for solid-state properties (Ishii et al., 2020), it may be desirable to simply obtain a decent crystal structure within a few-second turnaround time. While prior methods can be accelerated with few-step generation methods (Song et al., 2023; Boffi et al., 2026; Geng et al., 2026; Sabour et al., 2026; Deng et al., 2026), these techniques are orthogonal to and fully compatible with Clari ’s architectural speedups. At the same time, we view explicit lattice modelling as complementary to bulk approaches such as OXtal. While the unit cell representation is almost always more compact, lattice-free modelling may better accommodate amorphous systems (Cordova et al., 2021), where the unit cell becomes extremely large or ill-defined.  
+
+> Limitations and future work.
+
+On the modelling front, Clari conditions on a 2D molecular graph that is agnostic to stereochemistry, which is critical for application to pharmaceuticals. Conditioning on an explicit 3D conformer or augmenting the graph with chiral tags would allow for more controllable generation. In addition, 
+
+Clari requires as input the number of copies of each molecule in the unit cell, which may not always be known at inference-time, although it is straightforward to sweep over common values of Z = 4 , 2, 1. Datasets and benchmarks are also crucial for any ML field. Constructing test splits that cleanly probe generalization is harder for crystals than for molecules, since graph-based similarity measures are less established for multi-component crystals that RDKit cannot sanitize. Our splits combine refcode grouping with heuristic component-level filtering as a step towards this, but more principled splitting protocols would be valuable for future work. In addition, evaluating generative CSP at scale is hindered by the lack of fast and robust crystal-similarity metrics. We note that Sol is an approximate metric needing only to match 8/15 molecules, which limits the scope of our results. We also observe that Clari occasionally generates crystals with steric clashes or unphysical voids. Reward alignment or inference-time steering (Singhal et al., 2025; Skreta et al., 2025; Potaptchik et al., 2026) can help reduce these errors. Another promising direction is to apply inference-time steering towards a given powder diffraction pattern (Li et al., 2025), space group (Watson et al., 2023), energy, or density. We hope Clari encourages a reassessment of architectural choices inherited from biomolecular generative models, and enables virtual screening of solid-state properties for pharmaceuticals, agrochemicals, and organic semiconductors.  
+
+> Broader Impacts.
+
+Our work accelerates crystal structure prediction for applications in pharmaceuticals and organic materials. As a dual-use consideration, improved prediction may enable more efficient screening of energetic materials, including the identification of more stable or higher-density explosives. Improved structural understanding may also inform safer formulation and handling practices in industrial uses of energetic materials (e.g., mining and construction). While practical deployment of new energetic materials remains constrained by challenges in synthesis and experimental validation, methods such as Clari may lower computational barriers to discovery. We therefore emphasize responsible use within established safety and regulatory frameworks. 10 Acknowledgments 
+
+The authors thank Matthew Spellings, Michael Kilgour, and Olivier Trottier for helpful discussions. A.H.C. acknowledges the generous support of the Canada 150 Research Chairs program through A.A.-G. L.M. acknowledges support from the Prof. Dr. Sc. Jasna Šimunić-Hrvoić Foundation Fellowship. A.A.-G. thanks Anders G. Frøseth for his generous support. A.A.-G. also acknowledges the generous support of Natural Resources Canada and the Canada 150 Research Chairs program. This research is part of the University of Toronto’s Acceleration Consortium, which receives funding from the CFREF-2022-00042 Canada First Research Excellence Fund. This research was enabled in part by support provided by SciNet HPC Consortium (https://scinethpc.ca/ ) and the Digital Research Alliance of Canada ( https://www.alliancecan.ca ). Computations were performed on the Trillium supercomputer at the SciNet HPC Consortium. SciNet is funded by: the Canada Foundation for Innovation; the Government of Ontario; Ontario Research Fund -Research Excellence; and the University of Toronto. This work was supported by the Defense Advanced Research Projects Agency (DARPA) under Agreement No. HR0011262E022. 
+
+# References 
+
+Kenneth Honer, Eren Kalfaoglu, Carlos Pico, Jane McCann, and Jonas Baltrusaitis. Mechanosynthesis of magnesium and calcium salt–urea ionic cocrystal fertilizer materials for improved nitrogen management. ACS Sustainable Chemistry & Engineering , 5(10):8546–8550, 2017. Jingxiang Yang, Chunhua Tony Hu, Xiaolong Zhu, Qiang Zhu, Michael D Ward, and Bart Kahr. DDT polymorphism and the lethality of crystal forms. Angewandte Chemie , 129(34):10299–10303, 2017. Zhimin Hao and Abul Iqbal. Some aspects of organic pigments. Chemical Society Reviews , 26(3):203–213, 1997. N Panina, R Van de Ven, P Verwer, Hugo Meekes, E Vlieg, and G Deroover. Polymorph prediction of organic pigments. 
+
+Dyes and Pigments , 79(2):183–192, 2008. José Miguel Aguilera, Peter J Lillford, and Heribert Watzke. Why food materials science? In Food materials science: Principles and practice , pages 3–10. Springer, 2008. Joseph E Arnold and Graeme M Day. Crystal structure prediction of energetic materials. Crystal Growth & Design , 23 (8):6149–6160, 2023. Sarah L Price, Doris E Braun, and Susan M Reutzel-Edens. Can computed crystal energy landscapes help understand pharmaceutical solids? Chemical Communications , 52(44):7065–7077, 2016. David H Bowskill, Isaac J Sugden, Stefanos Konstantinopoulos, Claire S Adjiman, and Constantinos C Pantelides. Crystal structure prediction methods for organic molecules: State of the art. Annual Review of Chemical and Biomolecular Engineering , 12:593–623, 2021. Stephen R Forrest. The path to ubiquitous and low-cost organic electronic appliances on plastic. Nature , 428(6986): 911–918, 2004. Peifu Sun, Dan Liu, Feng Zhu, and Donghang Yan. An efficient solid-solution crystalline organic light-emitting diode with deep-blue emission. Nature Photonics , 17(3):264–272, 2023. Biswajit Bhattacharya, Adam AL Michalchuk, Dorothee Silbernagl, Nobuhiro Yasuda, Torvid Feiler, Heinz Sturm, and Franziska Emmerling. An atomistic mechanism for elasto-plastic bending in molecular crystals. Chemical Science ,14(13):3441–3450, 2023. Hideko Koshima, Kyoko Takechi, Hidetaka Uchimoto, Motoo Shiro, and Daisuke Hashizume. Photomechanical bending of salicylideneaniline crystals. Chemical Communications , 47(41):11423–11425, 2011. Keith Chadwick, Allan Myerson, and Bernhardt Trout. Polymorphic control by heterogeneous nucleation-a new method for selecting crystalline substrates. CrystEngComm , 13(22):6625–6627, 2011. Dejan-Krešimir Bučar, Graeme M Day, Ivan Halasz, Geoff GZ Zhang, John RG Sander, David G Reid, Leonard R MacGillivray, Melinda J Duer, and William Jones. The curious case of (caffeine) ·(benzoic acid): how heteronuclear seeding allowed the formation of an elusive cocrystal. Chemical Science , 4(12):4417–4425, 2013. John Maddox. Crystals from first principles. Nature , 335(6187):201–201, 1988. 
+
+11 Lily M Hunnisett, Jonas Nyman, Nicholas Francia, Nathan S Abraham, Claire S Adjiman, Srinivasulu Aitipamula, Tamador Alkhidir, Mubarak Almehairbi, Andrea Anelli, Dylan M Anstine, et al. The seventh blind test of crystal structure prediction: structure generation methods. Structural Science , 80(6):517–547, 2024a. Lily M Hunnisett, Nicholas Francia, Jonas Nyman, Nathan S Abraham, Srinivasulu Aitipamula, Tamador Alkhidir, Mubarak Almehairbi, Andrea Anelli, Dylan M Anstine, John E Anthony, et al. The seventh blind test of crystal structure prediction: structure ranking methods. Structural Science , 80(6), 2024b. Gregory J. O. Beran. Frontiers of molecular crystal structure prediction for pharmaceuticals and functional organic materials. Chem. Sci. , 14:13290–13312, 2023. Johannes Hoja, Hsin-Yu Ko, Marcus A Neumann, Roberto Car, Robert A DiStasio Jr, and Alexandre Tkatchenko. Reliable and practical computational description of molecular crystal polymorphs. Science Advances , 5(1):eaau3338, 2019. Dong Zhou, Imanuel Bier, Biswajit Santra, Leif D Jacobson, Chuanjie Wu, Adiran Garaizar Suarez, Barbara Ramirez Almaguer, Haoyu Yu, Robert Abel, Richard A Friesner, et al. A robust crystal structure prediction method to support small molecule drug development with large scale validation and blind study. Nature Communications , 16 (1):2210, 2025. Anthony M Reilly, Richard I Cooper, Claire S Adjiman, Saswata Bhattacharya, A Daniel Boese, Jan Gerit Brandenburg, Peter J Bygrave, Rita Bylsma, Josh E Campbell, Roberto Car, et al. Report on the sixth blind test of organic crystal structure prediction methods. Acta Crystallographica Section B: Structural Science, Crystal Engineering and Materials , 72(4):439–459, 2016. Majid Mortazavi, Johannes Hoja, Luc Aerts, Luc Quéré, Jacco van de Streek, Marcus A Neumann, and Alexandre Tkatchenko. Computational polymorph screening reveals late-appearing and poorly-soluble form of rotigotine. 
+
+Communications Chemistry , 2(1):70, 2019. Hiroyuki Ishii, Shigeaki Obata, Naoyuki Niitsu, Shun Watanabe, Hitoshi Goto, Kenji Hirose, Nobuhiko Kobayashi, Toshihiro Okamoto, and Jun Takeya. Charge mobility calculation of organic semiconductors without use of experimental single-crystal data. Scientific Reports , 10(1):2524, 2020. Joel Bernstein. Polymorphism in Molecular Crystals 2e , volume 30. International Union of Crystal, 2020. Emily Jin, Andrei Cristian Nica, Mikhail Galkin, Jarrid Rector-Brooks, Kin Long Kelvin Lee, Santiago Miret, Frances H. Arnold, Michael M. Bronstein, Joey Bose, Alexander Tong, and Cheng-Hao Liu. OXtal: An all-atom diffusion model for organic crystal structure prediction. In The Fourteenth International Conference on Learning Representations ,2026. Josh Abramson, Jonas Adler, Jack Dunger, Richard Evans, Tim Green, Alexander Pritzel, Olaf Ronneberger, Lindsay Willmore, Andrew J Ballard, Joshua Bambrick, et al. Accurate structure prediction of biomolecular interactions with AlphaFold 3. Nature , 630(8016):493–500, 2024. John Jumper, Richard Evans, Alexander Pritzel, Tim Green, Michael Figurnov, Olaf Ronneberger, Kathryn Tunyasu-vunakool, Russ Bates, Augustin Žídek, Anna Potapenko, et al. Highly accurate protein structure prediction with AlphaFold. Nature , 596(7873):583–589, 2021. Brandon M Wood, Misko Dzamba, Xiang Fu, Meng Gao, Muhammed Shuaibi, Luis Barroso-Luque, Kareem Abdel-maqsoud, Vahe Gharakhanyan, John R Kitchin, Daniel S Levine, et al. UMA: A family of universal models for atoms. arXiv preprint arXiv:2506.23971 , 2025. Ömer H Omar, Marcos Del Cueto, Tahereh Nematiaram, and Alessandro Troisi. High-throughput virtual screening for organic electronics: a comparative study of alternative strategies. Journal of Materials Chemistry C , 9(39): 13557–13583, 2021. Jos PM Lommerse, WD Sam Motherwell, Herman L Ammon, Jack D Dunitz, Angelo Gavezzotti, Detlef WM Hofmann, Frank JJ Leusen, Wijnand TM Mooij, Sarah L Price, Bernd Schweizer, et al. A test of crystal structure prediction of small organic molecules. Acta Crystallographica Section B: Structural Science , 56(4):697–714, 2000. WD Sam Motherwell, Herman L Ammon, Jack D Dunitz, Alexander Dzyabchenko, Peter Erk, Angelo Gavezzotti, Detlef WM Hofmann, Frank JJ Leusen, Jos PM Lommerse, Wijnand TM Mooij, et al. Crystal structure prediction of small organic molecules: a second blind test. Acta Crystallographica Section B: Structural Science , 58(4):647–661, 2002. 
+
+12 GM Day, WDS Motherwell, HL Ammon, SXM Boerrigter, RAFFAELE GUIDO Della Valle, Elisabetta Venuti, A Dzyabchenko, Jack D Dunitz, Bernd Schweizer, BP Van Eijck, et al. A third blind test of crystal structure prediction. Acta Crystallographica Section B: Structural Science , 61(5):511–527, 2005. Graeme M Day, Timothy G Cooper, Aurora J Cruz-Cabeza, Katarzyna E Hejczyk, Herman L Ammon, Stephan XM Boerrigter, Jeffrey S Tan, Raffaele G Della Valle, Elisabetta Venuti, Jovan Jose, et al. Significant progress in predicting the crystal structures of small organic molecules–a report on the fourth blind test. Acta Crystallographica Section B: Structural Science , 65(2):107–125, 2009. David A Bardwell, Claire S Adjiman, Yelena A Arnautova, Ekaterina Bartashevich, Stephan XM Boerrigter, Doris E Braun, Aurora J Cruz-Cabeza, Graeme M Day, Raffaele G Della Valle, Gautam R Desiraju, et al. Towards crystal structure prediction of complex organic compounds–a report on the fifth blind test. Acta Crystallographica Section B: Structural Science , 67(6):535–551, 2011. Tzu-Jen Lin, Cheng-Rong Hsing, Ching-Ming Wei, and Jer-Lai Kuo. Structure prediction of the solid forms of methanol: an ab initio random structure searching approach. Physical chemistry chemical Physics , 18(4):2736–2746, 2016. David H Case, Josh E Campbell, Peter J Bygrave, and Graeme M Day. Convergence properties of crystal structure prediction by quasi-random sampling. Journal of chemical theory and computation , 12(2):910–924, 2016. Charles Richard Arthur Catlow, John Meurig Thomas, M Freeman, Clive, A Wright, Paul, and G Bell, Robert. Simulating and predicting crystal structures. Proceedings of the Royal Society of London. Series A: Mathematical and Physical Sciences , 442(1914):85–96, 1993. Farren Curtis, Timothy Rose, and Noa Marom. Evolutionary niching in the GAtor genetic algorithm for molecular crystal structure prediction. Faraday discussions , 211:61–77, 2018. Vahe Gharakhanyan, Yi Yang, Luis Barroso-Luque, Muhammed Shuaibi, Daniel S Levine, Kyle Michel, Viachaslau Bernat, Misko Dzamba, Xiang Fu, Meng Gao, et al. FastCSP: Accelerated molecular crystal structure prediction with universal model for atoms. arXiv preprint arXiv:2508.02641 , 2025. Akshay Subramanian, Elton Pan, Juno Nam, Maurice Weiler, Shuhui Qu, Cheol Woo Park, Tommi S Jaakkola, Elsa Olivetti, and Rafael Gomez-Bombarelli. PackFlow: Generative molecular crystal structure prediction via reinforcement learning alignment. arXiv preprint arXiv:2602.20140 , 2026. Cheng Zeng, Harry W Sullivan, Thomas Egg, Maya M Martirossyan, Philipp Höllmer, Jirui Jin, Richard G Hennig, Adrian Roitberg, Stefano Martiniani, Ellad B Tadmor, et al. MolCrystalFlow: Molecular crystal structure prediction via flow matching. arXiv preprint arXiv:2602.16020 , 2026. Tian Xie, Xiang Fu, Octavian-Eugen Ganea, Regina Barzilay, and Tommi S. Jaakkola. Crystal diffusion variational autoencoder for periodic material generation. In International Conference on Learning Representations , 2022. Rui Jiao, Wenbing Huang, Peijia Lin, Jiaqi Han, Pin Chen, Yutong Lu, and Yang Liu. Crystal structure prediction by joint equivariant diffusion on lattices and fractional coordinates. In Workshop on”Machine Learning for Materials”ICLR 2023 , 2023. Rui Jiao, Wenbing Huang, Yu Liu, Deli Zhao, and Yang Liu. Space group constrained crystal generation. In The Twelfth International Conference on Learning Representations , 2024. Benjamin Kurt Miller, Ricky T. Q. Chen, Anuroop Sriram, and Brandon M Wood. FlowMM: Generating materials with riemannian flow matching. In Forty-first International Conference on Machine Learning , 2024. Claudio Zeni, Robert Pinsler, Daniel Zügner, Andrew Fowler, Matthew Horton, Xiang Fu, Zilong Wang, Aliaksandra Shysheya, Jonathan Crabbé, Shoko Ueda, et al. A generative model for inorganic materials design. Nature , 639 (8055):624–632, 2025. Philipp Höllmer, Thomas Egg, Maya Martirossyan, Eric Fuemmeler, Zeren Shui, Amit Gupta, Pawan Prakash, Adrian Roitberg, Mingjie Liu, George Karypis, Mark Transtrum, Richard Hennig, Ellad B. Tadmor, and Stefano Martiniani. Open materials generation with stochastic interpolants. In Forty-second International Conference on Machine Learning , 2025. Xiaoshan Luo, Zhenyu Wang, Qingchang Wang, Xuechen Shao, Jian Lv, Lei Wang, Yanchao Wang, and Yanming Ma. CrystalFlow: a flow-based generative model for crystalline materials. Nature Communications , 16(1):9267, 2025. Daniel Levy, Siba Smarak Panigrahi, Sékou-Oumar Kaba, Qiang Zhu, Kin Long Kelvin Lee, Mikhail Galkin, Santiago Miret, and Siamak Ravanbakhsh. SymmCD: Symmetry-preserving crystal generation with diffusion models. In The Thirteenth International Conference on Learning Representations , 2025. 
+
+13 Joseph L Watson, David Juergens, Nathaniel R Bennett, Brian L Trippe, Jason Yim, Helen E Eisenach, Woody Ahern, Andrew J Borst, Robert J Ragotte, Lukas F Milles, et al. De novo design of protein structure and function with RFdiffusion. Nature , 620(7976):1089–1100, 2023. Jason Yim, Brian L. Trippe, Valentin De Bortoli, Emile Mathieu, Arnaud Doucet, Regina Barzilay, and Tommi S. Jaakkola. SE(3) diffusion model with application to protein backbone generation. In ICML , pages 40001–40039, 2023. Joey Bose, Tara Akhound-Sadegh, Guillaume Huguet, Kilian FATRAS, Jarrid Rector-Brooks, Cheng-Hao Liu, Andrei Cristian Nica, Maksym Korablyov, Michael M. Bronstein, and Alexander Tong. SE(3)-stochastic flow matching for protein backbone generation. In The Twelfth International Conference on Learning Representations ,2024. Bowen Jing, Ezra Erives, Peter Pao-Huang, Gabriele Corso, Bonnie Berger, and Tommi Jaakkola. EigenFold: Generative protein structure prediction with diffusion models. arXiv preprint arXiv:2304.02198 , 2023. Bowen Jing, Bonnie Berger, and Tommi Jaakkola. AlphaFold meets flow matching for generating protein ensembles. In Forty-first International Conference on Machine Learning , 2024. Tomas Geffner, Kieran Didi, Zuobai Zhang, Danny Reidenbach, Zhonglin Cao, Jason Yim, Mario Geiger, Christian Dallago, Emine Kucukbenli, Arash Vahdat, and Karsten Kreis. Proteina: Scaling flow-based protein structure generative models. In The Thirteenth International Conference on Learning Representations , 2025. Tomas Geffner, Kieran Didi, Zhonglin Cao, Danny Reidenbach, Zuobai Zhang, Christian Dallago, Emine Kucukbenli, Karsten Kreis, and Arash Vahdat. La-Proteina: Atomistic protein generation via partially latent flow matching. In 
+
+The Fourteenth International Conference on Learning Representations , 2026. Kieran Didi, Zuobai Zhang, Guoqing Zhou, Danny Reidenbach, Zhonglin Cao, Sooyoung Cha, Tomas Geffner, Christian Dallago, Jian Tang, Michael M. Bronstein, Martin Steinegger, Emine Kucukbenli, Arash Vahdat, and Karsten Kreis. Scaling atomistic protein binder design with generative pretraining and test-time compute. In The Fourteenth International Conference on Learning Representations , 2026. Hannes Stark, Bowen Jing, Regina Barzilay, and Tommi Jaakkola. Harmonic self-conditioned flow matching for joint multi-ligand docking and binding site design. In Forty-first International Conference on Machine Learning , 2024. Yuyang Wang, Ahmed A. A. Elhag, Navdeep Jaitly, Joshua M. Susskind, and Miguel Ángel Bautista. Swallowing the bitter pill: Simplified scalable conformer generation. In Forty-first International Conference on Machine Learning ,2024. URL https://openreview.net/forum?id=I44Em5D5xy .Ian Dunn and David R Koes. FlowMol3: flow matching for 3D de novo small-molecule generation. Digital Discovery ,2026. Ross Irwin, Alessandro Tibo, Jon Paul Janet, and Simon Olsson. SemlaFlow – efficient 3D molecular generation with latent attention and equivariant flow matching. In The 28th International Conference on Artificial Intelligence and Statistics , 2025. Danny Reidenbach, Filipp Nikitin, Olexandr Isayev, and Saee Gopal Paliwal. Applications of modular co-design for de novo 3d molecule generation. Digital Discovery , 5(2):754–768, 2026. Carlos Vonessen, Charles Harris, Miruna Cretu, and Pietro Liò. TABASCO: A fast, simplified model for molecular generation with improved physical quality. 2025. Zihao Li, Zhichen Zeng, Xiao Lin, Feihao Fang, Yanru Qu, Zhe Xu, Zhining Liu, Xuying Ning, Tianxin Wei, Ge Liu, Hanghang Tong, and Jingrui He. Flow matching meets biology and life science: A survey. arXiv preprint arXiv:2507.17731 , 2026. Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matthew Le. Flow matching for generative modeling. In The Eleventh International Conference on Learning Representations , 2023. Xingchao Liu, Chengyue Gong, and qiang liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. In The Eleventh International Conference on Learning Representations , 2023. Michael Samuel Albergo and Eric Vanden-Eijnden. Building normalizing flows with stochastic interpolants. In The Eleventh International Conference on Learning Representations , 2023. Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas Müller, Harry Saini, Yam Levi, Dominik Lorenz, Axel Sauer, Frederic Boesel, et al. Scaling rectified flow transformers for high-resolution image synthesis. In 
+
+Forty-first international conference on machine learning , 2024. 
+
+14 Ting Chen, Ruixiang Zhang, and Geoffrey Hinton. Analog bits: Generating discrete data using diffusion models with self-conditioning. In The Eleventh International Conference on Learning Representations , 2023. William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4195–4205, 2023. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. Zihan Qiu, Zekun Wang, Bo Zheng, Zeyu Huang, Kaiyue Wen, Songlin Yang, Rui Men, Le Yu, Fei Huang, Suozhi Huang, Dayiheng Liu, Jingren Zhou, and Junyang Lin. Gated attention for large language models: Non-linearity, sparsity, and attention-sink-free. In The Thirty-ninth Annual Conference on Neural Information Processing Systems ,2026. Aakanksha Chowdhery, Sharan Narang, Jacob Devlin, Maarten Bosma, Gaurav Mishra, Adam Roberts, Paul Barham, Hyung Won Chung, Charles Sutton, Sebastian Gehrmann, et al. PaLM: Scaling language modeling with pathways. 
+
+Journal of Machine Learning Research , 24(240):1–113, 2023. Noam Shazeer. GLU variants improve transformer. arXiv preprint arXiv:2002.05202 , 2020. Alexander Tong, Kilian FATRAS, Nikolay Malkin, Guillaume Huguet, Yanlei Zhang, Jarrid Rector-Brooks, Guy Wolf, and Yoshua Bengio. Improving and generalizing flow-based generative models with minibatch optimal transport. 
+
+Transactions on Machine Learning Research , 2024. Expert Certification. Leon Klein, Andreas Krämer, and Frank Noe. Equivariant flow matching. In Thirty-seventh Conference on Neural Information Processing Systems , 2023. Jeremy Wohlwend, Gabriele Corso, Saro Passaro, Noah Getz, Mateo Reveiz, Ken Leidal, Wojtek Swiderski, Liam Atkinson, Tally Portnoi, Itamar Chinn, et al. Boltz-1 democratizing biomolecular interaction modeling. bioRxiv ,pages 2024–11, 2025. Harold W Kuhn. The Hungarian method for the assignment problem. Naval research logistics quarterly , 2(1-2):83–97, 1955. Wolfgang Kabsch. A solution for the best rotation to relate two sets of vectors. Foundations of Crystallography , 32(5): 922–923, 1976. Nanye Ma, Shangyuan Tong, Haolin Jia, Hexiang Hu, Yu-Chuan Su, Mingda Zhang, Xuan Yang, Yandong Li, Tommi Jaakkola, Xuhui Jia, et al. Inference-time scaling for diffusion models beyond scaling denoising steps. arXiv preprint arXiv:2501.09732 , 2025. Raghav Singhal, Zachary Horvitz, Ryan Teehan, Mengye Ren, Zhou Yu, Kathleen McKeown, and Rajesh Ranganath. A general framework for inference-time scaling and steering of diffusion models. In Forty-second International Conference on Machine Learning , 2025. Marta Skreta, Tara Akhound-Sadegh, Viktor Ohanesian, Roberto Bondesan, Alan Aspuru-Guzik, Arnaud Doucet, Rob Brekelmans, Alexander Tong, and Kirill Neklyudov. Feynman-kac correctors in diffusion: Annealing, guidance, and product of experts. In Forty-second International Conference on Machine Learning , 2025. URL https: //openreview.net/forum?id=Vhc0KrcqWu .Colin R. Groom, Ian J. Bruno, Matthew P. Lightfoot, and Suzanna C. Ward. The Cambridge Structural Database. 
+
+Acta Crystallographica Section B , 72(2):171–179, Apr 2016. Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine. Elucidating the design space of diffusion-based generative models. Advances in neural information processing systems , 35:26565–26577, 2022. R Alex Mayo, Alberto Otero-de-la Roza, and Erin R Johnson. Development and assessment of an improved powder-diffraction-based method for molecular crystal structure similarity. CrystEngComm , 24(47):8326–8338, 2022. Martin Buttenschoen, Garrett M Morris, and Charlotte M Deane. PoseBusters: AI-based docking methods fail to generate physically valid poses or generalise to novel sequences. Chemical Science , 15(9):3130–3139, 2024. Daniel Widdowson and Vitaliy Kurlin. Resolving the data ambiguity for periodic crystals. Advances in Neural Information Processing Systems , 35:24625–24638, 2022. James Alexander Chisholm and Sam Motherwell. COMPACK: A program for identifying crystal structure similarity using distances. Applied Crystallography , 38(1):228–231, 2005. 
+
+15 Gary M Battle, Gregory M Ferrence, and Frank H Allen. Applications of the cambridge structural database in chemical education. Applied Crystallography , 43(5):1208–1223, 2010. Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever. Consistency models. In ICML , pages 32211–32252, 2023. Nicholas Matthew Boffi, Michael Samuel Albergo, and Eric Vanden-Eijnden. How to build a consistency model: Learning flow maps via self-distillation. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2026. Zhengyang Geng, Mingyang Deng, Xingjian Bai, J Zico Kolter, and Kaiming He. Mean flows for one-step generative modeling. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2026. Amirmojtaba Sabour, Sanja Fidler, and Karsten Kreis. Align your flow: Scaling continuous-time flow map distillation. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2026. Mingyang Deng, He Li, Tianhong Li, Yilun Du, and Kaiming He. Generative modeling via drifting. arXiv preprint arXiv:2602.04770 , 2026. Manuel Cordova, Martins Balodis, Albert Hofstetter, Federico Paruzzo, Sten O Nilsson Lill, Emma SE Eriksson, Pierrick Berruyer, Bruno Simões de Almeida, Michael J Quayle, Stefan T Norberg, et al. Structure determination of an amorphous drug through large-scale nmr predictions. Nature Communications , 12(1):2964, 2021. Peter Potaptchik, Adhi Saravanan, Abbas Mammadov, Alvaro Prat, Michael S Albergo, and Yee Whye Teh. Meta flow maps enable scalable reward alignment. arXiv preprint arXiv:2601.14430 , 2026. Qi Li, Rui Jiao, Liming Wu, Tiannian Zhu, Wenbing Huang, Shifeng Jin, Yang Liu, Hongming Weng, and Xiaolong Chen. Powder diffraction crystal structure determination using generative models. Nature Communications , 16(1): 7428, 2025. Beatriz Cordero, Verónica Gómez, Ana E. Platero-Prats, Marc Revés, Jorge Echeverría, Eduard Cremades, Flavia Barragán, and Santiago Alvarez. Covalent radii revisited. Dalton Trans. , pages 2832–2838, 2008. Cambridge Crystallographic Data Centre. CSD elemental radii, August 2015. URL https://www.ccdc.cam.ac.uk/m edia/Elemental_Radii_Alvarez.xlsx .Keller Jordan, Yuchen Jin, Vlado Boza, You Jiacheng, Franz Cesista, Laker Newhouse, and Jeremy Bernstein. Muon: An optimizer for hidden layers in neural networks, 2024. URL https://kellerjordan.github.io/posts/muon/ .Jingyuan Liu, Jianlin Su, Xingcheng Yao, Zhejun Jiang, Guokun Lai, Yulun Du, Yidao Qin, Weixin Xu, Enzhe Lu, Junjie Yan, Yanru Chen, Huabin Zheng, Yibo Liu, Shaowei Liu, Bohong Yin, Weiran He, Han Zhu, Yuzhi Wang, Jianzhou Wang, Mengnan Dong, Zheng Zhang, Yongsheng Kang, Hao Zhang, Xinran Xu, Yutao Zhang, Yuxin Wu, Xinyu Zhou, and Zhilin Yang. Muon is scalable for LLM training. arXiv preprint arXiv:2502.16982 , 2025. Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In International Conference on Learning Representations (ICLR) , 2015. 
+
+16 A Dataset 
+
+A.1 Crystal processing pipeline 
+
+The Cambridge Structural Database (CSD) requires a license. We obtained an academic license via the University of Toronto. We download CSD entry metadata using the CSD Python API and the raw CIF and MOL2 files using ConQuest. Given a CSD entry, the following workflow is performed: 1. Metadata filtering according to the criteria discussed in Section 4.1. 2. Parsing the crystal’s asymmetric unit from its CIF and MOL2 file. 3. Caching component isomorphisms within the asymmetric unit. 4. Expanding the asymmetric unit to the full unit cell by applying space group operations. 5. Distance-based filtering to remove polymers and steric clashes. 6. Unit cell featurization (e.g., SMILES for splitting on test components). Crystals that are successfully processed without error are aggregated and split into training, validation, and test datasets. We elaborate on the critical steps (2) and (5).  
+
+> Isomorphism caching.
+
+For crystal alignment (Section 3.1), it is useful to know which components in the unit cell are isomorphic, and if so, what those isomorphisms are. We cache these during our data processing pipeline to avoid expensive isomorphism checks during training. To further improve efficiency, we compute these on the asymmetric unit, which generally has many fewer components than the full unit cell. When the asymmetric unit is replicated in step (4), these isomorphisms can then be easily extended. Note that we do not attempt to intractably enumerate all isomorphisms between components but rather find a single one, if it exists.  
+
+> Distance-based filtering.
+
+We more strictly filter out polymeric or noisy crystals (e.g., due to improper disorder specification) by checking that all atoms are sufficiently distanced. Let M1 and M2 be two (not necessarily distinct) components obtained after step (4). Let p1 be the position of an atom a1 from M1, and similarly for 
+
+p2 and a2 from M2. We check that 
+
+dL(p1, p2) ≥ α (r(a1) + r(a2)) , where α =
+
+
+
+0.6, if a1 or a2 is a metal ,
+
+0.6, if a1 and a2 are bonded ,
+
+1.0, otherwise ,
+
+(2) where L is the cell lattice and r(·) is the CSD covalent radius ( Å ) (Cordero et al., 2008; Cambridge Crystallographic Data Centre, 2015). Threshold distances α were chosen based on the periodic distance distribution of CSD (Figure 6). A minor technicality is that two distinct but exactly superimposable components can arise, for example, when a component in the asymmetric unit is invariant under the space group. In this case, we should discard one component rather than rejecting the entire CSD entry. If M1̸ = M2
+
+are isomorphic but clashing, we can check for this case by performing an optimal atomic assignment (Kuhn, 1955) and checking that all atoms are within 0.01 Å deviation. 
+
+A.2 Dataset splitting 
+
+The OXtal test crystal families and the CSD Teaching Subset are combined to create our held-out test pool. To mitigate leakage, we exclude entire 6-letter refcode families of test entries and additionally exclude crystals sharing an RDKit-sanitizable component with any test structure. The component must be RDKit sanitizable so we can perform the equality check using its canonical SMILES rather than expensive graph isomorphism checks. Moreover, the component must also have over 7 heavy atoms, so that ubiquitous but small molecules such as water or hexafluorophosphate are not considered. The validation set is created by holding out 1000 refcode families from the remainder. The final split counts, before benchmark-specific evaluation filters, contain 917,014 training, 1048 validation, and 2996 test examples across 859,866, 1000, and 919 families, 17 respectively; the test count includes all held-out crystals, including those with more than 512 atoms in the unit cell. 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8                 
+
+> dij /( ri+rj)
+> 0
+> 5
+> 10
+> 15
+> Bonded
+> 0.2 0.4 0.6 0.8
+> dij /( ri+rj)
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> Unbonded (Metal-Any)
+> 0.2 0.4 0.6 0.8 1.0 1.2 1.4
+> dij /( ri+rj)
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> Unbonded (Nonmetal-Nonmetal)
+> Figure 6
+
+Distribution of normalized periodic interatomic distances dL(p1, p2)/(r(a1) + r(a2)) across the CSD, with the threshold α (Equation 2) shown in a dashed line. For each atom in the CSD, we gather distances of adjacent bonded atoms (left) and the nearest unbonded atoms. The latter case is further broken down based on whether one of the atoms is a metal (middle) or both are nonmetals (right). Histograms are each truncated at their lower 0.5% tail. 
+
+# B Modelling 
+
+B.1 Source distribution 
+
+We decompose lattice matrices L = ( l1, l2, l3)⊤ ∈ R3×3 of an N -atom unit cell into three components and model each as independent Gaussians fitted to the CSD training set: 
+
+• The atom density ρ ∼ N (μρ, σ 2
+
+> ρ
+
+), where ρ = N/V for V = | det L|.
+
+• The cell angles α, β, γ ∼ N (μ◦, σ 2 
+
+> ◦
+
+) i.i.d., where α = angle( l1, l2) and similarly for β, γ .
+
+• The normalized cell lengths (a, b, c ) ∼ N (μℓ, Σℓ), where a = || l1|| 2/V 1/3 and b, c are defined similarly, sorted such that a ≤ b ≤ c. Note that Σℓ is not diagonal. Given a sample (ρ, α, β, γ, a, b, c ), we can reconstruct a matrix L that adheres to the given parameters. To randomize the pose of the matrix, we finally apply a random signed permutation and rotation. 
+
+B.2 Architecture 
+
+Let Linear( ·) and LN( ·) denote a linear layer and LayerNorm. Let 
+
+Mod( x, c) = Linear( c) ⊙ x + Linear( c), (3) 
+
+Gate( x, c) = Linear( c) ⊙ x, (4) 
+
+AdaLN( x, c) = Mod(LN( x), c) (5) 
+
+Transition( x) = Linear(SwiGLU(Linear( x))) , (6) and let PairAttention (h, z) denote attention with pairwise bias via Linear (z). The architecture of Clari is summarized in Algorithm 1. The input features to Clari are listed in Table 4. 
+
+B.3 Inference batching 
+
+The dataloader yields one crystal per batch; we then replicate it B(n) times in the batch dimension for parallel sampling, where B(n) = 1000 , 500 , 200 , 25 , 1 for n < 200 , < 300 , < 500 , ≤ 1000 , > 1000 atoms. On an out-of-memory error, B is halved and the chunk is retried. Before beginning timing, we warm up compilation with dummy runs on the first 5 batches. 18 Algorithm 1 Clari architecture.  
+
+> Require:
+
+Sequence dimension d, pair dimension dz , conditioning dimension dc, trunk depth D, number of attention heads H (Table 5).  
+
+> Create conditioning features
+> 1:
+
+c ← embed conditioning features (Table 4) ▷ c ∈ Rdc  
+
+> 2: for
+
+i = 1 , 2 do  
+
+> 3:
+
+c ← c + Transition(LN( c))  
+
+> 4:
+
+c ← LN( c) 
+
+> Create sequence features
+> 5:
+
+h ← embed sequence features (Table 4) ▷ h ∈ Rn×d 
+
+> 6:
+
+h ← Mod(tanh( h), c) 
+
+> 7:
+
+(h, u, v) ← Transition( h) ▷ split as d ⊕ dz ⊕ dz 
+
+> Create pair features
+> 8:
+
+z ← embed pair features (Table 4) ▷ z ∈ Rn×n×dz 
+
+> 9:
+
+z ← z + ( ui + vj )ij  
+
+> 10:
+
+z ← Mod(tanh( z), c)  
+
+> Main trunk
+> 11: for
+
+ℓ = 1 , . . . , D do  
+
+> 12:
+
+h ← h + Gate(PairAttention(AdaLN( h, c), z) , c) 
+
+> 13:
+
+h ← h + Gate(Transition(AdaLN( h, c)) , c) 
+
+> 14:
+
+v ← Transition(AdaLN( h, c)) ▷ v ∈ Rn×3  
+
+> 15: return
+
+v
+
+B.4 Auxiliary losses 
+
+The volume and pair losses are applied between the one-step estimate ˆx1 = xt + (1 − t) vθ (xt, t ) and ground truth x1. The auxiliary volume loss is the relative error of the predicted volume: 
+
+Lvol = | det ˆL1|| det L1| − 1 , (7) where ˆL1 and L1 are the lattice matrices obtained from ˆx1 and x1, respectively. Now, let ˆdij and dij be the periodic distance ( Å ) between the i-th and j-th atoms in ˆx1 and x1, respectively, and αij be the distance threshold from Equation 2. The auxiliary pair loss is 
+
+Lpair = X
+
+> (i,j )∈Λ
+
+h ˆdij − dij + 5 · max 
+
+
+
+0, α ij − ˆdij 
+
+i 
+
+, (8) where Λ = {i̸ = j | dij < 15 or ˆdij < α ij }. The pair loss combines a distance matching term with a clash term. To compute the periodic distances tractably and stably, we make the approximation: 
+
+dL(pi, pj ) ≤ min  
+
+> z∈{− 1,0,1}3
+
+pi − pj − L⊤z 2 ,
+
+which tends to be exact for most crystals. 
+
+B.5 Optimal-transport coupling 
+
+We approximately align x1 to x0 before constructing the interpolant xt by composing three tractable substeps. First, we align the pair purely on their lattices to obtain a good initial pose. Then, we iterate between permutation and pose alignment twice. Let (L1, C1) and (L0, C0) be the lattice and atomic rows of x1 and 
+
+x0, respectively. The steps are now described:  
+
+> Exact lattice alignment.
+
+The goal is to find a signed permutation Π and rotation R that minimize || ΠL1R⊤ −
+
+L0|| F . We can exactly solve this joint problem by enumerating over all such Π, and for each, finding the optimal R using the Kabsch algorithm (Kabsch, 1976). 19 Table 4 Input features consumed by Clari . Within each stream, we take the sum of the individual embeddings as the final sequence, pair, or conditioning features. 
+
+Input Featurization Seq. Cartesian xt Linear and sinusoidal. Fractional xt Linear and sinusoidal (periodic in 1). Self-cond. ˆx1 Linear and sinusoidal. Element Embedding. Uncommon elements map to a ∗ type. Lattice nodes are treated as 3 new elements. Atomic charges Linear and embedding with bins {92-, 91, 0, 1, 2+}.Atomic degrees Linear and embedding with bins {0, . . . , 9+}.Atomic radii Linear of covalent and VDW radii. Adjacent bonds Linear projection of binary indicator vector. Pair Bonds Embedding. Topological dist. Embedding with bins {0, . . . , 15 , 16 +, ∞} .Cartesian dist. Embedding with 128 bins over [0 , 32] Å. Periodic dist. Embedding with 128 bins over [0 , 32] Å. Cond. Timestep t Sinusoidal. Lattice L Linear projection of L, L−1, L⊤L, and det L.Formula Linear projection of count vector. Self-cond. Embedding (binary) for whether ˆx1 = ∅. 
+
+> Permutation alignment.
+
+With pose fixed, the goal is to permute the rows of x1 to minimize its distance to 
+
+x0. The lattice and atomic rows can be handled independently. For the former, we can again brute-force search across all signed permutations. For the latter, we need to find a permutation Π that minimizes 
+
+|| ΠC1 − C0|| F such that Π is also an automorphism of the crystal molecular graph. Since enumerating all such automorphisms is intractable, we use the isomorphisms cached from our dataset processing (Appendix A) to get an approximate answer. Specifically, for all isomorphic components between C1 and C0, we compute their RMSD using the atom assignment given by the cached isomorphism. Then, we resolve the assignment of bodies in x1 to those in x0 using the Hungarian algorithm (Kuhn, 1955). Note that this does not search the full space because we only consider one of many possible isomorphisms between components.  
+
+> Pose alignment.
+
+With order fixed, we can SO(3) -align x1 to x0 using a weighted Kabsch algorithm in which the three lattice rows carry equal weight to the N atom rows. 
+
+B.6 Hyperparameters 
+
+Table 5 lists the architectural and training hyperparameters for the medium and large Clari models. We use a feedforward expansion of 2.66 × to match the parameters of a standard 4 × non-GLU feedforward. We train the Transformer weight matrices using Muon (Jordan et al., 2024; Liu et al., 2025) and all other parameters using Adam (Kingma and Ba, 2015). We also maintain an exponential moving average (EMA) of all parameters for sampling and evaluation. 
+
+# C Metrics 
+
+We consider quality metrics, assessing the inherent plausibility of a single sample, and reconstruction metrics, measuring agreement with a reference. Clash rate and PoseBusters are quality metrics while the others are reconstruction metrics.  
+
+> Clash rate.
+
+We consider two distinct components within a crystal clashing if an atom from each has periodic distance less than their sum of covalent radii (i.e., Equation 2 with α = 1 ). We report the fraction of crystals 20 Table 5 Training and architectural hyperparameters for Clari .
+
+Clari -M Clari -L Parameters 88M 173M Sequence dim d 512 768 
+
+Pair dim dz 64 64 
+
+Conditioning dim dc 512 512 
+
+Depth D 16 16 
+
+Heads H 8 12 
+
+Feedforward expansion 2.66 × 2.66 ×
+
+Training steps 150,000 150,000 Effective batch size 128 256 
+
+Optimizer Muon, Adam Muon, Adam Learning rate 0.0005 0.0005 
+
+Warmup steps 5000 5000 Weight decay 0 0EMA decay 0.999 0.999 
+
+GPUs 4× H100 8× H100 Training time 14 h 17 h with at least one pair of clashing components.  
+
+> PoseBusters.
+
+We report the average PoseBusters (Buttenschoen et al., 2024) validity of all components in the unit cell, following the settings from Vonessen et al. (2025). Since PoseBusters relies on RDKit, we process the predicted crystal by disconnecting organometallic bonds and then excluding any components that (i) have no bonds, (ii) contain an element outside of H, C, N, O, F, P, S, Cl, Br, I, (iii) are not RDKit sanitizable, (iv) contain added hydrogens after sanitization. That is, PoseBusters is run only on a subset of applicable components. This metric is averaged over all crystals that have at least one applicable component.  
+
+> Relative volume error.
+
+This is Lvol in Equation 7.  
+
+> EMD PDD.
+
+The pointwise distance distribution (PDD) (Widdowson and Kurlin, 2022) is an isometry invariant of periodic point sets, computed from sorted pairwise interatomic distances of the nearest k = 100 neighbours to each point. We report the ( L1) earth mover’s distance between the PDDs of the predicted and reference crystals.   
+
+> COMPACK RMSD 15 .
+
+COMPACK (Chisholm and Motherwell, 2005) matches a 15-molecule cluster between the predicted and reference packings, ignoring hydrogens and all bond information so that the comparison is sensitive only to heavy-atom packing. For fair comparison we inherit the OXtal configuration verbatim: 50% 
+
+distance tolerance and 75 ◦ angle tolerance. These tolerances are loose, but we keep them unchanged so that all reported numbers are directly comparable to OXtal. We also only consider RMSD 15 < 2.0 Å. Samples clash if any inter-body atom pair sits at a distance less than the sum of their van der Waals radii minus 0.7 Å. A target is counted as solved (Sol) if at least one of the k generated candidates obtains a COMPACK match rate of at least 8 out of 15 molecules to the experimental structure with RMSD 15 < 2.0 Å and no detected collisions. OXtal additionally defines lattice-recovery and conformer-recovery metrics; we omit these since Sol is the only criterion relevant to CSP blind tests. COMPACK is computationally expensive and is therefore reserved for the test set.  
+
+> OXtal comparison protocol.
+
+For direct comparison we adopt the OXtal test set of 119 crystals: 50 rigid, 
+
+50 flexible, and the CSP blind-test entries ( 6 from CSP5, 5 from CSP6, and 8 from CSP7). Model inputs are taken from the CSD entry with the lowest R-factor. When a crystal is associated with multiple CSD refcodes of the same family, we evaluate against the three entries with the lowest R-factors and report the best COMPACK match. For the Teaching subset, we only match against the directly corresponding refcode. Generated structures are evaluated as produced by the model, with no relaxation, energy minimization, or DFT polish. The only post-processing is the UMA-based ranking described in Section 3.5. 21 D Additional results 
+
+In the following pages, we provide additional supporting figures and tables: 0 25 50 75 100 125 150 
+
+Epoch 
+
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> 0.14
+
+Volume Error       
+
+> 025 50 75 100 125 150
+
+Epoch 
+
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+
+Heavy EMD PDD   
+
+> AB
+> Figure 7
+
+Reconstruction metric curves on the validation set for models A and B (Table 1). Results were pulled from preliminary training logs, where we only evaluated on a subset of 512 validation crystals, drew 3 samples per crystal, and did a sample-wise mean (not min.) aggregation. 30 100 200 300 400 
+
+ns
+
+0.40 
+
+0.45 
+
+0.50 
+
+0.55 
+
+> Sol@30
+
+Teaching (50 examples)  
+
+> Figure 8
+
+Sol@30 as a function of ns on 50 random examples drawn from the CSD Teaching Subset. We find that 
+
+ns = 150 achieves the best solve rate for Sol@ 30 . We sample 1000 times per example and report the mean over 5000 bootstrap resamples. 
+
+22 Table 6 The Sol@ k metrics from Table 3. Bootstrap means and standard errors over 5000 resamples are reported, where appropriate. Rigid Flexible Teach. Method ns k (50) (50) (773) DFT avg – – – – –OXtal 30 30 0.300 0.220 –
+
+Clari -M 30 30 0.697 ± 0.039 0.241 ± 0.044 0.442 ± 0.010 
+
+Clari -M 150 30 0.712 ± 0.035 0.260 ± 0.043 0.470 ± 0.010 
+
+Clari -L 30 30 0.731 ± 0.040 0.287 ± 0.044 0.461 ± 0.010 
+
+Clari -L 150 30 0.772 ± 0.039 0.346 ± 0.047 0.484 ± 0.010 
+
+Clari -M 400 200 0.879 ± 0.023 0.506 ± 0.028 0.646 ± 0.007 
+
+Clari -L 400 200 0.919 ± 0.018 0.596 ± 0.039 0.669 ± 0.007 
+
+Clari -M 1000 1000 0.960 0.620 0.754 
+
+Clari -L 1000 1000 0.940 0.760 0.763 
+
+CSP5 CSP6 CSP7 Method ns k (6) (5) (8) DFT avg – – 0.544 0.496 0.421 OXtal 30 30 0.167 0.200 0.125 
+
+Clari -M 30 30 0.554 ± 0.140 0.311 ± 0.134 0.210 ± 0.089 
+
+Clari -M 150 30 0.616 ± 0.134 0.374 ± 0.153 0.225 ± 0.080 
+
+Clari -L 30 30 0.681 ± 0.140 0.355 ± 0.148 0.245 ± 0.096 
+
+Clari -L 150 30 0.789 ± 0.142 0.480 ± 0.155 0.263 ± 0.091 
+
+Clari -M 400 200 0.863 ± 0.099 0.657 ± 0.139 0.384 ± 0.066 
+
+Clari -L 400 200 0.975 ± 0.061 0.729 ± 0.104 0.566 ± 0.128 
+
+Clari -M 1000 1000 1.000 0.800 0.500 
+
+Clari -L 1000 1000 1.000 0.800 0.875 
+
+23 Table 7 The Sol@ k metrics from Table 3, except with a more strict 15 -molecule match requirement. Bootstrap means and standard errors over 5000 resamples are reported, where appropriate. Rigid Flexible Teach. Method ns k (50) (50) (773) 
+
+Clari -M 30 30 0.288 ± 0.040 0.037 ± 0.024 0.140 ± 0.008 
+
+Clari -M 150 30 0.344 ± 0.043 0.045 ± 0.025 0.168 ± 0.008 
+
+Clari -L 30 30 0.373 ± 0.043 0.071 ± 0.031 0.188 ± 0.009 
+
+Clari -L 150 30 0.435 ± 0.045 0.131 ± 0.036 0.223 ± 0.009 
+
+Clari -M 400 200 0.581 ± 0.040 0.189 ± 0.037 0.316 ± 0.008 
+
+Clari -L 400 200 0.684 ± 0.038 0.294 ± 0.039 0.389 ± 0.008 
+
+Clari -M 1000 1000 0.720 0.380 0.446 
+
+Clari -L 1000 1000 0.840 0.460 0.524 
+
+CSP5 CSP6 CSP7 Method ns k (6) (5) (8) 
+
+Clari -M 30 30 0.055 ± 0.090 0.007 ± 0.036 0.101 ± 0.060 
+
+Clari -M 150 30 0.065 ± 0.092 0.027 ± 0.069 0.106 ± 0.045 
+
+Clari -L 30 30 0.187 ± 0.139 0.070 ± 0.109 0.121 ± 0.021 
+
+Clari -L 150 30 0.305 ± 0.159 0.155 ± 0.136 0.122 ± 0.020 
+
+Clari -M 400 200 0.331 ± 0.129 0.066 ± 0.094 0.145 ± 0.046 
+
+Clari -L 400 200 0.602 ± 0.154 0.399 ± 0.139 0.125 ± 0.000 
+
+Clari -M 1000 1000 0.500 0.200 0.250 
+
+Clari -L 1000 1000 0.833 0.600 0.125 
+
+24 (a) BCABOR10, 0.117 Å (b) CUGDIR, 0.356 Å (c) DORRAF, 0.252 Å
+
+(d) YUGWUT, 0.226 Å (e) JIYDEA, 0.575 Å (f) SIMLIJ, 1.082 Å
+
+(g) CTPOCO, 0.445 Å (h) DBRING01, 0.442 Å (i) TTFTCQ, 0.739 Å 
+
+> Figure 9
+
+Predicted crystal structures from the CSD Teaching Subset, all achieving full 15/15 molecule matches in COMPACK with the reported RMSD 15 values (Å). 
+
+25

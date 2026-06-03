@@ -1,0 +1,1064 @@
+Title: Demystifying Multimodal Biomolecular Co-design With Intrinsic Geodesic Coupling
+
+URL Source: https://arxiv.org/pdf/2606.01628v1
+
+Published Time: Tue, 02 Jun 2026 02:00:07 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+Keyue Qiu * 1 2 Xintong Wang * 2 Zhilong Zhang 1 3 Hao Zhou 1 4 Wei-Ying Ma 1
+
+## Abstract 
+
+Biomolecules such as proteins and small-molecule ligands play a central role in biological systems, arising from the tight interplay between sequence and three-dimensional structure. Recent generative models for biomolecular co-design aim to capture this interplay by jointly modeling cou-pled modalities. However, existing approaches largely adopt a parallel execution of marginal gen-erative processes, implicitly enforcing fixed syn-chronous coupling. We argue that a critical but overlooked degree of freedom lies in how these marginal processes are temporally coupled during training and generation, where inappropriate cou-pling can introduce high-variance supervision and inconsistent intermediate states, affecting modal-ity consistency. To address this, we introduce Geo-Coupling, a systematic framework that optimizes for temporal couplings between heterogeneous modalities. Empirical results across structure-based drug design and unconditional protein de-sign demonstrate the learned couplings consis-tently outperform synchronous and randomly cou-pled baselines, yielding biomolecules with im-proved physical validity and diversity. 
+
+## 1. Introduction 
+
+Functional biomolecules, ranging from proteins to small-molecule ligands, are the fundamental building blocks of life, governing biological processes from metabolic cataly-sis to signal transduction (Branden & Tooze, 2012). Their biological utility is intrinsically linked to the relationship between sequences and three-dimensional structures. Con-
+
+> *
+
+Equal contribution 1Institute for AI Industry Research (AIR), Tsinghua University 2Department of Computer Science and Tech-nology, Tsinghua University 3Qiuzhen College, Tsinghua Univer-sity 4Shanghai Artificial Intelligence Laboratory. Correspondence to: Hao Zhou <zhouhao@air.tsinghua.edu.cn >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 
+
+sequently, the joint design of biomolecular sequences and structures has emerged as a central challenge in compu-tational biology, with transformative potential for protein engineering and de novo drug design (Huang et al., 2016; Watson et al., 2023). Recently, deep generative models have made remarkable progress in biomolecular design. Early approaches focused on unimodal generation for sequences (Madani et al., 2020a; Nijkamp et al., 2023; Wang et al., 2024) or structures (Wat-son et al., 2023; Yim et al., 2023; Bose et al., 2023). How-ever, practical discovery tasks such as structure-based drug design (SBDD) (Schneuing et al., 2024) require determin-ing sequence and structure jointly and capturing holistic cross-modal dependencies. Adapting these unimodal ap-proaches for joint generation relies on sequential pipelines that chained separate tools for structure prediction (Jumper et al., 2021; Abramson et al., 2024) or inverse folding (Dau-paras et al., 2022). Although effective as heuristics, these disjoint workflows fail to exploit the biological insight such as induced fit in ligand binding or the co-adaptation between backbone geometry and sequence identity. To address this, recent works have shifted toward multimodal co-design, treating sequence and structure as coupled modalities within a unified generative process. A central challenge in multimodal co-design lies in the 
+
+dynamic mismatch between heterogeneous modalities. Dif-ferent biological modalities exhibit distinct intrinsic char-acteristics: continuous 3D coordinates evolve on high-dimensional geometric manifolds, whereas sequences reside in combinatorial discrete space. Most existing co-design approaches for coupled modalities impose a synchronous coupling , forcing all modalities to evolve from noise to data at shared timestep. While convenient, this assumption introduces a restrictive inductive bias by ignoring the de-pendency structure and asymmetric convergence behaviors across modalities. Empirically, one modality may stabi-lize earlier than another, causing the model to condition on poorly resolved or inconsistent representations during intermediate stages. This misalignment forces the model to learn from off-manifold intermediate states, leading to noisy or even conflicting gradient signals, and degraded modality consistency for biomolecules. 1
+
+> arXiv:2606.01628v1 [q-bio.BM] 1 Jun 2026
+
+Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling Data  
+
+> (Molecule)
+> Joint Prior
+> (Noise)
+> 0.6
+> Structure Progress
+> Sequence Progress
+> B. Generated Molecule in Trajectory
+> Random
+> (High Variance)
+> Synchronous
+> (Isotropic & Biased)
+> Ours
+> (Learned Geodesic)
+> A. Temporal Product Manifold & Coupling C. Modality Change in Trajectory
+
+Figure 1. Decoupling Multimodal Generation via Learned Geodesics. A. Temporal Product Manifold: Visualization of coupling strategies on the joint noise space. While Synchronous coupling (gray) forces an isotropic diagonal path and Random coupling (red) suffers from high variance , GeoCoupling (blue) discovers a learned geodesic that navigates the optimal transport path. B. Conceptual illustration for the intermediate states of generated molecules, where random couplings often lead to crossmodal inconsistency, whereas our learned path ensures geometric validity. C. Trajectory Analysis: Quantitative evolution of Structure MSE (top) and Sequence Identity (bottom) during generation ( 0 → 1). GeoCoupling (red triangles) accelerates convergence compared to baselines. Notably, the rapid drop in structure error ( t < 0.3) precedes the surge in sequence identity, confirming a structure-first generative mechanism. 
+
+Recent work has attempted to relax strict synchronization through random coupling strategies for protein data (Camp-bell et al., 2024; Wang et al., 2025). While such approaches broaden the training distribution, they often exacerbate train-ing variance and introduce a training–inference mismatch: models are supervised on decoupled noise combinations that are rarely encountered during synchronized generation. Notably, Qiu et al. (2025) showed that optimizing coupling schedules at test time can improve model performance in structure-based drug design. However, such post-hoc proce-dures require repeated evaluation across modality combina-tions, leading to rapidly growing computational overhead, while leaving the instability of the training dynamics fun-damentally unaddressed. These observations suggest that the limitation of existing co-design methods fundamentally relates to its multimodal training dynamics, where biomolec-ular co-design operates on a heterogeneous product man-ifold. On this manifold, the optimal generative trajectory is rarely the diagonal path that synchronizes all modalities uniformly. Instead, effective generation usually follows a dynamically curved path, i.e., a geodesic defined by the transport cost of the generative flow—along which differ-ent components mature at rates dictated by their respective learning complexities. In this work, we present G EO COUPLING , a framework that treats temporal coupling as a learnable degree of freedom. We reformulate multimodal generation as a Temporal Opti-mal Transport problem, seeking the schedule that minimizes the energy required to transport the prior to the data distribu-tion. Finding this optimal schedule presents a unique opti-mization challenge: the objective function is the final valida-tion performance after training, making it non-differentiable with respect to the schedule and expensive to query. Cru-cially, backpropagating through the entire training trajectory to learn the schedule via hypergradients is computationally intractable. To address this, G EO COUPLING employs a bi-level optimization strategy with a Gaussian Process surro-gate to efficiently navigate the coupling space. This design enables the automatic discovery of complexity-aware cur-ricula that align generative progress with modality-specific difficulty, while incurring negligible additional cost at train-ing and inference time. Our contributions are as follows: • We identify dynamic mismatch between heterogeneous modalities as a fundamental limitation of existing co-design models, showing that synchronous and random couplings are prone to high bias and high variance, respectively. • We propose a model-agnostic Bayesian optimization framework that learns low-energy temporal couplings during training, providing a principled alternative to heuristic schedules for multimodal generative models. • We demonstrate that the learned couplings consistently outperform synchronous and asynchronous baselines on challenging benchmarks, including structure-based drug design and unconditional protein generation, pro-ducing biomolecules with improved physical validity and structural diversity. 2Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+## 2. Related Works 
+
+Protein Design Existing approaches can be broadly cate-gorized into three paradigms. (1) Unimodal generative mod-els focus on a single modality: sequence-based methods in-clude autoregressive models such as ProGen (Madani et al., 2020b; Nijkamp et al., 2023) and diffusion language model DPLM (Wang et al., 2024), while structure-based models are dominated by non-autoregressive generation such as RFdiffusion (Watson et al., 2023), FrameDiff (Yim et al., 2023) and FoldFlow (Bose et al., 2023). (2) Cross-modal conditional generation tackles translation between modal-ities: sequence-to-structure tasks (folding) are addressed by AlphaFold (Jumper et al., 2021), whereas structure-to-sequence tasks (inverse folding) are handled by methods such as ProteinMPNN (Dauparas et al., 2022) and ESM-IF (Hsu et al., 2022). (3) These successes have unlocked the potential for multi-modal joint generation , treating sequence and structure as coupled modalities to enable holistic co-design. Representative methods include models MultiFlow (Campbell et al., 2024) that operate directly in the sample space, La-Proteina (Geffner et al., 2026) that relies on VAE for the protein latent space, and DPLM-2 (Wang et al., 2025) that utilizes a structure tokenizer. Within the co-design paradigm, the fundamental challenge lies in capturing the intricate relationship between sequence and structure and ensuring better mutual consistency. 
+
+Structure-based Drug Design Structure-Based Drug De-sign (SBDD) focuses on generating high-affinity ligands within specific protein binding pockets. Early autoregressive approaches, such as Pocket2Mol (Peng et al., 2022), em-ployed a step-by-step atom growth strategy. Subsequently, geometric diffusion models (Schneuing et al., 2024; Guan et al., 2022) achieved joint denoising of both atomic types and coordinates. MolCRAFT (Qu et al., 2024) introduced Bayesian Flow Networks (BFN) (Graves et al., 2023) to generate atomic types and positions within a unified diffu-sion probabilistic framework in parameter space. Building on this, MolPilot (Qiu et al., 2025) incorporated Variational Lower Bound Optimal Scheduling (VOS) to navigate mul-timodal path dependencies. Given that atomic types and positions reside in discrete and continuous modalities respec-tively, formulating an optimal joint generative path remains a pivotal challenge. 
+
+Optimal Transport. Optimal Transport (OT) provides a rigorous geometric framework for comparing probability distributions and transporting mass with minimal cost (Vil-lani et al., 2008). Recent flow-based generative models (Lip-man et al., 2022; Liu et al., 2022) leverage this dynamic view to rectify flow paths, resulting in straight sample tra-jectories. Song et al. (2024) proposes equivariant optimal transport (EOT), advancing the concept of sample distance in the field of molecular generation. Existing works largely focus on sample coupling (i.e., pairing x0 and x1 in the data space) to reduce transport variance. In contrast, our work investigates temporal coupling on the multimodal product manifold that is orthogonal to the sample space coupling, aiming to minimize the transport cost along the entire generative trajectory. 
+
+## 3. Methodology 
+
+We consider the problem of multimodal generative modeling 
+
+for biomolecules, where heterogeneous modalities such as discrete sequences and continuous 3D structures must be generated in a coordinated manner. A key difficulty lies in the fact that different modalities exhibit fundamentally different noise sensitivities and convergence rates during generative training. As a result, commonly used coupling strategies either (i) enforce a rigid synchronous evolution that misaligns modality-specific progress, or (ii) rely on random decoupling that introduces high training variance and destabilizes learning. Our core goal is therefore to learn a modality-aware tem-poral coupling that aligns the generative trajectory with the intrinsic difficulty of each modality, improving both training stability and cross-modal consistency. To this end, we pro-pose GeoCoupling, a principled framework that formulates multimodal generation as a Temporal Optimal Transport 
+
+(TOT) problem over the time domain. This formulation enables us to treat the coupling between modalities as a ge-ometric object to be optimized, rather than a fixed heuristic. 
+
+Overview. We first lay the groundwork from the perspec-tive of Optimal Transport (OT) in the temporal domain (Sec. 3.1). We then describe our proposed bi-level optimization objective to effectively minimize the transport cost (Sec. 3.2) and the Bayesian optimization strategy for practically solving the geodesic coupling 1 optimization (Sec. 3.3). 
+
+3.1. Temporal Optimal Transport on Product Manifolds Notation. Multimodal biomolecular generation operates on a product manifold of heterogeneous modalities, such as continuous structure expressed by Cartesian coordinates 
+
+r ∈ RN ×3 and discrete sequence h ∈ RN ×K . (e.g., types of residues or atoms), with N the dimension of atoms or residues and K the dimension of node feature space. 
+
+Generative Process. The generative goal is to learn a time-dependent vector field vt that transports a factorized 
+
+> 1Strictly speaking, the learned path is a minimum cost path over a cost surface learned by the Gaussian Process (GP) surrogate. We use the term “geodesic” in a generalized sense to represent the optimal trajectory minimizing the cumulative transport energy on the temporal product manifold.
+
+3Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+prior π0 = p(r) ⊗ p(h) to the joint data distribution 
+
+π1 = pdata (r, h). A fundamental challenge is that these modalities exhibit distinct noise sensitivities and conver-gence rates. To perform a unified analysis of different training objectives, we introduce the definition of temporal coupling as a monotonic time-warping function γ ∈ Γ, map-ping a global progress variable τ ∈ [0 , 1] to local schedules 
+
+γ(τ ) = [ tr (τ ), t h(τ )] for each modality, where tr and th
+
+represent the noise levels for structure and sequence, re-spectively. This allows the joint probability distribution to factorize dynamically along the noised trajectory pγτ :
+
+pjoint  
+
+> τ
+
+(r, h; γ) = ptr (τ )(r) · pth(τ )(h). (1) Here, γ acts as a dynamic coupling, capturing the temporal dependency structure. However, traditional methods have extended the factoriza-tion to the learned generative path, implicitly imposing an 
+
+isotropic synchronous coupling , forcing all modalities to to update at a uniform time spacing w.r.t. the marginal noise schedules. Recently, advanced methods introduce a ran-dom coupling that samples the timestep for each modality independently from [0 , 1] 2 during training (Campbell et al., 2024; Wang et al., 2025; Qiu et al., 2025), enriching the supervision signal and mitigating the potential exposure bias of implicit synchronous timesteps. However, the effective-ness of different coupling methods remain under-explored. To understand how coupling strategies affect the generative process, we visualize the temporal dynamics of different methods in structure-based drug design in Fig. 1C, showing the evolution of structure mean squared error (MSE, Top) and sequence identity (Bottom) throughout the generation process (0 →1), illustrating the high variance brought by random coupling in multimodal biomolecule generation: For diffusion-based TargetDiff (Guan et al., 2022), under an isotropic (synchronous) coupling, the structure modal-ity remains inaccurate for a long portion of the trajectory, whereas an asynchronous coupling (TargetDiff*) that reallo-cates time budget can reduce structural error much earlier, and enjoys a higher validity rate. For BFN-based Mol-CRAFT (Qu et al., 2024) and MolPilot (Qiu et al., 2025), the random coupling disrupts the convergence of structure generation, and prioritizes sequences. This motivates treating the temporal coupling as a first-class design variable: instead of fixing a global time for all modalities, we opt to learn a complexity-aware schedule 
+
+γ(τ ) = ( tr (τ ), t h(τ )) to improve cross-modal consistency throughout the generation process. To quantify the efficiency of a coupling, its total transport cost E(γ) is measured by the cumulative path energy re-quired to transport the prior to the data distribution: 
+
+E(γ) = Ex∼D 
+
+hZ 10
+
+LMSE (x, γ (t)) d t
+
+i
+
+(2)                         
+
+> Table 1. A Unified Transport Perspective. We unify spatial sample pairing and temporal schedule alignment under the classic coupling formulation: minimizing the expected cost Eπ[c]over a valid coupling plan π. Our method effectively defines the “cost” as the generative loss and the “coupling” as the time schedule.
+> Perspective Transport Cost cCoupling πOptimal Solution π∗
+> Sample Coupling ∥x1−x0∥2π(x0, x 1)OT Map from Sinkhorn Temporal Coupling LMSE (x, t h, t r)πγ(th, t r)πγ∗from GeoCoupling
+
+Proposition 3.1. Minimizing E(γ) over admissible sched-ules γ can be interpreted as a constrained transport prob-lem in the temporal domain. Specifically, each schedule 
+
+γ : [0 , 1] → [0 , 1] 2 induces a coupling measure πγ := 
+
+γ#λ ∈ P ([0 , 1] 2), supported on a monotonic curve, and the transport cost admits the representation 
+
+E(γ) = 
+
+Z
+
+> [0 ,1] 2
+
+c(tr , t h) dπ γ (tr , t h),
+
+where c(tr , t h) := Ex∼D 
+
+LMSE (x, (tr , t h)) .
+
+This extends Optimal Transport from the application of sam-ple coupling to the temporal domain, namely the temporal coordination of heterogeneous modalities as in Table 1. We now establish the theoretical connection between this geometric cost and the training dynamics involving different couplings, where the coupling complexity dominates. 
+
+Proposition 3.2. Let γ be a temporal coupling schedule. Let uγt denote the stochastic regression target at time t
+
+induced by the coupling (where uγt depends on x0, x1). Let 
+
+uγ (xt, t ) = E[uγt | xt] denote the ideal target vector field (the conditional mean). Let vθ (xt, t ) be a learned vector field under L = R 10 E
+
+h
+
+∥vθ − uγt ∥2
+
+i
+
+dt . Then the transport cost decomposes as 
+
+E(γ) = 
+
+Z 10
+
+
+
+∥vθ (xt, t ) − uγ (xt, t )∥2
+
+| {z }
+
+> Bias
+
++ Var( uγt | xt)
+
+| {z }
+
+> Variance
+
+
+
+dt. 
+
+(3) Intuitively, E(γ) measures the difficulty of the generative task under schedule γ. Therefore, it is desirable to find the geodesic coupling γ∗ = arg min γ∈Γ E(γ).However, unlike classical optimal transport where the cost function is fixed, the transport cost in our setting depends on the learned vector field itself. This creates a circular dependency: the optimal coupling depends on the genera-tive dynamics, while the dynamics are trained under a given coupling. This motivates the bilevel optimization strategy introduced next, which serves as a tractable proxy for search-ing low-energy geodesic couplings. 4Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+3.2. Bi-level Optimization for Geodesic Coupling 
+
+Solving the TOT problem presents a unique challenge dis-tinct from classical OT where the transport cost (e.g., Eu-clidean distance) is fixed (Villani et al., 2008). In our tem-poral domain, it becomes the kinetic energy of a neural network vθ , which is itself learned from the data distribu-tion induced by γ.To break this dependency cycle, we propose a bilevel opti-mization strategy that acts as a tractable proxy for geodesic search. Our goal is to find a trajectory γ ∈ Γ that is opti-mized for the flow model to learn, effectively minimizing the transport energy required to map the prior to the data: 
+
+min  
+
+> γ∈Γ
+
+J (γ) = Ex∼D 
+
+hZ 10
+
+Lθ∗ (x, γ (t)) d t
+
+i
+
+(4) s.t. θ∗ = arg min  
+
+> θ
+
+LMSE (θ, γ ) , (5) where LMSE denotes the standard training objective condi-tioned on the path γ. In the inner loop (Eq. 5), we minimize the bias term by training θ via maximum likelihood esti-mation to approximate the vector field induced by a fixed coupling γ. In the outer loop (Eq. 4), we minimize the a proxy objective J (γ) with the learned vector field θ∗. Intu-itively, this steers the generative process to avoid the high energy barriers on the loss landscape, and seeks to capture the true geodesic of the product manifold. We claim that when the regression bias is small for a fixed coupling γ, the conditional variance term becomes the domi-nant contributor to the overall energy E(θ, γ ), and the bilevel programming enables effective optimization: 
+
+Proposition 3.3. Let L(θ∗, γ ) be the converged loss for a fixed trajectory γ. The geodesic coupling γ∗ satisfies: 
+
+γ∗ = arg min  
+
+> γ∈Γ
+
+Et, x [Var (uγt |xt)] . (6) The above analysis motivates temporal couplings that re-duce intrinsic uncertainty along the transport path, which empirically leads to more stable training and improved sam-ple quality metrics. Intuitively, our bi-level optimization decouples the learning of the dynamics (inner loop) from the discovery of the dependency structure between modal-ities (outer loop). While isotropic coupling imposes an arbitrary diagonal line in the time domain (which may be high-curvature in the data manifold), and random coupling introduces high-variance noise, GeoCoupling identifies the natural geodesic that creates the smoothest transformation between the prior and the data. 
+
+3.3. Optimization via Gaussian Process Surrogates 
+
+In this section, we present our method to solve the outer loop optimization for the optimal geodesic coupling γ. Directly solving the bi-level optimization in Eq. (4) via gradient de-scent is intractable for two primary reasons: (1) calculating hyper-gradients through the entire inner-loop training tra-jectory is computationally prohibitive; (2) the landscape of 
+
+J (γ) with respect to biomolecular couplings often exhibits “plateau phases”, i.e., regions where one modality halts while the other evolves, rendering gradient-based schedule learn-ers ineffective. To address these challenges, we exploit the structure of the problem by modeling the local cost landscape over the temporal domain. Unlike black-box methods that search directly in the high-dimensional space of trajectories, we adopt a surrogate-based strategy via Gaussian Process (GP). By learning a smooth approximation of the pointwise cost surface, we reduce the search for an optimal coupling to a geodesic path-finding problem on a learned manifold. This design allows us to efficiently explore and compare candi-date couplings using Bayesian optimization, while amortiz-ing the cost of inner-loop training across iterations. We define the transport cost density function c(t) := 
+
+Ex[LMSE (θ∗, x, t)] for any time pair t = ( tr , t h) ∈ [0 , 1] 2.We model this unknown surface using a Gaussian Process (GP) surrogate: 
+
+c(t) ∼ GP  μ(t), k (t, t′) + σ2
+
+> n
+
+δt,t′
+
+ . (7) To maintain computational efficiency and mitigate the impact of stale estimates from early training stages, we maintain a fixed-size observation buffer B with capacity 
+
+Nmax = 1000 . The GP is fitted dynamically on B, which stores the most recent tuples of time coordinates and their corresponding losses, ensuring the surrogate landscape re-flects the current capability of the generative model. The complete procedure is summarized in Algorithm 1. It should be noted that this algorithm provides a stochastic and approximate mechanism for navigating this objective landscape, and performs a noisy outer-loop search over cou-plings using empirical loss estimates. The proposed learned coupling lies between these extremes: it adaptively aligns denoising stages across modalities, reducing conditional variance while maintaining sufficient exploration, thereby leading to lower empirical training variance and a tighter variational bound in practice. 
+
+## 4. Experiments 
+
+We conduct comprehensive evaluations on two primary tasks: structure-based drug design (SBDD) and uncondi-tional protein sequence-structure co-design. A detailed de-scription is provided in Appendix E. 5Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling                                                                                                                                                                 
+
+> Table 2. Results for structure-based ligand design, comparing our GeoCoupling with synchronous (Sync.) and random coupling methods. Top-2 results highlighted in bold and underlined, respectively. †: cited from Qiu et al. (2025). ♡: calculated from released samples.
+> Coupling Methods PB-Valid Vina Score ( ↓)Vina Min ( ↓)Vina Dock ( ↓)scRMSD QED SA Div Size Avg. ( ↑)Avg. Med. Avg. Med. Avg. Med. <2 ˚ A ( ↑)Avg. Avg. Avg. Avg. Reference †95.0% -6.36 -6.46 -6.71 -6.49 -7.45 -7.26 34.0% 0.48 0.73 -22.8 Sync. AR †59.0% -5.75 -5.64 -6.18 -5.88 -6.75 -6.62 36.5% 0.51 0.63 0.70 17.7 Pocket2Mol †72.3% -5.14 -4.70 -6.42 -5.82 -7.15 -6.79 32.0% 0.57 0.76 0.69 17.7 TargetDiff †50.5% -5.47 -6.30 -6.64 -6.83 -7.80 -7.91 37.1% 0.48 0.58 0.72 24.2 DiffSBDD †37.6% -1.44 -4.91 -4.52 -5.84 -7.14 -7.30 18.7% 0.47 0.58 0.73 24.4 DecompDiff †71.7% -5.19 -5.27 -6.03 -6.00 -7.03 -7.16 24.2% 0.51 0.66 0.73 21.2 MolCRAFT †84.6% -6.55 -6.95 -7.21 -7.14 -7.67 -7.82 46.8% 0.50 0.67 0.72 22.7 DrugFlow ♡79.6% -5.12 -5.50 -6.02 -6.03 -6.99 -7.03 23.1% 0.52 0.72 0.71 21.4 Random TargetDiff* †58.1% -6.46 -6.53 -7.04 -7.09 -8.04 -8.12 40.2% 0.49 0.59 0.71 25.7 MolPilot †95.9% -6.88 -7.03 -7.23 -7.27 -7.92 -7.92 41.1% 0.56 0.74 0.69 22.6 Learned GeoCoupling 94.3% -7.16 -7.43 -7.68 -7.62 -8.32 -8.43 43.1% 0.54 0.77 0.70 22.6
+
+4.1. Structure-based Drug Design Dataset. Following standard SBDD protocols (Luo et al., 2021; Francoeur et al., 2020), we evaluate our method on the CrossDock dataset using the same split. The dataset contains 100,000 protein-ligand complexes for training and 100 complexes for test, where each provides a protein bind-ing pocket and a reference ligand. The main experiment is conducted by sampling 100 molecules for each test protein. 
+
+Baselines. We compare GeoCoupling with representa-tive methods from three major categories: (1) autore-gressive models, including AR (Luo et al., 2021) and Pocket2Mol (Peng et al., 2022); (2) diffusion-based mod-els, including TargetDiff (Guan et al., 2022), DiffS-BDD (Schneuing et al., 2024), and DecompDiff (Guan et al., 2023); (3) Bayesian Flow Network (BFN)-based models, including MolCRAFT (Qu et al., 2024) and MolPilot (Qiu et al., 2025); and (4) flow matching DrugFlow (Schneu-ing et al., 2025a). All baseline results are taken from the released samples under the same evaluation protocol. 
+
+Metrics. We evaluate generated ligands from multiple per-spectives. Binding affinity is assessed using AutoDock Vina (Eberhardt et al., 2021), reporting Vina Score, Vina Min, and Vina Dock (average and median; lower is bet-ter). Pose validity is measured by Posebusters validity ratio (PB-Valid), the percentage of generated molecules passing geometric and chemical validity checks (Buttenschoen et al., 2024). 3D accuracy is quantified by the percentage of sam-ples with scRMSD below 2 ˚A with respect to the reference ligand. Molecular quality is evaluated using QED and synthetic accessibility (SA), while diversity (Div) and aver-age molecular size (Size) are reported to assess structural diversity and distributional alignment. 
+
+Results. We summarize our findings below. 
+
+Learned coupling generally outperforms synchronous and independent baselines. Our GeoCoupling that optimizes the coupling during training, consistently achieves state-of-the-art binding affinity across all metrics (Table 2), with an average Vina Score of −7.11 and Vina Dock of −8.12 ,outperforming both synchronous (Sync.) and random cou-pling methods. Notably, GeoCoupling attains systematically stronger protein-ligand interactions without sacrificing va-lidity or drug-like properties, indicating that the learned generation paths better match the underlying data geometry. 
+
+Implicit synchronous coupling yields suboptimal sample quality. Early diffusion and BFN-based MolCRAFT, which rely on implicit synchronous coupling, generally achieve moderate PB-Valid rates and fall short in binding affinity. In contrast, random coupling methods, represented by MolPilot and the TargetDiff* variant, substantially improve binding affinity over synchronous baselines, suggesting that entan-gling the generation trajectory with model updates restricts optimization efficiency. 
+
+Geodesic coupling leads to more efficient transport. MolPi-lot can be regarded as a special case of our bilevel optimiza-tion, where the outer loop is only conducted once after the training is converged. While superior to synchronous cou-pling methods, it is insufficient to fully align the generation trajectory with the training dynamics of the model, and re-quires 2 × training steps to converge. Fig. 1C illustrates the performance gap between our method and random coupling with post-hoc coupling selection. GeoCoupling demon-strates significantly faster convergence compared to base-lines. Notably, it achieves low structure error early in the process, which effectively guides the subsequent rapid re-covery of sequence identity. This validates our claim that optimizing the temporal coupling facilitates cross-modal consistency, rather than compensating for suboptimal syn-chronous or random couplings. 6Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+Table 3. Unconditional protein co-design results from 100 to 500 with sample size N = 100 .Top-2 are bold / underlined. ♢: baseline results calculated by us using the official code. 
+
+Method Quality (↑) Diversity (↑) Novelty (↓)Co-design pLDDT 1 - Pairwise TM FS Clusters Max TM ProteinGenerator ♢ 0.11 55.25 0.55 0.31 0.88 ProtPardelle ♢ 0.38 63.46 0.42 0.08 0.82 ProtPardelle-1c ♢ 0.44 65.92 0.41 0.09 0.81 
+
+MultiFlow ♢ 0.72 79.39 0.63 0.56 0.83 La-Proteina (no-tri) ♢ 0.67 81.89 0.63 0.64 0.81 
+
+La-Proteina (tri) ♢ 0.77 85.32 0.59 0.36 0.85 DPLM2 ♢ 0.31 83.69 0.63 0.49 0.96 ESM3 (seq →str) ♢ 0.10 60.89 0.62 0.70 0.90 ESM3 (str →seq) ♢ 0.05 61.10 0.63 0.81 0.90 GeoCoupling 0.79 80.15 0.63 0.48 0.83 GeoCoupling (post-hoc) 0.74 79.23 0.64 0.73 0.83 0.2 0.4 0.6 0.8    
+
+> Foldseek cluster ratio
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> Co-designability
+> ProteinGenerator
+> ProtPardelle
+> ProtPardelle-1c
+> CarbonNovo
+> RFdiffusion + PMPNN1
+> MultiFlow
+> La-Proteina (no-tri)
+> La-Proteina (tri)
+> ESM3 (seq str)
+> ESM3 (str seq)
+> DPLM2
+> Ours
+> Ours (post-hoc)
+
+Figure 2. Co-designability vs. diversity trade-off (upper-right corner is better). 100 200 300 400 500            
+
+> Protein Length
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> scRMSD ( )
+> Ours
+> Ours (post-hoc)
+> MultiFlow
+> 100 200 300 400 500
+> Protein Length
+> 72
+> 74
+> 76
+> 78
+> 80
+> 82
+> 84
+> pLDDT ( )
+> Ours
+> Ours (post-hoc)
+> MultiFlow
+> 100 200 300 400 500
+> Protein Length
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Co-designability ( )
+> Ours
+> Ours (post-hoc)
+> MultiFlow
+
+Figure 3. Performance Comparison Across Protein Lengths. We evaluate scRMSD, pLDDT, and Co-designability across lengths 100-500. GeoCoupling maintains robustness even in OOD regimes (Length ≥ 400), whereas baselines degrade significantly. 
+
+4.2. Protein Design Dataset. We follow Campbell et al. (2024) and adopt the same training data, which consists of 18,694 monomeric protein structures obtained from Yim et al. (2023) with lengths ranging from 60 to 384 residues, together with 4,179 PMPNN distillation samples. For evaluation, we sample 100 proteins at each target length of 100, 200, 300, 400, and 500 residues, covering both in-distribution (ID) and length extrapolation (OOD) settings. 
+
+Baselines. We compare GeoCoupling with representative protein co-design methods, categorized by their generative paradigms: (1) Diffusion Models, including the sequence-space diffusion model ProteinGenerator (Lisanza et al., 2025) and all-atom structure diffusion models ProtPardelle (Chu et al., 2024) and ProtPardelle-1c (Lu et al., 2025); (2) Flow Matching, covering both sample-space methods like MultiFlow (Campbell et al., 2024) and partially latent-space methods such as La-Proteina (Geffner et al., 2026); and (3) Multimodal Token-based Models, including the discrete dif-fusion model DPLM-2 (Wang et al., 2025) and the masked generative model ESM3 (Hayes et al., 2025), both of which jointly reason over sequence and structure tokens. 
+
+Metrics. We evaluate the generated proteins from comple-mentary perspectives. Co-designability is measured by the percentage of designed proteins exhibiting scRMSD <2 ˚Aafter ESMFold refolding. Diversity is quantified in terms of structures by TM-score diversity, calculated as 1 - pair-wise TM-score, and of sequences by FS cluster diversity, calculated as the number of Foldseek clusters. Novelty is assessed structurally, calculated as the average TM-score for generated designable proteins with respect to its most similar counterpart in the PDB database using Foldseek. 
+
+Results. We observe similar performance gains on the task of unconditional protein co-design in Table 3 (see Ap-pendix F for more comprehensive results): 
+
+Our method consistently achieves strong designability while preserving competitive diversity and novelty. Training the generative model while iteratively performing bilevel op-timization (GeoCoupling), yields the top co-designability (0.79) with reasonable structural novelty (0.83 average max TM-score). As shown in Fig. 2, our method occupies the op-timal upper-right region of the trade-off landscape in terms of co-designability and Foldseek diversity. 7Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+Table 4. Ablation study on the contribution of bilevel optimization and the smoothing mechanism (EMA) with sample size 1000. “Fixed Schedule” refers to using a static scheduler derived a-priori, and “w/o EMA” denotes removing the trajectory smoothing. 
+
+Method Connected QED SA Vina Score ( ↓) Vina Min ( ↓)(%, ↑) (↑) (↑) Mean Median Mean Median w/o EMA 91.9 0.58 0.74 -6.50 -7.03 -7.24 -7.17 Fixed γ∗ 91.1 0.54 0.76 -6.97 -7.22 -7.45 -7.44 
+
+Ours 93.5 0.54 0.75 -7.12 -7.24 -7.57 -7.41 
+
+Optimized coupling remains robust across both in-distribution and out-of-distribution protein lengths. Notably, Fig. 3 shows that the advantage brought by GeoCoupling be-comes more pronounced in the OOD regime (length ≥ 400 ). While MultiFlow’s performance drops significantly at length 500 (Co-designability < 0.3), GeoCoupling maintains a high designable rate ( > 0.6), showing that an optimized transport plan contributes to more robust performance. No-tably, the longer-length proves to be more challenging for all models, with details in Appendix F. 
+
+The learned post-hoc coupling can be a plug-and-play en-hancer for models trained by random coupling. After ob-taining the optimized coupling, we apply it to the origi-nal MultiFlow checkpoint. As seen in Table 3 and Fig. 2, the GeoCoupling (post-hoc) variant significantly improves sequence diversity (FS Clusters 0.73) while maintaining competitive designability and even surpassing the previous state-of-the-art La-Proteina which is trained on the AFDB database (Fleming et al., 2025). 
+
+Potentially universal structure-leading dynamics. We vi-sualize the learned couplings in Fig. 4, which reveals a shared property across both micro-scale (small molecules) and macro-scale (proteins) design tasks, i.e., structure-leading geodesic . The geometric structure evolves quicker in the early stages to establish a scaffold, while the se-quence accelerates after the geometry is sufficiently formed. This universal “geometry-before-semantics” discovery sug-gests that the dependencies between structure and sequence are governed by a common physical principle—geometry provides the necessary conditioning context for sequence decoding—which our bilevel optimization framework au-tonomously identifies and exploits. 
+
+4.3. Ablation Study 
+
+To validate the effectiveness of our proposed bilevel opti-mization components, we conducted ablation studies focus-ing on the scheduler learning mechanism. 
+
+Effect of Bilevel Optimization. On the task of structure-based drug design, we compared GeoCoupling with a fixed schedule variant, where the optimal coupling γ∗ is deter-mined a-priori and kept frozen throughout training. As shown in Table 4, the fixed schedule yields inferior perfor-mance in terms of binding affinity (Vina Score Mean -6.97 vs. -7.12) and connected rate (91.1% vs. 93.5%). This suggests that a static schedule fails to adapt to the evolving capability of the flow model, whereas the adaptive optimiza-tion without Exponential Moving Average (EMA) on the learned scheduler risks abrupt change of schedules and suf-fers in capturing the molecular geometry accurately. Our approach continuously and smoothly aligns the generative difficulty with the model’s learning progress, capturing the intricate geometric dependencies and effectively balances chemical validity and binding affinity. On the task of protein design, it can be seen that the structural plausibility is better captured by bilevel optimization, where the post-hoc variant falls short in codesignability, novelty as well as the ability to extrapolate beyond training distributions. 0.0                     
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Norm. Time ( t)
+> MolPilot
+> Structure (Discrete)
+> Sequence (Continuous)
+> Sync 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> GeoCoupling (Mol)
+> Structure (Discrete)
+> Sequence (Continuous)
+> Sync 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> GeoCoupling (Prot)
+> Structure (Discrete)
+> Sequence (Continuous)
+> Sync
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Generative Process (0 1)
+> 0.3
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> Accel. Offset ( t tsync ) Accelerated
+> (Ahead)
+> Delayed
+> (Behind)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Generative Process (0 1)
+> 0.4
+> 0.3
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Generative Process (0 1)
+> 0.100
+> 0.075
+> 0.050
+> 0.025
+> 0.000
+> 0.025
+> 0.050
+> 0.075
+> 0.100
+
+Figure 4. Comparison of the coupling learned by GeoCou-pling against baselines on different modalities, showing a structure-leading geodesic for biomolecules, prioritizing geometric context before semantic sequence decoding. 
+
+Computational Efficiency of Bayesian Optimization. 
+
+We measure the wall-clock time for optimization meth-ods with and without Bayesian Optimization via Gaussian Process, i.e., a brute-force approach using discrete global search by constructing a dense transition grid, which re-quires over 1200 seconds per update cycle. The bottleneck lies in evaluating the transport cost across the dense grid (1213.6s), and the number of evaluation (NFEs) has a com-plexity of O(N K ), with K being the number of modalities and N the grid resolution. This means that directly solv-ing for the optimal geodesic γ∗ on the discretized product manifold is computationally demanding. In contrast, Geo-Coupling leverages Bayesian Optimization to model the objective landscape with a Gaussian Process surrogate. This allows for efficient queries without exhaustive evaluation, reducing the optimization time to just 21.5 seconds—a 56 ×
+
+speedup . This efficiency is critical, as it allows the outer-loop optimization to run frequently alongside the inner-loop model training without stalling the pipeline. 8Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+## 5. Conclusion 
+
+In this work, we identified the dynamic mismatch between heterogeneous modalities as a critical bottleneck in multi-modal biomolecular co-design. Existing methods relying on synchronous or random couplings often struggle with gradi-ent conflicts and inefficient transport. To address this, we proposed GeoCoupling, a novel framework that formulates the generative process as a Temporal Optimal Transport (TOT) problem. By leveraging a bilevel Bayesian optimiza-tion strategy, GeoCoupling learns the intrinsic geodesic coupling that dynamically aligns the generative difficulty of sequence and structure. We believe GeoCoupling of-fers a generalizable paradigm for coordinating multimodal generative models in scientific domains. 
+
+## Acknowledgements 
+
+This work is supported by the Natural Science Foundation of China (Grant No. 62376133) and sponsored by Beijing Nova Program (20240484682). 
+
+## Impact Statement 
+
+This paper presents work whose goal is to advance gen-erative modeling techniques within the domain of AI for Science and biomolecular discovery. Our proposed frame-work, GeoCoupling, aims to bridge the gap between geo-metric structure generation and sequence design, thereby improving the efficiency and quality of Structure-Based Drug Design (SBDD) and de novo protein engineering. The primary societal benefit of this research lies in its po-tential to accelerate the development of novel therapeutics and functional biomolecules. By enabling the generation of more biophysically consistent and plausible molecules, our method contributes to reducing the high attrition rates and costs associated with early-stage drug discovery. This could facilitate faster delivery of treatments for complex diseases and support advancements in biotechnology, such as enzyme design for sustainability. We acknowledge that advanced generative models in chem-istry and biology carry inherent dual-use risks. The same capabilities that allow for the efficient exploration of ther-apeutic chemical space could theoretically be misused to design harmful compounds or toxins. While our work fo-cuses on the fundamental optimization of multimodal gen-erative processes rather than specific functional targeting, we emphasize the importance of responsible deployment. Future applications of such models should be accompanied by rigorous safety screening protocols, wet-lab validation, and adherence to ethical guidelines in biosecurity. 
+
+## References 
+
+Abramson, J., Adler, J., Dunger, J., Evans, R., Green, T., Pritzel, A., Ronneberger, O., Willmore, L., Ballard, A. J., Bambrick, J., et al. Accurate structure prediction of biomolecular interactions with AlphaFold 3. Nature , 630 (8016):493–500, 2024. Banerjee, A., Merugu, S., Dhillon, I. S., and Ghosh, J. Clus-tering with Bregman divergences. Journal of Machine Learning Research , 6(58):1705–1749, 2005. URL http: //jmlr.org/papers/v6/banerjee05b.html .Bose, J., Akhound-Sadegh, T., Huguet, G., FATRAS, K., Rector-Brooks, J., Liu, C.-H., Nica, A. C., Korablyov, M., Bronstein, M. M., and Tong, A. Se (3)-stochastic flow matching for protein backbone generation. In The Twelfth International Conference on Learning Representations ,2023. Branden, C. I. and Tooze, J. Introduction to protein structure .Garland Science, 2012. Buttenschoen, M., Morris, G. M., and Deane, C. M. Pose-Busters: AI-based docking methods fail to generate phys-ically valid poses or generalise to novel sequences. Chem-ical Science , 15(9):3130–3139, 2024. Campbell, A., Yim, J., Barzilay, R., Rainforth, T., and Jaakkola, T. Generative flows on discrete state-spaces: Enabling multimodal flows with applications to protein co-design. In Proceedings of the 41st International Con-ference on Machine Learning , pp. 5453–5512. PMLR, 2024. URL https://proceedings.mlr.press/ v235/campbell24a.html .Chou, K.-C. A novel approach to predicting protein struc-tural classes in a (20–1)-d amino acid composition space. 
+
+Proteins: Structure, Function, and Bioinformatics , 21(4): 319–344, 1995. Chu, A. E., Kim, J., Cheng, L., El Nesr, G., Xu, M., Shuai, R. W., and Huang, P.-S. An all-atom protein generative model. Proceedings of the National Academy of Sciences ,121(27):e2311500121, 2024. Dauparas, J., Anishchenko, I., Bennett, N., Bai, H., Ragotte, R. J., Milles, L. F., Wicky, B. I., Courbet, A., de Haas, R. J., Bethel, N., et al. Robust deep learning–based pro-tein sequence design using proteinmpnn. Science , 378 (6615):49–56, 2022. Eberhardt, J., Santos-Martins, D., Tillack, A. F., and Forli, S. Autodock vina 1.2. 0: New docking methods, expanded force field, and python bindings. Journal of chemical information and modeling , 61(8):3891–3898, 2021. 9Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+Fleming, J., Magana, P., Nair, S., Tsenkov, M., Bertoni, D., Pidruchna, I., Lima Afonso, M. Q., Midlik, A., Paramval, U., ˇZ´ıdek, A., Laydon, A., Kovalevskiy, O., Pan, J., Cheng, J., ˇZiga Avsec, Bycroft, C., Wong, L. H., Last, M., Mirdita, M., Steinegger, M., Kohli, P., V ´aradi, M., and Velankar, S. AlphaFold protein structure database and 3d-beacons: New data and capabilities. Journal of Molecular Biology , 437(15):168967, 2025. ISSN 0022-2836. doi: https://doi.org/10.1016/j.jmb.2025.168967. URL https://www.sciencedirect.com/ science/article/pii/S0022283625000336 .Computation Resources for Molecular Biology. Francoeur, P. G., Masuda, T., Sunseri, J., Jia, A., Iovanisci, R. B., Snyder, I., and Koes, D. R. Three-dimensional convolutional neural networks and a cross-docked data set for structure-based drug design. Journal of chemical information and modeling , 60(9):4200–4215, 2020. Geffner, T., Didi, K., Cao, Z., Reidenbach, D., Zhang, Z., Dallago, C., Kucukbenli, E., Kreis, K., and Vahdat, A. La-proteina: Atomistic protein generation via partially latent flow matching. In The Fourteenth International Confer-ence on Learning Representations , 2026. URL https: //openreview.net/forum?id=RDerF20JYT .Graves, A., Srivastava, R. K., Atkinson, T., and Gomez, F. Bayesian flow networks. arXiv preprint arXiv:2308.07037 , 2023. Guan, J., Qian, W. W., Peng, X., Su, Y., Peng, J., and Ma, J. 3d equivariant diffusion for target-aware molecule genera-tion and affinity prediction. In The Eleventh International Conference on Learning Representations , 2022. Guan, J., Zhou, X., Yang, Y., Bao, Y., Peng, J., Ma, J., Liu, Q., Wang, L., and Gu, Q. DecompDiff: Diffu-sion models with decomposed priors for structure-based drug design. In Krause, A., Brunskill, E., Cho, K., Engelhardt, B., Sabato, S., and Scarlett, J. (eds.), Pro-ceedings of the 40th International Conference on Ma-chine Learning , volume 202 of Proceedings of Machine Learning Research , pp. 11827–11846. PMLR, 23–29 Jul 2023. URL https://proceedings.mlr.press/ v202/guan23a.html .Hayes, T., Rao, R., Akin, H., Sofroniew, N. J., Oktay, D., Lin, Z., Verkuil, R., Tran, V. Q., Deaton, J., Wiggert, M., et al. Simulating 500 million years of evolution with a language model. Science , 387(6736):850–858, 2025. Hsu, C., Verkuil, R., Liu, J., Lin, Z., Hie, B., Sercu, T., Lerer, A., and Rives, A. Learning inverse folding from millions of predicted structures, April 2022. URL http://biorxiv.org/lookup/doi/ 10.1101/2022.04.10.487779 .Huang, P.-S., Boyken, S. E., and Baker, D. The coming of age of de novo protein design. Nature , 537(7620): 320–327, 2016. Jumper, J., Evans, R., Pritzel, A., Green, T., Figurnov, M., Ronneberger, O., Tunyasuvunakool, K., Bates, R., ˇZ´ıdek, A., Potapenko, A., et al. Highly accurate protein structure prediction with AlphaFold. Nature , 596(7873):583–589, 2021. Kingma, D. and Gao, R. Understanding diffusion objectives as the elbo with simple data augmentation. Advances in Neural Information Processing Systems , 36, 2024. Lin, Z., Akin, H., Rao, R., Hie, B., Zhu, Z., Lu, W., Smetanin, N., Verkuil, R., Kabeli, O., Shmueli, Y., et al. Evolutionary-scale prediction of atomic-level protein structure with a language model. Science , 379(6637): 1123–1130, 2023. Lipman, Y., Chen, R. T., Ben-Hamu, H., Nickel, M., and Le, M. Flow matching for generative modeling. In The Eleventh International Conference on Learning Repre-sentations , 2022. Lisanza, S. L., Gershon, J. M., Tipps, S. W., Sims, J. N., Arnoldt, L., Hendel, S. J., Simma, M. K., Liu, G., Yase, M., Wu, H., et al. Multistate and functional protein design using RoseTTAFold sequence space diffusion. Nature biotechnology , 43(8):1288–1298, 2025. Liu, X., Gong, C., and Liu, Q. Flow straight and fast: Learning to generate and transfer data with rectified flow. 
+
+arXiv preprint arXiv:2209.03003 , 2022. Lu, J., Wang, Y., Zhang, Y., Gu, J., Jaitly, N., Susskind, J. M., and Bautista, M. ´A. Simpledesign - a joint model for pro-tein sequence and structure codesign, 2026. URL https: //openreview.net/forum?id=ibbog3himK .Lu, T., Shuai, R., Kouba, P., Li, Z., Chen, Y., Shirali, A., Kim, J., and Huang, P.-S. Conditional protein structure generation with protpardelle-1c. bioRxiv , 2025. Luo, S., Guan, J., Ma, J., and Peng, J. A 3D Gen-erative Model for Structure-Based Drug Design. Ad-vances in Neural Information Processing Systems , 34: 6229–6239, 2021. URL http://arxiv.org/abs/ 2203.10446 .Madani, A., McCann, B., Naik, N., Keskar, N. S., Anand, N., Eguchi, R. R., Huang, P.-S., and Socher, R. ProGen: Language modeling for protein generation. arXiv preprint arXiv:2004.03497 , 2020a. Madani, A., McCann, B., Naik, N., Keskar, N. S., Anand, N., Eguchi, R. R., Huang, P.-S., and Socher, 10 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+R. ProGen: Language Modeling for Protein Genera-tion, March 2020b. URL http://arxiv.org/abs/ 2004.03497 . arXiv:2004.03497 [q-bio]. Nijkamp, E., Ruffolo, J. A., Weinstein, E. N., Naik, N., and Madani, A. ProGen2: exploring the boundaries of protein language models. Cell systems , 14(11):968–978, 2023. Peng, X., Luo, S., Guan, J., Xie, Q., Peng, J., and Ma, J. Pocket2Mol: Efficient molecular sampling based on 3D protein pockets. In Chaudhuri, K., Jegelka, S., Song, L., Szepesvari, C., Niu, G., and Sabato, S. (eds.), Pro-ceedings of the 39th International Conference on Ma-chine Learning , volume 162 of Proceedings of Machine Learning Research , pp. 17644–17655. PMLR, 17–23 Jul 2022. URL https://proceedings.mlr.press/ v162/peng22b.html .Qiu, K., Song, Y., Fan, Z., Liu, P., Zhang, Z., Zheng, M., Zhou, H., and Ma, W.-Y. Piloting structure-based drug design via modality-specific optimal schedule. In Forty-second International Conference on Machine Learning ,2025. Qu, Y., Qiu, K., Song, Y., Gong, J., Han, J., Zheng, M., Zhou, H., and Ma, W.-Y. MolCRAFT: Structure-based drug design in continuous parameter space. In Forty-first International Conference on Machine Learning ,2024. URL https://openreview.net/forum? id=KaAQu5rNU1 .Ren, M., Zhu, T., and Zhang, H. CarbonNovo: Joint design of protein structure and sequence using a unified energy-based model. In Salakhutdinov, R., Kolter, Z., Heller, K., Weller, A., Oliver, N., Scarlett, J., and Berkenkamp, F. (eds.), Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Ma-chine Learning Research , pp. 42462–42483. PMLR, 21– 27 Jul 2024. URL https://proceedings.mlr. press/v235/ren24e.html .Schneuing, A., Harris, C., Du, Y., Didi, K., Jamasb, A., Igashov, I., Du, W., Gomes, C., Blundell, T. L., Lio, P., et al. Structure-based Drug Design with Equivariant Diffusion Models. Nature Computational Science , 4(12): 899–909, 2024. Schneuing, A., Igashov, I., Dobbelstein, A. W., Castiglione, T., Bronstein, M., and Correia, B. Multi-domain Distri-bution Learning for De Novo Drug Design, 2025a. URL 
+
+https://arxiv.org/abs/2508.17815 . Ver-sion Number: 1. Schneuing, A., Igashov, I., Dobbelstein, A. W., Castiglione, T., Bronstein, M. M., and Correia, B. Multi-domain distri-bution learning for de novo drug design. In The Thirteenth International Conference on Learning Representations ,2025b. URL https://openreview.net/forum? id=g3VCIM94ke .Song, Y., Gong, J., Xu, M., Cao, Z., Lan, Y., Ermon, S., Zhou, H., and Ma, W.-Y. Equivariant flow matching with hybrid probability transport for 3d molecule generation. 
+
+Advances in Neural Information Processing Systems , 36, 2024. Van Kempen, M., Kim, S. S., Tumescheit, C., Mirdita, M., Lee, J., Gilchrist, C. L., S ¨oding, J., and Steinegger, M. Fast and accurate protein structure search with foldseek. 
+
+Nature biotechnology , 42(2):243–246, 2024. Villani, C. et al. Optimal transport: old and new , volume 338. Springer, 2008. Wang, X., Zheng, Z., YE, F., Xue, D., Huang, S., and Gu, Q. Diffusion language models are versatile protein learn-ers. In Forty-first International Conference on Machine Learning , 2024. URL https://openreview.net/ forum?id=NUAbSFqyqb .Wang, X., Zheng, Z., YE, F., Xue, D., Huang, S., and Gu, Q. DPLM-2: A multimodal diffusion protein lan-guage model. In The Thirteenth International Confer-ence on Learning Representations , 2025. URL https: //openreview.net/forum?id=5z9GjHgerY .Watson, J. L., Juergens, D., Bennett, N. R., Trippe, B. L., Yim, J., Eisenach, H. E., Ahern, W., Borst, A. J., Ragotte, R. J., Milles, L. F., et al. De novo design of protein struc-ture and function with rfdiffusion. Nature , 620(7976): 1089–1100, 2023. YE, F., Zheng, Z., Xue, D., Shen, Y., Wang, L., Ma, Y., Wang, Y., Wang, X., Zhou, X., and Gu, Q. Proteinbench: A holistic evaluation of protein foundation models. In 
+
+The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview. net/forum?id=BksqWM8737 .Yim, J., Trippe, B. L., De Bortoli, V., Mathieu, E., Doucet, A., Barzilay, R., and Jaakkola, T. Se (3) diffusion model with application to protein backbone generation. In Pro-ceedings of the 40th International Conference on Ma-chine Learning , pp. 40001–40039, 2023. 11 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+Algorithm 1 Bi-level Optimization for Geodesic Coupling 
+
+Input: BO iterations K, Inner steps S, Mixture rate p, Observation buffer B (FIFO Queue) Initialize GP surrogate with initial replay buffer B0 ← ∅
+
+for k = 1 to K do 
+
+/* 1. Outer Loop: Propose Candidate */ 
+
+Fit GP to current buffer Bk−1 to estimate cost surface μc(t)
+
+Select candidate γk = arg max γ α(γ; Bk−1) via dynamic programming 
+
+/* 2. Inner Loop: Relaxed Training */ 
+
+for s = 1 to S do 
+
+Sample batch (x, y) Sample mode m ∼ Bernoulli (p) if m = 1 (Trust Region) then 
+
+Sample time τ ∼ U [0 , 1] Construct target tr , t h ∼ ˜γ(τ ) = γk(τ ) + N (0 , σ 2)
+
+else 
+
+Sample independent times tr , t h ∼ U [0 , 1] 
+
+end 
+
+Update θk to minimize LMSE (θk, t r , t h)
+
+Record the training loss yk ← L MSE (θk, t r , t h) Update history Bk ← B k−1 ∪ { (tr , t h, y k)}
+
+end end 
+
+## A. Algorithm 
+
+We summarize the bi-level optimization in Algorithm 1. To maintain computational efficiency and mitigate the impact of stale estimates from early training stages, we maintain a fixed-size Observation Buffer B with capacity Nmax = 1000 . The GP is fitted dynamically on B, which stores the most recent tuples of time coordinates and their corresponding losses, ensuring the surrogate landscape reflects the current capability of the generative model. Given the GP posterior mean μc(t), the optimal coupling γ∗ is the path that minimizes the line integral of the cost from 
+
+(0 , 0) to (1 , 1) . This corresponds to finding the geodesic on a manifold with metric tensor gij = μc(t)2δij , which is solved efficiently using Dynamic Programming (DP) on a discretized grid of [0 , 1] 2 (Qiu et al., 2025). This approach allows us to find complex, non-monotonic dependencies (e.g., plateau phases) that simple parametric curves cannot represent. Instead of treating an entire training run as a single scalar observation, we treat the mini-batch losses generated from the converged model as sparse, noisy observations of the surface c(t), evaluated on a set of time pairs sampled along the current trajectory (Trust Region) and the global domain (Exploration). These point-wise estimates are pushed into the buffer B,displacing the oldest entries, and used to refine the landscape estimate for the next iteration. We propose several techniques to stablize training, as a critical challenge in applying BO to this bilevel problem is off-policy evaluation . If the model θ∗ is trained solely on a thin deterministic manifold induced by a candidate γk, the evaluation of a perturbed candidate γ′ during the GP acquisition phase incurs high bias due to distribution shift. To ensure the learned vector field vθ∗ remains valid for candidate couplings in the neighborhood of γk, we implement a relaxed inner loop with trajectory perturbation ˜γ(τ ) = γ(τ ) + ϵ with ϵ ∼ N (0 , σ 2), effectively creating a “probability tube” around the geodesic. This ensures vθ∗ covers a trust region around γk. Additionally, to prevent the global landscape from deviating too far, we train with a mixture policy: with probability p, we sample from the current optimized coupling γk (within its tube), and with probability 1 − p, we sample from a geometry-agnostic random coupling γRand .While Proposition 3.2 establishes a population-level bias–variance decomposition under idealized assumptions, our proposed solution should be viewed as an approximate stochastic estimator of the ordering induced by this decomposition, rather than a realization of the exact optimum. It is designed to bias the search toward couplings with lower conditional variance according to the structure revealed by the proposition. 12 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+## B. Proofs 
+
+B.1. Proof for Temporal Optimal Transport 
+
+Proof. Plugging in the definition and by Fubini’s theorem, 
+
+E(γ) = Ex∼D 
+
+hZ 10
+
+LMSE (x, γ (τ )) dτ 
+
+i
+
+=
+
+Z 10
+
+Ex∼D 
+
+LMSE (x, γ (τ ))  dτ =
+
+Z 10
+
+c(γ(τ )) dτ. (8) Let πγ = γ#λ be the pushforward of λ by γ. Then for any integrable φ : [0 , 1] 2 → R we have the change-of-variables identity R 10 φ(γ(τ )) dτ = R 
+
+> [0 ,1] 2
+
+φ(tr , t h) dπ γ (tr , t h). Applying it to φ = c gives 
+
+E(γ) = 
+
+Z
+
+> [0 ,1] 2
+
+c(tr , t h) dπ γ (tr , t h). (9) Finally, by construction the marginals of πγ are (tr )#λ = μr and (th)#λ = μh, hence πγ ∈ Π( μr , μ h). Therefore, minimizing E(γ) over deterministic monotonic schedules γ corresponds to finding the optimal deterministic coupling . While strictly speaking a Monge map may not exist due to potential plateau phases (non-bijective segments), this problem is well-posed under the Kantorovich OT formulation where πγ is a singular measure supported on the curve γ.
+
+B.2. Proof for Proposition 3.2 
+
+Proof. For Eq. 3.2, let uγt be the stochastic target associated with the path measure Qγ . Write the squared-error term as 
+
+E∥vθ (xt, t ) − uγt ∥2 = Ext
+
+h
+
+E∥vθ (xt, t ) − uγt ∥2 | xt
+
+i
+
+. (10) For a fixed xt, apply the conditional bias–variance identity with respect to the stochastic target uγt :
+
+E∥vθ − uγt ∥2 | xt
+
+ = ∥vθ − E[uγt | xt]∥2 + E
+
+h
+
+∥uγt − E[uγt | xt]∥2 | xt
+
+i
+
+(11) 
+
+= ∥vθ − uγ (xt, t )∥2
+
+| {z }
+
+> Bias
+
++ Var( uγt | xt)
+
+| {z }
+
+> Variance
+
+, (12) where we used the definition uγ (xt, t ) := E[uγt | xt]. Integrating over t ∈ [0 , 1] and using the definition of E(γ) gives the desired decomposition. 
+
+B.3. Proof for Proposition 3.3 
+
+Proof. Fix any trajectory γ ∈ Γ. Let xt denote the intermediate state at time t ∈ [0 , 1] (induced by γ), and let uγt be the corresponding regression target. Consider the inner-loop MSE objective 
+
+LMSE (θ, γ ) := 
+
+Z 10
+
+E
+
+h
+
+vθ (xt, t ) − uγt
+
+> 2
+
+i
+
+dt. (13) Define the conditional mean target 
+
+uγ (xt, t ) := Euγt | xt
+
+. (14) By the bias-variance decomposition proved above, for each t,
+
+E
+
+h
+
+vθ (xt, t ) − uγt
+
+> 2
+
+i
+
+= E
+
+h
+
+vθ (xt, t ) − uγ (xt, t ) 2i
+
++ E
+
+h
+
+Var( uγt | xt)
+
+i
+
+. (15) The second term in equation 15 is independent of θ. Hence, minimizing the inner loop over θ only affects the first term. Under the sufficient-capacity assumption and convergence of the inner optimization, we can achieve zero approximation bias, i.e., 
+
+E
+
+h
+
+vθ∗ (xt, t ) − uγ (xt, t ) 2i
+
+= 0 for a.e. t, (16) and therefore 
+
+E
+
+h
+
+vθ∗ (xt, t ) − uγt
+
+> 2
+
+i
+
+= E
+
+h
+
+Var( uγt | xt)
+
+i
+
+. (17) 13 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+Integrating equation 17 over t ∈ [0 , 1] yields the converged inner-loop loss 
+
+LMSE (θ∗, γ ) = 
+
+Z 10
+
+Ext
+
+h
+
+Var( uγt | xt)
+
+i
+
+dt. (18) Finally, the outer loop selects γ to minimize the converged loss. Using equation 18, this is exactly 
+
+γ∗ = arg min  
+
+> γ∈Γ
+
+LMSE (θ∗, γ ) = arg min 
+
+> γ∈Γ
+
+Z 10
+
+Ext
+
+h
+
+Var( uγt | xt)
+
+i
+
+dt, (19) which proves the claim. 
+
+## C. Detailed Formulation for Multimodal Generative Modeling 
+
+C.1. A Unified View for Multimodal Generative Models 
+
+Recall that multimodal biomolecular design operates on a product manifold M = Mr × M h, involving continuous coordinates r ∈ RN ×3 and discrete features h ∈ RN ×K (e.g., types of residues), with N the dimension of atoms or residues and K the dimension of node feature space. The generative goal is to learn a time-dependent vector field vt that transports a factorized prior π0 = p(r) ⊗ p(h) to the joint data distribution π1 = pdata (r, h). We unify the training objective for continuous-time Diffusion Models, Flow Matching, and Bayesian Flow Networks as regressing a target vector U from a network input state Z under a squared loss. We formalize this by first introducing a local-time pair t := ( tr , t h) ∈ [0 , 1] 2, and the joint interpolation state is then defined as the concatenation of marginal interpolants xt :=  ψrtr , ψ hth
+
+. The corresponding regression target is the joint velocity field Ut :=   ˙ψrtr , ˙ψhth
+
+, where ˙ψrtr := ∂tr ψrtr and ˙ψhth := ∂th ψhth . The network input is defined as the tuple Zt := ( xt, t).
+
+The General MSE Objective. The core difference between existing methods lies in the coupling distribution π(t) over local times. The generic training objective is: 
+
+L(θ; π) = Et∼π E∥vθ (Zt) − Ut∥2. (20) And the ideal global minimizer satisfies the regression identity: 
+
+vθ∗ (Zt) = E[Ut | Zt]. (21) Here, we show that for non-autoregressive generation approaches such as diffusion models (DM), flow matching (FM) and Bayesian flow networks (BFN), their training objective can be written as L(θ; π) = Et∼π E∥vθ (Zt) − Ut∥2 by specifying the time law π(t) and the pair (Zt, U t).
+
+Diffusion Models (DM). A standard Gaussian forward noising process is 
+
+Zt ≡ Xt = αtX0 + σt ε, X0 ∼ pdata , ε ∼ N (0 , I ), (22) with t ∼ πdiff (often uniform in [0 , 1] , or uniform in log-SNR). Three common parameterizations correspond to different targets Ut, and the details can be referred to in Kingma & Gao (2024). For (i) ϵ-prediction: 
+
+vθ (Zt) ≡ ϵθ (Xt, t), Ut ≡ ε, (23) 
+
+⇒ L diff (θ) = Et∼πdiff EX0,ε 
+
+∥ϵθ (Xt, t) − ε∥2. (24) For (ii) score-prediction: 
+
+vθ (Zt) ≡ sθ (Xt, t), Ut ≡ ∇ x log qt(x | X0) x=Xt = − 1
+
+σt
+
+ε, (25) 
+
+⇒ L score (θ) = Et∼πdiff EX0,ε 
+
+h
+
+sθ (Xt, t) + 1
+
+σt
+
+ε 2i
+
+. (26) 14 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+For (iii) ν-prediction: 
+
+vθ (Zt) ≡ vθ (Xt, t), (27) 
+
+Ut ≡ νt := αt ε − σt X0, (28) 
+
+⇒ L ν-pred (θ) = Et∼πdiff EX0,ε 
+
+∥vθ (Xt, t) − (αtε − σtX0)∥2. (29) 
+
+Flow Matching (FM). Let p0 be a base distribution and p1 = pdata . Choose a coupling γ(x0, x 1) with (X0, X 1) ∼ γ,and sample t ∼ πFM (typically U[0 , 1] ). Pick a path ψt and define 
+
+Zt ≡ zt = ψt(X0, X 1), Ut ≡ ut = ∂tψt(X0, X 1) t=t. (30) Then 
+
+LFM (θ) = Et∼πFM E(X0,X 1)∼γ
+
+∥vθ (zt, t) − ut∥2. (31) For the linear interpolation path ψt(X0, X 1) = (1 − t)X0 + tX 1,
+
+Zt = (1 − t)X0 + tX1, Ut = X1 − X0. (32) 
+
+Discrete Flow Model (DFM). For discrete flow models on finite state space introduced in Campbell et al. (2024), the intermediate-state distribution Xt ∼ pt|1(· | X1) defined by the conditional transition rates Rt(x, t | x1), we have 
+
+Zt ≡ zt := ( Xt, t), Ut ≡ ut := X1. (33) The model outputs a categorical distribution 
+
+vθ (Zt) ≡ Qθ (· | Zt) = pθ
+
+> 1|t
+
+(· | Xt) ∈ ∆N −1, (34) which is trained with the cross-entropy loss: 
+
+LDFM (θ) = Ex1∼pdata Et∼U ([0 ,1]) Ext∼pt|1(·| x1)
+
+h
+
+− log pθ
+
+> 1|t
+
+(x1 | xt)
+
+i
+
+. (35) Equivalently, writing the true conditional p(· | Zt) := p(Ut = · | Zt),
+
+E− log Qθ (Ut | Zt) = H p(· | Zt) + KL 
+
+
+
+p(· | Zt) Qθ (· | Zt)
+
+
+
+, (36) so minimizing LDFM corresponds to minimizing the KL-divergence. We admit that this is generally not an MSE form, but the conclusion can be generalized to Bregman divergence (Banerjee et al., 2005). 
+
+E
+
+h
+
+KL  p(· | Z) ∥ Q(· | Z)i
+
+= KL  p(· | Z) ∥ ¯q(· | Z) + E
+
+h
+
+KL  ¯q(· | Z) ∥ Q(· | Z)i
+
+, (37) where p(· | Z) ≡ p(U = · | Z), and the ensemble mean is defined by ¯q(· | Z) := E[Q(· | Z)] . Taking Z ≡ Zt and then averaging over t ∼ πDFM yields a global “bias–variance” decomposition for the DFM cross-entropy risk, with the bias term measured by KL( p∥¯q) and the variance term by E[KL(¯ q∥Q)] .
+
+Bayesian Flow Networks (BFN). BFN uses a belief state that accumulates information over time. For continuous-time Gaussian form that parameterizes time by a (monotone) precision schedule λ(t) ≥ 0. With X ∼ pdata and ε ∼ N (0 , I ), the (posterior) belief mean can be written as 
+
+Zt ≡ μt = λ(t)1 + λ(t) X +
+
+pλ(t)1 + λ(t) ε, Var[ X | μt] = 11 + λ(t) I. (38) A standard BFN training target is the clean datum: 
+
+vθ (Zt) ≡ ˆXθ (μt, t ), Ut ≡ X. (39) 15 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+The continuous-time BFN objective is typically weighted by the information rate ˙λ(t); under equation 20 this can be absorbed into π by 
+
+πBFN (t) ∝ ˙λ(t), (40) yielding 
+
+LBFN (θ) = Et∼πBFN EX,ε 
+
+∥ ˆXθ (μt, t) − X∥2. (41) For discrete data, Let {ek}Kk=1 be the standard basis of RK for K classes, and define the concatenated one-hot embedding 
+
+eX :=  eX(1) , . . . , eX(D)
+
+ ∈ RDK . (42) Sample t ∼ U (0 , 1) and a BFN belief state ϑt ∼ pF (ϑ | X, t ) from the forward Bayesian flow. We have 
+
+Zt ≡ zt := ( ϑt, t ), Ut ≡ ut := eX . (43) The network predicts per-dimension categorical probabilities p(d) 
+
+> o,θ
+
+(k | ϑt; t) for d ∈ { 1, . . . , D }, k ∈ { 1, . . . , K }. Define the predicted expected one-hot vector in each dimension by 
+
+ˆe(d) 
+
+> θ
+
+(ϑt, t ) := 
+
+> K
+
+X
+
+> k=1
+
+p(d) 
+
+> o,θ
+
+(k | ϑt; t) ek ∈ RK , (44) and concatenate 
+
+vθ (Zt) ≡ ˆeθ (ϑt, t ) :=  ˆe(1)  
+
+> θ
+
+(ϑt, t ), . . . , ˆe(D) 
+
+> θ
+
+(ϑt, t ) ∈ RDK . (45) The BFN objective for discrete data can be written as 
+
+LBFN (θ) = K β (1) EX∼pdata Et∼U (0 ,1) Eϑt∼pF (·| X,t )
+
+h
+
+t Ut − vθ (Zt) 2i
+
+. (46) 
+
+C.2. Detailed Formulation of Temporal Couplings 
+
+Standard approaches implicitly assume that the factorization of the prior extends to the generative trajectory (Guan et al., 2022; Qu et al., 2024). By sharing a single global progress variable t ∈ [0 , 1] , they enforce a Synchronous Coupling :
+
+Definition C.1 (Synchronous Temporal Coupling) . Let ψrt and ψht denote the method-specific marginal trajectories induced by the corresponding noise schedules σr (t), σ h(t) and endpoint distributions π0, π 1. The joint interpolation path under synchronous coupling is 
+
+xsync  
+
+> t
+
+=  ψrt (r0, r1), ψ ht (h0, h1), t ∈ [0 , 1] . (47) This imposes a rigid topological constraint: the joint trajectory is confined to a one-dimensional curve {xsync  
+
+> t
+
+: t ∈ [0 , 1] },thus the learned vector field is trained to satisfy 
+
+vθ (xsync  
+
+> t
+
+, t ) ≈ ddt xsync  
+
+> t
+
+=   ˙ψrt , ˙ψht
+
+, (48) thereby forcing both modalities to evolve synchronously and monotonically with respect to their marginal noise levels. We identify that this synchronous coupling fails to model asynchronous dependencies common for hierarchical biomolecular assembly. For example, protein backbone topology often constrains side-chain packing, implying a causal structure where the formation of secondary structure elements (backbone) often precedes the determination of sequence, and the sequence again affects specific packing of side-chains and the adjustment of overall structure. However, by forcing synchronous convergence, the model is unable to explore these potentially low-energy regions of the fitness landscape, as the learned vector field has not been trained to approximate the gradients on off-diagonal interpolation states. To alleviate dynamic mismatch, recent works have proposed Random Coupling , where modalities are corrupted by independent timesteps t = ( tr , t h) ∼ U ([0 , 1] 2) during training. It succeeds in covering the full product space and allows the model to see decoupled interpolation states (e.g., noisy structure with clean sequence). With an MSE objective typical in diffusion, flow matching and Bayesian flow network, the learned vector field satisfies 
+
+vθ∗ (xt, t) = E
+
+h
+
+( ˙ψrtr , ˙ψhth ) | xt, t r , t h
+
+i
+
+, (49) 16 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling                                      
+
+> Table 5. Comparison between synchronous, random, and learned time couplings.
+> Coupling type Coupling measure πon [0 ,1] 2Deterministic map γ(t)Interpolation state xt
+> Synchronous πsync = ( γsync )#U[0 ,1] γsync (t) = ( t, t )xsync
+> t= ( rt, h t)
+> Random (independent) πrand = U([0 ,1] 2)N/A (not a scalar path) sample t∼πrand , then xt= ( rtr, h th)
+> Learned (GeoCoupling) πγ= ( γ)#U[0 ,1] γ(t) = tr(t), t h(t)⊤xγt= ( rtr(t), h th(t))
+
+i.e., it regresses to the conditional mean target rather than matching a single deterministic path derivative. Therefore, the structure modality update can condition on the sequence modality at arbitrary noise levels and vice versa, thereby unlocking 
+
+asynchronous dependencies .However, it introduces a severe learnability bottleneck and a severe training-inference gap rooted in the variance of the regression target. Under random coupling, denoising times (tr , t h) are sampled independently and uniformly from [0 , 1] 2.The resulting reference vector field, if assumed to be under the flow matching objective, 
+
+urand  
+
+> t
+
+(xt) = E[x1 − x0 | xt]
+
+corresponds to a mixture over all noise levels and modality states. Such mixing leads to a high conditional variance, since samples with incompatible noise semantics are aggregated when estimating ut. Formally, the law of total variance implies 
+
+Var( urand  
+
+> t
+
+| xt) = E[Var( ut | xt, t r , t h)] + Var( E[ut | xt, t r , t h]) ,
+
+where the second term is maximized when (tr , t h) are drawn independently. This explains the empirically observed instability and slower convergence under random coupling. Using Eq. 15, this decomposition reveals the fundamental dilemma for current coupling methods: • High Target Variance (Random Coupling): When training with fully decoupled timesteps, the conditioning state Zt
+
+(a noisy structure and sequence) can arise from valid data via infinitely many combinations of (r0, r1, h0, h1) and time pairs. This maximizes the entropy of the posterior distribution p(Ut|Zt). The network, learning the conditional mean E[Ut|Zt], produces a “washed-out” vector field that averages over conflicting directions, failing to capture sharp modes. • High Model Bias (Synchronous Coupling): Conversely, synchronous coupling reduces variance but imposes a high bias. The arbitrary lockstep trajectory likely deviates significantly from the true geodesic of the data manifold, resulting in a complex vector field with high curl that is difficult for the network vθ , incurring high approximation error. This analysis motivates the need for our GeoCoupling: a method that minimizes the total transport cost. This requires finding a coupling γ that is sufficiently deterministic to minimize Target Variance, yet flexible enough to follow the data’s intrinsic geodesic to minimize model bias, effectively finding the natural order and dynamically allocating the time budget for biomolecular generation. 
+
+## D. Implementation Details 
+
+D.1. Structure-based Drug Design Training and Inference We train the model using the Adam optimizer with a learning rate of 5 × 10 −4 and a batch size of 16. All experiments are conducted on a single NVIDIA A100 GPU (80GB). The training converges within 100K steps (approximately 12 hours), which reduces the training duration by nearly 50% compared to previous baselines. To stabilize the learning process, we apply an Exponential Moving Average (EMA) with a decay of 0.9 for the coupling updates. For inference, we perform 100 sampling steps, utilizing the variance reduction sampling strategy proposed by Qu et al. (2024). 
+
+Hyperparameters for Network Following the configuration in Qiu et al. (2025), we construct our network using k-Nearest Neighbor (kNN) graphs with k = 32 . The model consists of N = 9 layers with a hidden dimension of d = 128 ,employing 16 attention heads and a dropout rate of 0.1. The total parameter count is approximately 3.1 million. 17 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+D.2. Protein Co-design Training and Inference We train the model on a cluster of 8 NVIDIA A100 GPUs for approximately one day. Optimization is performed using AdamW with a learning rate of 10 −4. To maximize GPU utilization while fitting variable-length proteins, we employ dynamic batching with a maximum batch size of 100 and a max num res squared threshold of 800 , 000 .
+
+Network Architecture Following the configuration in Campbell et al. (2024), we construct the same backbone that is adapted from Yim et al. (2023), including 8 Transformer blocks with 4 layers and a dropout rate of 0.2, Invariant Point Attention (IPA) with hidden dimension 16, and an added 3-layered MLP for amino acid type prediction over 21 tokens (20 amino acids + 1 mask token). The total parameter count is approximately 21.8 million. 
+
+## E. Experiment Setup 
+
+E.1. Structure-based Drug Design Baselines To provide a comprehensive evaluation, we benchmark our method against a diverse set of representative SBDD approaches, categorized by their underlying generative paradigms: • Autoregressive Models: These methods construct molecules sequentially. AR (Luo et al., 2021) generates atoms atom-by-atom conditioned on the protein pocket using voxel-based density predictions and MCMC sampling. Pocket2Mol 
+
+(Peng et al., 2022) improves upon this by employing an E(3)-equivariant geometric neural network to capture frontier atoms, thereby enhancing sampling efficiency and chemical validity. • Diffusion Models: This category includes score-based generative models. DiffSBDD (Schneuing et al., 2024) introduces an E(3)-equivariant diffusion framework that jointly denoises atom types and coordinates in continuous space. TargetDiff (Guan et al., 2022) utilizes a non-equivariant SE(3) diffusion process, decomposing the generation of continuous coordinates and discrete atom types. DecompDiff (Guan et al., 2023) further incorporates structural priors by decomposing ligands into scaffolds and side chains (arms) to guide the diffusion process. • BFN: MolCRAFT (Qu et al., 2024) adapts the Bayesian Flow Network (BFN) to the 3D molecular domain, employing variance reduction techniques to outperform diffusion baselines. MolPilot (Qiu et al., 2025) advances this frontier by proposing a VLB-Optimal Scheduling (VOS) strategy, training through decoupled timesteps and searching for a joint schedule at test time. Building on the VOS strategy, TargetDiff* is a reimplimented version for decoupled training and test-time schedule derivation. • Flow Matching: DrugFlow (Schneuing et al., 2025b) integrates continuous flow matching with discrete Markov bridges, endowed with an uncertainty estimate and learnable number of atoms. 
+
+Metrics We assess the quality of generated ligands using a suite of metrics covering binding affinity, chemical properties, and structural consistency: • Binding Affinity: We utilize AutoDock Vina (Eberhardt et al., 2021) to estimate binding strength. We report: (1) Vina Score : The raw affinity of the generated pose within the pocket; (2) Vina Min : The affinity after performing local energy minimization; (3) Vina Dock : The optimal affinity achieved after re-docking the generated molecule. • Molecular Quality & Properties: Computed via RDKit, we verify drug-likeness using the Quantitative Estimation of Drug-likeness ( QED ) and assess ease of synthesis with the Synthetic Accessibility ( SA ) score. • Structural Consistency: To verify the stability of the binding modes, we calculate the self-consistency RMSD (scRMSD) , which measures the deviation between the generated pose and its re-docked conformation (by Vina). We report the percentage of molecules with an scRMSD < 2 ˚A compared to the redocked binding poses. 
+
+E.2. Protein Co-design Baselines Following Lu et al. (2026), we compare our method against a comprehensive set of state-of-the-art protein co-design models, categorized by their generative representations and mechanisms: 18 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+• Multimodal Language Models that relies on structure tokenization, including ESM3 (Hayes et al., 2025) trained via masked generative modeling, and DPLM-2 (Wang et al., 2025) that focuses on adapting a large-scale sequence-pretrained DPLM (Wang et al., 2024) for joint modeling. It is finetuned with discrete diffusion training objectives with a quantization-based tokenizer to convert continuous coordinates into discrete structural tokens. • Sequence-Structure Diffusion: ProteinGenerator (Lisanza et al., 2025) utilizes a sequence-space diffusion process with folding performed by RoseTTAFold, allowing for the simultaneous generation of sequences and structures conditioned on desired functional attributes. • Hybrid Flow Matching: MultiFlow (Campbell et al., 2024) combines continuous flow matching for SE(3) backbone structures with discrete flow models for amino acid sequences, enabling synchronized updates across both modalities during the generative trajectory. • All-Atom Latent Models: Protpardelle (Chu et al., 2024) introduces an all-atom diffusion model that manages the discrete-continuous nature of sidechains through a superposition state, collapsing them into specific conformations during sampling. La-Proteina (Geffner et al., 2026) proposes a partially latent flow matching framework, where the coarse backbone is modeled explicitly while atomistic details and sequences are captured via per-residue latent variables, effectively decoupling the complexity of side-chain packing. We also include backbone-first methods to better position the co-design baselines in the wider context, such as RFdiffusion 
+
+(Watson et al., 2023) integrated with ProteinMPNN (Dauparas et al., 2022), and CarbonNovo (Ren et al., 2024) that improves this two-stage pipeline using an energy-based model with recycling, moving closer to a jointly co-design baseline. 
+
+Metrics Following standard evaluation protocols in co-design tasks (Yim et al., 2023; Campbell et al., 2024), we evaluate the generated proteins from complementary perspectives, focusing on designability, foldability, diversity and novelty: • Co-designability: This measures the self-consistency between the generated sequence and structure. We predict the structure of the generated sequence using ESMFold (Lin et al., 2023) as the oracle folding model, and calculate the Root Mean Square Deviation (RMSD) between the generated backbone and the predicted structure. We report the self-consistency RMSD ( scRMSD ), specifically the success rate where scRMSD < 2.0 ˚A , indicating that the generated sequence confidently folds into the designed structure. • Designability: This measures whether a generated backbone can be realized by a compatible amino-acid sequence, independent of the sequence proposed by the generative model itself. Following established evaluations for backbone generation, we redesign each generated backbone using ProteinMPNN and then predict the structures of the redesigned sequences with ESMFold as the oracle folding model. We compute the scRMSD between the original generated backbone and the ESMFold-predicted structure, and report the success rate where scRMSD < 2.0 ˚A . In our co-design setting, we used a single ProteinMPNN redesign per backbone ( PMPNN-1 ) to enable a fair comparison with co-design models, which typically generate only one sequence per structure. However, standard backbone-design benchmarks such as ProteinBench (YE et al., 2025) evaluate designability using eight ProteinMPNN samples per backbone and report the best-of-8 success rate ( PMPNN-8 ), counting a backbone as designable if at least one redesigned sequence folds back to the target structure, thus we additionally provide PMPNN-8 designability for better contextualization. • Foldability: We report the average predicted Local Distance Difference Test ( pLDDT ) scores from ESMFold for the generated sequences. High pLDDT scores indicate that the sequence is predicted to fold into a well-defined, stable structure with high confidence. • Diversity: We assess the diversity of the generated samples in both structural and sequence spaces. Structural diversity is measured by TM-score diversity , calculated as 1 − average pairwise TM-score . Sequence-structure diversity is evaluated using Foldseek cluster diversity , defined as the total number of unique clusters identified by Foldseek (Van Kempen et al., 2024) within the generated set, ensuring the model does not collapse to a few modes. • Novelty: To determine whether the model generates novel folds rather than memorizing training data, we calculate the average maximum TM-score between each designable generated protein and its nearest neighbor in the PDB database with a cutoff date 2025-12-16 (retrieved via Foldseek). A lower value indicates higher structural novelty. 19 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+Inference For all baselines, we run unconditional generation with N = 100 samples for each target length L ∈{100 , 200 , 300 , 400 , 500 }, and use the released pretrained checkpoints from the corresponding official implementations. • ESM3 2 is evaluated with esm3 sm open v1 in two generation orders, sequence →structure and structure →sequence. Since the order and per-track temperature are meaningful choices for ESM3, we use T = 1 .0 for the first modality and T = 0 .7 for the second modality, with the repository-recommended number of sampling steps for sequence and structure tokens. • DPLM2 3 is run with the airkingbd/dplm2 650m checkpoint and the released structure tokenizer. We use the DPLM2 sequence–structure co-generation mode with the recommended annealing@2.0:0.1 strategy and 500 denoising iterations. • ProteinGenerator 4 is run with the released sequence-diffusion checkpoint and the repository-recommended uncondi-tional sampling configuration. • MultiFlow 5 is evaluated using the official unconditional inference configuration, inference unconditional ,together with the released unconditional model checkpoint. • Protpardelle 6 is sampled with the released all-atom model and its default unconditional sampling configuration, 
+
+configs/uncond sampling.yml .• Protpardelle-1c 7 is evaluated with the released Zenodo model bundle using the unconditional all-atom configura-tion ["cc91", "383", "sampling unconditional allatom s1"] . We disable internal ProteinMPNN sampling for this variant so that the generated all-atom samples are evaluated as produced. • La-Proteina 8 is evaluated in both released unconditional variants, LD1 ucond notri 512.ckpt and 
+
+LD2 ucond tri 512.ckpt , paired with the released autoencoder. We follow the repository’s unconditional code-generation configuration and perform all designability metrics afterwards with our unified evaluation pipeline. • RFdiffusion + ProteinMPNN 9 uses RFdiffusion for backbone generation and the official ProteinMPNN implementa-tion 10 for inverse folding. RFdiffusion follows its default inference configuration. We report both the single-sequence ProteinMPNN setting (PMPNN-1) and the best-of-8 setting (PMPNN-8) for designability comparison. • CarbonNovo 11 is run from the official repository with the released carbonnovo.ckpt and igso3 parameter bundle, following the default inference configuration. 
+
+## F. Extended Evaluation Results 
+
+F.1. Protein Design Comprehensive Baseline Evaluation We additionally report redesign-based designability by ProteinMPNN to separate backbone quality from native joint consistency. Concretely, PMPNN-1 Des. redesigns each generated backbone with one ProteinMPNN sequence, whereas PMPNN-8 Des. reports the best-of-8 success rate, following standard backbone-generation benchmarks. As shown in Table 6, GeoCoupling balances strong joint co-design performance with high backbone designability under this structure-isolated evaluation, obtaining strong scores of 0.72 (PMPNN-1) and 0.91 (PMPNN-8), showing that its generated backbones remain highly realizable even under an external sequence redesign model. 
+
+> 2https://github.com/evolutionaryscale/esm
+> 3https://github.com/bytedance/dplm
+> 4https://github.com/RosettaCommons/protein_generator
+> 5https://github.com/jasonkyuyim/multiflow
+> 6https://github.com/ProteinDesignLab/protpardelle
+> 7https://github.com/ProteinDesignLab/protpardelle-1c
+> 8https://github.com/NVIDIA-Digital-Bio/la-proteina
+> 9https://github.com/RosettaCommons/RFdiffusion
+> 10 https://github.com/dauparas/ProteinMPNN
+> 11 https://github.com/CarbonMatrixLab/carbonnovo
+
+20 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 0.0 0.2 0.4 0.6 0.8 1.0     
+
+> Structure Time tstruct
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Sequence Time  tseq
+> MolPilot Coupling
+> GeoCoupling (Molecule)
+> GeoCoupling (Protein)
+> Sync tstruct =tseq
+
+Figure 5. Visualization of the learned coupling against baselines. 
+
+Table 6. Unconditional protein co-design results from 100 to 500 with sample size N = 100 . Top-2 mean values are bold / underlined .Metrics are reported as mean ± sample std across three independent runs. We explicitly contextualize joint Co-designability (native joint consistency) and structure-isolated Designability using ProteinMPNN-1 and best-of-8 ProteinMPNN sequences for a more comprehensive comparison. 
+
+Method Generation Quality (↑) Diversity (↑) Novelty (↓)Co-designable PMPNN-1 Des. PMPNN-8 Des. pLDDT 1 - Pairwise TM FS Clusters Max TM ProteinGenerator 0.11 ± 0.01 0.37 ± 0.02 0.48 ± 0.02 55.25 ± 0.93 0.55 ± 0.02 0.31 ± 0.07 0.88 ± 0.01 ProtPardelle 0.37 ± 0.01 0.36 ± 0.02 0.54 ± 0.01 63.46 ± 1.90 0.42 ± 0.01 0.08 ± 0.01 0.82 ± 0.00 ProtPardelle-1c 0.44 ± 0.02 0.44 ± 0.02 0.60 ± 0.01 65.92 ± 0.10 0.41 ± 0.01 0.09 ± 0.02 0.81 ± 0.00 CarbonNovo 0.62 ± 0.03 0.47 ± 0.01 0.75 ± 0.01 78.34 ± 2.49 0.59 ± 0.01 0.44 ± 0.02 0.80 ± 0.00 
+
+RFdiffusion + PMPNN 0.43 ± 0.01 0.43 ± 0.01 0.60 ± 0.01 68.72 ± 0.52 0.61 ± 0.01 0.59 ± 0.03 0.84 ± 0.00 MultiFlow 0.72 ± 0.00 0.64 ± 0.03 0.81 ± 0.02 79.39 ± 0.03 0.63 ± 0.00 0.56 ± 0.03 0.83 ± 0.00 La-Proteina (no-tri) 0.67 ± 0.02 0.77 ± 0.01 0.92 ± 0.00 81.89 ± 2.92 0.63 ± 0.00 0.64 ± 0.02 0.81 ± 0.01 La-Proteina (tri) 0.77 ± 0.02 0.84 ± 0.04 0.95 ± 0.00 85.32 ± 2.58 0.59 ± 0.00 0.36 ± 0.01 0.85 ± 0.00 DPLM2 0.31 ± 0.01 0.35 ± 0.02 0.49 ± 0.01 83.69 ± 2.37 0.63 ± 0.02 0.49 ± 0.01 0.96 ± 0.00 ESM3 (seq →str) 0.10 ± 0.02 0.14 ± 0.03 0.24 ± 0.02 60.89 ± 0.69 0.62 ± 0.01 0.70 ± 0.04 0.90 ± 0.01 ESM3 (str →seq) 0.04 ± 0.01 0.04 ± 0.02 0.08 ± 0.02 61.10 ± 1.02 0.62 ± 0.02 0.81 ± 0.07 0.90 ± 0.01 GeoCoupling 0.79 ± 0.01 0.72 ± 0.00 0.91 ± 0.01 80.14 ± 0.31 0.63 ± 0.00 0.48 ± 0.04 0.83 ± 0.00 
+
+We also include CarbonNovo and RFdiffusion+PMPNN as additional structure-oriented baselines. CarbonNovo is competitive on redesignability ( 0.75 on PMPNN-8 and 0.47 on PMPNN-1), while RFdiffusion performs slightly worse on both native and redesign-based metrics. The reason accounting for this performance degradation is attributed to the evaluated length range. Our benchmark setting averages over lengths [100 , 200 , 300 , 400 , 500] , whereas prior works often focus on shorter proteins up to length 250 . Since longer proteins are substantially more challenging, including lengths 300 –500 
+
+naturally lowers the overall designability average. Importantly, RFdiffusion remains strong on shorter lengths: when we restrict evaluation to [100 , 200] , our replicated RFdiffusion+PMPNN achieves 0.938 ± 0.023 PMPNN-8 designability. Therefore, the discrepancy mainly reflects the inclusion of more difficult long-length targets rather than a contradiction with earlier results. 
+
+Secondary Structure Analysis To test whether overall co-designability is inflated by a collapse toward mainly-α folds, we report in Table 7 to show that GeoCoupling generates proteins with similar secondary structure topology relative to MultiFlow and is not biased toward helices. We further stratify generated proteins by secondary-structure class. Since CATH fold labels are unavailable in the uncondi-tional setting, we follow Chou (1995) and group samples into mainly-α (α ≥ 40% , β ≤ 5% ), mainly-β (α ≤ 5% , β ≥ 40% ), mixed α/β (α ≥ 15% , β ≥ 15% ), and others. Under the stratified analysis, GeoCoupling remains strongly designable across all classes. Compared with MultiFlow, GeoCoupling is consistently showing better co-designability with less variance, especially from 59% to 83% on others. These results suggest that the gains of GeoCoupling cannot be explained simply by a helical-collapse bias, but reflect more robust co-design performance across secondary-structure regimes. 21 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+Table 7. Secondary-structure composition of generated proteins. Helix and strand percentages are reported as mean ± sample std across three independent runs. 
+
+Method Helix (%) Strand (%) ProteinGenerator 62.09 ± 0.70 4.20 ± 0.32 ProtPardelle 52.51 ± 0.32 12.80 ± 0.06 ProtPardelle-1c 47.67 ± 0.53 17.83 ± 0.32 CarbonNovo 53.65 ± 0.53 22.26 ± 0.25 RFdiffusion + ProteinMPNN 52.30 ± 0.53 26.70 ± 0.50 MultiFlow 73.04 ± 0.87 10.92 ± 0.77 La-Proteina (no-tri) 70.82 ± 0.36 7.03 ± 0.15 La-Proteina (tri) 70.65 ± 0.71 6.69 ± 0.31 DPLM2 40.95 ± 0.63 20.17 ± 0.57 ESM3 (seq →str) 70.18 ± 0.87 4.66 ± 0.38 ESM3 (str →seq) 61.56 ± 1.05 8.94 ± 0.41 GeoCoupling 72.19 ± 1.39 11.64 ± 1.00 
+
+Table 8. Secondary-structure-stratified designability analysis. We report the fraction of generated samples together with class-wise co-designability, with mean and std values calculated across three independent runs. 
+
+Method Mainly α Mainly β Mixed α/β Other 
+
+Frac. Des. Frac. Des. Frac. Des. Frac. Des. ProteinGenerator 0.62 ± 0.01 0.16 ± 0.01 0.00 ± 0.00 0.00 0.12 ± 0.01 0.11 ± 0.04 0.26 ± 0.01 0.00 ± 0.00 ProtPardelle 0.38 ± 0.01 0.13 ± 0.01 0.02 ± 0.00 0.30 ± 0.05 0.50 ± 0.01 0.62 ± 0.01 0.10 ± 0.00 0.06 ± 0.05 ProtPardelle-1c 0.22 ± 0.01 0.60 ± 0.02 0.05 ± 0.00 0.09 ± 0.09 0.53 ± 0.01 0.55 ± 0.04 0.19 ± 0.01 0.02 ± 0.02 CarbonNovo 0.17 ± 0.02 0.82 ± 0.02 0.06 ± 0.01 0.60 ± 0.04 0.58 ± 0.02 0.62 ± 0.03 0.19 ± 0.01 0.47 ± 0.07 RFdiffusion + PMPNN 0.17 ± 0.01 0.88 ± 0.05 0.01 ± 0.00 0.50 ± 0.17 0.76 ± 0.02 0.34 ± 0.01 0.06 ± 0.01 0.34 ± 0.07 MultiFlow 0.44 ± 0.02 0.74 ± 0.02 0.01 ± 0.00 0.69 ± 0.34 0.30 ± 0.04 0.82 ± 0.01 0.26 ± 0.02 0.59 ± 0.03 La-Proteina (no-tri) 0.69 ± 0.01 0.65 ± 0.02 0.02 ± 0.00 0.19 ± 0.22 0.16 ± 0.01 0.78 ± 0.04 0.13 ± 0.01 0.72 ± 0.03 La-Proteina (tri) 0.69 ± 0.01 0.74 ± 0.02 0.01 ± 0.00 0.13 ± 0.13 0.20 ± 0.00 0.91 ± 0.03 0.09 ± 0.01 0.72 ± 0.10 DPLM2 0.10 ± 0.01 0.36 ± 0.04 0.03 ± 0.00 0.28 ± 0.11 0.66 ± 0.01 0.30 ± 0.03 0.21 ± 0.01 0.31 ± 0.04 ESM3 (seq →str) 0.73 ± 0.02 0.08 ± 0.02 0.02 ± 0.01 0.06 ± 0.10 0.07 ± 0.01 0.34 ± 0.05 0.17 ± 0.02 0.05 ± 0.05 ESM3 (str →seq) 0.47 ± 0.03 0.06 ± 0.01 0.01 ± 0.01 0.00 ± 0.00 0.17 ± 0.01 0.08 ± 0.03 0.34 ± 0.02 0.01 ± 0.01 GeoCoupling 0.51 ± 0.02 0.76 ± 0.01 0.04 ± 0.01 0.75 ± 0.10 0.25 ± 0.01 0.85 ± 0.04 0.20 ± 0.00 0.83 ± 0.01 
+
+22 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 
+
+## G. Visualization of Biomolecular Temporal Coupling 
+
+Analysis of Learned Dynamics We visualize the learned temporal coupling for biomolecules in Fig. 4 and 5. It can be seen that the structure modality is prioritized for both macromolecules (proteins) and small molecule ligands, characterized by the trajectory bowing toward the structure axis ( tstruct > t seq ). This indicates that the sequence modality follows a delayed schedule, accelerating only after the coarse-grained structure takes shape. We interpret this emergent behavior as the model identifying the most efficient path for entropy reduction. Geometrically, the structure determines the spatial boundary and interaction constraints as the scaffold, which contributes the most to reducing the global uncertainty of the joint distribution. Therefore, the optimal transport plan first focuses on transporting the noisy prior to a proto-structural manifold to establish a valid geometric context. Once the spatial backbone is sufficiently resolved, the sequence-structure interplay becomes tractable given the informative geometric context, and then sequence identities are smoothly decoded to satisfy the chemical environments imposed by the local geometry. This structure-first, sequence-painting mechanism aligns with the physical intuition of inverse folding, correcting the inductive bias of synchronous generation where the model struggles to predict sequence identities without a stabilized structural context. 
+
+## H. Sensitivity Analysis 
+
+Sensitivity to Inner-loops Steps S and Mixture-rate p We evaluated S ∈ { 100 , 400 , 1600 }, and performance is largely insensitive to S as in Table 9, suggesting that the bottleneck is not exact inner-loop convergence, but whether the outer loop identifies a good low-cost direction. We evaluated p ∈ { 0.1, 0.2, 0.5, 0.8} as in Table 10, and observed some variation across metrics. The role is to balance coupling guidance vs. coverage without changing the underlying objective: small p weakens coupling signal (close to random), while large p over-constrains training to the current candidate coupling. Intermediate p
+
+achieves the best tradeoff, supporting that the mixed policy is a practical approximation for optimizing temporal coupling under finite compute. 
+
+Table 9. Sensitivity to inner-loop steps S.                                 
+
+> SConnected QED SA Vina Score ( ↓)Vina Min ( ↓)(%,↑)(↑)(↑)Mean Median Mean Median 100 95.0 0.55 0.76 -7.04 -7.08 -7.42 -7.35 400 95.0 0.55 0.76 -7.31 -7.43 -7.72 -7.55
+> 1600 95.0 0.56 0.76 -7.08 -7.08 -7.44 -7.20
+
+Table 10. Sensitivity to parameter p.                                               
+
+> pConnected PB-Valid QED SA Vina Score ( ↓)Vina Min ( ↓)(%,↑)(%,↑)(↑)(↑)Avg. Med. Avg. Med. 0.1 96.0 95.0 0.56 0.75 -6.58 -7.10 -7.19 -7.31 0.2 95.0 94.0 0.55 0.76 -7.31 -7.43 -7.72 -7.55
+> 0.5 92.0 96.0 0.55 0.78 -7.07 -7.29 -7.48 -7.42 0.8 90.0 95.0 0.52 0.74 -6.39 -6.55 -6.80 -6.72
+
+GP Buffer Size and Kernel Choices We ran ablations on buffer size and GP kernels, and results are stable across settings as in Table 11 and Table 12. This indicates the GP does not need to reconstruct the full cost surface precisely; it only needs to capture the topology of low-cost regions well enough to guide the path search on the loss surface, since the outer loop primarily requires a correct ordering of low-cost regions rather than exact values. We further visualize the sampled time points and observe broad, space-filling coverage at Fig. 6 
+
+Table 11. Sensitivity to Buffer Size.                                        
+
+> Buffer Size Connected PB-Valid QED SA Vina Score ( ↓)Vina Min ( ↓)(%,↑)(%,↑)(↑)(↑)Avg. Med. Avg. Med. 500 94.0 95.0 0.55 0.79 -7.35 -7.09 -7.46 -7.22 1000 95.0 94.0 0.55 0.76 -7.31 -7.43 -7.72 -7.55
+> 2000 94.0 95.0 0.53 0.79 -7.40 -7.21 -7.52 -7.37
+
+Table 12. Sensitivity to GP Kernel.                                
+
+> GP Kernel Connected PB-Valid QED SA Vina Score ( ↓)Vina Min ( ↓)(%,↑)(%,↑)(↑)(↑)Avg. Med. Avg. Med. RBF 95.0 94.0 0.55 0.76 -7.31 -7.43 -7.72 -7.55 RationalQuadratic 94.0 96.0 0.56 0.76 -6.92 -7.22 -7.51 -7.34
+
+## I. Limitation 
+
+While our results show that optimized temporal coupling consistently boosts performance for multimodal generation, our current study is focused on a clean bimodal setting, with unconditional protein co-design as the main testbed and structure-based drug design as a complementary domain, though our formulation naturally extends to more than two modalities through higher-dimensional temporal couplings. Additionally, we do not yet study conditional protein design settings such as motif scaffolding, where additional constraints may interact with the learned coupling in nontrivial ways. More broadly, although the recurring structure-leading behavior observed across both domains is encouraging, its scope 23 Demystifying Multimodal Biomolecular Co-design with Intrinsic Geodesic Coupling 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> Continuous Time
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Discrete Time
+> GP Sample Points Distribution
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> 35
+> Total Loss
+
+Figure 6. Planar distribution of the 1000 sampled points during the first fixed-coupling stage. The x-axis and y-axis represent Continuous Time and Discrete Time, respectively, with points colored by their corresponding Total Loss. The plot exhibits broad, space-filling coverage across the entire [0 , 1] × [0 , 1] search space, confirming that the Gaussian Process (GP) initialization effectively explores the parameter space without premature clustering or sampling bias. 
+
+remains to be characterized in regimes with different modality balances, such as intrinsically disordered proteins (IDPs) or sequence-constrained binding motifs. 24
