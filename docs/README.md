@@ -6,43 +6,62 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-04
-- 运行时间：2026-06-04 22:09:36 UTC
+- 最新运行日期：2026-06-05
+- 运行时间：2026-06-05 22:10:13 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：2
-- 速读区：5
+- 本次总论文数：14
+- 精读区：5
+- 速读区：9
 
 ### 今日简报（AI）
-今天共处理7篇论文，精读2篇、速读3篇。  
-最值得关注的是UniCanvas在文本与图像联合生成上的突破，以及TAMALE对人体蛋白质功能残基的精准识别。  
-建议普通读者重点关注扩散模型在多模态生成和生物信息学中的前沿应用。
-- 详情：[/202606/04/README](/202606/04/README)
+今日聚焦扩散模型与图像生成前沿，包括随机流映射和细粒度图像生成方法。最值得关注的是高分的《Strong Stochastic Flow Maps》与《FocusDiT》，前者改进随机流映射理论，后者通过掩码查询实现高精度图像生成。建议普通读者后续关注这些方法在可控生成与生物分子设计中的实际应用潜力。
+- 详情：[/202606/05/README](/202606/05/README)
 
 ### 精读区论文标签
-1. [UniCanvas: A Diffusion-base Unified Model for Text-in-Image Joint Generation](/202606/04/2606.04264v1-unicanvas-a-diffusion-base-unified-model-for-text-in-image-joint-generation)  
+1. [Strong Stochastic Flow Maps](/202606/05/2606.01086v1-strong-stochastic-flow-maps)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：多模态文本-图像联合生成的扩散模型
-2. [Accurate Identification of Functional Residues Across the Human Proteome with TAMALE](/202606/04/biorxiv-10-64898-2026-05-28-728550-v1-accurate-identification-of-functional-residues-across-the-human-proteome-with-tamale)  
+   evidence：提出SSFMs，支持多模态生成和少步采样
+2. [FocusDiT: Masking Queries in Diffusion Transformers for Fine-grained Image Generation](/202606/05/2606.02090v2-focusdit-masking-queries-in-diffusion-transformers-for-fine-grained-image-generation)  
+   标签：评分：8.0/10、query:diff-gen
+   evidence：用于细粒度图像生成的扩散变换器掩码查询
+3. [Efficient and Training-Free Single-Image Diffusion Models](/202606/05/2606.04299v1-efficient-and-training-free-single-image-diffusion-models)  
+   标签：评分：8.0/10、query:diff-gen
+   evidence：无训练的单图像扩散模型
+4. [AlloGen: Conformation-Selective Binder Generation with Differential State Scoring](/202606/05/2606.05474v1-allogen-conformation-selective-binder-generation-with-differential-state-scoring)  
    标签：评分：8.0/10、query:pocket-lig
-   evidence：识别配体结合残基，支持口袋特异性配体设计
+   evidence：用于蛋白质靶点的构象选择性结合物生成与差异状态评分
+5. [Plug-and-Play Guidance for Discrete Diffusion Models via Gradient-Informed Logit Correction](/202606/05/2606.06303v1-plug-and-play-guidance-for-discrete-diffusion-models-via-gradient-informed-logit-correction)  
+   标签：评分：8.0/10、query:diff-gen
+   evidence：提出离散扩散模型的即插即用引导方法，可应用于分子生成
 
 ### 速读区论文标签
-1. [Strong Stochastic Flow Maps](/202606/04/2606.01086v1-strong-stochastic-flow-maps)  
+1. [Decoupled Residual Denoising Diffusion Models for Unified and Data Efficient Image-to-Image Translation](/202606/05/2606.01048v1-decoupled-residual-denoising-diffusion-models-for-unified-and-data-efficient-image-to-image-translation)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：通过强随机流映射提高扩散模型采样效率
-2. [Equilibrated Diffusion: Frequency-aware Textual Embedding for Equilibrated Image Customization](/202606/04/2606.02129v1-equilibrated-diffusion-frequency-aware-textual-embedding-for-equilibrated-image-customization)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：扩散模型用于图像定制，多模态（文本到图像）生成
-3. [Diffusing in the Right Space: A Systematic Study of Latent Diffusability](/202606/04/2606.03578v1-diffusing-in-the-right-space-a-systematic-study-of-latent-diffusability)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：潜在扩散模型属性的系统性研究
-4. [Scaling Novel Graph Generation via Lightweight Structure-Guided Autoregressive Models](/202606/04/2606.04287v1-scaling-novel-graph-generation-via-lightweight-structure-guided-autoregressive-models)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：用于分子发现的图生成
-5. [DSA: Dynamic Step Allocation for Fast Autoregressive Video Generation](/202606/04/2606.04432v1-dsa-dynamic-step-allocation-for-fast-autoregressive-video-generation)  
+   evidence：提出解耦残差扩散模型用于统一图像翻译，可扩展至视频插帧
+2. [Site4Drug: Predicting Drug-Binding Target Sites with an AI Agent](/202606/05/2606.01816v1-site4drug-predicting-drug-binding-target-sites-with-an-ai-agent)  
+   标签：评分：7.0/10、query:pocket-lig
+   evidence：预测药物结合靶点，支持配体设计
+3. [Programming Biomolecular Interactions with All-Atom Generative Model](/202606/05/biorxiv-10-64898-2026-03-12-711044-v3-programming-biomolecular-interactions-with-all-atom-generative-model)  
+   标签：评分：7.0/10、query:pocket-lig
+   evidence：全原子生成模型可编程生物分子相互作用，适用于配体设计
+4. [Towards Generalizable Protein-ligand Co-folding with ACER](/202606/05/biorxiv-10-64898-2026-06-02-728568-v1-towards-generalizable-protein-ligand-co-folding-with-acer)  
+   标签：评分：7.0/10、query:pocket-lig
+   evidence：蛋白质-配体共折叠与口袋探索
+5. [MedSyn2: Flexible Control of 3D CT Generation via Text and Semantically-Defined Segmentation Prompts](/202606/05/2606.00967v2-medsyn2-flexible-control-of-3d-ct-generation-via-text-and-semantically-defined-segmentation-prompts)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：视频扩散模型动态步数分配，与视频插值和生成相关
+   evidence：3D CT生成模型，灵活可控
+6. [MORPHOS: Autoregressive 4D Generation with Temporal Structured Latents](/202606/05/2606.02491v1-morphos-autoregressive-4d-generation-with-temporal-structured-latents)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：自回归4D生成动态3D资产
+7. [Agentic Molecular Recovery via Molecule-Aware Exploration](/202606/05/2606.05847v1-agentic-molecular-recovery-via-molecule-aware-exploration)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：通过智能体探索从无效SMILES恢复分子
+8. [Diff-CA: Separating Common and Salient Factors with Diffusion Models](/202606/05/2606.06120v1-diff-ca-separating-common-and-salient-factors-with-diffusion-models)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：扩散模型用于对比分解，适用于多模态学习
+9. [Vibe Coding Specificity Foundation Models](/202606/05/biorxiv-10-64898-2026-06-04-730134-v1-vibe-coding-specificity-foundation-models)  
+   标签：评分：6.0/10、query:pocket-lig
+   evidence：分子结合特异性预测基础模型
 
 
 <div class="dpr-home-promo-card">

@@ -1,0 +1,2391 @@
+Title: Agentic Molecular Recovery via Molecule-Aware Exploration
+
+URL Source: https://arxiv.org/pdf/2606.05847v1
+
+Published Time: Fri, 05 Jun 2026 01:01:14 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+Agentic Molecular Recovery via Molecule-Aware Exploration 
+
+Suwan Yoon, Changhee Lee *
+
+Department of Artificial Intelligence, Korea University / Seoul, Korea 
+
+suwanyoon, changheelee@korea.ac.kr 
+
+Abstract 
+
+Text-guided molecular generation with LLMs often yields invalid SMILES. We argue that invalid drafts should be addressed through a shift from validity-oriented repair to identity-preserving molecular recovery: the objective is not only to restore chemical validity, but also to preserve target-relevant structural cues and recover the molecular identity implied by the description. This perspective reveals the limita-tions of existing correction strategies. Post-hoc repair can recover validity while distorting key structures, LLM-only correction can introduce unintended global drift, and generic agentic cor-rection remains constrained by greedy single-candidate trajectories even when equipped with executable RDKit edit tools. To address these limitations, we propose AMREC , which couples molecule-aware mismatch tracking with ex-panded candidate exploration and trajectory-level selection. On invalid ChEBI-20 drafts from three backbone models, AMREC achieves the strongest overall recovery profile across structural, exact-match, and string-level met-rics. 
+
+1 Introduction 
+
+Language models are increasingly used for text-guided molecular de novo generation, where a model generates molecular structures from natural-language descriptions of desired properties, func-tions, and chemical structures (Edwards et al., 2021, 2022; Li et al., 2024). However, standard SMILES-based generation often produces invalid strings that cannot be directly parsed into molecular graphs. While invalid outputs are often treated as failures to discard, recent work suggests that they may still encode meaningful chemical information, and that strictly validity-constrained representations can themselves introduce structural bias (Skinnider, 2024). This shifts the central question from sim-
+
+*Corresponding author. Qualitative example: CID 442621 
+
+The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy... 
+
+GT 
+
+ground truth 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+AMREC-C 
+
+full critic + candidate; exact=True 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+invalid; sanitize=False depiction 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+SMISELF 
+
+valid repair; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+iter=5; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+CID 442621 | heavy atoms 26 
+
+SMISELF Morgan: 0.104 
+
+LLM-Corrector+S Morgan: 0.104 
+
+AMREC-C: exact match 
+
+Orange marks atoms/bonds unmatched with GT. 
+
+AMREC-C is drawn with the GT coordinates. 
+
+The molecule is a trihydroxy 
+
+flavone that is flavone 
+
+substituted by positions 5, 6 
+
+and 3’ and methoxy… 
+
+Invalid molecule 
+
+(Draft )
+
+Repair Recovery 
+
+Qualitative example: CID 442621 
+
+> The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy...
+
+GT 
+
+> ground truth
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+AMREC-C 
+
+> full critic + candidate; exact=True
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+> invalid; sanitize=False depiction
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+SMISELF 
+
+> valid repair; Morgan=0.104
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+> iter=5; Morgan=0.104
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+> CID 442621 | heavy atoms 26
+> SMISELF Morgan: 0.104
+> LLM-Corrector+S Morgan: 0.104
+> AMREC-C: exact match
+> Orange marks atoms/bonds unmatched with GT.
+> AMREC-C is drawn with the GT coordinates.
+
+Target 
+
+Qualitative example: CID 442621 
+
+> The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy...
+
+GT 
+
+> ground truth
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+AMREC-C 
+
+> full critic + candidate; exact=True
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+> invalid; sanitize=False depiction
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+SMISELF 
+
+> valid repair; Morgan=0.104
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+> iter=5; Morgan=0.104
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+> CID 442621 | heavy atoms 26
+> SMISELF Morgan: 0.104
+> LLM-Corrector+S Morgan: 0.104
+> AMREC-C: exact match
+> Orange marks atoms/bonds unmatched with GT.
+> AMREC-C is drawn with the GT coordinates.
+
+Qualitative example: CID 442621 
+
+> The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy...
+
+GT 
+
+> ground truth
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+AMREC-C 
+
+> full critic + candidate; exact=True
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+> invalid; sanitize=False depiction
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+SMISELF 
+
+> valid repair; Morgan=0.104
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+> iter=5; Morgan=0.104
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+> CID 442621 | heavy atoms 26
+> SMISELF Morgan: 0.104
+> LLM-Corrector+S Morgan: 0.104
+> AMREC-C: exact match
+> Orange marks atoms/bonds unmatched with GT.
+> AMREC-C is drawn with the GT coordinates.
+
+Qualitative example: CID 442621 
+
+The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy... 
+
+GT 
+
+ground truth 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+AMREC-C 
+
+full critic + candidate; exact=True 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+invalid; sanitize=False depiction 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+SMISELF 
+
+valid repair; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+iter=5; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+CID 442621 | heavy atoms 26 
+
+SMISELF Morgan: 0.104 
+
+LLM-Corrector+S Morgan: 0.104 
+
+AMREC-C: exact match 
+
+Orange marks atoms/bonds unmatched with GT. 
+
+AMREC-C is drawn with the GT coordinates. 
+
+Qualitative example: CID 442621 
+
+The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy... 
+
+GT 
+
+> ground truth
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+AMREC-C 
+
+> full critic + candidate; exact=True
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+> invalid; sanitize=False depiction
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+SMISELF 
+
+> valid repair; Morgan=0.104
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+> iter=5; Morgan=0.104
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+> CID 442621 | heavy atoms 26
+> SMISELF Morgan: 0.104
+> LLM-Corrector+S Morgan: 0.104
+> AMREC-C: exact match
+> Orange marks atoms/bonds unmatched with GT.
+> AMREC-C is drawn with the GT coordinates.
+
+Greedy 
+
+AMREC Tool Naiv e
+
+Target Draf t
+
+AMREC (Ours) 
+
+Molecular 
+
+State space 
+
+Valid molecule, 
+
+But wrong structure! 
+
+Key substructures retained! 
+
+Recovered toward the target molecule! 
+
+Issue! Solved !
+
+Figure 1: Conceptual overview of molecular restoration. Repair focus purely on syntax-level validity correction, whereas recovery achieves semantic realignment by pre-serving target-relevant structural cues and reconstruct-ing the intended molecular identity from the description. 
+
+ply preventing invalidity to restoring chemically meaningful molecules from imperfect drafts. We formalize this problem as molecular restora-tion , distinguishing between two levels of string correction: Repair denotes syntax-level validity restoration—simply converting an invalid SMILES into a valid SMILES. Recovery , in contrast, denotes semantic and context-aware restoration—restoring chemical validity while preserving target-relevant structural cues in the draft and recovering the molecular identity implied by the target description. Existing post-hoc approaches based on rules or validity-preserving representations such as SELF-IES can often repair invalid SMILES (Krenn et al., 2020; Tao et al., 2025), but validity alone does not guarantee preservation of important structural char-acteristics, such as scaffolds, ring systems, func-tional groups, or charge patterns. Conversely, LLM-based correction methods can condition on both the target description and validity feedback, yet they typically regenerate entire SMILES strings at each 1
+
+> arXiv:2606.05847v1 [cs.AI] 4 Jun 2026
+
+step, making it difficult to separate intended local edits from unintended global structural changes. This limitation motivates an agentic approach to molecular recovery, treating the candidate molecule as the state, factual observations, and structural modifications as actions. Prior tool-augmented molecular agents have addressed ac-tion fidelity in agentic search by replacing uncon-strained full-SMILES regeneration with RDKit-based executable edit tools, so that LLM-selected actions are grounded as deterministic molecular-graph operations (Landrum, 2013; Zhou et al., 2026). However, tool grounding alone is insuf-ficient for robust molecular recovery. Even with executable editing tools, generic tool-augmented agents remain constrained by weak molecule-aware alignment and greedy single-candidate search, a paradigm we term agentic greedy search (Yao et al., 2022; Xu et al., 2023; Erdogan et al., 2025). Rather than explicitly tracking molecule-text mismatches as verifiable requirements, these agents greedily refine a single candidate molecule step by step. As a result, even seemingly reasonable local edits may optimize toward the wrong structural objective, while early erroneous decisions can irreversibly steer the recovery into a dead-end trajectory. 
+
+Contribution. To address these limitations, we pro-pose AMREC , an agentic framework for molecular recovery that combines grounded molecular edit-ing with molecule-aware reasoning and expanded candidate exploration. AMREC first derives explicit and verifiable structural requirements from the tar-get description, then employs Checker , Critic ,and Planner agents to track semantic mismatches between the current molecule and the intended tar-get. Instead of committing to a single greedy tra-jectory, AMREC introduces a Candidate Explorer 
+
+and selection mechanism that builds, retains, and revisits multiple recovery candidates throughout the search process. As a result, AMREC better under-stands molecular states and explores recovery can-didates more effectively, achieving the strongest overall recovery performance on invalid drafts across three backbone models. 
+
+2 Related Work 
+
+LLM-based molecular generation. Recent stud-ies have explored LLM-based molecular genera-tion through both task-specific training and few-shot prompting. While trained molecule-language models translate between molecular strings and natural-language descriptions, prompting-based approaches use demonstrations and textual in-structions to guide molecular design without task-specific fine-tuning (Edwards et al., 2021, 2022; Pei et al., 2023; Guo et al., 2023; Li et al., 2024, 2025). This few-shot paradigm has recently be-come a major practical direction for applying LLMs to chemistry. In contrast to these works, which mainly focus on generating molecules from text, our work studies the post-generation recovery of chemically meaningful molecules from invalid molecular drafts. 
+
+Validity-oriented molecular repair. Although SMILES is widely used for molecular genera-tion, its strict grammar often yields invalid outputs (Weininger, 1988). At the same time, strict valid-ity enforcement during generation can constrain exploration (Skinnider, 2024). This motivates post-generation repair methods such as SMISELF (Tao et al., 2025; Schoenmaker et al., 2023). However, these methods mainly restore validity, rather than semantically recovering the molecular identity im-plied by the target description. 
+
+Chemical agents. LLM agents combine reasoning, planning, and tool use for iterative decision-making (Yao et al., 2022; Xu et al., 2023; Erdogan et al., 2025). In chemistry, this paradigm has been ap-plied to validation, property evaluation, molecular optimization, and drug discovery with external or executable chemistry tools (M. Bran et al., 2024; Ansari et al., 2024; Le et al., 2024; Landrum, 2013; Zhou et al., 2026). However, these works do not ad-dress molecule recovery, which requires restoring validity while preserving target-relevant structural cues from corrupted drafts. 
+
+3 Towards Agentic Molecular Recovery 
+
+In this section, we analyze why classical correction methods fail to preserve the structural identity of molecular drafts. We then formalize the recovery process as an agentic search over molecular states and identify the key limitations that motivate our proposed framework. 
+
+3.1 The Limits of Current Correction: Why Repair is Not Recovery 
+
+Invalid drafts generated by text-to-molecule models can typically be routed to post-hoc repair pipelines. Rule- or SELFIES-based methods specialize in syntax-level repair —patching broken strings into formally valid molecular graphs (Weininger, 1988; 2Table 1: Post-hoc analysis of invalid molecular drafts generated with GPT-5.4-mini at ChEBI-20 dataset. LLM-Corrector is run for five iterations, achieving 40.7% raw validity; for fair comparison, SMISELF is then applied only to its remaining invalid outputs.                                    
+
+> Subset / output MACCS FTS ↑RDK FTS ↑Morgan FTS ↑Exact ↑BLEU ↑ROUGE-L ↑Levenshtein ↓
+> Initially invalid subset
+> Invalid initial draft ––––0.6407 0.7247 46.4433 SMISELF 0.7154 0.3708 0.2628 0.0000 0.4467 0.6295 50.8814 LLM-Corrector 0.7505 0.4407 0.3239 0.0567 0.4979 0.6547 49.9948
+> Initially valid subset
+> Valid initial draft 0.9498 0.8808 0.8336 0.5079 0.8833 0.9222 10.9272 Qualitative example: CID 5320053
+> Description: The molecule is a member of the class of 7-hydroxyisoflavones that is 7-hydroxyisoflavone with an additonal hy... Post-hoc repair baselines can produce valid but structurally distorted molecules.
+> GT
+> ground truth
+> OHO OHO
+> Initial Draft
+> invalid; sanitize=False depiction
+> OHO OHO
+> SMISELF
+> valid repair; Morgan=0.158
+> OHO OHO
+> LLM-Corrector
+> iter=5; Morgan=0.282
+> HO OOO
+
+Figure 2: Qualitative example of molecular restoration for an invalid draft. Although the initial draft preserves target-relevant structural cues, post-hoc repair methods restore validity at the cost of substantial structural drift from the intended molecular identity. 
+
+Krenn et al., 2020; Tao et al., 2025). However, as shown in Table 1 and Figure 2, validity-oriented methods can unintentionally alter core scaffolds, functional groups, or other target-relevant substruc-tures that were correctly expressed in the original draft, ultimately reducing semantic alignment with the target description. A natural alternative is to prompt an LLM to iter-atively correct the draft using the target description and execution feedback. Yet this approach remains fundamentally limited. Our empirical analysis (Ta-ble 1, Figure 2) shows that LLM-based correction frequently introduces unintended global structural drift, modifying molecular regions that should re-main preserved. This limitation arises from the rep-resentation itself: LLM-only correction typically regenerates an entire tokenized SMILES sequence at each step, without explicitly separating local edits from globally preserved structures. Thus, at-tempts to fix one structural issue can inadvertently damage other target-relevant chemical cues. Consequently, invalid drafts should not be viewed as disposable broken strings to be super-ficially patched, but rather as corrupted molecular states that still preserve meaningful chemical infor-mation. Recovering these latent structural cues re-quires a stateful and context-aware framework that can preserve structural memory, explicitly track molecule-text mismatches, and iteratively validate targeted molecular modifications throughout the recovery process. 
+
+3.2 Molecular Recovery as Agentic Search 
+
+The need for a stateful, iterative correction pro-cess naturally motivates an agentic formulation where the molecule itself serves as the environ-mental state. We formalize this molecular recovery as a sequential decision process over molecular states. Let M denote the molecular state space and 
+
+A represent the action space. Given an initial in-valid draft m0 ∈ M and a target natural-language description d, the molecular state at step t is de-noted by mt ∈ M . The action at ∈ A corresponds to granular molecular operations such as charge alignment, atom/bond editing, or substructure re-placement. At each step, the agent selects an action based on the current molecule, target description, validation feedback ot, and interaction history ht:
+
+mt+1 = T (mt, a t), a t ∼ πθ(a | mt, d, o t, h t),
+
+where πθ is the agent policy and T is the transition operator that applies the selected action to the cur-rent molecule to produce the next molecular state. Within this formulation, a key challenge is action fidelity : whether an intended local edit is faithfully translated into the actual molecular transition. In-tegrating executable RDKit-based tools (Landrum, 2013) partially resolves this issue by grounding molecular actions as deterministic graph opera-tions, providing a tool-grounded transition operator, 
+
+Ttool , with substantially improved control and reli-ability. However, improving action fidelity alone is insufficient for robust molecular recovery. While executable tools constrain how molecular edits are applied, they do not determine which structural re-quirement should be prioritized first or whether 
+
+alternative recovery strategies should be explored. 3Consequently, generic tool-augmented agents still operate as a form of agentic greedy search , com-mitting to a single locally selected edit at each step while discarding alternative hypotheses. This greedy formulation exposes two fundamen-tal limitations: • Alignment Blindness: Generic agents lack an explicit molecule-aware reasoning mechanism for tracking which structural requirements im-plied by the target description are already satis-fied, still missing, or vulnerable to unintended modification during recovery. • Exploration Blindness: Recovery unfolds along a single linear trajectory, causing the search pro-cess to become highly sensitive to early sub-optimal edits that can irreversibly steer the agent toward dead-end recovery paths. Therefore, effective molecular recovery requires more than faithful executable actions. It demands explicit molecule-text alignment tracking together with broader exploration across multiple candidate trajectories, enabling the agent to preserve target-relevant structural cues while avoiding irreversible recovery failures. 
+
+4 AMREC : Agentic Molecular Recovery 
+
+To address the limitations of generic tool-augmented agents, AMREC formulates molecular re-covery as a stateful search process grounded in both the target description d and the initial invalid draft m0. Rather than treating the current molecule 
+
+mt as the only state variable, AMREC maintains a richer recovery state at step t by incorporating the interaction history ht and the cumulative candidate pool C<t generated up to the previous steps: 
+
+st = ( mt, h t, C<t ) . (1) When the initial draft m0 is unparseable, alightweight bootstrap using SMISELF (Tao et al., 2025) is applied as a one-off initialization step, pro-viding a formally valid starting graph from which RDKit properties can be extracted. On top of this state, AMREC uses four LLM agents with distinct roles: Checker , Critic , Planner ,and Candidate Explorer . As illustrated in Fig-ure 3, these modules collaborate along two primary operational axes to resolve the bottlenecks of agen-tic greedy search: • Property-Level Alignment: Checker , Critic ,and Planner form an evaluation-to-action triad that systematically translates natural language into verifiable constraints and targets remaining molecule-text mismatches. • Trajectory-Level Exploration: Candidate Explorer and a final selection mechanism non-linearly expand the search space, maintaining alternative recovery hypotheses instead of lock-ing onto a singular greedy path. 
+
+4.1 Checker Agent 
+
+Before the recovery loop, AMREC decomposes the target description d into a fixed set of check-able structural requirements using an LLM: P =
+
+{p1, p 2, . . . , p K }. Here, each requirement pi cor-responds to a molecular property or structural constraint that can be verified against the current molecule. This requirement set serves both as the recovery objective and explicit stopping criterion. At each iteration, Checker evaluates whether the current molecule mt satisfies these requirements using RDKit-derived observations: 
+
+ot = RDKit( mt), (2) 
+
+ct = ( ct, 1, . . . , c t,K ) = Checker (d, m t, P, o t),
+
+where ct,i = 1 indicates that mt satisfies require-ment pi. Through this process, Checker converts the high-level molecule-text alignment problem into an explicit property-level checklist. If all re-quirements are satisfied, recovery terminates imme-diately, preventing unnecessary modifications that may damage already-correct structures. Unsatisfied requirements are passed to next agents— Critic 
+
+and Planner —as structured mismatch signals. 
+
+4.2 Critic Agent 
+
+Critic transforms Checker ’s property-level out-puts into recovery guidance for subsequent plan-ning. It jointly considers the target description d,current molecule mt, requirement checklist P, RD-Kit observations ot, and recovery history ht:
+
+ft = Critic (d, m t, P, ct, o t, h t). (3) The resulting feedback ft summarizes unresolved structural mismatches, identifies target-relevant substructures that should be preserved, and high-lights potential structural drift introduced in pre-vious steps. Critic therefore acts as a molecule-aware reasoning step that contextualizes the cur-rent recovery state and guides future modifications toward unresolved structural objectives while dis-couraging additional modification that may be un-necessary or harmful. 4Qualitative example: CID 442621 
+
+The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy... 
+
+GT 
+
+ground truth 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+AMREC-C 
+
+full critic + candidate; exact=True 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+invalid; sanitize=False depiction 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+SMISELF 
+
+valid repair; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+iter=5; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+CID 442621 | heavy atoms 26 
+
+SMISELF Morgan: 0.104 
+
+LLM-Corrector+S Morgan: 0.104 
+
+AMREC-C: exact match 
+
+Orange marks atoms/bonds unmatched with GT. 
+
+AMREC-C is drawn with the GT coordinates. 
+
+example: CID 442621 
+
+ydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy... 
+
+O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+AMREC-C 
+
+full critic + candidate; exact=True 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+invalid; sanitize=False depiction 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+iter=5; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+CID 442621 | heavy atoms 26 
+
+SMISELF Morgan: 0.104 
+
+LLM-Corrector+S Morgan: 0.104 
+
+AMREC-C: exact match 
+
+Orange marks atoms/bonds unmatched with GT. 
+
+AMREC-C is drawn with the GT coordinates. 
+
+Qualitative example: CID 442621 
+
+The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy... 
+
+GT 
+
+ground truth 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+AMREC-C 
+
+full critic + candidate; exact=True 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+invalid; sanitize=False depiction 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+SMISELF 
+
+valid repair; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+iter=5; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+CID 442621 | heavy atoms 26 
+
+SMISELF Morgan: 0.104 
+
+LLM-Corrector+S Morgan: 0.104 
+
+AMREC-C: exact match 
+
+Orange marks atoms/bonds unmatched with GT. 
+
+AMREC-C is drawn with the GT coordinates. 
+
+> Qualitative example: CID 442621
+> The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy...
+> GT
+> ground truth
+> O O
+> O
+> HO
+> HO
+> O
+> O
+> HO
+> AMREC-C
+> full critic + candidate; exact=True
+> O O
+> O
+> HO
+> HO
+> O
+> O
+> HO
+> Initial draft
+> invalid; sanitize=False depiction
+> O
+> HO
+> HO
+> O
+> HO
+> O
+> O
+> O
+> SMISELF
+> valid repair; Morgan=0.104
+> O
+> HO
+> HO
+> O
+> HO
+> O
+> O
+> O
+> LLM-Corrector+S
+> iter=5; Morgan=0.104
+> O
+> HO
+> HO
+> O
+> HO
+> O
+> O
+> O
+> Case summary
+> CID 442621 | heavy atoms 26
+> SMISELF Morgan: 0.104
+> LLM-Corrector+S Morgan: 0.104
+> AMREC-C: exact match
+> Orange marks atoms/bonds unmatched with GT.
+> AMREC-C is drawn with the GT coordinates.
+> Qualitative example: CID 442621
+> The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy...
+> GT
+> ground truth
+> O O
+> O
+> HO
+> HO
+> O
+> O
+> HO
+> AMREC-C
+> full critic + candidate; exact=True
+> O O
+> O
+> HO
+> HO
+> O
+> O
+> HO
+> Initial draft
+> invalid; sanitize=False depiction
+> O
+> HO
+> HO
+> O
+> HO
+> O
+> O
+> O
+> SMISELF
+> valid repair; Morgan=0.104
+> O
+> HO
+> HO
+> O
+> HO
+> O
+> O
+> O
+> LLM-Corrector+S
+> iter=5; Morgan=0.104
+> O
+> HO
+> HO
+> O
+> HO
+> O
+> O
+> O
+> Case summary
+> CID 442621 | heavy atoms 26
+> SMISELF Morgan: 0.104
+> LLM-Corrector+S Morgan: 0.104
+> AMREC-C: exact match
+> Orange marks atoms/bonds unmatched with GT.
+> AMREC-C is drawn with the GT coordinates.
+
+Checker Criti c Planner Explorer 
+
+Qualitative example: CID 442621 
+
+The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy... 
+
+GT 
+
+ground truth 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+AMREC-C 
+
+full critic + candidate; exact=True 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+invalid; sanitize=False depiction 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+SMISELF 
+
+valid repair; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+iter=5; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+CID 442621 | heavy atoms 26 
+
+SMISELF Morgan: 0.104 
+
+LLM-Corrector+S Morgan: 0.104 
+
+AMREC-C: exact match 
+
+Orange marks atoms/bonds unmatched with GT. 
+
+AMREC-C is drawn with the GT coordinates. 
+
+Qualitative example: CID 442621 
+
+The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy... 
+
+GT 
+
+ground truth 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+AMREC-C 
+
+full critic + candidate; exact=True 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+invalid; sanitize=False depiction 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+SMISELF 
+
+valid repair; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+iter=5; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+CID 442621 | heavy atoms 26 
+
+SMISELF Morgan: 0.104 
+
+LLM-Corrector+S Morgan: 0.104 
+
+AMREC-C: exact match 
+
+Orange marks atoms/bonds unmatched with GT. 
+
+AMREC-C is drawn with the GT coordinates. 
+
+Qualitative example: CID 442621 
+
+The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy... 
+
+GT 
+
+ground truth 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+AMREC-C 
+
+full critic + candidate; exact=True 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+invalid; sanitize=False depiction 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+SMISELF 
+
+valid repair; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+iter=5; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+CID 442621 | heavy atoms 26 
+
+SMISELF Morgan: 0.104 
+
+LLM-Corrector+S Morgan: 0.104 
+
+AMREC-C: exact match 
+
+Orange marks atoms/bonds unmatched with GT. 
+
+AMREC-C is drawn with the GT coordinates. 
+
+Qualitative example: CID 442621 
+
+The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy... 
+
+GT 
+
+ground truth 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+AMREC-C 
+
+full critic + candidate; exact=True 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+invalid; sanitize=False depiction 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+SMISELF 
+
+valid repair; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+iter=5; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+CID 442621 | heavy atoms 26 
+
+SMISELF Morgan: 0.104 
+
+LLM-Corrector+S Morgan: 0.104 
+
+AMREC-C: exact match 
+
+Orange marks atoms/bonds unmatched with GT. 
+
+AMREC-C is drawn with the GT coordinates. 
+
+……. 
+
+> ….
+> ….
+
+Selection 
+
+Qualitative example: CID 442621 
+
+The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy... 
+
+GT 
+
+ground truth 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+AMREC-C 
+
+full critic + candidate; exact=True 
+
+O O
+
+O
+
+HO 
+
+HO 
+
+O
+
+O
+
+HO 
+
+Initial draft 
+
+invalid; sanitize=False depiction 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+SMISELF 
+
+valid repair; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+LLM-Corrector+S 
+
+iter=5; Morgan=0.104 
+
+O
+
+HO 
+
+HO 
+
+O
+
+HO 
+
+O
+
+O
+
+O
+
+Case summary 
+
+CID 442621 | heavy atoms 26 
+
+SMISELF Morgan: 0.104 
+
+LLM-Corrector+S Morgan: 0.104 
+
+AMREC-C: exact match 
+
+Orange marks atoms/bonds unmatched with GT. 
+
+AMREC-C is drawn with the GT coordinates. 
+
+Action 
+
+Candidates 
+
+Candidates pool 
+
+Exploration 
+
+Step 
+
+Selection 
+
+Ste p
+
+Final Molecule 
+
+x ite r
+
+Search space 
+
+Greedy 
+
+AMREC Tool Naiv e
+
+Target Draf tFigure 3: Overview of AMREC . AMREC combines molecular understanding components that track target-property mismatch with expanded search components that construct and revisit a trajectory-level candidate pool. 
+
+4.3 Planner Agent 
+
+Planner converts the Critic ’s feedback ft into an actionable recovery strategy under the current recovery state: 
+
+pt = Planner (d, m 0, m t, P, f t). (4) Here, pt = ( ιt, ℓ t), where ιt denotes the recov-ery intent that guides the next stage of exploration, and ℓt provides a short-horizon rationale describing how the proposed modification may affect scaffold preservation or downstream requirement satisfac-tion. Guided by this objective, Planner prioritizes minimal structural edits that resolve unsatisfied re-quirements while avoiding unnecessary changes to target-relevant structural cues, including scaffolds, ring systems, heteroatoms, charge states, stereo-chemistry, and large substituents. When further modification is likely to introduce harmful struc-tural drift, Planner can explicitly determine that no additional safe modification can be conducted, thereby preventing excessive molecule modifica-tion at the planning stage. 
+
+4.4 Candidate Explorer Agent 
+
+Candidate Explorer does not directly execute 
+
+Planner ’s recovery plan pt as a single next molecule, but instead expands it into molecular candidates that carry out the same recovery intent in multiple recovery trajectories: 
+
+Ct = {m(1) 
+
+t , m (2) 
+
+t , . . . , m (N )
+
+t } (5) 
+
+= Explorer (pt, d, m 0, m t, P, f t, o t, h t).
+
+Candidate Explorer conditions jointly on the tar-get description, initial draft, current molecule, plan-ning intent, recovery history, and structural feed-back. As a result, Ct represents a structured set of recovery hypotheses rather than a single one-shot proposal. This allows multiple draft-preserving and description-consistent recovery directions to be ex-plored simultaneously within the same iteration. From Ct, AMREC temporarily selects one valid candidate as the provisional next state mt+1 ∈ C t,which is subsequently re-evaluated by Checker and 
+
+Critic . Importantly, unselected candidates are not discarded. Instead, all explored candidates are pre-served in the recovery history and reconsidered during final trajectory-level selection. Unlike con-ventional agentic greedy search , which commits exclusively to the latest state, AMREC continuously expands and preserves a broader candidate pool throughout the recovery process. 
+
+4.5 Trajectory-level Candidate Selection 
+
+The recovery loop iteratively repeats the Checker –
+
+Critic –Planner –Candidate Explorer cycle un-til either all structural requirements are satisfied or the maximum iteration budget is reached. Conven-tional greedy-search agents would typically return the final molecular state as the output. However, in molecular recovery, later modifications may inad-vertently damage previously preserved structural cues, meaning earlier candidates can sometimes better preserve the intended molecular identity. To address this issue, AMREC performs trajectory-level candidate selection after the recovery loop terminates. First, it aggregates all explored candi-dates into a unified candidate pool: 
+
+Call = Collect  mT , h T , {C t}T −1
+
+t=0 
+
+. (6) Here, Call includes the final state, intermediate can-didates generated during recovery, and auxiliary candidates preserved during initialization. Final 
+
+5Selector then chooses one molecule from this trajectory-level candidate pool Call :
+
+ˆm = Select (d, m 0, Call ). (7) Rather than generating a new molecule, Select 
+
+performs comparative evaluation across the entire recovery trajectory, balancing target satisfaction against preservation of target-relevant structural cues from the original draft. In this way, AMREC 
+
+avoids overcommitting to a single greedy trajec-tory and instead reframes molecular recovery as an explicitly stateful, molecule-aware, and trajectory-level search process. 
+
+5 Experiment 
+
+In this section, we evaluate the effectiveness of 
+
+AMREC for molecular recovery from invalid drafts. In particular, we compare AMREC against validity-oriented repair methods, LLM-only correction, and generic tool-grounded agentic search to ex-amine how molecule-aware mismatch tracking and trajectory-level candidate exploration contribute to preserving target-relevant structural cues during molecular restoration. 
+
+5.1 Experimental Setup 
+
+We evaluate molecular recovery on invalid ini-tial drafts generated from the ChEBI-20 valida-tion split (Edwards et al., 2021). All methods are given the same target description d and initial draft 
+
+m0, and the final output is compared against the ground-truth target molecule. We use GPT-5.4-mini, Gemini-3.1-flash-lite and Claude-haiku-4.5 as backbone models. 
+
+Baselines. We compare validity-oriented repair, LLM-only correction, greedy agentic recovery, tool-augmented greedy recovery, and AMREC . Ini-tial Raw is the original invalid draft, SMISELF 
+
+performs post-hoc syntax-level repair (Tao et al., 2025), and LLM-Corrector iteratively rewrites the molecule using the target description and va-lidity feedback. For generic agentic baselines, we use ReAct, ReWOO, and PlanAndAct with RDKit observations (Yao et al., 2022; Xu et al., 2023; Erdogan et al., 2025; Landrum, 2013). Their tool-augmented variants, ReAct-T, ReWOO-T, and PlanAndAct-T, additionally use executable molecu-lar edit tools in Table B.2. For all agentic methods, SMISELF is applied initially to use RDkit edit and its observation. ReAct- and PlanAndAct-style base-lines are run for five iterations. For AMREC , we use five candidates per iteration and a maximum of five iterations, where the last stage performs trajectory-level candidate selection. Any remaining invalid outputs are repaired using SMISELF as a fallback for fair evaluation, so all molecules reported in the tables are valid. The detailed experimental setup is provided in Appendix B. 
+
+Metrics. We use metrics covering structural sim-ilarity(MACCS, RDK, Morgan FTS), exact iden-tity recovery(Exact), string-level similarity(BLEU, ROUGE-L, Levenshtein), and distribution-level distance(FCD); a full list and detailed descriptions are provided in Appendix B. 
+
+5.2 Main Results 
+
+Table 2 reports the recovery results from invalid drafts under three backbone models. Overall, 
+
+AMREC achieves the best performance across all met-rics, showing the strongest structural, exact-match, string-level, and distribution-level recovery. Generic agentic methods outperform LLM-only correction by making recovery iterative and by us-ing RDKit-derived factual information. However, their gains remain limited because they still refine a single accepted molecule at each step, making later recovery vulnerable to early structural drift. Tool-augmented variants generally improve over their non-tool counterparts. Nevertheless, the gains remain limited because these agents still fol-low greedy single-candidate refinement and lack molecule-aware mismatch tracking between the target description and the current molecular state. For agents with a more structured expansion pro-cedure, such as ReWOO, the tool-based constraint can also narrow the explored space and occasion-ally lower performance. These results suggest that robust recovery requires molecular understanding and expanded candidate search. The improvement of AMREC comes from ad-dressing this remaining limitation. AMREC uses description-derived requirements and Checker –
+
+Critic –Planner guidance to track target-relevant mismatches, and then uses Candidate Explorer 
+
+and trajectory-level selection to move beyond tool-grounded greedy recovery. In particular, candi-date exploration improves the fidelity with which a planned recovery intent is realized as a molecular transition: instead of realizing one intent as a single next molecule, AMREC generates multiple candidate realizations and compares them with respect to tar-get satisfaction and draft preservation. Therefore, the gain of AMREC reflects not only safer local edit 6Table 2: Main correction results at ChEBI-20 dataset grouped by backbone model. T denotes tool.                                                                                                                                                                                                                                                         
+
+> Method MACCS FTS ↑RDK FTS ↑Morgan FTS ↑Exact ↑BLEU ↑ROUGE-L ↑Levenshtein ↓FCD ↓
+> GPT-5.4-mini
+> Initial Raw ––––0.6407 0.7247 46.4433 –SMISELF 0.7154 0.3708 0.2628 0.0000 0.4467 0.6295 50.8814 18.4483 LLM-Corrector 0.7505 0.4407 0.3239 0.0567 0.4979 0.6547 49.9948 14.7324 ReAct 0.7766 0.4873 0.3823 0.0515 0.5574 0.6954 41.7938 13.0870 ReWOO 0.8274 0.5881 0.4774 0.1495 0.6207 0.7427 36.7887 11.3297 PlanAndAct 0.7770 0.4882 0.3802 0.0619 0.5516 0.6945 48.3711 12.6822 ReAct-T 0.8079 0.6276 0.4915 0.0979 0.6383 0.7489 36.7216 8.8410 ReWOO-T 0.8152 0.5672 0.4509 0.1134 0.6214 0.7383 35.8351 10.3550 PlanAndAct-T 0.8082 0.6079 0.4789 0.0773 0.6173 0.7397 39.9021 8.4538
+> AMREC 0.8661 0.6796 0.5760 0.1959 0.7166 0.8007 31.2526 7.4510
+> Gemini-3.1-Flash-Lite
+> Initial Raw ––––0.6357 0.7555 25.2214 –SMISELF 0.6932 0.3493 0.2729 0.0214 0.4247 0.6172 34.1000 18.3432 LLM-Corrector 0.7902 0.4906 0.4164 0.1214 0.5658 0.7058 34.7214 12.9917 ReAct 0.7955 0.5193 0.4472 0.1714 0.5841 0.7161 29.5500 10.7484 ReWOO 0.8442 0.6103 0.5368 0.2357 0.6543 0.7570 27.2500 8.8451 PlanAndAct 0.7918 0.5275 0.4414 0.1143 0.5891 0.7305 30.4786 10.5412 ReAct-T 0.8443 0.6480 0.5594 0.1929 0.6842 0.7880 23.8500 7.3022
+> ReWOO-T 0.8402 0.5950 0.5379 0.2214 0.6477 0.7550 27.7143 8.7526 PlanAndAct-T 0.8041 0.6009 0.5083 0.1286 0.6437 0.7612 25.0929 8.3742
+> AMREC 0.8618 0.6322 0.5745 0.2429 0.6988 0.7915 23.5214 9.8556
+> Claude-haiku-4.5
+> Initial Raw ––––0.6328 0.7439 24.5405 –SMISELF 0.6920 0.3788 0.2760 0.0203 0.4326 0.6226 29.7703 13.7593 LLM-Corrector 0.5704 0.3662 0.2897 0.0676 0.3913 0.5213 38.3784 18.8593 ReAct 0.7886 0.5215 0.4346 0.1014 0.5902 0.7202 24.8649 7.7959 ReWOO 0.8085 0.5337 0.4514 0.1351 0.6173 0.7427 23.8243 7.2375 PlanAndAct 0.7607 0.4626 0.3830 0.0608 0.5441 0.6987 25.7297 9.0560 ReAct-T 0.8088 0.5758 0.4814 0.1014 0.6428 0.7544 22.5473 5.9749 ReWOO-T 0.8362 0.5894 0.4959 0.1419 0.6619 0.7576 22.3514 5.6864 PlanAndAct-T 0.8096 0.5942 0.4863 0.0946 0.6479 0.7537 22.5000 5.7312
+> AMREC 0.8577 0.6347 0.5408 0.1689 0.7088 0.7917 20.3243 5.1682
+
+Figure 4: Intermediate recovery behavior on GPT-5.4-mini. The curves follow each method’s native execution stages under the same invalid initial subset. Purple stars indicate results after trajectory-level candidate selection. 
+
+execution, but also expanded candidate search that reduces premature greedy commitment. Figure 4 further supports this interpretation. Tool-augmented generic agents improve after the first executable edit, but their trajectories still fol-low a single accepted path; consequently, several metrics decline as iterations proceed. In contrast, 
+
+AMREC moves toward more target-relevant candi-dates from early stages and continues to refine re-maining structural details through candidate explo-ration. Trajectory-level selection also allows AMREC 
+
+to select the best molecule from the explored tra-jectory, rather than forcing the final output to be the last state of the loop. Figure 5 qualitatively illustrates the same distinc-tion. Tool-augmented generic agents can perform local edits, but they may still miss target-relevant cues or distort other substructures because they re-main greedy. AMREC instead expands the candidate set and compares molecules across the trajectory, enabling more faithful recovery of the target scaf-fold and key substructures. Thus, the performance gap in Table 2 reflects more than numerical im-provement; it shows that invalid molecule recov-ery requires going beyond valid repair and tool-grounded greedy editing toward molecule-aware candidate exploration. 
+
+6 Ablation Studies 
+
+Effect of candidate pool expansion. Table 3 shows that using a larger trajectory-level pool leads to better recovery quality. The improvement is most visible in structure-sensitive and identity-level met-rics, indicating that useful candidates can emerge 7Qualitative example: CID 442621     
+
+> Description: The molecule is a trihydroxyflavone that is flavone substituted by hydroxy groups at positioms 5, 6 and 3' and methoxy groups at positions... ReAct-T is shown without final candidate selection; AMREC uses final selection. Orange highlights deviations from GT.
+> GT
+> ground truth
+> OOOHO HO OOHO
+> Initial Draft
+> invalid; sanitize=False depiction
+> OHO HO OHO OOO
+> ReAct-T
+> w/o selection; Morgan=0.708
+> OHO OOHO OOHO
+> SMISELF
+> valid repair; Morgan=0.104
+> OHO HO OHO OOO
+> LLM-Corrector
+> iter=5; Morgan=0.104
+> OHO HO OHO OOO
+> AMREC
+> selection; Morgan=1.000; exact=True
+> OOOHO HO OOHO Qualitative example: CID 7124
+> Description: The molecule is a quinolinemonocarboxylic acid having the carboxy group at the 2-position. It has a role as a human metabolite and a Saccha... ReAct-T is shown without final candidate selection; AMREC uses final selection. Orange highlights deviations from GT.
+> GT
+> ground truth
+> OHO N
+> Initial Draft
+> invalid; sanitize=False depiction
+> OHO N
+> ReAct-T
+> w/o selection; Morgan=0.371
+> OHO N
+> SMISELF
+> valid repair; Morgan=0.091
+> OHO NH
+> LLM-Corrector
+> iter=5; Morgan=0.371
+> OHO N
+> AMREC
+> selection; Morgan=0.371; exact=False
+> OHO N
+
+Figure 5: Qualitative comparison between tool-augmented generic agents and AMREC . AMREC recovers target-relevant molecular structure more faithfully, while greedy edits can still leave residual errors or introduce new distortions. Table 3: Effect of trajectory-level candidate pool expan-sion in AMREC on GPT-5.4-mini. Iter k uses candidates accumulated up to iteration k for final selection. 
+
+Metric Iter 1 Iter 2 Iter 3 Iter 4 MACCS ↑ 0.8508 0.8548 0.8569 0.8661 
+
+RDK ↑ 0.6589 0.6588 0.6648 0.6796 
+
+Morgan ↑ 0.5499 0.5533 0.5547 0.5760 
+
+Exact ↑ 0.1392 0.1443 0.1443 0.1959 
+
+BLEU ↑ 0.6937 0.6977 0.7014 0.7166 
+
+ROUGE-L ↑ 0.7848 0.7855 0.7850 0.8007 
+
+Levenshtein ↓ 32.8454 32.9794 33.1701 31.2526 
+
+FCD ↓ 8.3462 8.2768 8.3033 7.4510 
+
+Table 4: Effect of Critic on GPT-5.4-mini. Each entry shows without critic → with critic. 
+
+Method MACCS FTS ↑ RDK FTS ↑ Morgan FTS ↑
+
+AMREC 0.8456 → 0.8661 0.6419 → 0.6796 0.5200 → 0.5760 
+
+at different stages of the recovery loop. This sup-ports our design choice of retaining intermediate candidates instead of relying only on the terminal molecule. 
+
+Effect of Critic . Table 4 shows that Critic con-tributes to more accurate structural recovery. By converting checker outputs into targeted feedback, it helps Planner prioritize remaining mismatches while reducing unnecessary edits. This suggests that molecule-aware feedback is important for guid-ing exploration beyond simple iterative correction. 
+
+Effect of final candidate selection. Table 5 shows that final selection improves recovery by choos-ing from the explored trajectory rather than tak-ing the last output. The gains also appear in tool-augmented baselines, confirming that termi-nal states are not always optimal. However, AMREC 
+
+remains strongest after selection, suggesting that selection is most effective when the preceding tra-jectory contains high-quality candidates. 
+
+Efficiency of AMREC . Table 6 shows that AMREC 
+
+does not require exhausting the full iteration budget in most cases. This indicates that the recovery 
+
+Table 5: Effect of final candidate selection on GPT-5.4-mini. Each entry shows terminal output → selected output from the candidate pool. 
+
+Method MACCS FTS ↑ RDK FTS ↑ Morgan FTS ↑
+
+ReAct-T 0.8079 → 0.8160 0.6276 → 0.6412 0.4915 → 0.5145 ReWOO-T 0.8152 → 0.8307 0.5672 → 0.6340 0.4509 → 0.5090 PlanAndAct-T 0.8082 → 0.8153 0.6079 → 0.6228 0.4789 → 0.4987 
+
+AMREC 0.8585 → 0.8661 0.6424 → 0.6796 0.5402 → 0.5760 
+
+Table 6: Computation analysis of AMREC . Each iteration column reports the number of samples terminated at that iteration; Mean denotes the average number of executor iterations. 
+
+Model Iter 1 Iter 2 Iter 3 Iter 4 Mean GPT-5.4-mini 130 22 9 33 1.72 Gemini-3.1-Flash-Lite 117 6 1 16 1.40 Claude-haiku-4.5 120 8 4 16 1.43 
+
+loop can often identify sufficient candidates early, while still preserving additional iterations for more difficult cases. Thus, AMREC improves recovery quality with a modest iterative cost. 
+
+7 Conclusion 
+
+We studied invalid molecular outputs as corrupted molecular states that require recovery rather than simple syntax repair. Our experiments show that post-hoc repair and LLM-only correction do not reliably recover target-relevant molecular identity. Executable molecular edit tools improve recov-ery performance, but their gains remain limited by greedy single-candidate search. We proposed 
+
+AMREC to address this limitation through molecule-aware mismatch tracking, candidate exploration, and trajectory-level selection. The results demon-strate that recovery is more effective when the method expands and compares candidate trajec-tories instead of committing to the final state of a single greedy path. 8Limitations 
+
+This work focuses on computational recovery of invalid SMILES outputs under benchmark settings. The recovered molecules are evaluated using au-tomatic structural, exact-match, string-level, and distribution-level metrics, which do not establish synthesizability, biological activity, toxicity, or real-world utility. In addition, AMREC relies on LLM-based requirement extraction, criticism, planning, and candidate selection, and its behavior may vary across backbone models, prompts, and chemical domains. Future work should evaluate broader molecular datasets, stronger chemical validation protocols, and expert-reviewed safety screening. 
+
+Ethical Considerations 
+
+This work is a computational study of invalid SMILES recovery for text-guided molecular gen-eration. It uses benchmark molecular-description data and does not involve human participants, per-sonally identifiable information, private user data, animal subjects, wet-lab experiments, or clinical deployment. The proposed method is intended for benchmarking molecular representation recovery rather than for automated drug discovery, synthesis planning, or chemical safety assessment. A potential risk is that improved recovery of valid molecular structures could be misused when paired with harmful target descriptions or down-stream synthesis and optimization tools. Recovered molecules may include chemically plausible struc-tures, but they should not be interpreted as safe, synthesizable, biologically active, or suitable for real-world use without expert review and indepen-dent validation. Any deployment should include safeguards such as expert oversight, screening for hazardous or controlled compounds, restrictions on high-risk prompts, and provenance logging. 
+
+References 
+
+Mehrad Ansari, Jeffrey Watchorn, Carla E Brown, and Joseph S Brown. 2024. dziner: Rational inverse design of materials with ai agents. arXiv preprint arXiv:2410.03963 .Dávid Bajusz, Anita Rácz, and Károly Héberger. 2015. Why is tanimoto index an appropriate choice for fingerprint-based similarity calculations? Journal of cheminformatics , 7(1):20. Daniil A Boiko, Robert MacKnight, Ben Kline, and Gabe Gomes. 2023. Autonomous chemical research with large language models. Nature , 624(7992):570– 578. Austin H Cheng, Andy Cai, Santiago Miret, Gustavo Malkomes, Mariano Phielipp, and Alán Aspuru-Guzik. 2023. Group selfies: a robust fragment-based molecular string representation. Digital Discovery ,2(3):748–758. Hanjun Dai, Yingtao Tian, Bo Dai, Steven Skiena, and Le Song. 2018. Syntax-directed variational autoencoder for structured data. arXiv preprint arXiv:1802.08786 .Joseph L Durant, Burton A Leland, Douglas R Henry, and James G Nourse. 2002. Reoptimization of mdl keys for use in drug discovery. Journal of chemi-cal information and computer sciences , 42(6):1273– 1280. Carl Edwards, Tuan Lai, Kevin Ros, Garrett Honke, Kyunghyun Cho, and Heng Ji. 2022. Translation be-tween molecules and natural language. In Proceed-ings of the 2022 Conference on Empirical Methods in Natural Language Processing , pages 375–413. Carl Edwards, ChengXiang Zhai, and Heng Ji. 2021. Text2mol: Cross-modal molecule retrieval with nat-ural language queries. In Proceedings of the 2021 conference on empirical methods in natural language processing , pages 595–607. Lutfi Eren Erdogan, Nicholas Lee, Sehoon Kim, Suhong Moon, Hiroki Furuta, Gopala Anumanchipalli, Kurt Keutzer, and Amir Gholami. 2025. Plan-and-act: Improving planning of agents for long-horizon tasks. 
+
+arXiv preprint arXiv:2503.09572 .Haisong Gong, Qiang Liu, Shu Wu, and Liang Wang. 2024. Text-guided molecule generation with diffu-sion language model. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 38, pages 109–117. Taicheng Guo, Bozhao Nan, Zhenwen Liang, Zhichun Guo, Nitesh Chawla, Olaf Wiest, Xiangliang Zhang, and 1 others. 2023. What can large language models do in chemistry? a comprehensive benchmark on eight tasks. Advances in neural information process-ing systems , 36:59662–59688. Wengong Jin, Regina Barzilay, and T. Jaakkola. 2018. Junction tree variational autoencoder for molecular graph generation. ArXiv , abs/1802.04364. Wengong Jin, Regina Barzilay, and T. Jaakkola. 2020. Hierarchical generation of molecular graphs using structural motifs. ArXiv , abs/2002.03230. Hyomin Kim, Yunhui Jang, and Sungsoo Ahn. 2025. Mt-mol:multi agent system with tool-based reasoning for molecular optimization. ArXiv , abs/2505.20820. Mario Krenn, Florian Häse, AkshatKumar Nigam, Pas-cal Friederich, and Alan Aspuru-Guzik. 2020. Self-referencing embedded strings (selfies): A 100% ro-bust molecular string representation. Machine Learn-ing: Science and Technology , 1(4):045024. 
+
+9Matt J Kusner, Brooks Paige, and José Miguel Hernández-Lobato. 2017. Grammar variational au-toencoder. In International conference on machine learning , pages 1945–1954. PMLR. Greg Landrum. 2013. Rdkit: Open-source cheminfor-matics. https://www.rdkit.org .Khiem Le, Ting Hua, and Nitesh V Chawla. 2024. Agentdrug: Utilizing large language models in an agentic workflow for zero-shot molecular optimiza-tion. arXiv preprint arXiv:2410.13147 .Vladimir I Levenshtein and 1 others. 1966. Binary codes capable of correcting deletions, insertions, and reversals. In Soviet physics doklady , volume 10, pages 707–710. Soviet Union. Jiatong Li, Wei Liu, Zhihao Ding, Wenqi Fan, Yuqiang Li, and Qing Li. 2025. Large language models are in-context molecule learners. IEEE Transactions on Knowledge and Data Engineering .Jiatong Li, Yunqing Liu, Wenqi Fan, Xiao-Yong Wei, Hui Liu, Jiliang Tang, and Qing Li. 2024. Empow-ering molecule discovery for molecule-caption trans-lation with large language models: A chatgpt per-spective. IEEE transactions on knowledge and data engineering , 36(11):6071–6083. Chin-Yew Lin. 2004. Rouge: A package for automatic evaluation of summaries. In Text summarization branches out , pages 74–81. Pengfei Liu, Jun Tao, and Zhixiang Ren. 2025. A quan-titative analysis of knowledge-learning preferences in large language models in molecular science. Nature Machine Intelligence , 7(2):315–327. Shengchao Liu, Weili Nie, Chengpeng Wang, Jiarui Lu, Zhuoran Qiao, Ling Liu, Jian Tang, Chaowei Xiao, and Animashree Anandkumar. 2023a. Multi-modal molecule structure–text model for text-based retrieval and editing. Nature Machine Intelligence ,5(12):1447–1457. Zequn Liu, Wei Zhang, Yingce Xia, Lijun Wu, Shufang Xie, Tao Qin, Ming Zhang, and Tie-Yan Liu. 2023b. Molxpt: Wrapping molecules with text for generative pre-training. In Proceedings of the 61st Annual Meet-ing of the Association for Computational Linguistics (Volume 2: Short Papers) , pages 1606–1616. Yanchen Luo, Junfeng Fang, Sihang Li, Zhiyuan Liu, Jiancan Wu, An Zhang, Wenjie Du, and Xiang Wang. 2024. Text-guided diffusion model for 3d molecule generation. Preprint , arXiv:2410.03803. Andres M. Bran, Sam Cox, Oliver Schilter, Carlo Bal-dassari, Andrew D White, and Philippe Schwaller. 2024. Augmenting large language models with chem-istry tools. Nature machine intelligence , 6(5):525– 535. Andreas Mayr, Günter Klambauer, Thomas Unterthiner, Marvin Steijaert, Jörg K Wegner, Hugo Ceulemans, Djork-Arné Clevert, and Sepp Hochreiter. 2018. Large-scale comparison of machine learning meth-ods for drug target prediction on chembl. Chemical science , 9(24):5441–5451. Tung Nguyen and Aditya Grover. 2024. Lico: Large lan-guage models for in-context molecular optimization. 
+
+ArXiv , abs/2406.18851. Noel O’Boyle and Andrew Dalke. 2018. Deepsmiles: an adaptation of smiles for use in machine-learning of chemical structures. Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu. 2002. Bleu: a method for automatic evalu-ation of machine translation. In Proceedings of the 40th annual meeting of the Association for Computa-tional Linguistics , pages 311–318. Qizhi Pei, Wei Zhang, Jinhua Zhu, Kehan Wu, Kaiyuan Gao, Lijun Wu, Yingce Xia, and Rui Yan. 2023. Biot5: Enriching cross-modal integration in biology with chemical knowledge and natural language asso-ciations. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing ,pages 1102–1123. Stephen Robertson and Hugo Zaragoza. 2009. The prob-abilistic relevance framework: BM25 and beyond ,volume 4. Now Publishers Inc. David Rogers and Mathew Hahn. 2010. Extended-connectivity fingerprints. Journal of chemical in-formation and modeling , 50(5):742–754. Nadine Schneider, Roger A Sayle, and Gregory A Lan-drum. 2015. Get your atoms in order— an open-source implementation of a novel and robust molecu-lar canonicalization algorithm. Journal of chemical information and modeling , 55(10):2111–2120. Linde Schoenmaker, Olivier JM Béquignon, Willem Jespers, and Gerard JP van Westen. 2023. Uncorrupt smiles: a novel approach to de novo design. Journal of Cheminformatics , 15(1):22. Chence Shi, Minkai Xu, Zhaocheng Zhu, Weinan Zhang, Ming Zhang, and Jian Tang. 2020. Graphaf: a flow-based autoregressive model for molecular graph gen-eration. ArXiv , abs/2001.09382. Michael A Skinnider. 2024. Invalid smiles are beneficial rather than detrimental to chemical language models. 
+
+Nature Machine Intelligence , 6(4):437–448. Xiangru Tang, Tianyu Hu, Muyang Ye, Yanjun Shao, Xunjian Yin, Siru Ouyang, Wangchunshu Zhou, Pan Lu, Zhuosheng Zhang, Yilun Zhao, Arman Cohan, and Mark Gerstein. 2025. Chemagent: Self-updating library in large language models improves chemical reasoning. ArXiv , abs/2501.06590. 
+
+10 Wen Tao, Jing Tang, Alvin Chan, Bryan Hooi, Baolong Bi, Nanyun Peng, Yuansheng Liu, and Yiwei Wang. 2025. How to make large language models gener-ate 100% valid molecules? In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 26576–26591. Ziqing Wang. Remol: Llm-guided molecular optimiza-tion with reinforcement learning. David Weininger. 1988. Smiles, a chemical language and information system. 1. introduction to methodol-ogy and encoding rules. Journal of chemical infor-mation and computer sciences , 28(1):31–36. Zhenxing Wu, Odin Zhang, Xiaorui Wang, Li-Ni Fu, Huifeng Zhao, Jike Wang, Hongyan Du, Dejun Jiang, Yafeng Deng, Dongsheng Cao, Changyu Hsieh, and Tingjun Hou. 2024. Leveraging language model for advanced multiproperty molecular optimization via prompt engineering. Nature Machine Intelligence ,6:1359 – 1369. Binfeng Xu, Zhiyuan Peng, Bowen Lei, Subhabrata Mukherjee, Yuchen Liu, and Dongkuan Xu. 2023. Rewoo: Decoupling reasoning from observations for efficient augmented language models. arXiv preprint arXiv:2305.18323 .Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. 2022. React: Synergizing reasoning and acting in language models. arXiv preprint arXiv:2210.03629 .Geyan Ye, Xibao Cai, Houtim Lai, Xing Wang, Jun-hong Huang, Longyue Wang, Wei Liu, and Xian Zeng. 2023. Drugassist: a large language model for molecule optimization. Briefings in Bioinformatics ,26. Jiaxuan You, Bowen Liu, Rex Ying, Vijay S. Pande, and Jure Leskovec. 2018. Graph convolutional policy net-work for goal-directed molecular graph generation. In Neural Information Processing Systems .Botao Yu, Frazier N Baker, Ziru Chen, Garrett Herb, Boyu Gou, Daniel Adu-Ampratwum, Xia Ning, and Huan Sun. 2025. Tooling or not tooling? the impact of tools on language agents for chemistry problem solving. In Findings of the Association for Computa-tional Linguistics: NAACL 2025 , pages 7620–7640. Andrew Y Zhou, Sharvaree Vadgama, Sumanth Varam-bally, Peter Eckmann, Michael K Gilson, and Rose Yu. 2026. Toolmol: Evolutionary agentic framework for multi-objective drug discovery. arXiv preprint arXiv:2605.12784 .Zhenpeng Zhou, Steven M. Kearnes, Li Li, Richard N. Zare, and Patrick F. Riley. 2018. Optimization of molecules via deep reinforcement learning. Scientific Reports , 9. 
+
+The Use Of Large Language Model Assistants 
+
+We drafted the manuscript ourselves, and used ChatGPT-5.5 and ChatGPT-5.5-Pro. 
+
+A Additional Related Work 
+
+Remark on terminology. We slightly abuse the terminology of syntactic and semantic errors in this paper. In SMISELF (Tao et al., 2025), syn-tactic errors refer to invalid SMILES strings that cannot be parsed into molecular graphs, whereas se-mantic errors refer to parsed molecular graphs that violate basic chemical constraints, such as atom valence rules. In our introduction, when we re-fer to syntax errors in invalid molecular drafts, we use the term broadly to cover both syntactic and single-molecule-level semantic errors in the sense of SMISELF. By contrast, our use of semantic er-ror is reserved for a different level of mismatch: the contextual misalignment between the target natural-language description and the recovered molecule. Thus, semantic recovery in our setting does not merely mean obtaining a chemically valid molec-ular graph, but recovering a molecule whose scaf-fold, functional groups, and other target-relevant structural cues are consistent with the description. 
+
+Text-guided molecular de novo generation. 
+
+Text-guided molecular de novo generation aims to generate molecular structures from natural-language descriptions of desired chemical struc-tures, functions, or properties. This setting has been studied through molecule-text retrieval, molecule captioning, and text-based molecule generation with task-specific models, pretrained molecule-language models, and large language models, including Text2Mol, MolT5, MolXPT, BioT5, MoleculeSTM, MolReGPT, and recent diffusion-based variants such as TGM-DLM and TextSMOG (Edwards et al., 2021, 2022; Liu et al., 2023b; Pei et al., 2023; Liu et al., 2023a; Li et al., 2024; Gong et al., 2024; Luo et al., 2024). These approaches demonstrate that natural language can provide a flexible interface for molecular design, but they mainly focus on generating molecules di-rectly from text. In contrast, our work studies post-generation molecular recovery, where an invalid draft may still contain target-relevant structural cues that should be preserved. 
+
+Validity-oriented molecular representations and repair. A central challenge in SMILES-based molecular generation is validity: small errors in 11 branches, rings, aromaticity, or valence can make a generated string unparsable (Weininger, 1988). Prior work has addressed this issue using validity-preserving or grammar-aware molecular represen-tations, including SELFIES, DeepSMILES, Gram-marVAE, Syntax-Directed VAE, Group SELFIES, and related robust molecular languages (Krenn et al., 2020; O’Boyle and Dalke, 2018; Kusner et al., 2017; Dai et al., 2018; Cheng et al., 2023). Other methods instead perform post-hoc repair or correction of invalid molecular strings, such as UnCorrupt SMILES and SMISELF (Schoenmaker et al., 2023; Tao et al., 2025). These methods are effective for restoring chemical validity, but valid-ity alone does not ensure that the repaired molecule preserves the structural identity implied by the tar-get text. Our work therefore distinguishes syntactic repair from molecular recovery. 
+
+Molecular optimization. Molecular optimiza-tion modifies existing molecules to improve target properties while often maintaining structural simi-larity to a starting molecule. Classical approaches formulate this process over molecular graphs, latent spaces, or sequential decision processes, including JT-VAE, GCPN, MolDQN, HierVAE, GraphAF, and related graph-based generative models (Jin et al., 2018; You et al., 2018; Zhou et al., 2018; Jin et al., 2020; Shi et al., 2020). More recent ap-proaches incorporate language models or prompt-ing into molecular optimization, such as Prompt-MolOpt, DrugAssist, AgentDrug, LICO, and Re-Mol (Wu et al., 2024; Ye et al., 2023; Le et al., 2024; Nguyen and Grover, 2024; Wang). These methods are related to our iterative editing setting, but they are typically property-driven: the goal is to improve a valid molecule with respect to desired objectives rather than recover the intended molecu-lar identity from an invalid draft. 
+
+Chemical agents. LLM-based agents combine reasoning, planning, tool use, and iterative feed-back for complex task solving (Yao et al., 2022; Xu et al., 2023; Erdogan et al., 2025). In chemistry, agentic frameworks have been applied to chemi-cal reasoning, synthesis planning, property evalu-ation, inverse design, experiment automation, and drug discovery, including ChemCrow, Coscientist, ChemAgent, ChemToolAgent, dziner, AgentDrug, MT-MOL, and ToolMol (M. Bran et al., 2024; Boiko et al., 2023; Tang et al., 2025; Yu et al., 2025; Ansari et al., 2024; Le et al., 2024; Kim et al., 2025; Zhou et al., 2026). These works show the promise of tool-augmented chemical reasoning, especially when LLM decisions are grounded by executable chemistry tools such as RDKit (Lan-drum, 2013). However, existing molecule-level agents are mainly designed for task completion or property-driven optimization, and do not explicitly address identity-preserving recovery from invalid molecular drafts. 
+
+B Experiment Setup: Detailed 
+
+Backbones. We use three backbone models, • openai/gpt-5.4-mini-20260317 
+
+• google/gemini-3.1-flash-lite-20260507 
+
+• anthropic/claude-4.5-haiku-20251001 
+
+accessed through OpenRouter. We set the decoding temperature to 0 for all baselines and agentic mod-ules. For the Candidate Explorer in AMREC , we use a temperature of 0.5 to encourage diverse candi-date generation during trajectory-level exploration. For the main-table experiments with single run, we additionally estimate an upper-bound end-to-end inference budget under the worst-case assumption that AMREC uses the maximum number of iterations for every sample. Under this conservative setting, one backbone-model experiment requires 34.38M tokens in total, corresponding to an estimated out-put cost of $51.57 for Gemini-3.1-Flash-Lite under OpenRouter pricing. This estimate should be in-terpreted as a worst-case upper bound: in practice, 
+
+AMREC terminates much earlier on average, requir-ing only 1.4 iterations for Gemini-3.1-Flash-Lite, and therefore the average inference cost is substan-tially lower.     
+
+> Model invalid
+> GPT-5.4-mini ( openai/gpt-5.4-mini )194 Claude-haiku-4.5 ( anthropic/claude-haiku-4.5 )148 Gemini-3.1-Flash-Lite ( google/gemini-3.1-flash-lite )140
+> Table B.1: Number of invalid molecules
+
+Dataset. In our setting, the goal is not to generate molecules from scratch, but to recover chemically valid and target-consistent molecules from invalid initial drafts. We use the publicly available ChEBI-20-MM benchmark from Hugging Face solely for research purposes (Edwards et al., 2021; Liu et al., 2025). Our experiments use only the description–SMILES 12 pairs, and we follow the dataset’s associated ac-cess conditions and license terms. ChEBI-20-MM dataset is a text-to-molecule benchmark consisting of natural-language molecular descriptions paired with ground-truth molecular structures represented as SMILES. Specifically, we use the ChEBI-20-MM validation split and first generate initial molec-ular drafts using three backbone text-guided gen-eration models: GPT-5.4-mini, Gemini-3.1-Flash-Lite, and Claude-haiku-4.5. We then construct the evaluation subset from test examples for which the corresponding backbone model produces an invalid SMILES. All recovery methods are evaluated on these invalid initial drafts under the same target de-scription and ground-truth molecule. The number of invalid initial drafts produced by each backbone model is reported in Table B.1. 
+
+Evaluation Metrics. We evaluate recovery qual-ity using structural, exact-match, string-level, and distribution-level metrics. For structural similarity, we report Tanimoto similarity based on MACCS, RDKit, and Morgan fingerprints (Bajusz et al., 2015; Durant et al., 2002; Schneider et al., 2015; Rogers and Hahn, 2010). These metrics com-pare the recovered molecule with the ground-truth molecule under different molecular fingerprint rep-resentations, and higher values indicate better struc-tural agreement. Exact Match measures whether the recovered molecule is identical to the ground-truth molecule. BLEU and ROUGE-L evaluate string-level overlap between the recovered and reference molecular rep-resentations, while Levenshtein distance measures the minimum number of edits required to transform the recovered string into the reference string (Pa-pineni et al., 2002; Lin, 2004; Levenshtein et al., 1966). Higher BLEU and ROUGE-L scores are bet-ter, whereas lower Levenshtein distance is better. Finally, FCD measures the distributional distance between recovered and reference molecules in the ChemNet embedding space, where lower values in-dicate better distributional alignment (Mayr et al., 2018). 
+
+Packages and hyperparameters. We used RD-Kit 2026.03.2 for SMILES validity checking, canonicalization, InChI exact match, and finger-print computation. Fingerprint Tanimoto scores used RDKit defaults for MACCS keys and RDK fingerprints, and Morgan fingerprints with radius 2. FCD was computed with the fcd package v1.2.2 using its default pretrained model. BLEU 
+
+Table B.2: RDKit-based molecular edit actions.               
+
+> Action Molecular operation
+> replace_substructure Replace a matched SMARTS/SMILES pattern with a target fragment.
+> delete_substructure Remove an extra matched substituent or functional group.
+> add_fragment Attach a small fragment to the first atom matched by an attachment pattern.
+> change_bond_order Set the order of a matched two-atom bond.
+> mutate_atom Change the element type of the first matched atom.
+> set_formal_charge Set the formal charge of the first matched atom.
+> no_op Keep the current molecule unchanged.
+
+was computed with NLTK v3.9.4 corpus_bleu ;Levenshtein distance used python-Levenshtein 
+
+v0.27.3; ROUGE-L was our character-level LCS implementation. BM25 retrieval used rank_bm25 
+
+v0.2.2 with default Okapi BM25 parameters. 
+
+Setup. We compare AMREC with validity-oriented repair, LLM-only correction, and generic agentic search baselines. We use three representative agen-tic frameworks: • ReAct , which interleaves reasoning with action selection from the current observa-tion (Yao et al., 2022). • ReWOO , which constructs a structured plan before executing tool-based reasoning steps (Xu et al., 2023). • PlanAndAct , which separates planning and execution during iterative refinement (Erdo-gan et al., 2025). For all baseline agents, we apply SMISELF to the invalid initial molecule before the first itera-tion. After each iteration, if the produced molecule is invalid, we apply SMISELF again, enabling the agent to continue search over valid molecular states. Each agent is additionally provided with five BM25-retrieved reference molecules as contextual examples (Robertson and Zaragoza, 2009). ReAct and PlanAndAct are run for five iterations, while ReWOO is run for a single iteration following the original setting. For tool-augmented baselines, de-noted by the suffix "-T", executable molecular edit actions are used, and the agent is allowed one retry when an action execution fails. 
+
+Tool Setup. We provide tool-augmented baseline agents with seven executable RDKit-based edit ac-tions at Table B.2 (Landrum, 2013). Each action 13 operates on the current valid molecular graph and returns a sanitized SMILES when the edit succeeds. • replace_substructure replaces the first matched source substructure with a valid tar-get SMILES fragment. The source pattern may be specified as SMARTS or SMILES. • delete_substructure removes a matched substructure, such as an extra substituent or incorrectly attached atom, and succeeds only if the resulting molecule remains valid. • add_fragment attaches a valid SMILES frag-ment to the first atom matched by an attach-ment SMARTS pattern using a single bond. • change_bond_order changes an existing matched bond to SINGLE , DOUBLE , TRIPLE , or 
+
+AROMATIC .• mutate_atom changes the element type of the first atom matched by an atom SMARTS pat-tern, followed by sanitization. • set_formal_charge assigns an integer for-mal charge to the first atom matched by an atom SMARTS pattern. • no_op leaves the molecule unchanged and serves as a safety action when further editing is unnecessary. 
+
+C AMREC : Case Reports 
+
+We provide a qualitative case report (figure C.1, C.2, C.3, C.4, C.5, C.6) to more closely inspect a representative example in which AMREC success-fully recovers the intended molecule. This analy-sis complements the aggregate results by showing how different correction paradigms behave at the level of molecular structure. The target descrip-tion specifies a substituted flavone with multiple hydroxyl and methoxy groups. Although the ini-tial draft is invalid, its unsanitized depiction still contains target-relevant structural cues, including the approximate flavone-like scaffold and oxygen-containing substituents. Therefore, the desired be-havior is not simply to convert the draft into any valid molecule, but to recover validity while pre-serving and refining these chemically meaningful cues. Validity-oriented repair methods fail to achieve this goal. SMISELF produces a valid molecule, but the repaired structure shows substantial devi-ation from the ground-truth molecule, yielding a very low Morgan similarity. This indicates that the method restores syntactic validity at the cost of distorting the target-relevant molecular identity. The LLM-based corrector exhibits a similar failure pattern: despite conditioning on the target descrip-tion and iterative feedback, it remains close to the distorted repaired structure and does not recover the correct scaffold and substitution pattern. These results suggest that repair-based approaches can overwrite useful information already present in the invalid draft. In contrast, AMREC recovers the exact target molecule in this case. AMREC benefits from treat-ing the invalid draft as a corrupted molecular state rather than a broken string. Its requirement-driven Checker –Critic –Planner loop identifies unresolved molecule-text mismatches, while the 
+
+Candidate Explorer maintains multiple recov-ery hypotheses instead of committing to a single repaired trajectory. The final selection step then chooses the candidate that best preserves the draft’s useful structural cues while satisfying the target description. This case illustrates the central distinc-tion between validity repair and molecular recov-ery. Repair methods can produce formally valid molecules, but they may introduce large structural distortions from the intended molecular identity. 
+
+AMREC instead performs molecule-aware recovery by preserving target-relevant cues and exploring alternative trajectories before final selection. 14 Qualitative example: CID 117 
+
+Description: The molecule is an imidazole-4-carboxylic acid compound having an amino substituent at the 5-position. It is an imidazole-4-carboxylic acid... ReAct-T is shown without final candidate selection; AMREC uses final selection. Orange highlights deviations from GT. 
+
+GT 
+
+ground truth 
+
+NH2 NH NOHO 
+
+Initial Draft 
+
+invalid; sanitize=False depiction 
+
+NH2 NNOHO 
+
+ReAct-T 
+
+w/o selection; Morgan=0.517 
+
+NH2 NNH OHO 
+
+SMISELF 
+
+valid repair; Morgan=0.167 
+
+NH2 NH NH OHO 
+
+LLM-Corrector 
+
+iter=5; Morgan=0.162 
+
+NH2 NH NH OHO 
+
+AMREC 
+
+selection; Morgan=1.000; exact=True 
+
+NH2 NH NOHO Figure C.1: Qualitative example of molecular restora-tion for an invalid draft. Qualitative example: CID 1865 
+
+Description: The molecule is a pyrimidone that is thymine in which the hydrogen at position 6 is substituted by a 3-hydroxypropyl group. It is a pyrimid... ReAct-T is shown without final candidate selection; AMREC uses final selection. Orange highlights deviations from GT. 
+
+GT 
+
+ground truth 
+
+HO NHO N HO 
+
+Initial Draft 
+
+invalid; sanitize=False depiction 
+
+HO NON HO 
+
+ReAct-T 
+
+w/o selection; Morgan=0.178 
+
+ONH ONH HO 
+
+SMISELF 
+
+valid repair; Morgan=0.178 
+
+HO NH ONH HO 
+
+LLM-Corrector 
+
+iter=5; Morgan=0.308 
+
+HO NH ONH O
+
+AMREC 
+
+selection; Morgan=1.000; exact=True 
+
+HO NHO N HO 
+
+Figure C.2: Qualitative example of molecular restora-tion for an invalid draft. Qualitative example: CID 440394 
+
+Description: The molecule is a cyclohexadienecarboxylic acid having the C=C double bonds at the 1- and 3-positions, the carboxy group at the 1-position,... ReAct-T is shown without final candidate selection; AMREC uses final selection. Orange highlights deviations from GT. 
+
+GT 
+
+ground truth 
+
+NH OOHO 
+
+Initial Draft 
+
+invalid; sanitize=False depiction 
+
+OHO ONH 
+
+ReAct-T 
+
+w/o selection; Morgan=0.243 
+
+OHO ONH2 
+
+SMISELF 
+
+valid repair; Morgan=0.243 
+
+OHO ONH2 
+
+LLM-Corrector 
+
+iter=5; Morgan=0.200 
+
+OHO ONH2 
+
+AMREC 
+
+selection; Morgan=0.353; exact=False 
+
+NH OOHO 
+
+Figure C.3: Qualitative example of molecular restora-tion for an invalid draft. Qualitative example: CID 5320053 
+
+Description: The molecule is a member of the class of 7-hydroxyisoflavones that is 7-hydroxyisoflavone with an additonal hydroxy group at position 4' an... ReAct-T is shown without final candidate selection; AMREC uses final selection. Orange highlights deviations from GT. 
+
+GT 
+
+ground truth 
+
+OHO OHO 
+
+Initial Draft 
+
+invalid; sanitize=False depiction 
+
+OHO OHO 
+
+ReAct-T 
+
+w/o selection; Morgan=0.549 
+
+OOOHO 
+
+SMISELF 
+
+valid repair; Morgan=0.158 
+
+OHO OHO 
+
+LLM-Corrector 
+
+iter=5; Morgan=0.282 
+
+HO OOO
+
+AMREC 
+
+selection; Morgan=1.000; exact=True 
+
+OHO OHO 
+
+Figure C.4: Qualitative example of molecular restora-tion for an invalid draft. Qualitative example: CID 56597213 
+
+Description: The molecule is a dimethoxybenzene that is 2,5-dimethoxyphenol substituted by a 3-(4-hydroxy-3-methoxyphenyl)propyl group at position 4. It... ReAct-T is shown without final candidate selection; AMREC uses final selection. Orange highlights deviations from GT. 
+
+GT 
+
+ground truth 
+
+OOHO OHO 
+
+Initial Draft 
+
+invalid; sanitize=False depiction 
+
+OHO OOHO 
+
+ReAct-T 
+
+w/o selection; Morgan=1.000 
+
+OOHO OHO 
+
+SMISELF 
+
+valid repair; Morgan=0.098 
+
+OHO OOHO 
+
+LLM-Corrector 
+
+iter=5; Morgan=0.098 
+
+OHO OOHO 
+
+AMREC 
+
+selection; Morgan=1.000; exact=True 
+
+OOHO OHO 
+
+Figure C.5: Qualitative example of molecular restora-tion for an invalid draft. Qualitative example: CID 6913121 
+
+Description: The molecule is an unsymmetrical cationic C1 cyanine dye having 1,3-benzoxazol-2-yl and quinolinium-4-yl substituents. It has a role as a f... ReAct-T is shown without final candidate selection; AMREC uses final selection. Orange highlights deviations from GT. 
+
+GT 
+
+ground truth 
+
+NNNO
+
+Initial Draft 
+
+invalid; sanitize=False depiction 
+
+NNO
+
+ReAct-T 
+
+w/o selection; Morgan=0.299 
+
+NON
+
+SMISELF 
+
+valid repair; Morgan=0.073 
+
+NNO
+
+LLM-Corrector 
+
+iter=5; Morgan=0.000 
+
+NNO
+
+AMREC 
+
+selection; Morgan=0.540; exact=False 
+
+NNNO
+
+Figure C.6: Qualitative example of molecular restora-tion for an invalid draft. 
+
+15

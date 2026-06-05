@@ -1,0 +1,1055 @@
+Title: Towards Generalizable Protein-ligand Co-folding with ACER
+
+URL Source: https://www.biorxiv.org/content/10.64898/2026.06.02.728568v1.full.pdf
+
+Number of Pages: 24
+
+Markdown Content:
+# Towards Generalizable Protein-ligand Co-folding with ACER 
+
+Nopsinth Vithayapalert 1 Francesca Grisoni 1
+
+# Abstract 
+
+Predicting protein–ligand complex structures is a central challenge in drug discovery. While recent co-folding models such as AlphaFold-3 achieve accurate structure prediction, they fail to gener-alize to underexplored binding interfaces – sys-tematically misplacing ligands, particularly for allosteric or structurally novel targets. To ad-dress this gap, we present ACER (Adaptive Co-folding via pocket Exploration and pose Ranking), a training-free framework that (a) enables co-folding models to systematically explore alter-native binding pockets, and (b) leverages the dis-covered pockets to increase pose accuracy. Our method enables the efficient discovery of non-prevalent pockets without prior expert knowledge. ACER improves pocket discovery and pose accu-racy on allosteric targets and structurally novel complexes, successfully modeling binding inter-faces that are under-represented or absent from the training set. Our results demonstrate how im-proved sampling dynamics enhance the generalis-ability of co-folding models without retraining. 
+
+# 1. Introduction 
+
+Characterizing protein-ligand interactions at the structural level provides a fundamental understanding of how a small molecule modulates the biological function of one or more macromolecular targets (Zhao et al., 2022; Ciulli, 2013). Traditional structural biology techniques, e.g . X-ray crys-tallography and cryo-electron microscopy, can accurately resolve the structure of protein-ligand complexes, but they remain time-consuming, costly, and difficult to scale for high-throughput applications (Shi, 2014). Co-folding mod-els have recently emerged as scalable computational tools to predict the structures of protein-ligand complexes and complement traditional experimental techniques (Abram-son et al., 2024; team et al., 2024; OpenFold3 Team, 2024;  
+
+> 1Department of Biomedical Engineering, Eindhoven University of Technology, Eindhoven, the Netherlands. Correspondence to: Francesca Grisoni <f.grisoni@tue.nl >.
+> Preprint. June 1, 2026.
+
+Zhang et al., 2026; Passaro et al., 2025). Their competi-tive performance in both structure prediction and molecu-lar docking (Durairaj et al., 2024) highlights their poten-tial to enable high-throughput virtual screening and guide molecule design. Despite these advances, co-folding models exhibit a criti-cal failure mode ( ˇSkrinjar et al., 2025b): their tendency to strongly memorize the training data. The model’s predictive power highly correlates with the similarity between train-ing and test samples, as further evidenced by the fact that models misplace allosteric ligands into orthosteric binding sites for protein targets whose allosteric sites are underrepre-sented (Nittinger et al., 2025; Parikh et al., 2026). Similarly, protein conformations are strongly affected by the ratio of holo- and apo-structures in the training set (Yu et al., 2026). These findings suggest that co-folding models have learned the template (’memorization’) rather than the underlying physics of protein-ligand interactions. One of the main bottlenecks of existing co-folding models is the incorrect ligand placement in the protein pocket, which is estimated to occur in allosteric complexes (Parikh et al., 2026; Nittinger et al., 2025) and in proteins that are under-represented in the training data (Yu et al., 2026; ˇSkrinjar et al., 2025b). Correct ligand placement is relevant, as most of the targets in drug discovery campaigns are structurally novel. This is particularly consequential for allosteric tar-gets, where the functional pocket is often transient and only forms upon ligand-induced conformational change. This pocket memorization behavior therefore represents a critical gap in co-folding models. To overcome this bottleneck, explicit pocket constraints have been proposed as guidance for co-folding (Passaro et al., 2025; Zhang et al., 2026). However, this technique requires prior knowledge about the correct pocket, which is usually unavailable for novel or out-of-distribution targets. Existing pocket identification tools (Le Guilloux et al., 2009; Kriv ´ak & Hoksza, 2018) predict binding-site residue proba-bilities in the absence of a ligand, which might miss ligand-induced conformational rearrangements (Meller et al., 2023). In this context, improving pocket discovery for novel tar-gets holds untapped potential on the path to generalizable co-folding models. In this work, we present ACER (Adaptive Co-folding for 1
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint ICML 2026 Workshop on Generative and Agentic AI for Biology
+
+pocket Exploration and pose Ranking), a framework aimed at improving the capacity of co-folding models to discover and prioritize binding pockets – ultimately to retrieve more accurate protein-ligand structures. Our main contributions are: 1. Inference-time pocket exploration , which expands the search for binding pockets without retraining or major architectural modification. We implement two complementary strategies to enable the exploration the possible pocket landscape: (1) decoy ligand condi-tioning, which augments the input representation with auxiliary ligands that occlude default binding pockets; (2) iterative pocket repulsion, which applies negative gradients via Feynmann-Kac (FK) steering (Singhal et al., 2025). These strategies were implemented and tested on Boltz-2 (Passaro et al., 2025) and Protenix-v1 (Team et al., 2026). 2. Ensemble-based ranking , aimed at improving the prioritization of predicted ligand poses. This is achieved via normalized scores that derive from protein-ligand conformational ensembles, predicted under each pocket constraint. 3. Improved generalization on hard co-folding bench-marks. ACER successfully places ligands into ex-perimentally observed binding pockets for allosteric compounds in those cases when state-of-the-art co-folding mistakenly places ligands into orthosteric pock-ets. When tested on the challenging subset of the Runs N’ Poses benchmark ( ˇSkrinjar et al., 2025a) – where binding interfaces are highly dissimilar to those in train-ing set – this approach substantially outperforms the co-folding baselines. 
+
+# 2. Background and Related Works 
+
+Generative models for biomolecular interactions. Co-folding is built on conditional diffusion governed by two core components (Passaro et al., 2025; Abramson et al., 2024): (1) trunk representations that encode geometric fea-tures, and (2) a denoiser that iteratively recovers the clean structure from noise. Concretely, the model tokenizes pro-tein sequences at the residue level and ligands at the atom level, yielding N = NP + Nℓ tokens (protein residues and ligand atom tokens, respectively). The trunk produces a single representation s ∈ RN ×d and a pair representa-tion z ∈ RN ×N ×d, which together form the conditioning variable Z = ( s, z) for the denoiser. Recent models (Pas-saro et al., 2025) augment the sampling procedure with training-free Feynmann-Kac (FK) steering via Sequential Monte-Carlo (SMC), applying gradient updates to impose physico-chemical constraints. Yet, FK steering has been used to drive sampling toward a known pocket, which ren-ders it unsuitable for novel targets or allosteric complexes. While recent works applied Twisted Diffusion (Richman et al., 2026) and latent perturbation (Lee et al., 2026) to explore protein conformational landscapes, its potential for 
+
+exploring alternative distinct ligand binding pockets remains untapped. 
+
+Memorization in co-folding. Protein-ligand co-folding models (Abramson et al., 2024; Passaro et al., 2025; Open-Fold3 Team, 2024; Zhang et al., 2026) achieve state-of-the-art performance on structure-prediction and blind-docking benchmarks ( ˇSkrinjar et al., 2025b; Durairaj et al., 2024). Yet, accuracy drops as the targets diverge from ‘familiar’ biochemical space, and co-folded structures are sensitive to mutations at key binding-site residues (Masters et al., 2025). These findings point to strong memorization of the training data rather than genuine learning of biomolecular interaction physics – a fundamental issue for which the field lacks a principled solution. 
+
+Pocket identification. Conventional methods (Le Guil-loux et al., 2009; Kriv ´ak & Hoksza, 2018) detect the pockets directly from protein structures in the absence of ligands, while more recent tools (Wang & Dokholyan, 2025) incor-porate chemical probes and learned molecular fingerprints. All share the limitations of co-folding models: their accu-racy drops over distribution shifts, e.g., for allosteric sites or unseen pockets where co-folding fails (Parikh et al., 2026). Naively combining the two, therefore, inherits rather than solves the generalization problem. Advances in pocket iden-tification have been reported (Isomorphic Labs Team, 2026); however, the closed-source nature precludes any deeper anal-ysis of gains in co-folding generalizability. 
+
+Pose ranking in molecular docking. Search-based meth-ods such as AutoDock Vina (Trott & Olson, 2010) rely on physics-based scoring functions, treating pocket side-chains as rigid and ignoring ligand-induced fit effects. Co-folding instead ranks structures via confidence scores, which do not necessarily correlate with the success rate (Team et al., 2025). Recently, Molecular Dynamics (MD) has been com-bined with Markov state models to surface cryptic and al-losteric pockets that are only visible in multi-conformational states (Biswas et al., 2025), but at the cost of expensive simulations. 
+
+# 3. Method 
+
+ACER addresses ligand misplacement in co-folding models through a two-stage framework (Fig. 1a): (1) binding pocket exploration and (2) pose ranking via an ensemble approach. 2
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology Iterative Pocket Repulsion ACER a b c
+
+Protein Sequence, Target Ligand 
+
+Pocket exploration 
+
+> Decoy Ligand Conditioning Iterative Pocket Repulsion
+
+Top N pockets 
+
+Local ensembles 
+
+Ensemble-based ranking 
+
+1 2 N
+
+Decoy Ligand Conditioning 
+
+Protein Sequence, Ligand + Decoys 
+
+Trunk 
+
+> Embedder Pairformer
+
+sz  
+
+> Protein Target ligand Decoy
+
+Reconstruct 
+
+Reconstructed Z′
+
+s′
+
+z′
+
+# ... Denoiser 
+
+Protein Sequence, Target Ligand 
+
+> Di ff usion model
+
+Identi fi ed pocket Negative steering Alternative pocket 
+
+> x iterations
+
+Figure 1. Overview of ACER (Adaptive Co-folding for pocket Exploration and pose Ranking). (a) ACER co-folds complexes across several candidate binding pockets. Each pocket then serves as a constraint for generating a local ensemble, from which top-ranked poses are selected using ensemble-based scores. (b) Given a protein P and target ligand ℓ, one or more decoy ligands ˜ℓ are introduced as additional trunk inputs. After processing by the Pairformer, the decoy tokens are discarded to reconstruct conditioning variable that co-folds P and ℓ into alternative pockets. (c) Inference-time guidance to direct the ligand placement away from the previously explored pockets. At each round, the previously explored pocket is added to a repulsion set B, steering the denoiser away from previously explored sites. 
+
+3.1. Binding pocket exploration 
+
+We propose two strategies: (1) decoy ligand conditioning 
+
+(Fig. 1b), which augments trunk inputs with auxiliary lig-ands to redirect the model’s distributional bias away from dominant pockets, and (2) pocket repulsion (Fig. 1c), which steers the denoising trajectory away from previously sam-pled binding sites. The former leverages the model’s im-plicit learning of interactions to explore alternative pockets in a parameter-free manner; the latter provides specific, user-defined steering. Together, they expand the effective search space of binding sites without retraining or architectural modifications. 3.1.1. D ECOY LIGAND CONDITIONING 
+
+Motivated by the evidence that co-folding with two identi-cal allosteric ligands increases the likelihood of placing one into the correct pocket (Nittinger et al., 2025), we introduce 
+
+decoy ligand conditioning (Fig. 1 b). Given a protein P and a ligand ℓ, we augment the trunk inputs with one or more decoy ligands ˜ℓ (comprising N˜ℓ atom tokens). These decoys can be molecules identical to ℓ or generic chemical probes. The augmented inputs are processed by the Pairformer mod-ule to compute cross-token interactions between all inputs, producing the following conditioning representations: 
+
+(s′, z′) = Trunk( P, ℓ, ˜ℓ) (1) where s′ ∈ R(N +N˜ℓ)×d contains token-level represen-tations enriched by cross-token interactions, and z′ ∈
+
+R(N +N˜ℓ)×(N +N˜ℓ)×d encodes pairwise interactions across all token pairs, including those involving ˜ℓ. We then recon-struct the conditioning variable by discarding all rows and columns corresponding to ˜ℓ tokens, yielding: 
+
+Z′ = ( s′P,ℓ , z′P,ℓ ) (2) 3
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint ICML 2026 Workshop on Generative and Agentic AI for Biology
+
+where s′P,ℓ ∈ RN ×d and z′P,ℓ ∈ RN ×N ×d have the same dimensions as Z but are enriched by decoy-induced cross-token interactions. The denoiser generates structures con-ditioned on this reconstructed variable, x0 ∼ pθ (x | Z′),such that ˜ℓ influences only the conditioning representations but does not participate in generation during denoising. In-tuitively, ˜ℓ occludes the dominant pocket in z′, reducing its dominant signals in Z′, and freeing ℓ to explore alternative binding sites. We use four decoys that are identical to the considered lig-and – native ligands. To assess whether non-native binders could improve pocket discovery, we additionally ablated the choice of decoy ligand type using three ‘frequent hit-ters’ chemical probes (Fig. A7), binding molecules that bind to diverse proteins across the Protein Data Bank (Wang & Dokholyan, 2025). Non-native binders offered no clear advantage over native ligands for pocket exploration. 3.1.2. I TERATIVE POCKET REPULSION 
+
+While decoy ligand conditioning influences representation learning, inference-time steering is a plug-in, architecture-agnostic strategy for controlling generation to respect spe-cific constraints. To complement the FK-steering frame-work of Boltz-2 – which accounts for physico-chemical constraints (Passaro et al., 2025) – we introduce a pocket repulsion potential , which biases the denoising trajectory away from a specified pocket (via negative gradients), to-ward alternative binding contacts. We penalise each ligand atom for being closer than a min-imum distance ( dmin ) to the surface of a virtual sphere of radius rg centred on the pocket anchor cg , where g denotes the pockets to steer away from. The pocket anchor cg is computed as the mean centroid of its constituent residue tokens t:
+
+μt := 1
+
+|A t|
+
+X
+
+> a∈A t
+
+xa, cg := 1
+
+|T g |
+
+X
+
+> t∈T g
+
+μt. (3) where At is the set of atoms in t, xa ∈ R3 is the position of atom a, and Tg denotes residues within 4 ˚A from the ligand atoms comprising pocket g.The repulsion potential is then defined over all G pockets and all ligand atoms Alig , penalising any ligand atom that lies within a distance dmin of the surface of the sphere centred on cg with the hyperparameter of virtual pocket radius rg :
+
+Urep =
+
+> G
+
+X
+
+> g=1
+
+X
+
+> a∈A lig
+
+max(0 , d min − (∥xa − cg ∥2 − rg )) 2 ,
+
+(4) We apply these potentials iteratively. Each inference round collects the occupied pocket as a new anchor, which is then added to the repulsion set B for all subsequent rounds (Algorithm 1; full parameter settings in Appendix A.1). 
+
+3.2. Ensemble-based ranking 
+
+Once putative pockets have been identified, it is crucial to distinguish correctly docked poses from geometrically plausible but non-native ones ( i.e. , those not reflecting the experimentally observed binding mode). Co-folding mod-els generate a single static pose per run, which may miss the correct binding mode due to the intrinsic flexibility of protein-ligand complexes and the dynamics of ligand bind-ing. We therefore generate local conformation ensembles around each candidate pocket — leveraging the fact that Boltz-2 was trained on MD simulations — and rank poses by their consistency with the local ensemble. For each pocket 
+
+p, we collect n pose scores {s1, . . . , s n} to compute the z-score i.e. zi = ( si −μp)/σ p where i = 1 , . . . , n indexes the poses within pocket p, μp and σp are the mean and standard deviation of pose scores within p.We then weight each score by its proximity to the mean, either via a Gaussian or Lorentzian normalization, both of which peak at the ensemble mean and decay for outliers. The Gaussian weight penalises deviations sharply, whereas the Lorentzian weight down-weights outliers more gradu-ally: 
+
+Gi = exp 
+
+
+
+− z2
+
+> i
+
+2
+
+
+
+, Li = 11 + z2
+
+> i
+
+. (5) This ensemble-based weighting scheme derives from two intuitions: (a) a physically reasonable pose docked into the correct pocket should be relatively stable under small con-formational perturbations – an outlier that disagrees with its local ensemble is unlikely to reflect the experimentally observed binding mode; and (2) ensemble consistency alone is insufficient – an absolute confidence score (e.g., the in-terface predicted TM-score, ipTM (Jumper et al., 2021), which measures the predicted quality of the protein-ligand interface) is needed to assess the structural quality of the binding interface. Therefore, multiplying the confidence scores by Gi or Li simultaneously accounts for local ensem-ble agreement and absolute interface quality. 
+
+# 4. Experiments 
+
+4.1. Study Setup 
+
+We evaluate ACER on two tasks: (1) pocket exploration, and (2) ensemble-based ranking. Each stage is assessed on two datasets that directly challenge co-folding models on gen-eralizability (see Appendix A.1 for additional experimental details). Uncertainty is estimated from 1000 bootstrap itera-tions. All the results are reported in the mean and standard deviation for each metric and dataset. 4
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint ICML 2026 Workshop on Generative and Agentic AI for Biology
+
+4.1.1. D ATASETS 
+
+We evaluate ACER on 2 datasets: 1. Allosteric binders (Nittinger et al., 2025), comprising proteins present in the training set, which is dominated by orthosteric ligands, i.e., ligands binding to the pri-mary active site rather than to the secondary allosteric sites that modulate protein activity indirectly. This dataset consists of 20 allosteric ligands across 17 pro-teins. 2. Runs N’ Poses ( ˇSkrinjar et al., 2025b), consisting of structures entirely unseen by the models. We filter sys-tems released after Boltz-2’s training cutoff (1 June 2023) and focus on failure cases where top-ranked predictions of default co-folding models misplace the ligand (center-of-mass distance > 2 ˚A from the X-ray structure) – yielding 88 and 55 protein-ligand pairs for Boltz-2 and Protenix-v1, respectively. ACER, applied to each base model, is evaluated on these two subsets separately to assess model-agnostic benefit. Results are reported under three evaluation settings: (a) the full failure-case set, (b) a filtered set where only the clus-ter representatives of ligand systems (based on pocket and ligand shape similarity, ˇSkrinjar et al. (2025b)) are considered, and 124 prevalent ligands are excluded ( ˇSkrinjar et al., 2025b), and (c) the full scope with-out restricting to wrong-pocket cases ( n = 217 ) for benchmarking. 4.1.2. P OCKET EXPLORATION 
+
+Experimental design. We apply the two pocket explo-ration strategies sequentially: (1) decoy ligand conditioning using five molecules (ligand plus four identical decoys) and five diffusion samples, followed by (2) pocket repulsion for five rounds. This setting guarantees the same sampling budget of 30 samples for each system. We then compare ACER extending Boltz-2 and Protenix-v1 against five base-lines: (a) two ligand-free baselines based on volumetric or physicochemical properties, i.e., P2Rank (Kriv ´ak & Hoksza, 2018) and FPocket (Le Guilloux et al., 2009), and (b) three co-folding baselines: Boltz-2, OpenFold-3, and Protenix-v1. 
+
+Metrics. Success is measured by the Distance Center-to-Center (DCC) (Stepniewska-Dziubinska et al., 2020), 
+
+i.e ., the distance between the centers of mass (CoM) of the predicted and the ground-truth ligand (Appendix, Eq. A6). For P2Rank and FPocket – which do not co-fold complexes – DCC is measured between the predicted pocket center and the CoM of the ground-truth ligand. A pocket is considered correctly retrieved if the DCC falls below a given threshold (2 ˚ A or 3 ˚ A in this work). 4.1.3. E NSEMBLE -BASED RANKING 
+
+Experimental design. We apply ACER on Boltz-2 1 and use the pair interface predicted TM-score (ipTM) (Jumper et al., 2021) as the baseline for ACER ( see Appendix, Eq.A10) as a measure of the quality of the protein-ligand interface. We then follow a three-step ranking protocol: (1) We narrow the pocket candidate to P pockets to discard clearly unreliable interfaces. Using P = 10 or 20 can capture almost all the recoverable pockets (Appendix A.1, Table A6). (2) Within each pocket constraint, we generate S local con-formational ensembles, resulting in P × S poses in total. (3) We rank the resulting poses by different criteria: (a) pair ipTM (used as a baseline), and (b) ensemble-normalized pair ipTM, using the Gaussian and Lorentzian weights (Eq. 5). Unless explicitly specified, we use P = 10 and S = 5 .
+
+Metrics. We measure ranking success by the pose accu-racy of the top-N candidates sorted by each scoring metric, using ligand RMSD (L-RMSD) as the accuracy (Appendix, Eq. A7). The success rate is evaluated at 2 ˚A and 3 ˚A thresh-olds (as percentage of systems having an L-RMSD lower than the chosen threshold), combined with pose quality check byPoseBusters (Buttenschoen et al., 2024), ensuring that generated poses are not only geometrically close to the experimental structure but also physically plausible ( see 
+
+Appendix, A.1.3). 
+
+4.2. Results 
+
+4.2.1. P OCKET EXPLORATION 
+
+Allosteric binders. Increasing the number of diffusion samples from the baseline models increases the likelihood of correct ligand placement into the right pocket (Table 1), suggesting that the underrepresented allosteric pockets are accessible but undersampled under default settings. ACER surpasses all baselines in terms of success rate (DCC lower than 2 ˚A or 3 ˚A, Table 1). Notably, ACER produces gains ranging from +11% to +13% on Boltz-2, and from +32% to +35% on Protenix-v1. 
+
+Failed-pocket subsets. ACER outperforms its respective base models (Table 2). ACER–Boltz-2 improves DCC success rate compared to Boltz-2 by +13 .8% (2 ˚A) and 
+
++14 .4% (3 ˚A) on the filtered subset ( n = 46 ), and by 
+
++7 .3% and +7 .9% on the full set ( n = 88 ), though all gains fall within the propagated uncertainty reflecting the lim-ited sample size. Similarly, ACER–Protenix-v1 improves by +14 .7% and +14 .6% on the filtered subset ( n = 30 )and by +8 .8% and +9 .7% on the full set ( n = 55 ) While not reaching statistical significance, the gains are consis-
+
+> 1As Protenix-v1 does not include MD simulations in the train-ing set, local ensemble generation is inherently unsupported, and, therefore, it was excluded from pose ranking evaluation.
+
+5                                                              
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint ICML 2026 Workshop on Generative and Agentic AI for Biology
+> Table 1. Allosteric binding pocket identification (n= 20 ). DCC success rate (%): fraction of systems where at least one predicted pocket falls within 2 ˚ A or 3 ˚ A of X-ray ligand center of mass. Method DCC <2 ˚ A
+> (%) ↑
+> DCC <3 ˚ A
+> (%) ↑
+> P2Rank 25 .0±9.335 .0±10 .9
+> FPocket 25 .0±9.955 .0±10 .7
+> OpenFold-3 (preview-2) 35 .0±10 .840 .0±10 .9
+> Boltz-2 ( ×5 samples) 40 .0±10 .950 .0±10 .9
+> Boltz-2 ( ×30 samples) 55 .0±11 .360 .0±10 .9
+> ACER – Boltz-2 66 .6±9.673 .5±9.1
+> Protenix-v1 ( ×5 samples) 25 .0±9.650 .0±11 .4
+> Protenix-v1 ( ×30 samples) 40 .0±10 .850 .0±11 .3
+> ACER – Protenix-v1 72 .9±9.575 .8±9.3
+
+tent with the larger improvements observed on the allosteric dataset, suggesting a real but harder-to-detect effect on this more challenging subset. Finally, in the low-similarity bins (similarity ≤ 40%), co-folding models show pocket rescue rates near zero (Appendix A.2, Fig. A4), underperforming the ligand-free methods. With similarity up to 40%, ACER – Boltz-2 improves the DCC success rate of the baseline from 2.9% to 35.3% compared to the baseline (30 samples, Fig. A3). 4.2.2. E NSEMBLE -BASED RANKING 
+
+Allosteric binders. ACER – L-weight consistently per-forms on par with or outperforms all baselines. At Top-5, ACER Boltz-2 – L-weight gains +20 .0% and +25 .0% at 2 ˚A and +25 .0% at 3 ˚A over the strongest baseline (Boltz-2). At Top-1, ACER matches Boltz-2. Unlike pair ipTM from static snapshots (Table 3), the L-weighted and G-weighted variants leverage local conformational ensembles, thereby recovering accurate poses that static-pose ranking would otherwise miss. 
+
+Runs N’ Poses. On the failed-pocket subset of the Runs N’ Poses benchmark (Table 4), ACER consistently outperforms the Boltz-2 baseline across both thresholds (gains at +8 .5% 
+
+and +4 .6% on the filtered and full sets, respectively). ACER achieved the largest gains at Top-5 on the filtered subset (23 .9% → 28 .3% at 2 ˚ A and 32 .6% → 39 .1% at 3 ˚ A). To benchmark ACER against all co-folding baselines, we extend the analysis to the full Runs N’ Poses set ( n = 217 ,clustered and distinct ligands, Fig. 2), without restricting it to wrong-pocket cases. On this set, ACER achieves the high-est Top-5 success rate (52.5%) among all co-folding mod-els, outperforming Boltz-2 (49.8%), Protenix-v1 (51.2%), and OpenFold-3 (46.1%). At Top-1, ACER outperforms Protenix-v1 and OpenFold-3 but falls behind Boltz-2 (47.0% 
+
+→ 40.0%), suggesting that ensemble-based scoring im-proves candidate diversity but might struggle to promote the best pose to the very top position. Notably, ACER is the only method to achieve a non-zero top-1 success rate (7%) in the lowest-similarity bin (up to 20% similarity) (Fig. 2a). When increasing the sampling budget to 200 samples (P = 20 and S = 10 ), ACER successfully samples accu-rate poses, reaching 21% at Top-20 and 28% at 200-oracle, demonstrating that its generalization can be improved with additional pocket candidates and higher coverage from local ensembles (Fig. 2b,c). 
+
+Failure modes. To better understand ACER’s benefits, we further analyze all the poses per system from local en-sembles from ACER Boltz-2 – L-weighted for the Boltz-2 failed-pocket subset. We identify three main failure modes (Fig. A6): (1) Correct pocket, low rank (14.7% of cases). ACER successfully places ligands into the correct pockets but fails to rank them highly to top 5 candidates, indicating the limitation of the ranking procedure (Fig. A6a and Fig. A3). (2) Correct ligand placement but wrong pose (26.5% of cases). The ligand placement is correct, but an accurate pose is never generated; this is likely due to ineffective mod-eling of difficult protein–ligand interfaces by the baseline co-folding model (Fig. A6b). (3) Correct pocket not rescued 
+
+(58.8% of cases), which highlights a persisting limitation of our pocket exploration (Fig. A6c). 4.2.3. R UNTIME PERFORMANCE 
+
+ACER incurs additional compute overhead compared to the baselines: each decoy ligand in decoy ligand condition-ing adds ∼2× wall-clock time (trajectories are conditioned on reconstructed cached representation) (Table A8 in Ap-pendix), and iterative pocket repulsion introduces ∼3× over-head per round of guided sampling due to SMC resampling. Together, both approaches accumulate to ∼5× per diffusion sample in total. Ranking overhead is modest and compara-ble to the baseline. Despite this cost, ACER successfully rescues binding pockets and poses that are undersampled under default co-folding. ACER is hence positioned as a 
+
+precision-oriented tool for challenging targets – such as allosteric or structurally novel systems – where accurate binding site characterization justifies the overhead. 
+
+# 5. Limitations 
+
+While ACER demonstrates consistent improvements on challenging targets, several avenues for improvement re-main. The ∼5× runtime overhead currently limits applica-bility in high-throughput settings, though this could be re-duced through more efficient sampling strategies or caching mechanisms. Pocket recovery on Runs N’ Poses reaches 
+
+∼50% within a budget of 30 samples – a promising result on hard targets, but one that leaves clear room for improve-ment as sampling budgets and exploration strategies mature. 6
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology 
+
+Table 2. Pocket-failure recovery . ACER is evaluated in comparison with the wrongly identified pockets by each base model. ACER consistently correct places ligands into pockets by the base model, evaluated on the Runs N’ Poses wrong-pocket subset ( ˇSkrinjar et al., 2025b). DCC success rate (%) at 2 ˚ A and 3 ˚ A thresholds is reported for the full set and a filtered subset. 
+
+Boltz-2 failed-pocket subset Protenix-v1 failed-pocket subset 
+
+Filtered ( n = 46 ) Total ( n = 88 ) Filtered ( n = 30 ) Total ( n = 55 )Method DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+P2Rank 24 .9 ± 8.9 45 .8 ± 10 .2 22 .9 ± 6.2 43 .1 ± 7.3 20 .9 ± 9.1 42 .9 ± 11 .2 23 .8 ± 7.6 49 .7 ± 9.4
+
+FPocket 19 .5 ± 5.9 37 .0 ± 7.0 27 .2 ± 4.8 42 .1 ± 5.3 10 .2 ± 5.6 36 .7 ± 8.7 22 .1 ± 5.8 40 .8 ± 6.5
+
+Boltz-2 ( × 30 samples) 30 .7 ± 6.6 37 .3 ± 7.1 36 .1 ± 5.2 42 .9 ± 5.3 – – – –
+
+ACER – Boltz-2 44 .5 ± 7.1 51 .7 ± 7.0 43 .4 ± 5.0 50 .8 ± 5.0 – – – –Protenix-v1 ( × 30 samples) – – – – 19 .4 ± 6.9 30 .1 ± 8.0 19 .2 ± 5.1 27 .7 ± 5.7
+
+ACER – Protenix-v1 – – – – 34 .1 ± 7.9 44 .7 ± 7.8 28 .0 ± 5.8 37 .4 ± 5.9
+
+Table 3. Pose ranking on the allosteric set. Top-k L-RMSD (%) at 2 ˚A and 3 ˚A thresholds is reported, considering only physically valid poses (Buttenschoen et al., 2024). ACER Boltz-2 – baseline uses raw pair ipTM as scoring function; ACER Boltz-2 – L-weight and ACER Boltz-2 – G-weight weight pair ipTM by the Lorentzian and Gaussian (Eq. 5) ensemble normalization, respectively. 
+
+% L-RMSD < 2 ˚ A & PB Valid ↑ % L-RMSD < 3 ˚ A & PB Valid ↑
+
+Ranking Approach Top-1 Top-5 Top-10 Top-1 Top-5 Top-10 Protenix-v1 ( × 50 samples) 20 .2 ± 9.02 24 .9 ± 9.6 24 .9 ± 9.6 30 .3 ± 10 .2 35 .3 ± 10 .6 40 .5 ± 10 .7
+
+OpenFold-3 ( × 50 samples) 20 .2 ± 9.02 24 .9 ± 9.6 24 .9 ± 9.6 24 .9 ± 9.6 24 .9 ± 9.6 24 .9 ± 9.6
+
+Boltz-2 ( × 50 samples) 25 .0 ± 9.6 30 .0 ± 10 .1 30 .0 ± 10 .1 30 .0 ± 10 .2 40 .0 ± 11 .0 40 .0 ± 11 .0
+
+ACER Boltz-2 – baseline 20 .0 ± 9.0 25 .0 ± 9.6 35 .0 ± 10 .6 30 .0 ± 10 .1 40 .0 ± 10 .8 45 .0 ± 10 .9
+
+ACER Boltz-2 – L-weight 25 .0 ± 9.3 50 .0 ± 11 .1 50 .0 ± 11 .1 30 .0 ± 9.9 65 .0 ± 10 .6 70 .0 ± 10 .3
+
+ACER Boltz-2 – G-weight 25 .0 ± 9.3 50 .0 ± 11 .1 50 .0 ± 11 .1 35 .0 ± 10 .3 65 .0 ± 10 .6 70 .0 ± 10 .3
+
+Table 4. Pose ranking on the Runs N’ Poses wrong-pocket subset of Boltz-2. Top-k L-RMSD (%) at 2 ˚A and 3 ˚A thresholds is reported, considering only physically valid poses (Buttenschoen et al., 2024)). ACER – baseline uses raw pair ipTM as scoring function; ACER – L-weight and ACER – G-weight weight pair ipTM by the Lorentzian and Gaussian (Eq. 5) ensemble normalization. 
+
+Clustered & Distinct Ligands (n = 46 ) Total (n = 88 )% L-RMSD < 2 ˚ A& PB Valid ↑
+
+% L-RMSD < 3 ˚ A& PB Valid ↑
+
+% L-RMSD < 2 ˚ A& PB Valid ↑
+
+% L-RMSD < 3 ˚ A& PB Valid ↑
+
+Ranking Approach Top-1 Top-5 Top-1 Top-5 Top-1 Top-5 Top-1 Top-5 Boltz-2 ( × 50 samples) 15 .2 ± 5.5 15 .2 ± 5.5 19 .6 ± 6.0 19 .6 ± 6.0 26 .1 ± 4.8 27 .3 ± 4.8 28 .4 ± 4.9 29 .5 ± 5.0
+
+ACER Boltz-2 – baseline 23 .9 ± 6.4 23 .9 ± 6.4 32 .6 ± 7.1 34 .8 ± 7.2 30 .7 ± 5.0 31 .8 ± 5.1 35 .2 ± 5.2 37 .5 ± 5.3
+
+ACER Boltz-2 – L-weight 15 .2 ± 5.5 26 .1 ± 6.7 21 .7 ± 6.3 37 .0 ± 7.2 21 .6 ± 4.4 29 .5 ± 4.9 26 .1 ± 4.8 36 .4 ± 5.3
+
+ACER Boltz-2 – G-weight 15 .2 ± 5.5 28 .3 ± 6.8 21 .7 ± 6.3 39 .1 ± 7.2 21 .6 ± 4.4 31 .8 ± 5.1 26 .1 ± 4.8 38 .6 ± 5.4
+
+Ensemble-based ranking consistently improves top-5 and be-yond, and closing the gap to top-1 represents a natural next step, likely addressable through better scoring functions or learned ranking models. Finally, statistical validation remains challenging given the scarcity of allosteric and out-of-distribution targets – a limitation shared across the field, and one that underscores the need for larger, more diverse benchmarks for generalizable co-folding. Further evaluation on the recent dataset ( ?) would be a valuable next step. 
+
+# 6. Discussion 
+
+Co-folding models have emerged as a tool for predicting protein-ligand structures, yet their tendency to memorize the training set distributions can lead to systematic ligand misplacement on allosteric binding and out-of-distribution targets – precisely the most relevant cases for drug discov-ery. ACER addresses this through a training-free frame-work combining decoy ligand conditioning and iterative pocket repulsion to redirect the model’s sampling toward 7
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology Success Rate (%) Pocket and ligand shape similarity to training set Pocket and ligand shape similarity Pocket and ligand shape similarity Success Rate (%) 
+
+# ab cSuccess Rate (%)         
+
+> Boltz-2 (Top-5)Boltz-2 (Top-20 )ACER (Top-5)ACER (Top-20 )Boltz-2 Oracle (PxS)ACER Oracle (PxS)
+
+Sampling Budget = 50 
+
+(P = 10, S = 5) 
+
+Sampling Budget = 200 
+
+(P = 20, S = 10) Top-1
+
+> Top-5
+> Protenix-v1 Boltz-2 ACER OpenFold-3
+
+Figure 2. Ranking on Runs N’ Poses , measured as success rate (percentage of L-RMSD < 2 ˚A and PB valid). (a) ACER vs co-folding baselines on the clustered and distinct ligand subset ( n = 217 ). (b, c) Success rate of Boltz-2 and ACER at sampling budgets of (b) 50 and (c) 200 samples. Increasing the budget rescues accurate poses in the hardest similarity bin (0–20] particularly at top-20. ( P = no. of pocket candidates to consider; S = no. of local conformation ensembles). 
+
+underrepresented binding sites. Its ensemble-based ranking further enables a principled comparison of binding poses across candidate pockets, providing an informative starting point for downstream refinement, such as energy minimiza-tion, specialized docking (Prat et al., 2026), or extensive MD simulations. Taken together, these results suggest that the generalizability gap in co-folding is not a fundamental limitation of the underlying models, but rather a sampling problem amenable to inference-time intervention. ACER demonstrates that redirecting the denoising trajectory – with-out touching model weights – can unlock binding sites that are systematically missed under default sampling. This re-framing opens a broader research direction: as co-folding models continue to improve, inference-time exploration strategies like ACER may prove essential for extending their reach to the underrepresented pocketome. Looking beyond protein-ligand interactions, extending ACER’s ra-tionale to protein-protein or protein-nucleic acid interfaces (where co-folding models are similarly susceptible to memo-rization) represents a natural and important future direction. ACER establishes a blueprint for training-free generaliza-tion in structural biology: rather than collecting more data or retraining larger models, one can instead design smarter sampling dynamics that push existing models beyond their training distribution. IMPACT STATEMENT 
+
+This work advances computational methods for protein-ligand structure prediction, with direct applications to structure-based drug discovery. By enabling co-folding models to explore the underrepresented pocketome, ACER accelerates the identification of novel therapeutic targets and pharmaceutical drugs that are currently inaccessible to standard computational pipelines. ACKNOWLEDGEMENTS 
+
+This publication was funded by the Dutch Research Council (NWO) under the grant VI.Vidi.233.164 of the research pro-gramme Vidi ENW (https://doi.org/10.61686/IVDFS18985 to FG ). This work used the Dutch national e-infrastructure with the support of the SURF Cooperative using grant no. EINF-16290 (to NV ). We thank Emanuele Criscuolo for brainstorming ideas and insightful discussions, S ´ebastien 8
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint ICML 2026 Workshop on Generative and Agentic AI for Biology
+
+Sueron for helpful feedback, Elena Frasnetti on some visual-izations, and the rest of Molecular Machine Learning team for fruitful discussions. REPRODUCIBILITY 
+
+To facilitate the reproducibility of our research, code is available at https://github.com/molML/acer .
+
+# References 
+
+Abramson, J., Adler, J., Dunger, J., Evans, R., Green, T., Pritzel, A., Ronneberger, O., Willmore, K., Bal-lard, A. J., Bambrick, J., et al. Accurate structure prediction of biomolecular interactions with AlphaFold 3. Nature , 630(8016):493–500, 2024. doi: 10.1038/ s41586-024-07487-w. URL https://doi.org/10. 1038/s41586-024-07487-w .Biasini, M., Schmidt, T., Bienert, S., Mariani, V., Studer, G., Haas, J., Johner, N., Schenk, A. D., Philippsen, A., and Schwede, T. Openstructure: an integrated software frame-work for computational structural biology. Acta Crystal-lographica Section D: Biological Crystallography , 69(5): 701–709, May 2013. doi: 10.1107/S0907444913007051. Biswas, A. D., Sabato, E., Vittorio, S., Aletayeb, P., Pedretti, A., Mazzolari, A., Gratteri, C., Beccari, A. R., Talarico, C., and Vistoli, G. Novel method for prioritizing protein binding sites using pocket analysis and md simulations. 
+
+Heliyon , 11(10):e43084, 2025. ISSN 2405-8440. doi: https://doi.org/10.1016/j.heliyon.2025.e43084. URL https://www.sciencedirect.com/ science/article/pii/S2405844025014653 .Buttenschoen, M., Morris, G. M., and Deane, C. M. Pose-busters: Ai-based docking methods fail to generate physi-cally valid poses or generalise to novel sequences. Chem-ical Science , 15(9):3130–3139, 2024. ISSN 2041-6539. doi: 10.1039/d3sc04185a. URL http://dx.doi. org/10.1039/D3SC04185A .Ciulli, A. Biophysical Screening for the Discovery of Small-Molecule Ligands , pp. 357–388. Humana Press, Totowa, NJ, 2013. ISBN 978-1-62703-398-5. doi: 10.1007/978-1-62703-398-5 13. URL https://doi. org/10.1007/978-1-62703-398-5_13 .Durairaj, J., Adeshina, Y., Cao, Z., Zhang, X., Oleinikovas, V., Duignan, T., McClure, Z., Robin, X., Studer, G., Kovtun, D., Rossi, E., Zhou, G., Veccham, S., Isert, C., Peng, Y., Sundareson, P., Akdel, M., Corso, G., St ¨ark, H., Tauriello, G., Carpenter, Z., Bronstein, M., Kucukbenli, E., Schwede, T., and Naef, L. Plinder: The protein-ligand interactions dataset and evaluation re-source. bioRxiv , 2024. doi: 10.1101/2024.07.17.603955. URL https://www.biorxiv.org/content/ early/2024/07/19/2024.07.17.603955.1 .Isomorphic Labs Team. Accurate predictions of novel biomolecular interactions with isodde. Tech-nical report, Isomorphic Labs, February 2026. URL https://storage.googleapis.com/ isomorphiclabs-website-public-artifacts/ isodde_technical_report.pdf .Jumper, J., Evans, R., Pritzel, A., Kohli, P., Jaderberg, M., Chen, Z., Kirk, R., Dhar, A., Ahir, A., Wu, D., et al. Highly accurate protein structure prediction with AlphaFold. Nature , 596(7873):583–589, 2021. doi: 10.1038/s41586-021-03819-2. Kriv ´ak, R. and Hoksza, D. P2Rank: machine learn-ing based tool for rapid and accurate prediction of ligand binding sites from protein structure. Journal of Cheminformatics , 10(1):39, 2018. doi: 10.1186/ s13321-018-0285-8. URL https://doi.org/10. 1186/s13321-018-0285-8 .Le Guilloux, V., Schmidtke, P., and Tuffery, P. Fpocket: An open source platform for ligand pocket detection. 
+
+BMC Bioinformatics , 10:168, 2009. doi: 10.1186/ 1471-2105-10-168. URL https://doi.org/10. 1186/1471-2105-10-168 .Lee, M., Kalicki, C., Jeon, M., Qabel, A., Fadini, A., and AlQuraishi, M. Confornets: Latents-based con-formational control in openfold3, 2026. URL https: //arxiv.org/abs/2604.18559 .Ma, W., Liu, Z., Yang, J., Lu, C., Zhang, H., and Xiao, W. From dataset curation to unified evaluation: Re-visiting structure prediction benchmarks with pxmeter. 
+
+bioRxiv , 2025. doi: 10.1101/2025.07.17.664878. URL https://www.biorxiv.org/content/ early/2025/07/22/2025.07.17.664878 .Masters, M. R., Mahmoud, A. H., and Lill, M. A. In-vestigating whether deep learning models for co-folding learn the physics of protein-ligand interactions. Na-ture Communications , 16(1):8854, 2025. doi: 10.1038/ s41467-025-63947-5. URL https://doi.org/10. 1038/s41467-025-63947-5 .Meller, A., Ward, M. D., Borowsky, J. H., Lotthammer, J. M., Kshirsagar, M., Oviedo, F., Ferres, J. L., and Bow-man, G. Predicting the locations of cryptic pockets from single protein structures using the pocketminer graph neural network. Biophysical journal , 122(3):445a, 2023. Nittinger, E., ¨Ozge Yoluk, Tibo, A., Olanders, G., and Tyr-chan, C. Co-folding, the future of docking – prediction of allosteric and orthosteric ligands. Artificial Intelligence 
+
+9
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint ICML 2026 Workshop on Generative and Agentic AI for Biology
+
+in the Life Sciences , 8:100136, 2025. ISSN 2667-3185. doi: https://doi.org/10.1016/j.ailsci.2025.100136. URL https://www.sciencedirect.com/ science/article/pii/S2667318525000121 .Olanders, G., Testa, G., Tibo, A., Nittinger, E., and Tyr-chan, C. Challenge for deep learning: Protein structure prediction of ligand-induced conformational changes at allosteric and orthosteric sites. Journal of Chemical In-formation and Modeling , 2024. OpenFold3 Team. Openfold3-preview2 technical report. Technical report, Open Molecular Software Foundation, 2024. URL https://portal.openfold.omsf. io/reports/of3p2_technical_report.pdf .Accessed: May 2026. Parikh, V., Foley, B., Gatlin, W., Ludwick, M., Tu-rano, L., and Verkhivker, G. M. Decoding the allosteric paradox: A dual framework integrating ai cofolding models with landscape-guided inter-pretable ai framework of ligand-protein binding. 
+
+bioRxiv , 2026. doi: 10.64898/2026.02.24.707829. URL https://www.biorxiv.org/content/ early/2026/02/26/2026.02.24.707829 .Passaro, S., Corso, G., Wohlwend, J., Reveiz, M., Thaler, S., Somnath, V. R., Getz, N., Portnoi, T., Roy, J., Stark, H., Kwabi-Addo, D., Beaini, D., Jaakkola, T., and Barzilay, R. Boltz-2: Towards accurate and efficient binding affinity prediction. 
+
+bioRxiv , 2025. doi: 10.1101/2025.06.14.659707. URL https://www.biorxiv.org/content/ early/2025/06/18/2025.06.14.659707 .Prat, A., Zhang, L., Deane, C. M., Teh, Y. W., and Morris, G. M. Sigmadock: Untwisting molecular docking with fragment-based se(3) diffusion, 2026. URL https:// arxiv.org/abs/2511.04854 .Richman, D. D., Karaguesian, J., Suomivuori, C.-M., and Dror, R. O. Unlocking hidden biomolecular con-formational landscapes in diffusion models at infer-ence time, 2026. URL https://arxiv.org/abs/ 2512.03312 .Shi, Y. A glimpse of structural biology through x-ray crystallography. Cell , 159(5):995–1014, 2014. ISSN 0092-8674. doi: https://doi.org/10.1016/j.cell.2014.10. 051. URL https://www.sciencedirect.com/ science/article/pii/S0092867414014238 .Singhal, R., Horvitz, Z., Teehan, R., Ren, M., Yu, Z., McK-eown, K., and Ranganath, R. A general framework for inference-time scaling and steering of diffusion mod-els, 2025. URL https://arxiv.org/abs/2501. 06848 .ˇSkrinjar, P., Eberhardt, J., Tauriello, G., Schwede, T., and Durairaj, J. Have protein-ligand cofolding methods moved beyond memorisation? bioRxiv ,2025a. doi: 10.1101/2025.02.03.636309. URL 
+
+https://www.biorxiv.org/content/ early/2025/08/04/2025.02.03.636309 .ˇSkrinjar, P., Eberhardt, J., Tauriello, G., Schwede, T., and Durairaj, J. Have protein-ligand cofolding methods moved beyond memorisation? bioRxiv ,2025b. doi: 10.1101/2025.02.03.636309. URL 
+
+https://www.biorxiv.org/content/ early/2025/08/04/2025.02.03.636309 .Stepniewska-Dziubinska, M. M., Zielenkiewicz, P., and Siedlecki, P. Improving detection of protein-ligand binding sites with 3d segmentation. Sci-entific Reports , 10(1):5035, 2020. doi: 10.1038/ s41598-020-61860-z. URL https://doi.org/10. 1038/s41598-020-61860-z .team, C. D., Boitreaud, J., Dent, J., McPartlon, M., Meier, J., Reis, V., Rogozhonikov, A., and Wu, K. Chai-1: Decoding the molecular interactions of life. 
+
+bioRxiv , 2024. doi: 10.1101/2024.10.10.615955. URL https://www.biorxiv.org/content/ early/2024/10/11/2024.10.10.615955 .Team, G. R., Dobles, A., Jovic, N., Leidal, K., Murugan, P., Williams, D. C., Wulsin, D., Gruver, N., Ji, C. X., Pruegsanusak, K., Scarpellini, G., Sharma, A., Swider-ski, W., Bootsma, A., Bowen, R. S., Chen, C., Chen, J., D ¨amgen, M. A., DiFrancesco, B., Fishman, J. D., Ivanova, A., Kagin, Z., Li-Bland, D., Liu, Z., Morozov, I., Ouyang-Zhang, J., IV, F. C. P., Shah, K. S., Shor, B., da Silva, G. M., Tal, R., Tessmer, M., Tilbury, C., Vetcher, C., Zeng, D., Al-Shedivat, M., Faust, A., Feinberg, E. N., LeVine, M. V., and Pan, M. Pearl: A foundation model for placing every atom in the right location, 2025. URL 
+
+https://arxiv.org/abs/2510.24670 .Team, P., Zhang, Y., Gong, C., Zhang, H., Ma, W., Liu, Z., Chen, X., Guan, J., Wang, L., Yang, Y., Xia, Y., and Xiao, W. Protenix-v1: Toward high-accuracy open-source biomolecular structure prediction. 
+
+bioRxiv , 2026. doi: 10.64898/2026.02.05.703733. URL https://www.biorxiv.org/content/ early/2026/02/22/2026.02.05.703733.1 .Trott, O. and Olson, A. J. AutoDock Vina: improving the speed and accuracy of docking with a new scoring func-tion, efficient optimization, and multithreading. Journal of Computational Chemistry , 31(2):455–461, 2010. doi: 10.1002/jcc.21334. Wang, J. and Dokholyan, N. V. Unified protein-small molecule graph neural networks for binding site predic-10 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology 
+
+tion. bioRxiv , 2025. doi: 10.1101/2025.09.03.674017. URL https://www.biorxiv.org/content/ early/2025/09/08/2025.09.03.674017 .Xie, J., Wang, S., Xu, Y., Deng, M., and Lai, L. Uncover-ing the dominant motion modes of allosteric regulation improves allosteric site prediction. Journal of Chemical Information and Modeling , 62(1):187–195, 2022. doi: 10.1021/acs.jcim.1c01267. Yu, H., Bekar-Cesaretli, A. A., Lazou, M., Kozakov, D., Joseph-McCarthy, D., and Vajda, S. Bias in the Al-phaFold3 prediction of ligand-induced domain motion in enzymes. Proceedings of the National Academy of Sci-ences , 123(10):e2530709123, 2026. doi: 10.1073/pnas. 2530709123. URL https://doi.org/10.1073/ pnas.2530709123 .Zhang, Y., Gong, C., Sun, J., Guan, J., Ren, M., Xue, S., Zhang, H., Ma, W., Liu, Z., Chen, X., and Xiao, W. Protenix-v2: Broadening the reach of structure prediction and biomolecular design. 
+
+bioRxiv , 2026. doi: 10.64898/2026.04.10.717613. URL https://www.biorxiv.org/content/ early/2026/04/11/2026.04.10.717613 .Zhao, L., Zhu, Y., Wang, J., Wen, N., Wang, C., and Cheng, L. A brief review of protein–ligand interaction prediction. 
+
+Computational and Structural Biotechnology Journal , 20: 2831–2838, 2022. doi: 10.1016/j.csbj.2022.06.004. 11 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint ICML 2026 Workshop on Generative and Agentic AI for Biology
+
+# A. Appendix 
+
+A.1. Experimental Details 
+
+A.1.1. D ATASET DETAILS 
+
+Allosteric systems. We adopt the same set of allosteric complexes from (Nittinger et al., 2025) where the details are provided in their supplementary materials. The dataset was originally published by (Xie et al., 2022) and (Olanders et al., 2024). To enhance the quality of the structures, the structures are removed if they are (1) close analogues binding to both orthosteric and allosteric binding site, (2) with different UniProt Ids, (3) where ligands bind to different proteins, and (4) with covalent ligands or peptides. The details of individual system is provided in Table A5.  
+
+> Table A5. Protein targets with UniProt IDs, gene names, PDB IDs, and ligand CCDs for 20 allosteric compounds.
+
+Protein Name UniProt ID Gene Name AS Source PDBid Ligand CCD 
+
+Serine/threonine protein kinase Chk1 O14757 CHEK1 3JVR 38M Tyrosine-protein kinase ABL1 P00519 ABL1 3PYY 3YY, AY7 Tyrosine protein kinase ABL1 P00520 Abl1 3K5V STJ Insulin-like growth factor 1 receptor P08069 IGF1R 3LW0 CCX Cytochrome P450 3A4 P08684 CP3A4 1W0F STR Myosin II heavy chain P08799 mhcA 2JHR BIT Androgen receptor P10275 AR 2YHD AV6, YLO Tyrosine-protein phosphatase nonreceptor type 1 P18031 PTPN1 1T49 892 RAC-alpha serine/threonine-protein kinase P31749 AKT1 3O96 0R4 Glucokinase P35557 GCK 1V4S MRK Mitogen-activated protein kinase 8 P45983 MAPK8 3O2M 46A Nuclear receptor ROR-gamma P51449 RORC 4ypq 4F1 Kinesin-like protein KIF11 P52732 KIF11 3ZCW 2AZ, B4S Beta-lactamase TEM P62593 bla 1PZO FTA Casein kinase 2a P68400 CSNK2A1 3H30 503 Focal adhesion kinase 1 Q05397 PTK2 4EBW 0O7 Mitogen-activated protein kinase 14 Q16539 MAPK14 3NEW 3NE 
+
+Runs N’ Poses. Runs N’ Poses is a well-established benchmark for protein–ligand generalization that groups samples by pocket similarity, pocket sequence identity, ligand similarity, and shape overlay ( ˇSkrinjar et al., 2025b). Because we apply ACER on top of Boltz-2, we restrict evaluation to systems deposited after its training cutoff of 1 June 2023. To isolate the wrong-pocket failure mode that ACER is designed to address, we further filter to systems where the baseline prediction misplaces the ligand, defined as a center-of-mass distance greater than 2 ˚A from the X-ray reference structure. The protein-ion pairs are excluded from the evaluation. The resulting test set is stratified by closest similarity to pre-cutoff training samples, allowing us to analyze performance as a function of target difficulty. All evaluations are reported on two subsets: (i) the full set of post-cutoff systems, and (ii) a clustered and filtered variant that removes 124 prevalent ligands as in ( ˇ Skrinjar et al., 2025b), retaining only non-overlapping systems to reflect genuine gains in generalization. To establish the protein-ligand generalizability benchmark, we extend our evaluation to the full scope of Runs N’ Poses. We remain focused on the clustered and distinct ligands subset, as it represents the most challenging subset for generalization and avoids double-counting successes on similar structures. Following the protocol prescribed by ( ˇSkrinjar et al., 2025b) and running the code from their official repository, we obtain a final set of 217 systems released after 1 June 2023. A.1.2. P ARAMETER SETTINGS 
+
+Pocket exploration. ACER is implemented on top of Boltz-2 and Protenix-v1, which we select because it is open-source and supports both inference-time steering and local ensemble generation. Exploration proceeds in two phases applied in 12 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology 
+
+sequence. In the first phase, we run the inference of 5 diffusion samples with different number of decoy ligands (1 through 5), where each decoy is a duplicate of the target ligand. In the second phase, we perform 5 additional inference iterations with pocket repulsion, using cg computed from pocket residues within 6 ˚A of ligand atoms, dmin = 5 ˚A, and rg = 8 ˚A. We report the mean and standard deviation of DCC success rate at which uncertainty estimates are computed over 5 seeds (seeds = 231234 , 89567 , 412903 , 451027 , 738291 ). We ablate the parameters associated with each method in detail in A.3 
+
+Ensemble-based ranking. For ranking tasks, we take the output from a single seed of the exploration stage and pocket constraints from residues whose atoms lie within 6 ˚A of any ligand atom from top P pockets ranked by pair ipTM. Leveraging those pocket constraints, We run the inference with S diffusion samples with MD method conditioning to generate local conformational ensembles. The total sampling budget is therefore P × S samples. Unless explicitly specified, we use P = 10 and S = 5 in the main experiment. Unlike pocket exploration, we only report the results and corresponding uncertainty estimates on a single seed (seed = 738291 ). The ablation study on the total sampling budget is provided in Section A.3. A.1.3. M ETRICS 
+
+Pocket recovery. For multi-chain systems that contain duplicated protein-ligand pairs, we first superpose the protein chain of predicted structure onto the ground-truth chain by backbone alignment. Similarly to (Ma et al., 2025), we handle homodimers or copies of equivalent protein chains in the reference structure by permuting the alignment between predicted and ground-truth chains to obtain the best results, as formulated below. 
+
+DCC = min  
+
+> c∈chains
+
+min  
+
+> ℓ∈ligands
+
+Rc ¯rℓ + tc − ¯rlig 2, (A6) where (Rc, tc) is the rigid-body transform from the prediction frame to ground-truth chain c and ¯rℓ is the heavy-atom centroid of predicted ligand chain ℓ (waters and hydrogens excluded). Minimum over c and ℓ is the permutation-invariant best alignment; a system is counted as rescued at threshold τ if at least one predicted ligand has DCC < τ .
+
+Pose accuracy. Per-pose ligand RMSD (L-RMSD) is computed as: 
+
+L-RMSD = 
+
+s 1
+
+|A ℓ|
+
+X
+
+> a∈A ℓ
+
+∥xa − x∗
+
+> a
+
+∥22 (A7) where Aℓ denotes the set of ligand heavy atoms, xa ∈ R3 is the predicted position of atom a, and x∗ 
+
+> a
+
+∈ R3 is its ground-truth position. L-RMSD is computed with OpenStructure (Biasini et al., 2013). The software first establishes a chain correspondence between prediction and reference using its lDDT-based chain-mapping algorithm. Symmetry-aware atom correspondences are enumerated via molecular-graph automorphism on the heavy-atom skeleton and the reported 
+
+symmetry-corrected ligand RMSD is the minimum over all valid atom mappings after superposing the backbone carbon of the assigned protein chain. This yields a permutation-invariant pose-quality score, robust both to protein-chain renaming and to ligand internal symmetry. 
+
+Pose quality. Besides structural accuracy, we assess whether poses are physically plausible. We use PoseBusters plausibility checks using the PoseBusters package version 0.6.5. The pose is considered valid only if it passes all the following checks. 
+
+mol pred loaded internal steric clash mol true loaded aromatic ring flatness mol cond loaded double bond flatness sanitization internal energy molecular formula minimum distance to protein molecular bonds minimum distance to organic cofactors double bond stereochemistry minimum distance to inorganic cofactors tetrahedral chirality volume overlap with protein bond lengths volume overlap with organic cofactors bond angles volume overlap with inorganic cofactors 
+
+13 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology 
+
+Pair ipTM. ipTM score, introduced in (Jumper et al., 2021), quantifies the alignment quality between two molecular entities A and B. It is defined asymmetrically as: ipTM (A → B) = max 
+
+> i∈A
+
+mean j∈B , pTM ij 
+
+ (A8) where the predicted TM score (pTM) computes the TM-score from predicted aligned errors (PAE): pTM = max 
+
+> i
+
+ 1
+
+L
+
+> L
+
+X
+
+> j=1
+
+11 + 
+
+ PAE ij 
+
+> d0
+
+2
+
+ (A9) (Jumper et al., 2021; Abramson et al., 2024) provides ipTM for a pair of molecular entities. In protein-ligand complexes, it provides 2 values of directional ipTM. Therefore, we define the pair ipTM as: pair ipTM = max 
+
+
+
+ipTM protein →ligand , ipTM ligand →protein 
+
+
+
+(A10) A.1.4. B ASELINE DETAILS 
+
+Pocket exploration. To establish baselines for pocket exploration, we consider both traditional pocket detection methods and modern co-folding approaches. For the former, P2Rank (Kriv ´ak & Hoksza, 2018) predicts ligand binding sites using a random forest classifier trained on local physicochemical features of the protein surface. FPocket (Le Guilloux et al., 2009) detects cavities on the protein surface using Voronoi tessellation, without requiring any training data or ligand information. Both produce ranked lists of candidate pocket centers without explicit ligand placement. For these methods, DCC is measured between the predicted pocket center and the ground-truth ligand center of mass. For co-folding baselines, we use the same inference protocols as ACER for Boltz-2, Protenix-v1 (protenix base default v1.0.0), and OpenFold-3 (preview-2) to generate 30 samples but without decoy ligand conditioning or pocket repulsion potential. For Boltz-2 and Protenix-v1, we also enable the default potentials to ensure physical plausibility of the poses. 
+
+Ensemble-based ranking. To benchmark the pose ranking scheme, we generate P × S samples ( P = 10 , S = 5 ) using Boltz-2, Protenix-v1, and OpenFold-3, ranked by each model’s confidence scores, maintaining equal sampling budget across all methods for a fair comparison with ACER. When reporting best-of-k or top-k results in tables and figures, we consider the best pose among top k candidates, which is both physically valid and has the lowest L-RMSD within the threshold. 
+
+A.2. Extended Results Top pocket candidate selection . We show how %DCC success rate varies by the top P pockets according to pair ipTM to discard clearly unreliable predicted interfaces. Table A6 shows how selected top P pockets captures recoverable pockets across subsets, achieving 100% rescue rates at Top-20 under both DCC criteria, while avoiding running local ensemble generation for all the pocket candidates, which can be computationally expensive in the subsequent ranking stage. 
+
+Table A6. Pocket rescue rate for the top-N pockets ranked by pocket exploration strategies. DCC < 2 ˚A and < 3 ˚A denote the distance criteria for pocket recovery. Percentages are computed relative to the ceiling of recoverable pockets. 
+
+Allosteric (n = 20 ) Clustered & Distinct Ligands (n = 46 ) Total (n = 88 )
+
+N DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+1 35.7 33.3 52.4 52.2 57.9 56.5 5 71.4 80.0 66.7 73.9 73.7 82.6 10 92.9 100.0 85.7 91.3 86.8 93.5 20 100.0 100.0 100.0 100.0 100.0 100.0 
+
+Multi-seed results . To assess whether wrong-pocket predictions are consistent across random seeds, we repeat each inference 5 times and compute the union of successful placements. Concretely, a system is counted as successful if at 14 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint ICML 2026 Workshop on Generative and Agentic AI for Biology
+
+least one of the 5 predictions achieves a DCC below the threshold, regardless of the other seeds. As shown in Figure A5, increasing the number of samples modestly reduces the fraction of wrong-pocket systems compared to the single top-1 prediction. 
+
+Pocket and pose recovery by similarity bins. Figure A3 shows the best L-RMSD per system stratified by pocket-ligand shape similarity to the training set, restricted to systems where the Boltz-2 baseline fails to identify the correct pocket (DCC 
+
+≥ 2 ˚A). ACER rescues are most prevalent in the low-similarity regime (0–30), where Boltz-2 consistently misplaces ligands, and in several of these rescued cases ACER can achieve an accurate pose (L-RMSD < 2 ˚A), despite the ranking bottleneck, as described in 4.2.2. 
+
+Protein-ligand generalizability benchmark. Table A7 details the success rate (% L-RMSD ¡ 2 ˚A or 3 ˚A thresholds and PB-Valid). While ACER’s top-1 performance is inferior to co-folding baselines, it offers clear advantages at Top-5 and Top-10 success rate at which. it can sample accurate poses in the challenging similarity bins (0 –30]. On the overall benchmark, ACER achieves 52.5% and 54.8% at Top-5 and Top-10 (L-RMSD ¡ 2 ˚A) with a similar trend at the 3 ˚A threshold (64.1% and 65.9%). This pattern indicates that ACER’s ranking effectively high-quality poses within a small candidate pool, even though its top-ranked pose does not lead. 
+
+Runtime, compute and memory overhead We run ACER primarily on NVIDIA A100-40GB GPUs. For decoy ligand conditioning, the additional cost arises from the extra tokens that must be processed by the trunk module, since triangle attention scales quadratically with token count, inflating both runtime and temporary activation memory. Using 1T49 as a representative structure, Table A8 shows the incremental runtime due to longer trunk processing. Additional diffusion forward passes conditioned on each reconstructed representation compounds runtime overhead accordingly (Table A9). For iterative pocket repulsion, memory footprint remains unchanged relative to the default, as the input token count is unaffected. However, FK steering incurs extra runtime due to a particle resampling step. Each generated sample under pocket repulsion requires 3× diffusion run time, compared to default sampling (Table A10). Both approaches therefore increase wall-clock time, with the cost scaling jointly with the number of diffusion forward passes and the resampling frequency. As a result, a greater number of exploration iterations leads to proportionally longer runtimes. We also report the overall runtime over Boltz-2 wrong-pocket dataset in Table A11 
+
+A.3. Ablation study 
+
+A.3.1. P OCKET EXPLORATION 
+
+We ablate each component of ACER on the Runs N’ Poses benchmark across 5 seeds (seeds = ) to isolate the effect of decoy ligand conditioning and iterative pocket repulsion. All ablations are performed exclusively on the Boltz-2 wrong-pocket subset, allowing us to directly measure the contribution of each ACER component to DCC success rate. Due to the computational costs, we omit the detailed ablation study on ACER – Protenix-v1 expected to yield the similar insights to Boltz-2 case. The results are reported with uncertainty estimates from 95% confidence intervals over 1,000 bootstraps. As shown in Table A12, decoy ligand conditioning alone yields substantially more correct pocket predictions than iterative pocket repulsion. Notably, pocket repulsion has negligible effect at the strict DCC <2 ˚A threshold, suggesting that repulsion guidance in the large search space is insufficient for precise ligand placement. However, by combining both components, ACER attains complementary gains, implying that pocket repulsion becomes effective when the search space is more constrained by occlusion effect introduced by decoy ligand conditioning. For a single seed ( seed = 738291 ) due to computational costs, we therefore ablate the two components with higher iterations of pocket repulsion, demonstrating greater improvements due to increased iterations to substantiate its benefit on top of decoy ligand conditioning (Table A13) Table A14 shows the effect of the number of decoy ligands on the conditioning representation. Performance improves consistently with more decoys across both thresholds and both subsets, suggesting that a larger ensemble of decoy poses occludes more of the surface around the incorrect pocket, steering the model toward alternative binding interfaces that are underexplored in default sampling mode. Table A15 shows DCC success rates from decoy ligand conditioning, accumulated across decoy ligand types for 1-4 decoy ligands and 1 target ligand. Using decoy ligands identical to the target ligand performs comparably to small and medium chemical probes (KI2 and FER). In contrast, the bulkier PTY probe underperforms, likely because its steric bulk constrains the range of plausible binding sites. Since chemical probes offer no clear advantage in exploration, we use native ligands as 15 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology 
+
+Table A7. Performance comparison of co-folding methods across sequence identity bins on the Runs N’ Poses benchmark ( n = 217 when top P = 10 pocket candidates and S = 5 samples of local ensembles are considered). 
+
+% L-RMSD < 2 ˚ A & PB Valid ↑ % L-RMSD < 3 ˚ A & PB Valid ↑
+
+Similarity bin (n) Ranking Approach Top-1 Top-5 Top-10 Top-1 Top-5 Top-10 0–20 (14) Boltz-2 0.0 ± 0.0 0.0 ± 0.0 0.0 ± 0.0 0.0 ± 0.0 0.0 ± 0.0 0.0 ± 0.0
+
+Protenix-v1 0.0 ± 0.0 0.0 ± 0.0 0.0 ± 0.0 0.0 ± 0.0 0.0 ± 0.0 0.0 ± 0.0
+
+OpenFold-3 0.0 ± 0.0 0.0 ± 0.0 7.1 ± 6.8 0.0 ± 0.0 7.1 ± 6.8 7.1 ± 6.8
+
+ACER Boltz-2 L-weight 7.1 ± 7.1 7.1 ± 7.1 7.1 ± 7.1 7.1 ± 7.1 7.1 ± 7.1 14 .3 ± 9.3
+
+20–30 (14) Boltz-2 7.1 ± 6.8 7.1 ± 6.8 7.1 ± 6.8 7.1 ± 6.8 7.1 ± 6.8 7.1 ± 6.8
+
+Protenix-v1 7.1 ± 6.8 14 .3 ± 9.4 14 .3 ± 9.4 7.1 ± 6.8 14 .3 ± 9.4 14 .3 ± 9.4
+
+OpenFold-3 7.1 ± 6.8 7.1 ± 6.8 7.1 ± 6.8 7.1 ± 6.8 7.1 ± 6.8 7.1 ± 6.8
+
+ACER Boltz-2 L-weight 7.1 ± 6.8 7.1 ± 6.8 7.1 ± 6.8 14 .3 ± 9.4 14 .3 ± 9.4 14 .3 ± 9.4
+
+30–40 (23) Boltz-2 26 .1 ± 9.1 30 .4 ± 9.5 30 .4 ± 9.5 30 .4 ± 9.4 34 .8 ± 9.7 43 .5 ± 10 .2
+
+Protenix-v1 47 .8 ± 10 .8 60 .9 ± 10 .1 69 .6 ± 9.4 47 .8 ± 10 .8 60 .9 ± 10 .1 69 .6 ± 9.4
+
+OpenFold-3 39 .1 ± 10 .5 47 .8 ± 10 .4 52 .2 ± 10 .5 47 .8 ± 10 .8 60 .9 ± 10 .2 65 .2 ± 10 .0
+
+ACER Boltz-2 L-weight 17 .4 ± 7.9 26 .1 ± 8.9 39 .1 ± 10 .2 30 .4 ± 9.5 47 .8 ± 10 .5 52 .2 ± 10 .4
+
+40–50 (32) Boltz-2 37 .5 ± 8.9 43 .8 ± 9.2 46 .9 ± 9.2 53 .1 ± 9.2 56 .2 ± 9.1 59 .4 ± 9.1
+
+Protenix-v1 31 .2 ± 8.3 53 .1 ± 8.9 53 .1 ± 8.9 46 .9 ± 8.7 62 .5 ± 8.6 62 .5 ± 8.6
+
+OpenFold-3 34 .4 ± 8.9 50 .0 ± 9.2 53 .1 ± 9.2 46 .9 ± 8.8 59 .4 ± 8.8 59 .4 ± 8.8
+
+ACER Boltz-2 L-weight 37 .5 ± 8.5 50 .0 ± 9.0 50 .0 ± 9.0 53 .1 ± 8.7 71 .9 ± 8.1 71 .9 ± 8.1
+
+50–60 (38) Boltz-2 44 .7 ± 8.0 47 .4 ± 8.1 50 .0 ± 8.2 68 .4 ± 7.7 68 .4 ± 7.7 71 .1 ± 7.5
+
+Protenix-v1 36 .8 ± 8.0 47 .4 ± 8.4 50 .0 ± 8.4 36 .8 ± 8.0 47 .4 ± 8.4 52 .6 ± 8.4
+
+OpenFold-3 36 .8 ± 7.8 50 .0 ± 7.7 55 .3 ± 7.8 47 .4 ± 8.0 55 .3 ± 7.8 57 .9 ± 7.7
+
+ACER Boltz-2 L-weight 31 .6 ± 7.6 55 .3 ± 8.1 57 .9 ± 8.1 52 .6 ± 8.2 71 .1 ± 7.5 71 .1 ± 7.5
+
+60–70 (38) Boltz-2 57 .9 ± 8.0 60 .5 ± 7.9 60 .5 ± 7.9 63 .2 ± 7.7 65 .8 ± 7.6 65 .8 ± 7.6
+
+Protenix-v1 50 .0 ± 8.0 57 .9 ± 8.1 63 .2 ± 8.0 52 .6 ± 8.0 63 .2 ± 7.9 65 .8 ± 7.9
+
+OpenFold-3 36 .8 ± 7.6 42 .1 ± 7.8 44 .7 ± 7.9 52 .6 ± 8.1 57 .9 ± 8.1 57 .9 ± 8.1
+
+ACER Boltz-2 L-weight 55 .3 ± 8.2 63 .2 ± 7.8 63 .2 ± 7.8 63 .2 ± 7.8 71 .1 ± 7.4 71 .1 ± 7.4
+
+70–80 (27) Boltz-2 70 .4 ± 8.7 74 .1 ± 8.3 74 .1 ± 8.3 85 .2 ± 6.8 85 .2 ± 6.8 85 .2 ± 6.8
+
+Protenix-v1 48 .1 ± 9.9 74 .1 ± 8.7 74 .1 ± 8.7 51 .9 ± 9.9 77 .8 ± 8.3 77 .8 ± 8.3
+
+OpenFold-3 40 .7 ± 9.4 74 .1 ± 8.4 74 .1 ± 8.4 44 .4 ± 9.5 77 .8 ± 8.1 77 .8 ± 8.1
+
+ACER Boltz-2 L-weight 63 .0 ± 9.2 81 .5 ± 7.4 81 .5 ± 7.4 70 .4 ± 8.7 85 .2 ± 6.8 85 .2 ± 6.8
+
+80–100 (31) Boltz-2 80 .6 ± 6.9 80 .6 ± 6.9 83 .9 ± 6.4 83 .9 ± 6.5 83 .9 ± 6.5 90 .3 ± 5.3
+
+Protenix-v1 48 .4 ± 8.7 58 .1 ± 8.7 61 .3 ± 8.8 54 .8 ± 9.0 67 .7 ± 8.4 67 .7 ± 8.4
+
+OpenFold-3 41 .9 ± 8.8 54 .8 ± 8.6 58 .1 ± 8.6 51 .6 ± 8.8 64 .5 ± 8.5 67 .7 ± 8.4
+
+ACER Boltz-2 L-weight 61 .3 ± 8.9 74 .2 ± 7.9 77 .4 ± 7.7 64 .5 ± 8.8 80 .6 ± 7.2 87 .1 ± 5.9
+
+Overall (217) 
+
+Boltz-2 47 .0 ± 3.4 49 .8 ± 3.4 51 .2 ± 3.4 57 .1 ± 3.4 58 .5 ± 3.4 61 .3 ± 3.3
+
+Protenix-v1 38 .2 ± 3.3 51 .2 ± 3.4 53 .9 ± 3.4 42 .4 ± 3.3 55 .3 ± 3.3 57 .6 ± 3.3
+
+OpenFold-3 33 .6 ± 3.2 46 .1 ± 3.3 49 .3 ± 3.3 42 .9 ± 3.3 54 .8 ± 3.3 56 .2 ± 3.3
+
+ACER Boltz-2 L-weight 40 .1 ± 3.4 52 .5 ± 3.5 54 .8 ± 3.5 50 .7 ± 3.5 64 .1 ± 3.4 65 .9 ± 3.4
+
+Table A8. Incremental trunk runtime and triangle attention memory footprint as a function of the number of decoy ligands processed by the trunk module, using 1T49 as a representative structure. Trunk cost is estimated as the difference between total forward pass time and diffusion time. 
+
+Number of ligands Tokens Tri. Attn., bf16 (GB) Trunk overhead (s) 
+
+1 286 0.17 14 .0 ± 0.4
+
+5 378 0.29 31 .5 ± 0.1
+
+10 493 0.50 71 .2 ± 0.2
+
+20 608 0.76 199 .3 ± 0.4
+
+decoy ligands in this work, as their duplicate representations for conditioning can be cached once and reused across multiple diffusion runs. We ablate the pocket repulsion algorithm parameters without decoy ligand conditioning to assess how DCC success rate is 16 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology 
+
+Table A9. Runtime comparison between 2 diffusion samples from default sampling and decoy ligand conditioning where each sample was generated in a separate forward pass conditioned on 2 distinct reconstructed representations. Standard deviation is shown over 3 runs. 
+
+Mode # Samples Diffusion (s) Wall-clock runtime (s) 
+
+Boltz-2 default: 1 forward × samples =2 2 21 .2 ± 0.6 92 .3 ± 8.5
+
+ACER Boltz-2 – Decoy ligand conditioning: 2 forwards × samples =1 2 40 .8 ± 0.5 154 .0 ± 1.7
+
+Table A10. Runtime comparison between Boltz-2 default sampling and ACER with pocket repulsion. Standard deviation is shown over 3 runs. 
+
+Protein # Res Number of diffusion samples Diffusion Time (s) Default Boltz-2 ACER Boltz-2 
+
+4YPQ 243 1 20 .9 ± 0.4 64 .2 ± 0.8
+
+2 21 .4 ± 0.0 85 .1 ± 1.0
+
+4 20 .9 ± 0.2 137 .4 ± 1.1
+
+16 49 .0 ± 0.0 823 .4 ± 14 .3
+
+3F9N 322 1 20 .5 ± 0.4 66 .6 ± 2.1
+
+4 21 .0 ± 0.3 140 .1 ± 1.3
+
+5MO4 495 1 20 .3 ± 0.3 65 .1 ± 0.4
+
+4 31 .6 ± 0.0 151 .6 ± 1.8
+
+Table A11. Wall-clock runtime breakdown on Boltz-2 wrong-pocket subset for decoy ligand conditioning and iterative pocket repulsion where each diffusion forward pass uses 200 sampling steps. Runtime is reported as mean ± std over benchmark tasks. 
+
+Stage Config Sampling steps Runtime (s) 
+
+Decoy ligand nligand = 1 200 37 ± 9
+
+Decoy ligand nligand = 2 400 74 ± 18 
+
+Decoy ligand nligand = 3 600 111 ± 27 
+
+Pocket repulsion nrounds = 1 200 128 ± 25 
+
+Pocket repulsion nrounds = 4 800 410 ± 94 
+
+Pocket repulsion nrounds = 5 1000 524 ± 123 
+
+Pocket repulsion nrounds = 8 1600 828 ± 194 
+
+Table A12. Ablation of ACER components on the wrong-pocket subset of Runs N’ Poses benchmark for Boltz-2 over 5 seeds (seeds = 
+
+231234 , 89567 , 412903 , 451027 , 738291 )
+
+Clustered & Distinct Ligands (n = 46 ) Total (n = 88 )Method DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+Boltz-2 ( ×30 samples) 30 .4 ± 7.0 37 .0 ± 7.2 36 .4 ± 5.1 43 .2 ± 5.3
+
+Only decoy ligand conditioning ( 1 − 4 decoy ligands) 43 .9 ± 6.8 50 .4 ± 6.6 42 .5 ± 5.0 48 .4 ± 4.8
+
+Only 5-round pocket repulsion 34 .8 ± 6.9 47 .8 ± 7.6 38 .6 ± 4.9 47 .7 ± 5.2
+
+Decoy ligand conditioning + 5-round pocket repulsion 44 .3 ± 6.5 51 .7 ± 6.7 43 .6 ± 5.0 51 .1 ± 5.1
+
+sensitive to the parameters in guidance sampling, including the virtual pocket radius rg (Table A16), the minimum distance threshold dmin (Table A17), and optional protein-ligand contact guidance that preserves protein-ligand contact (Table A18). The results are derived from a single seed (seed = 738291 ). Uncertainty is estimated by 1000 bootstrap resampling. Table A16 reports DCC success rate by varying the virtual pocket radius rg used to define the repulsion region. Larger rg
+
+improve the likelihood of correct ligand placement into alternative pockets, with r = 8 achieving the best results. This suggests that larger repulsion against the already explored regions is more effective to discover the new binding interface. 17 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology 
+
+Table A13. Ablation of ACER components on the wrong-pocket subset of Runs N’ Poses benchmark for Boltz-2 on a single seed = 
+
+738291 
+
+Clustered & Distinct Ligands (n = 46 ) Total (n = 88 )Method DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+Boltz-2 (x 30 samples) 30 .4 ± 6.6 37 .0 ± 7.1 36 .4 ± 5.2 43 .2 ± 5.3
+
+Only decoy ligand conditioning ( 1 − 4 decoy ligands) 45 .7 ± 7.3 50 .0 ± 7.4 43 .2 ± 5.4 52 .3 ± 5.4
+
+Decoy ligand conditioning + 5-round pocket repulsion 45 .7 ± 7.2 52 .2 ± 7.4 43 .2 ± 5.2 54 .5 ± 5.4
+
+Decoy ligand conditioning + 15-round pocket repulsion 47 .8 ± 7.6 54 .3 ± 7.2 46 .6 ± 5.2 58 .0 ± 5.1
+
+Table A14. Ablation as a function of the number of decoy ligands on the Runs N' Poses and Allosteric Systems benchmarks on a single seed = 738291 
+
+# Total ligands # Decoy ligands Clustered & Distinct Ligands (n = 46 ) Total (n = 88 ) Allosteric Systems (n = 20 )DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+2 1 41 .4 ± 7.3 47 .8 ± 7.4 36 .9 ± 5.1 46 .6 ± 5.3 44 .7 ± 11 .2 50 .0 ± 10 .7
+
+3 2 45 .6 ± 7.4 50 .5 ± 7.2 41 .2 ± 5.3 48 .8 ± 5.4 54 .4 ± 10 .8 59 .6 ± 10 .9
+
+4 3 45 .9 ± 7.5 49 .9 ± 7.3 42 .3 ± 5.1 50 .2 ± 5.3 55 .1 ± 11 .5 60 .2 ± 10 .9
+
+5 4 45 .8 ± 7.5 50 .3 ± 7.3 43 .3 ± 5.5 51 .3 ± 5.2 55 .1 ± 11 .2 65 .4 ± 10 .6
+
+Table A15. Ablation of the choice of decoy ligand type on DCC success rate (%) at 2 ˚ A and 3 ˚ A thresholds. Decoy ligand type Clustered & Distinct Ligands (n = 46 ) Total (n = 88 )DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+Native (5 × native) 45 .3 ± 7.2 50 .2 ± 7.3 43 .2 ± 5.1 52 .6 ± 5.2
+
+KI2 26 .1 ± 6.6 35 .1 ± 6.8 29 .7 ± 5.0 38 .5 ± 5.4
+
+PTY 15 .2 ± 5.3 28 .3 ± 6.7 21 .7 ± 4.5 34 .0 ± 5.1
+
+FER 25 .9 ± 6.5 30 .3 ± 6.6 25 .1 ± 4.6 31 .8 ± 4.9
+
+Table A16. Ablation as a function of the pocket radius on the Runs N' Poses benchmark over 5 iterations of pocket repulsion. Boltz-2 baseline runs default sampling without decoy ligand conditioning Pocket radius Clustered & Distinct Ligands (n = 46 ) Total (n = 88 )DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+Boltz-2 ( ×5 samples without pocket repulsion) 26 .1 ± 6.5 34 .9 ± 7.4 30 .6 ± 5.1 36 .6 ± 5.2
+
+4 ˚ A 28 .4 ± 6.5 32 .4 ± 6.8 34 .1 ± 5.2 38 .6 ± 4.9
+
+6 ˚ A 32 .5 ± 6.8 36 .8 ± 7.1 36 .4 ± 4.8 40 .9 ± 5.2
+
+8 ˚ A 28 .3 ± 6.8 41 .4 ± 7.4 31 .7 ± 5.1 40 .9 ± 5.3
+
+Table A17 shows DCC success rate by the minimum distance threshold dmin controlling how far decoy ligands must be placed from the restricting binidng pocket. Performance degrades at smaller values ( dmin ∈ { 4, 6}), indicating that ligands placed too close to the previous pocket do not effectively explore alternative pockets. As applying the repulsion potential alone risks pushing the ligand entirely away from the protein surface, we experiment introducing the contact potential Uprotein-contact in Equation A11 as a safeguard to keep the ligand in contact with protein but not so close to cause steric clashes. We therefore ablate the contact weight added to the existing potential where λc to quantify its effect. Table A18 reports the effect of varying the contact weight hyperparameter. Disabling contact weighting 18 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology 
+
+Table A17. Ablation as a function of the minimum distance threshold dmin on the Runs N' Poses benchmark over 5 iterations of pocket repulsion. Boltz-2 baseline runs default sampling without decoy ligand conditioning 
+
+dmin 
+
+Clustered & Distinct Ligands (n = 46 ) Total (n = 88 )DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+Boltz-2 ( ×5 samples without pocket repulsion) 26 .1 ± 6.5 34 .9 ± 7.4 30 .6 ± 5.1 36 .6 ± 5.2
+
+4 ˚ A 23 .8 ± 6.2 32 .4 ± 7.0 30 .7 ± 4.8 35 .5 ± 5.0
+
+6 ˚ A 28 .1 ± 6.9 34 .9 ± 7.0 34 .9 ± 5.3 38 .4 ± 4.9
+
+8 ˚ A 28 .1 ± 6.8 41 .6 ± 7.5 31 .7 ± 4.9 41 .0 ± 5.3
+
+entirely ( λc = 0 .0) performs similarly on DCC success rate < 2 ˚A threshold, suggesting that conditioning representations that direct the denoiser already implicitly enforce structural priors to maintain protein-ligand contact. The protein-ligand contact potential provides limited benefit in this setting. 
+
+Uprotein-contact := X
+
+> a∈A lig
+
+max 
+
+
+
+0, min 
+
+> p∈A p
+
+∥xa − xp∥2 − dc
+
+2
+
+(A11) where Alig and Ap denote the sets of ligand and protein heavy atoms, respectively, xp ∈ R3 is the position of protein atom p,and dc is the maximum allowed distance to the nearest protein atom. The term on added to the existing potentials 2.
+
+Utotal := Urepulsion (B) + λc Ucontact (A12) where λc ≥ 0 is a scalar weight controlling the strength of the contact term. Setting λc = 0 refers to pure repulsion steering. 
+
+Table A18. Ablation as a function of the contact weight on the Runs N’ Poses benchmark over 5 iterations of pocket repulsion. Boltz-2 baseline runs default sampling without decoy ligand conditioning. Contact weight Clustered & Distinct Ligands (n = 46 ) Total (n = 88 )DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+DCC <2 ˚ A(%) ↑
+
+DCC <3 ˚ A(%) ↑
+
+Boltz-2 ( ×5 samples without pocket repulsion) 26 .1 ± 6.5 34 .9 ± 7.4 30 .6 ± 5.1 36 .6 ± 5.2
+
+0.0 30 .7 ± 7.0 41 .5 ± 7.1 34 .3 ± 5.3 40 .8 ± 5.3
+
+0.5 28 .2 ± 6.6 38 .8 ± 7.3 33 .1 ± 5.0 40 .9 ± 5.5
+
+1.0 27 .8 ± 6.9 41 .7 ± 7.4 31 .9 ± 5.0 40 .6 ± 5.3
+
+A.3.2. E NSEMBLE -BASED RANKING 
+
+We ablate how the two key sampling-budget parameters affect ensemble-based pose ranking across the allosteric set, the Boltz-2 wrong-pocket subset of Runs N’ Poses , and the full clustered-and-distinct ligand subset. Uncertainty is reported as 95% confidence intervals over 1,000 bootstraps. Given the total sampling budget B = P × S, P is the number of candidate binding pockets obtained from the exploration phase, while S represents the local conformational coverage within each pocket. We ablate both parameters across all test sets in Tables A19–A22. A modest budget of B = 50 samples is typically sufficient for ACER to outperform the baselines. However, on the generalizability benchmark, increasing the budget to B = 200 yields substantially higher success rates in the hardest similarity bin ( ≤ 20% ), where pocket discovery is the key contributor and retaining more candidate pockets in the ranking pool becomes critical (Figure 2). 
+
+> 2
+
+Boltz-steering includes various constraints: chirality, ring planarity, internal geometry, steric clashes, overlapping chains 
+
+19 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology 
+
+Table A19. Ablation on selected P pockets and S local ensemble conformers within the pocket on allosteric set ( n = 20 ). 
+
+% L-RMSD < 2 ˚ A & PB Valid ↑ % L-RMSD < 3 ˚ A & PB Valid ↑
+
+Ranking Approach P S Top-1 Top-5 Top-10 Top-1 Top-5 Top-10 
+
+Budget = 50 
+
+Boltz-2 10 5 25.0 ± 9.6 30.0 ± 10.1 30.0 ± 10.1 30.0 ± 10.2 40.0 ± 11.0 40.0 ± 11.0 ACER – baseline 10 5 20.0 ± 9.0 25.0 ± 9.6 35.0 ± 10.6 30.0 ± 10.1 40.0 ± 10.8 45.0 ± 10.9 ACER – L-weight 10 5 25.0 ± 9.3 50.0 ± 11.1 50.0 ± 11.1 30.0 ± 9.9 65.0 ± 10.6 70.0 ± 10.3 
+
+ACER – G-weight 10 5 25.0 ± 9.3 50.0 ± 11.1 50.0 ± 11.1 35.0 ± 10.3 65.0 ± 10.6 70.0 ± 10.3 
+
+Budget = 100 
+
+Boltz-2 10 10 25.0 ± 9.6 30.0 ± 10.1 30.0 ± 10.1 30.0 ± 10.2 40.0 ± 11.0 40.0 ± 11.0 ACER – L-weight 10 10 30.0 ± 10.1 50.0 ± 11.2 55.0 ± 11.1 35.0 ± 10.6 60.0 ± 11.0 70.0 ± 10.3 
+
+ACER – G-weight 10 10 30.0 ± 10.1 50.0 ± 11.2 55.0 ± 11.1 35.0 ± 10.6 65.0 ± 11.0 70.0 ± 10.3 
+
+Budget = 200 
+
+Boltz-2 20 10 25.0 ± 9.6 30.0 ± 10.1 30.0 ± 10.1 30.0 ± 10.2 40.0 ± 11.0 40.0 ± 11.0 ACER – L-weight 20 10 25.0 ± 9.6 45.0 ± 11.4 55.0 ± 11.1 30.0 ± 10.2 60.0 ± 11.0 70.0 ± 10.3 
+
+ACER – G-weight 20 10 25.0 ± 9.6 45.0 ± 11.4 55.0 ± 11.1 30.0 ± 10.2 65.0 ± 11.0 70.0 ± 10.3 
+
+Table A20. Ablation on selected P pockets and S local ensemble conformers within the pocket on Runs N’ Poses wrong-pocket subset of Boltz-2 – Clustered & Distinct Ligands ( n = 46 ). 
+
+% L-RMSD < 2 ˚ A & PB Valid ↑ % L-RMSD < 3 ˚ A & PB Valid ↑
+
+Ranking Approach P S Top-1 Top-5 Top-1 Top-5 
+
+Budget = 50 
+
+Boltz-2 10 5 15.2 ± 5.5 15.2 ± 5.5 19.6 ± 6.0 19.6 ± 6.0 ACER – baseline 10 5 23.9 ± 6.4 23.9 ± 6.4 32.6 ± 7.1 34.8 ± 7.2 ACER – L-weight 10 5 15.2 ± 5.5 26.1 ± 6.7 21.7 ± 6.3 37.0 ± 7.2 ACER – G-weight 10 5 15.2 ± 5.5 28.3 ± 6.8 21.7 ± 6.3 39.1 ± 7.2 
+
+Budget = 100 
+
+Boltz-2 10 10 15.2 ± 5.5 15.2 ± 5.5 19.6 ± 6.0 19.6 ± 6.0 ACER – baseline 10 10 23.9 ± 6.4 23.9 ± 6.4 32.6 ± 7.1 34.8 ± 7.2 ACER – L-weight 10 10 19.6 ± 6.0 28.3 ± 7.0 28.3 ± 6.8 39.1 ± 7.4 
+
+ACER – G-weight 10 10 19.6 ± 6.0 26.1 ± 6.7 28.3 ± 6.8 37.0 ± 7.4 
+
+Budget = 200 
+
+Boltz-2 20 10 15.2 ± 5.5 15.2 ± 5.5 19.6 ± 6.0 19.6 ± 6.0 ACER – baseline 20 10 21.7 ± 6.2 23.9 ± 6.4 28.3 ± 6.7 34.8 ± 7.2 ACER – L-weight 20 10 21.7 ± 6.2 26.1 ± 6.8 32.6 ± 7.1 39.1 ± 7.4 
+
+ACER – G-weight 20 10 21.7 ± 6.2 23.9 ± 6.5 32.6 ± 7.1 37.0 ± 7.4 
+
+20 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology 
+
+Table A21. Ablation on selected P pockets and S local ensemble conformers within the pocket on the Runs N’ Poses wrong-pocket subset of Boltz-2 – Total ( n = 88 ). 
+
+% L-RMSD < 2 ˚ A & PB Valid ↑ % L-RMSD < 3 ˚ A & PB Valid ↑
+
+Method P S Top-1 Top-5 Top-1 Top-5 
+
+Budget = 50 
+
+Boltz-2 10 5 26.1 ± 4.8 27.3 ± 4.8 28.4 ± 4.9 29.5 ± 5.0 ACER – baseline 10 5 30.7 ± 5.0 31.8 ± 5.1 35.2 ± 5.2 37.5 ± 5.3 ACER – L-weight 10 5 21.6 ± 4.4 29.5 ± 4.9 26.1 ± 4.8 36.4 ± 5.3 ACER – G-weight 10 5 21.6 ± 4.4 31.8 ± 5.1 26.1 ± 4.8 38.6 ± 5.4 
+
+Budget = 100 
+
+Boltz-2 10 10 26.1 ± 4.8 27.3 ± 4.8 28.4 ± 4.9 29.5 ± 5.0 ACER – baseline 10 10 30.7 ± 5.0 31.8 ± 5.1 35.2 ± 5.2 37.5 ± 5.3 ACER – L-weight 10 10 25.0 ± 4.7 30.7 ± 5.0 29.5 ± 5.0 37.5 ± 5.3 
+
+ACER – G-weight 10 10 25.0 ± 4.7 29.5 ± 4.9 29.5 ± 5.0 36.4 ± 5.3 
+
+Budget = 200 
+
+Boltz-2 20 10 26.1 ± 4.8 27.3 ± 4.8 28.4 ± 4.9 29.5 ± 5.0 ACER – baseline 20 10 29.5 ± 5.0 33.0 ± 5.2 33.0 ± 5.2 38.6 ± 5.4 
+
+ACER – L-weight 20 10 26.1 ± 4.7 29.5 ± 4.9 31.8 ± 5.1 37.5 ± 5.3 ACER – G-weight 20 10 26.1 ± 4.7 28.4 ± 4.8 31.8 ± 5.1 36.4 ± 5.3 
+
+Table A22. Ablation on selected P pockets and S local ensemble conformers within the pocket on the full scope of Runs N’ Poses 
+
+Clustered and Distinct Ligands ( n = 217 ). 
+
+% L-RMSD < 2 ˚ A & PB Valid ↑ % L-RMSD < 3 ˚ A & PB Valid ↑
+
+Ranking Approach P S Top-1 Top-5 Top-10 Top-1 Top-5 Top-10 
+
+Budget = 50 
+
+Boltz-2 10 5 47 .0 ± 3.3 49 .8 ± 3.4 51 .2 ± 3.3 57 .1 ± 3.4 58 .5 ± 3.4 61 .3 ± 3.3
+
+Protenix-v1 10 5 38 .2 ± 3.3 51 .2 ± 3.5 53 .9 ± 3.4 42 .4 ± 3.5 55 .3 ± 3.4 57 .6 ± 3.4
+
+OpenFold-3 10 5 33 .6 ± 3.2 46 .1 ± 3.4 49 .3 ± 3.4 42 .9 ± 3.4 54 .8 ± 3.4 56 .2 ± 3.4
+
+ACER Boltz-2 L-weight 10 5 40 .1 ± 3.3 52 .5 ± 3.4 54 .8 ± 3.4 50 .7 ± 3.4 64 .1 ± 3.2 65 .9 ± 3.2
+
+Budget = 100 
+
+Boltz-2 10 10 47 .0 ± 3.3 49 .8 ± 3.4 51 .2 ± 3.3 57 .1 ± 3.4 58 .5 ± 3.4 61 .3 ± 3.3
+
+Protenix-v1 10 10 38 .2 ± 3.3 51 .2 ± 3.5 53 .9 ± 3.4 42 .4 ± 3.5 55 .3 ± 3.4 57 .6 ± 3.4
+
+OpenFold-3 10 10 33 .6 ± 3.2 46 .1 ± 3.4 49 .3 ± 3.4 42 .9 ± 3.4 54 .8 ± 3.4 56 .2 ± 3.4
+
+ACER Boltz-2 L-weight 10 10 43 .8 ± 3.4 53 .5 ± 3.4 56 .2 ± 3.4 52 .5 ± 3.4 63 .1 ± 3.2 65 .0 ± 3.2
+
+Boltz-2 20 5 47 .0 ± 3.3 49 .8 ± 3.4 51 .2 ± 3.3 57 .1 ± 3.4 58 .5 ± 3.4 61 .3 ± 3.3
+
+Protenix-v1 20 5 38 .2 ± 3.3 51 .2 ± 3.5 53 .9 ± 3.4 42 .4 ± 3.5 55 .3 ± 3.4 57 .6 ± 3.4
+
+OpenFold-3 20 5 33 .6 ± 3.2 46 .1 ± 3.4 49 .3 ± 3.4 42 .9 ± 3.4 54 .8 ± 3.4 56 .2 ± 3.4
+
+ACER Boltz-2 L-weight 20 5 41 .0 ± 3.3 52 .5 ± 3.4 54 .8 ± 3.4 50 .7 ± 3.4 63 .1 ± 3.2 65 .0 ± 3.3
+
+Budget = 200 
+
+Boltz-2 20 10 47 .0 ± 3.3 49 .8 ± 3.4 51 .2 ± 3.3 57 .1 ± 3.4 58 .5 ± 3.4 61 .3 ± 3.3
+
+Protenix-v1 20 10 38 .2 ± 3.3 51 .2 ± 3.5 53 .9 ± 3.4 42 .4 ± 3.5 55 .3 ± 3.4 57 .6 ± 3.4
+
+OpenFold-3 20 10 33 .6 ± 3.2 46 .1 ± 3.4 49 .3 ± 3.4 42 .9 ± 3.4 54 .8 ± 3.4 56 .2 ± 3.4
+
+ACER Boltz-2 L-weight 20 10 43 .3 ± 3.4 52 .1 ± 3.3 55 .3 ± 3.3 52 .5 ± 3.4 63 .1 ± 3.2 64 .5 ± 3.2
+
+21 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology 
+
+Algorithm 1 details the iterative pocket repulsion procedure. Over R sampling rounds, the model accumulates a set of occupied pockets B, from a prior set of pockets to steer away from (e.g., known prevalent or previously sampled pockets). In each round, a pose is sampled under the repulsion potential Urepulsion (B), which penalises all pockets in B and steers the model toward unexplored regions. The pocket residues Rr for the resulting pose are extracted by selecting all residues with any heavy atom within 6 ˚A of any ligand atom, and added to B to repel subsequent rounds. User-specified parameters include the number of rounds R, the distance threshold for pocket extraction, and the choice of prior pockets in B0.
+
+Algorithm 1 Iterative pocket repulsion 
+
+Require: protein P, ligand ℓ, number of rounds R, prior pocket set B0
+
+0: B ← B 0 {pockets to steer away from }
+
+0: for r = 1 , . . . , R do 
+
+0: Sample x(r)0 ∼ pθ (x | P , ℓ ; Urepulsion (B)) 
+
+0: Extract pocket residues Rr occupied by ℓ in x(r)0
+
+0: B ← B ∪ {R r }
+
+0: end for 
+
+0: return {x(r)0 }Rr=1 =0 
+
+Figure A3. Best L-RMSD per system, stratified by pocket-ligand shape similarity to the training set. Red indicates systems where the Boltz-2 baseline fails (DCC ≥ 2 ˚A) but ACER rescues the correct pocket (DCC < 2 ˚A); green indicates systems where Boltz-2 alone already succeeds. Gray dots indicate systems where both methods fail. ACER rescue is most prevalent at low similarity (0–30), where Boltz-2 consistently fails to place ligands, and can sample the accurate poses (L-RMSD below 2 ˚ A) in several cases. 
+
+22 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology 
+
+Figure A4. DCC success rate on the wrong-pocket subset of Runs N’ Poses (after 2023-06-01), stratified by pocket–ligand shape similarity to the training set. (a, b) Systems where top-ranked Boltz-2 misplaces the ligand (DCC > 2 ˚A). (c, d) Same, but for Protenix-v1. Filtered (n = 46 , n = 31 ) and full ( n = 88 , n = 55 ) subsets shown in the left and right columns, respectively. 
+
+Figure A5. DCC success rate on the wrong-pocket subset of Runs N’ Poses when considering oracle across 5 seeds. The system is considered successful if at least one prediction across 5 seeds achieves a DCC below the . 
+
+(a) (b) (c) Figure A6. Qualitative examples in the (0, 20] similarity bin of the Runs N’ Poses benchmark. (a) 7FTM – where ACER correctly places ligands into the right pocket (DCC < 2 ˚A) and recovers an accurate ligand pose (L-RMSD < 2 ˚A). (b) 8GOY – a partial success where ligand placement succeeds (DCC < 2 ˚A), yet the predicted ligand pose remains inaccurate (L-RMSD > 2 ˚A). (c) 8TQV – a failure case in which both ACER – Boltz-2 and default Boltz-2 can never rescue the correct pocket. 
+
+23 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint
+
+ICML 2026 Workshop on Generative and Agentic AI for Biology 
+
+(a) KI2 from PDB: 1NH0 (b) PTY from PDB: 3AR4 (c) FER from PDB: 3CBG 
+
+Figure A7. The structure of chemical probes used in the ablation study of decoy ligand type. 
+
+24 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 5, 2026. ;https://doi.org/10.64898/2026.06.02.728568 doi: bioRxiv preprint

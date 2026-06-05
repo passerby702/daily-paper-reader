@@ -1,0 +1,849 @@
+Title: AlloGen: Conformation-Selective Binder Generation with Differential State Scoring
+
+URL Source: https://arxiv.org/pdf/2606.05474v1
+
+Published Time: Fri, 05 Jun 2026 00:20:04 GMT
+
+Number of Pages: 34
+
+Markdown Content:
+# AlloGen: Conformation-Selective Binder Generation with Differential State Scoring 
+
+Hanqun Cao, 1 Zachary Quinn, 2 Aastha Pal, 2 Sumi Kimura, 2 Jingjie Zhang, 1 Pheng Ann Heng, 1 Pranam Chatterjee 2,3, †
+
+> 1
+
+Department of Computer Science and Engineering, The Chinese University of Hong Kong 
+
+> 2
+
+Department of Bioengineering, University of Pennsylvania 
+
+> 3
+
+Department of Computer and Information Science, University of Pennsylvania 
+
+Correspondence: pranam@seas.upenn.edu 
+
+Model: https://huggingface.co/ChatterjeeLab/AlloGen 
+
+Abstract 
+
+Protein binder design has largely optimized for affinity alone, leaving conformational selectiv-ity unaddressed: for allosteric targets such as kinases, nuclear receptors, and GPCRs, a binder that engages both active and inactive states provides no functional specificity regardless of how tightly it binds. We introduce AlloGen , a modular framework that decouples backbone generation from a learned state-selectivity scorer Qθ , an SE(3)-invariant interface graph trans-former trained via a two-phase curriculum that first learns interface geometry before imposing conformational discrimination. Because Qθ is fully differentiable and generator-agnostic, it integrates with any backbone generator as a passive reranker or an active gradient-based guide without retraining. Across a diverse benchmark of proteins spanning multiple families and conformational mechanisms, AlloGen consistently identifies binders that preferentially recognize desired structural states while rejecting alternative conformations. Experimental validation on calmodulin further demonstrates that these computational selectivity signals translate to physical molecules, yielding de novo peptides that bind the desired holo con-formation while exhibiting no detectable binding to the apo state. Together, these results establish conformational selectivity as a learnable property and provide a general framework for state-selective protein binder design. 
+
+# 1 Introduction 
+
+Proteins are molecular switches: their conformational transitions between distinct structural states govern signaling, catalysis, and regulation across virtually every protein family [ 1 – 4 ]. For therapeutically important targets such as kinases, nuclear receptors, and GPCRs, different con-formational states correspond to distinct biological functions, and the design goal is therefore not merely binding affinity but conformational selectivity: stabilizing one functional state while actively disfavoring others [ 5 – 8]. This requirement is central to allosteric drug design, conforma-tional biosensors, and synthetic biology switches [5, 9]. 1
+
+> arXiv:2606.05474v1 [q-bio.BM] 3 Jun 2026
+
+Recent generative models have transformed protein binder design, yet they share a common blind spot. At the sequence level, masked language modeling achieves state-of-the-art peptide binder design conditioned on target sequence [ 10 ], contrastive language models enable de novo 
+
+peptide design to conformationally diverse targets [ 11 ], and multi-objective discrete diffusion has been applied to therapeutic peptide generation [ 12 – 15 ]. At the structural level, RFdiffusion establishes de novo design of functional protein binders at scale [16], PXDesign delivers fast and modular binder design with strong experimental success rates [ 17 ], Proteina-ComplexA scales atomistic binder design through generative pretraining and test-time compute [ 18 ], BoltzGen pursues universal binder design across protein families [ 19 ], and BindCraft co-folds target and binder by backpropagating through AlphaFold2 to produce experimentally validated binders without high-throughput screening [ 20 , 21 ]. Despite this diversity, all existing methods share a fundamental limitation: they condition on a single receptor conformation and optimize for fit to that structure alone. A binder designed for one conformational state may bind equally well to an alternative state, defeating the purpose of state-selective targeting. Conventional scoring functions measure binding affinity but not differential affinity across states, and thus provide no signal for conformational selectivity. To close this gap, we introduce AlloGen , a framework for conformationally selective protein binder design that decouples binder generation from selectivity evaluation (Figure 1). The central insight underlying AlloGen is that conformational selectivity is a learnable and transferable property of receptor–binder interfaces: once distilled into a differentiable scorer, it can be applied post hoc as either a reranker or an active guidance signal for diverse generative models. The core component of AlloGen is Qθ, a lightweight SE(3)-invariant interface graph transformer trained on paired apo and holo receptor states to quantify state-specific binding preference. Because 
+
+Qθ is fully differentiable and generator-agnostic, it integrates seamlessly with existing protein design pipelines, enabling selectivity-guided generation through strategies ranging from best-of-
+
+K reranking to gradient-based refinement and sequential Monte Carlo sampling. Using a benchmark of 65 targets spanning 15 protein families and 2,896 receptor–binder com-plexes, we show that Qθ generalizes to held-out proteins where contact-based energy proxies fail uniformly and consistently improves conformational selectivity across diverse generator architec-tures. We further demonstrate that these computational selectivity signals translate to physical molecules through prospective experimental validation on calmodulin (CaM), where high-scoring designs yielded multiple holo-selective binders while a designated low-scoring negative control failed to bind. Together, these results establish conformational selectivity as a learnable design ob-jective and provide a general framework for generating binders that recognize specific functional states rather than static protein structures. 
+
+# 2 Results 
+
+2.1 Qθ recovers interface quality and conformational selectivity on held-out tar-gets 
+
+To score conformational selectivity in a way that transfers across proteins, we developed Qθ and evaluated it on eight out-of-distribution (OOD) test targets withheld during training (dataset con-struction and metrics are described in Section 4.9). Qθ correlated with DockQ at ¯ρ=0.520 ± 0.010 
+
+2Figure 1: AlloGen pipeline. A frozen generator produces K binder backbones conditioned on the goal state X1 (holo, blue); the trained scorer Qθ evaluates each candidate against both X1
+
+and the undesired state X0 (apo, red), and returns the top candidate ˆY by selectivity margin 
+
+∆Q = Qθ(X1, Y ) − Qθ(X0, Y ). Qθ is trained independently and plugs into any backbone generator without retraining. over three training seeds, remaining positive on all eight targets and exceeding ρ=0.5 on four of them (Figure 2). We arrived at this configuration through three design choices, each of which we ablated. We first trained Qθ with interface-quality regression alone (Phase 1), and while this produced a usable scorer, we reasoned that selectivity would benefit from an objective contrasting conformational states directly. Indeed, adding a Phase 2 of paired InfoNCE fine-tuning improved selectivity across all augmentation configurations (Figure 2a), with the gains concentrated on the hardest targets, where Phase 2 traded a slight drop on the two easiest proteins (BCL-2, ER α)for substantial improvement on the two hardest (Integrin, A 2A) and raised the eight-target mean from 0.481 to 0.520 (Supplementary Section S4, Table S4). An InfoNCE batch size of 256 was optimal, balancing cross-target negative diversity against optimization stability (Supplementary Section S4.2, Table S5). We next varied the training data and the input features. Augmenting the training set with GenDecoys, synthetic binders whose geometries span a broader region of interface space than rigid-body and FastRelax decoys, contributed the largest single improvement (∆ ¯ρ=+ 0.037 ) by supplying harder negatives. Among the input features, ESM-2 embeddings [ 22 ]and binder-side dropout were each beneficial; removing ESM-2 lowered ¯ρ on most targets and disabling binder dropout lowered it further, with the largest drops again on the hardest OOD proteins (Integrin, PAI-1, A 2A), so the combined configuration with both features performed best on all eight (Figure 2b). 
+
+2.2 Qθ captures a state-specific signal that energy-based proxies miss 
+
+Strong rank correlation with DockQ does not by itself establish that Qθ has learned conformation rather than generic binding quality. To test this, we first compared Qθ against three contact-based proxies on the eight OOD targets (Table 1), reasoning that a conformational scorer must distinguish two receptor backbones presented with the same binder, which a single-interface score cannot. PRODIGY [ 23 ], total interface residue count, and cross-chain edge density all failed to track DockQ on average ( ¯ρ=+ 0.143 , −0.154 , −0.070 ), whereas Qθ reached ¯ρ= 0.520 with all eight targets 3S1 S2 S3 0.44 0.46 0.48 0.50 0.52 0.54 OOD(8targets)̄ρ0.483 0.520 0.489 aPhase 1 Phase 2 BCL-2 ERα MDM2 CaM Ran A2A PAI-1 Integrin 0.0 0.2 0.4 0.6 0.8 SpearmanwithDockQρ̄bFull (ESM+BD) − ESM-2 − Binder drop Figure 2: Qθ selectivity performance. (a) Qθ scoring performance ablation by data augmentation strategies and two phases; (b) Qθ scoring performance ablation per target by different features. positive, indicating that conformational selectivity is recoverable only from a representation trained on paired apo and holo geometry. Table 1: Energy-based baselines vs. Qθ on 8 OOD targets. Spearman ρ.
+
+Target n PRODIGY Iface Size Edge Dens. Random Qθ
+
+A2AR 36 −0.230 −0.119 −0.092 −0.120 0.469 ± .034 
+
+BCL-2 132 +0 .160 −0.050 −0.082 −0.039 0.667 ± .014 
+
+CaM 96 +0 .199 −0.316 +0 .014 +0 .059 0.474 ± .061 
+
+ER α 72 +0 .551 −0.292 −0.036 +0 .086 0.664 ± .013 
+
+Integrin 60 −0.019 −0.195 +0 .053 +0 .076 0.366 ± .085 
+
+MDM2 143 +0 .163 −0.050 −0.130 −0.037 0.589 ± .036 
+
+PAI-1 156 +0 .058 +0 .062 −0.146 −0.043 0.421 ± .045 
+
+Ran 2268 +0 .264 −0.270 −0.138 −0.018 0.511 ± .065 
+
+Mean +0 .143 −0.154 −0.070 −0.005 0.520 ± .010 
+
+To confirm that this preference was target-specific, we scored each target’s 50 vanilla binders against all eight OOD receptors. The diagonal of the resulting matrix exceeded its off-diagonal entries by a factor of 19 .8 (Figure 3a), showing that Qθ responds to the specific conformation it is given and not to generic shape complementarity. The same specificity was evident at the population level, where seven of eight targets showed a positive holo-minus-apo gap across 50 vanilla designs, BCL-2 separated the two states on every design under single-seed scoring, and CaM and MDM2 reached 100% and 98% holo preference under the three-seed ensemble (Figure 3b, Supplementary Section S4.3, Table S6). Integrin was the lone difficult case, with a gap of +0 .001 
+
+and 52% holo preference, consistent with its lowest Spearman ρ. Finally, scoring designs against 11 conformations interpolated along the apo-to-holo path of CaM, we found that Qθ increased monotonically toward holo ( ¯ρ=+ 0.518 , monotone in all ten cases), indicating that it had learned a continuous structural landscape across the transition (Table S7). 
+
+2.3 Selectivity guidance steers diverse generators toward state-selective binders 
+
+Having characterized Qθ as a scorer, we asked whether it could also guide generation. We bench-marked it across three architecturally distinct generators (RFdiffusion [ 16 ], PXDesign [ 17 ], and 4Qapo : 0.000               
+
+> pTM apo :0.549
+> ipTM apo :0.416
+> pLDDT apo :0.808
+> Qholo :0.930
+> pTM holo :0.858
+> ipTM holo :0.821
+> pLDDT holo :0.811
+> Qapo :0.000
+> pTM apo :0.601
+> ipTM apo :0.580
+> pLDDT apo :0.869
+> Qholo :0.993
+> pTM holo :0.897
+> ipTM holo :0.912
+> pLDDT holo : 0.863
+> a
+> c
+> b
+
+Figure 3: Qθ conformational selectivity and CaM selectivity design. (a) Cross target selectivity matrix between Source Target (binders generated for) and the Reference Target (scored against). Zero values (0.00) have been omitted.; (b) Holo vs. apo Qθ scores for 50 vanilla designs per target; 
+
+(c) Selectivity-based design on CaM. Two case binders (orange) shown against the apo (1st and 3rd panels) and holo (2nd and 4th panels) receptor conformations (purple). Proteina-ComplexA [ 18 ]) under vanilla sampling and four guidance strategies (classifier guidance, SMC, TDS, and Langevin refinement), giving 15 generator ×guidance combinations evaluated on the eight OOD targets, with each design scored by an ensemble of three independently trained Augmented-S2 checkpoints (Supplementary Section S5). The benchmark revealed four consistent patterns (Table 2). Resampling-based guidance was strongest for every generator, with TDS and SMC ranked first or second throughout and classifier guidance rarely improving over vanilla sampling, indicating that trajectory-level reweighting transfers across architectures. Langevin refinement, by contrast, depended on the generator prior, improving the two structure-only generators (RFdiffusion from +0 .249 to +0 .314 , Proteina-ComplexA from +0 .213 to +0 .267 ), which tolerate perturbing a completed backbone, and de-grading PXDesign ( +0 .166 to +0 .124 ), whose sequence-aware prior is destabilized when the co-designed interface geometry is perturbed. Target identity outweighed any method choice, with BCL-2 strongly selective across all 15 combinations ( ¯S=+ 0.781 ) and Integrin, ER α, and PAI-1 weak under every combination. ER α was an informative exception, posting the second-highest scoring ρ (0.664 ) but the second-lowest design ¯S (+0 .043 ), which places its bottleneck in genera-tion rather than scoring, as current generators do not propose backbones that exploit its subtle H12 repositioning. The strength of vanilla sampling also conditioned what guidance could add. BCL-2, CaM, and MDM2 already carried substantial vanilla selectivity (means 0.71 , 0.44 , 0.32 ) that guidance amplified, whereas the five remaining targets sat near zero and acquired meaningful selectivity only under active guidance, making selectivity-guided generation essential for that group. 5Table 2: End-to-end binder design selectivity ( ¯Scons ) across 15 generator ×guidance combinations on 8 OOD targets. Generators: RF = RFdiffusion, PX = PXDesign, Pro = Proteina-ComplexA. 
+
+Guidance strategies: V = Vanilla, Cl = Classifier guidance, Lg = Langevin refinement, SM = SMC, TD = TDS. Bold indicates the best guidance per generator within each row. Target RF/V RF/Cl RF/Lg RF/SM RF/TD PX/V PX/Cl PX/Lg PX/SM PX/TD Pro/V Pro/Cl Pro/Lg Pro/SM Pro/TD Mean CaM +0.455 +0.427 +0.677 +0.510 +0.367 +0.517 +0.521 +0.022 +0.545 +0.514 +0.338 +0.432 +0.429 +0.565 +0.374 +0.446 BCL-2 +0.787 +0.741 +0.806 +0.841 +0.880 +0.560 +0.561 +0.568 +0.868 +0.969 +0.774 +0.805 +0.826 +0.836 +0.898 +0.781 ER +0.046 +0.054 +0.106 +0.325 +0.050 -0.031 -0.029 -0.027 +0.117 +0.029 -0.000 -0.000 -0.000 -0.000 +0.000 +0.043 A2A +0.318 +0.332 +0.377 +0.760 +0.924 +0.023 +0.037 +0.048 +0.377 +0.445 -0.006 -0.004 -0.003 -0.000 -0.000 +0.242 MDM2 +0.238 +0.271 +0.366 +0.641 +0.769 +0.208 +0.227 +0.262 +0.590 +0.613 +0.506 +0.567 +0.598 +0.794 +0.883 +0.502 PAI-1 +0.073 +0.054 +0.061 +0.389 +0.262 -0.000 -0.000 -0.000 -0.000 -0.001 +0.053 +0.064 +0.069 +0.123 +0.757 +0.127 Ran +0.074 +0.091 +0.108 +0.424 +0.485 +0.033 +0.056 +0.084 +0.446 +0.601 +0.081 +0.128 +0.204 +0.469 +0.662 +0.263 Integrin +0.001 +0.006 +0.008 +0.013 +0.079 +0.015 +0.024 +0.033 +0.027 +0.185 -0.041 -0.002 -0.011 +0.017 +0.190 +0.038 Mean +0.249 +0.247 +0.314 +0.488 +0.477 +0.166 +0.175 +0.124 +0.371 +0.419 +0.213 +0.249 +0.267 +0.350 +0.470 +0.305 RFdiffusion PXDesign Proteina-ComplexA 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 ConsensusselectivitȳScons+0.52 +0.52 +0.51 +0.55 +0.56 +0.51 +0.68 aVanilla Classifier SMC TDS Langevin 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 ̄Scons020 40 60 80 100 Success rate SR (%) RFdiff+Langevin (best) PXDesign+Langevin bGenerator RFdiffusion PXDesign Proteina-ComplexA Guidance Vanilla Classifier SMC TDS Langevin 
+
+Figure 4: Generation benchmark on CaM. (a) Consensus selectivity ¯Scons across 15 generation ×
+
+guidance approaches. (b) Selectivity vs. design success rate (designable × selective) across all generator × guidance combinations. We then applied the full pipeline to CaM, a stringent test because its ∼30 Å apo-to-holo rear-rangement on Ca 2+ binding opens a hydrophobic peptide-binding cleft that is occluded in the apo state [ 24 ]. Fourteen of the 15 combinations gave positive mean selectivity, stable across the three training seeds (Table S8), and RFdiffusion with Langevin reached ¯Scons =+ 0.677 at an 
+
+88% success rate combining designability and selectivity (Figure 4, Table S9). To explain why Langevin outperformed classifier guidance, we measured how Qθ gradients behave under noise and found that their cosine similarity falls from 0.75 at low noise toward zero as the backbone is perturbed (Supplementary Section S5.2, Table S10); mapping this profile onto the RFdiffusion schedule placed classifier guidance in the uninformative-gradient regime for roughly 96% of its trajectory (Supplementary Section S5.3, Table S11), whereas Langevin operates only on fully denoised backbones and avoids it. 
+
+Qθ was equally effective as a passive reranker. On the same vanilla pool, best-of-5 reached 
+
+¯S=+ 0.787 and best-of-10 reached +0 .885 , both exceeding Langevin (Supplementary Section S5.4, Table S12), and bootstrap resampling confirmed that the gain grew with pool size (Supplementary Section S5.5, Table S13). Reranking and Langevin are therefore complementary, the former scal-ing efficiently across a large pool and the latter providing per-design gains when candidates are expensive to sample, a trade-off quantified in our efficiency analysis (Supplementary Section S6), where per-method compute is reported in Supplementary Section S6 (Table S22) and per-complex 6scorer latency in Supplementary Section S6.1. Two representative CaM designs illustrate the endpoint of the pipeline (Figure 3c), folding into compact helices that dock into the cleft exposed only after Ca 2+ -induced lobe closure and scoring 0.930 and 0.993 against holo with near-zero apo scores, designs unreachable without explicit conformational supervision. Extended across all eight OOD targets, Langevin improved mean selectivity on seven while leaving native-contact recovery essentially unchanged ( ∆ fNAT van ≈ 0 on the six targets with crystal-contact references; Supplementary Section S5.6, Table S14) and preserving backbone integrity, with zero Ramachan-dran outliers and a mean bond-length shift of 0.005 Å (Supplementary Section S5.7, Table S15) at a step size we set by sweeping η against C α displacement (Supplementary Section S5.8, Table S16). Finally, we asked what the selectivity signal encodes by comparing AlloGen designs against scorers excluded from training. Three independent structural scorers agreed with Qθ at the extremes. Boltz-2 ∆ipTM correlated with Qθ selectivity on A2A ( ρ=+ 0.500 ) and CaM ( ρ=+ 0.349 )(Table S17), AlphaFold 3 confirmed holo preference on all 50 designs each for ALK and ER α
+
+(Table S18), and Rosetta InterfaceAnalyzer assigned the most favorable interface energy to BCL-2 ( −9.1 REU) and the least to Integrin ( +39 .1 REU) (Supplementary Section S5.11, Table S19), each matching the Qθ ranking at the strongest and weakest targets. Their disagreement on intermediate targets is itself informative, since Qθ scores conformational selectivity while these tools score overall interface energy, quantities that need not coincide. A sequence-level check gave a complementary result. ProteinMPNN ∆ NLL favored holo on all eight targets for vanilla designs ( p< 0.05 ; Supplementary Section S5.14, Table S20), confirming that holo bias is present in the backbones and detectable without Qθ, yet Langevin reduced ∆ NLL on five of eight targets while raising Qθ, showing that the two metrics probe different axes and that Qθ adds a geometric selectivity dimension orthogonal to sequence-recovery likelihood. The signal was also robust to degenerate generation, with only 10 of 482 CaM designs across nine pipelines scoring negative, all of them truncated or sterically infeasible backbones from a single pipeline and none an apo-selective design evading the scorer (Table S21). Together these analyses indicate that Qθ encodes a physically grounded conformational selectivity signal that complements energy- and sequence-level scorers and is robust to degenerate generation. 
+
+2.4 AlloGen-designed peptides selectively bind holo calmodulin in vitro 
+
+To determine whether the predicted selectivity translated into measurable binding, we selected ten peptides from several generator-guidance combinations (RFdiffusion, Proteina-ComplexA, and their guided variants), ranked by predicted selectivity margin ( ∆q = qholo − qapo ), together with one low-scoring design as a negative control and the canonical Ca 2+ -dependent M13 peptide as a positive control. We synthesized the panel and measured binding to holo CaM (prepared with CaCl 2) and apo CaM (prepared with EGTA) by bio-layer interferometry, immobilizing each peptide on a Twin-Strep biosensor and fitting association and dissociation against CaM at 0, 100, and 1000 nM to a 1:1 model (Figure 5). Five of the ten peptides bound holo CaM (Table 3), with affinities from 46 .6 nM to 1.06 μM and the two strongest in the nanomolar range. All five came from the high-∆q portion of the ranking (predicted margins 0.413 to 0.932 ), while the negative control selected for its lower margin ( ∆q =0.228 ) showed no detectable binding. The experiment matched the computational predictions, with high-∆q candidates yielding multiple holo-state binders and the low-∆q control failing to 7Figure 5: Experimental validation workflow for conformationally selective peptide binding to calmodulin (CaM). Candidate peptides were prioritized according to the predicted selectivity margin, ∆q = qholo − qapo , synthesized, and evaluated against apo and holo CaM in duplicate. Binding affinity was characterized by bio-layer interferometry (BLI), and equilibrium dissociation constants ( KD) were determined from kinetic fits. Table 3: Sequences and experimental binding measurements for peptides evaluated against calmodulin (CaM). Binding affinities were measured by bio-layer interferometry against both holo and apo CaM. NB denotes no detectable binding. ∆q = qholo − qapo is the difference between the predicted scores against holo and apo CaM.                                                     
+
+> Design Sequence Holo CaM KDApo CaM KD∆q
+> rfdiff_vanilla__design_944 ATAAMIKTFQDVVVAAVREAREK 46.6 nM NB 0.413 rfdiff_vanilla__design_13 SEAFARAAAVLAKARAAK 86.5 nM NB 0.450 proteina_smc__smc_particle_0273 EGFKKLLKEALEIAK 413 nM NB 0.932 rfdiff_vanilla__design_657 KVAEQAKQWILEMLAK >1.00 μMNB 0.930 rfdiff_langevin__design_25 EKLEALLREAGAARRAAKKAAEAA 1.06 μMNB 0.930 proteina_vanilla__design_0145 VDEDGDGKIDLPELSALLREKIK NB NB 0.993 rfdiff_langevin__design_330 SELTKEILKKAMEMT NB NB 0.905 proteina_vanilla__design_0376 AFGAEVKTPRTRFLDVLR NB NB 0.688 proteina_smc__smc_particle_0954 EEAARAAGLARLPRPLLLLQAL NB NB 0.912 proteina_vanilla__design_0105 (Negative) SEIAELLRRNPEGDPETLREALAA NB NB 0.228 M13 positive control KRRWKKNFIAVSAANRFKKISSSGAL Bound NB –
+
+bind, and every validated binder engaged holo CaM with no detectable binding to the apo state. These results provide direct evidence that the signal learned by Qθ reflects a conformational preference that translates into measurable binding specificity. 
+
+# 3 Discussion 
+
+In this work, we introduce AlloGen , a framework for conformationally selective protein binder design that learns a transferable selectivity scorer, Qθ, from paired structural states and applies it to existing binder generators as either a reranking or guidance signal. Across 65 targets spanning 15 protein families, Qθ generalized to held-out proteins where contact-based energy proxies failed uniformly, and all 15 generator–guidance combinations achieved positive mean selectivity, reaching ¯S = +0 .885 with best-of-K reranking. Experimental validation demonstrated that these computational selectivity signals translate to 8physical molecules. Five of ten synthesized peptides bound the desired holo conformation of calmodulin with affinities ranging from 46.6 nM to 1.06 μM, while none exhibited detectable binding to the apo state. Moreover, all experimentally validated binders originated from the high-
+
+∆q region of the ranking, whereas a designated low-∆q negative-control peptide failed to bind. Together, these results establish that conformational selectivity can be learned from structural data and transferred to experimentally measurable binding specificity. More broadly, AlloGen provides a general framework for designing molecules that recognize protein states rather than static protein structures. Future work will extend this approach to multi-state conformational landscapes, integrate selectivity directly into end-to-end sequence generation, and apply it to therapeutically relevant systems where biological activity depends on recognizing specific conformational states rather than simply maximizing binding affinity. 
+
+# 4 Methods 
+
+4.1 Problem Formulation 
+
+We consider a target protein that exists in two distinct conformational states: an apo (undesired) conformation X0 and a holo (goal) conformation X1, both represented as backbone coordinate sets. Given a binder Y represented by its backbone coordinates, the state-selectivity scoring problem is to learn a function Qθ : X × Y → (0 , 1) such that for an X1-selective candidate Y :
+
+Qθ(X1, Y ) ≫ Qθ(X0, Y ), (1) while non-selective binders, apo-preferring binders, and non-binders are not required to satisfy this inequality. The training objective in Section 4.6 enforces this conditional behaviour through paired contrastive supervision rather than a global bias toward X1. Given a pretrained binder generator pψ(Y | X1), the two-state binder design task is to identify the most conformationally selective candidate ˆY = arg max Y (k) Sθ(Y (k); X1, N ) over K samples Y (k) ∼ pψ(· | X1),where Sθ is the selectivity margin defined in Section 4.7 and N = {X0} is the set of undesired conformations. 
+
+4.2 Protein Backbone Representation and SE(3) Invariance 
+
+We represent each residue i by its Cα position pi ∈ R3 and a local backbone frame Ri ∈ SO (3) 
+
+constructed from the (N , Cα, C) triplet via Gram–Schmidt orthogonalization [ 21 ]. While pi and 
+
+Ri themselves transform with global rigid motions, the pair (pi, R i) defines a residue-local frame from which all inter-residue geometry can be expressed in an SE(3)-invariant way. For Qθ to be physically meaningful, it must be SE(3)-invariant: Qθ(gX, gY ) = Qθ(X, Y ) for all rigid motions 
+
+g ∈ SE (3) , ensuring scores are independent of the global position and orientation of the complex. We enforce this by expressing all inter-residue geometry in the local frame of residue i: distances 
+
+∥pj − pi∥, directions R⊤ 
+
+> i
+
+(pj − pi)/∥ · ∥ , and relative orientations R⊤ 
+
+> i
+
+Rj . Each of these quantities is invariant under rigid motions g applied jointly to both X and Y , so the resulting node and edge features, and hence Qθ itself, are SE(3)-invariant. 94.3 DockQ as Interface Quality Proxy 
+
+DockQ [ 25 ] is a composite scalar ∈ [0 , 1] that measures protein–protein docking quality by com-bining the fraction of native contacts, interface RMSD, and ligand RMSD. We adopt DockQ as the supervision signal for Phase 1 training (Section 4.6), as it provides a geometrically grounded proxy for receptor–binder interface quality. Grounding Qθ in DockQ before introducing any selectivity signal prevents degenerate solutions in Phase 2, where the model must distinguish between conformational states rather than simply predict binding quality. A DockQ value > 0.23 is the conventional threshold for an acceptable docking model [25]. 
+
+4.4 Interface Graph Construction 
+
+To score receptor–binder complementarity in a way that is sensitive to local interface geometry rather than global protein shape, we represent each complex as a sparse graph over interface-proximal residues. Concretely, a receptor–binder complex (X, Y ) is represented as an interface graph G = ( V, E), where V contains residues from both X and Y with at least one inter-chain Cα
+
+contact within the cutoff as 8Å, and edges connect all residue pairs within that cutoff. 
+
+Node features. Each node hi encodes four types of information. Amino acid identity is rep-resented as a one-hot vector over 20 standard amino acids plus an unknown token, providing residue-level sequence identity. Backbone torsion angles φ, ψ, and ω are encoded via their sine and cosine values, yielding a smooth periodic representation of local backbone conformation. 
+
+Sidechain torsion angles χ1 and χ2 are similarly encoded to capture rotameric states at the in-terface; residues without sidechain degrees of freedom are zero-padded. A chain indicator flag distinguishes receptor from binder residues. When available, per-residue ESM-2 embeddings [ 22 ]are projected and concatenated to these structural features, providing evolutionary context be-yond local geometry. 
+
+Edge features. All edge features eij are computed in the local backbone frame of residue i,ensuring SE(3) invariance. Geometric features encode the inter-residue distance via a Gaussian RBF basis, the unit direction R⊤ 
+
+> i
+
+(pj − pi)/∥pj − pi∥, and the relative backbone orientation R⊤ 
+
+> i
+
+Rj ,jointly capturing the full relative rigid-body relationship between residues. Sequence separation 
+
+is encoded as a binned index difference within a chain and set to the maximum bin for inter-chain pairs, allowing the model to distinguish intra- from inter-chain interactions. A same-chain indicator 
+
+flag further disambiguates receptor-receptor, binder-binder, and receptor-binder edges. 
+
+4.5 State-Selectivity Scorer Qθ
+
+Scoring conformational selectivity requires a model that assesses how well a binder backbone fits one receptor conformation relative to another in an SE(3)-invariant manner. To this end, Qθ
+
+is implemented as a dense edge-biased graph transformer [ 26 ] that operates on SE(3)-invariant geometric features. Given node embeddings H(0) and edge embeddings E(0) , the model applies 10 L = 4 transformer layers. At each layer ℓ, attention weights are computed as: 
+
+α(ℓ) 
+
+> ij
+
+= (h(ℓ) 
+
+> i
+
+WQ)( h(ℓ) 
+
+> j
+
+WK )⊤
+
+√dh
+
++ bij , bij = eij WE ∈ R, (2) 
+
+h(ℓ+1)  
+
+> i
+
+= h(ℓ) 
+
+> i
+
++ FFN 
+
+X
+
+> j
+
+softmax j (α(ℓ) 
+
+> ij
+
+) · h(ℓ) 
+
+> j
+
+WV
+
+ , (3) where WE ∈ Rde×1 projects each edge embedding to a per-head scalar attention bias bij that is added directly to the dot-product logit (one such projection is learned per attention head). Edge embeddings are computed once and shared across all layers. After L layers, mean- and max-pooled node representations are concatenated to form h(L)pool = [ mean i h(L) 
+
+> i
+
+; max i h(L) 
+
+> i
+
+] and passed through an MLP with sigmoid activation to produce: 
+
+Qθ(X, Y ) = σ(MLP( h(L)pool )) ∈ (0 , 1) . (4) The bounded output yields a natural selectivity gap Qθ(X1, Y ) − Qθ(X0, Y ) ∈ (−1, 1) . Architec-tural hyperparameters and parameter count are reported in Supplementary Section S2. 
+
+4.6 Two-Phase Training of Qθ
+
+Directly optimizing Qθ for conformational selectivity risks a degenerate solution where the model ignores receptor conformation entirely. We prevent this through a two-phase curriculum. 
+
+Phase 1: Interface Quality Regression. We first train Qθ to predict interface quality as mea-sured by DockQ [25]: 
+
+Lq = MSE( Qθ(X, Y ), d DockQ (X, Y )) . (5) Training data includes native holo complexes, apo mismatches, rigid-body decoys, and hard nega-tives described in Section 4.9. This phase establishes a geometrically grounded representation of receptor-binder fit, providing a stable initialization for Phase 2. 
+
+Phase 2: Selectivity Fine-Tuning. The central risk in fine-tuning for selectivity is that Qθ col-lapses to target-specific biases, assigning high scores to any binder paired with a particular re-ceptor regardless of conformation. We prevent this by fine-tuning on paired triplets (X+, X −, Y )
+
+where X+ = X1 and X− = X0 for the same binder Y , using a multi-negative InfoNCE loss [ 27 ]that includes both apo negatives (the same binder against its target’s apo conformation) and cross-target negatives (the anchor’s holo conformation paired with binders from other targets in the batch). The cross-target term forces the model to discriminate between the binder’s true holo partner and structurally unrelated holo receptors, preventing collapse to a fixed-receptor bias. 
+
+LNCE = − 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+log exp  Qθ(X+ 
+
+> i
+
+, Y i)/τ 
+
+Zi
+
+, (6) 
+
+Zi = exp  Qθ(X+ 
+
+> i
+
+, Y i)/τ  + exp  Qθ(X− 
+
+> i
+
+, Y i)/τ 
+
++
+
+> B
+
+X 
+
+> k=1
+> k̸=i
+
+exp  Qθ(X+ 
+
+> i
+
+, Y k)/τ .
+
+11 where τ is a temperature hyperparameter reported in Supplementary Section S2. The regression loss Lq is dropped in Phase 2 to avoid conflicting gradient signals; this design choice is validated in Table 2. 
+
+Backbone-geometry augmentation. A third training design choice addresses the distribution shift between training and inference: at inference, Qθ scores backbone-only binder designs without sequence identity or sidechain coordinates, whereas all training complexes have known sequences. To align the training distribution with this inference setting, we mask binder-side sequence features with probability pdrop :
+
+˜hbnd  
+
+> i
+
+=  0AA , sin φi, cos φi, sin ψi, cos ψi,
+
+sin ωi, cos ωi, 0χ, 0ESM , 1 . (7) where 0AA , 0χ, and 0ESM replace the amino acid identity, sidechain torsion angles, and ESM-2 embeddings with zeros respectively. All backbone torsions and edge features are preserved, so Qθ
+
+learns to rely on backbone geometry rather than sequence identity. The same masking decision is applied consistently to both X+ and X− within each training pair. 
+
+4.7 Selectivity-Guided Binder Design 
+
+Given K binder candidates Y (1) , . . . , Y (K) sampled from the frozen generator pψ(· | X1), each candidate is evaluated against both X1 and X0 by rigid placement onto their aligned structures. The selectivity margin is defined as: 
+
+Sθ(Y ; X1, N ) = logit  Qθ(X1, Y )
+
+− log X
+
+> X−∈N
+
+exp  logit( Qθ(X−, Y )) . (8) where N = {X0} is the set of undesired conformations. Sθ is high when Qθ strongly prefers X1
+
+over X0, and negative when the binder scores similarly across states. The logit-space formulation extends naturally to multi-state targets with |N | > 1. Candidates are filtered by minimum interface size and steric clash criteria before selection, and sequence design is performed with ProteinMPNN [28] on the selected backbone. 
+
+Gradient-based guidance. Because Sθ is differentiable with respect to backbone coordinates, it provides a gradient signal ∇xSθ that supports four guidance strategies. Langevin backbone refinement [ 29 , 30 ] performs deterministic gradient ascent on Sθ for a completed backbone: 
+
+xt+1 = xt + η ∇xSθ(xt; X1, N ), where η is the step size; because Langevin operates on fully denoised backbones, gradients remain reliable throughout refinement. Classifier guidance [31 ]injects ∇xSθ into each denoising step to steer the diffusion trajectory toward high-selectivity regions, though gradient reliability degrades at high noise levels. Twisted diffusion sampling 
+
+(TDS) [ 32 ] reweights diffusion particles by exp (Sθ) at each timestep without modifying the denois-ing trajectory, preserving the generative prior more faithfully than classifier guidance. Sequential Monte Carlo (SMC) [ 32 ] iteratively resamples complete trajectories by Sθ across multiple genera-tion rounds, progressively enriching the candidate pool and providing the most robust selectivity boost across diverse generator architectures. Detailed formulations and computational cost are provided in Supplementary Section S2.3 and S6. 12 4.8 Candidate Selection 
+
+To bridge from in silico selectivity to physical assays, we instantiate the full AlloGen pipeline as a candidate-triage funnel and carry the surviving designs to wet-lab synthesis. The funnel composes the generator–guidance machinery of Section 4.7 with a cascade of structure-prediction and geometric filters that are deliberately Qθ-independent , so that the experimentally tested panel is not selected on the very signal it is meant to validate. 
+
+Dual-state hotspot conditioning. Both receptor states, the holo (goal) and apo (undesired) conformations, are processed to extract interface-proximal residues, and the union hotspot set is supplied to every generator. Conditioning on the state-invariant binding region, rather than a single conformation, ensures that backbones engage the functional interface while leaving the apo/holo discrimination to Qθ.
+
+Generation and selectivity scoring. We benchmark generator ×guidance combinations at 
+
+N =50 designs each, rank them by mean selectivity margin over their top-scoring designs, and promote the strongest baselines to large-scale generation at N =1 ,024 designs each. 
+
+Qθ-independent structural filtering. Surviving backbones are sequence-designed with Pro-teinMPNN [ 28 ] (receptor chain fixed, four sequences per backbone at sampling temperature 0.1)and re-folded in both states with Boltz-2, producing per-state ipTM, pTM, and pLDDT. We retain designs whose buried surface area (computed with freesasa) exceeds 800 Å2, whose holo-state ipTM exceeds 0.7, and whose selectivity margin satisfies ∆q ≥ 0.3, then collapse near-duplicates by clustering the retained sequences at 70% identity with CD-HIT. 
+
+Panel composition. From the clustered pool we assemble the 10-member panel submitted for synthesis: 8 experimental candidates (the highest-margin guided designs, one per cluster) and 1negative control (a randomly drawn unguided design with near-zero margin S ≈ 0), together with 
+
+1 positive control (the M13 calmodulin-binding peptide). The negative control furnishes a built-in specificity test, a faithful selectivity signal should manifest as a measurable holo/apo affinity gap for the experimental candidates but not for the negative control, while the positive control confirms proper formation of the active (holo) receptor conformation. Complete provenance, generator settings, and selection logic are deferred to Supplementary Section S2. 
+
+4.9 Dataset Construction and Evaluation 
+
+Target selection. We curate 65 two-state proteins spanning 15 protein families and diverse conformational mechanisms (Table S2). Selection criteria are: (1) experimentally determined structures for both apo and holo conformational states, (2) at least three co-crystal structures with peptide or protein binders in the goal state, and (3) a structurally defined conformational change between states. Targets range from large-scale domain rearrangements ( CaM : ∼30 Åapo-to-holo; ABL1 : DFG-loop flip, ∼6.5 Å global) to subtle helix repositioning ( ER α: H12 ∼10 Å; 
+
+CDK2 : Cyclin A-induced). The dataset spans kinases (9), small GTPases (6), nuclear receptors (5), GPCRs and ion channels (6), proteases (6), and ten additional families, totalling 2,896 complexes across 65 targets. 13 Sample construction. Each complex yields 12 base training samples: 1 positive native holo complex (X1, Y native ) with label 1.0; 1 negative apo-mismatch complex (X0aligned , Y native ) with label 0.0, where the apo receptor is Kabsch-aligned to the holo frame; and 10 rigid-body decoys at target C α RMSD levels spanning 1–8 Å, with labels max (0 , 1 − dRMSD /4) . Prior to augmenta-tion, FastRelax Neg. are generated by constrained relaxation of binders placed on apo receptors, producing 959 hard negatives included in all configurations. Three augmentation types further enrich training: Cross-family negatives (Cross-fam) place native binders on structurally unre-lated receptors; conformational decoys (Conf. decoys) apply Rosetta FastRelax repacking on the holo receptor to produce near-native hard negatives; and generator decoys (GenDecoys) are synthetic binders from structure-based generative models that provide diverse non-native interface geometries. 
+
+Dataset splits and configurations. All main results use the target split , in which targets are partitioned 51/6/8 across train, OOD validation, and OOD test, with CaM held out as the primary OOD design target (Table S2). The Baseline dataset comprises 51 training, 6 OOD validation (14-3-3, 14-3-3 σ, β2AR, Caspase-3, μ-opioid, Rac1), and 8 OOD test targets (CaM, BCL-2, ER α, MDM2, Ran, A2A, PAI-1, Integrin); the Augmented dataset extends it with GenDecoys and cross-family negatives generated exclusively on training-set targets, precluding leakage into design evaluation. To isolate augmentation sources, we define three scoring configurations (Table S3): S1 uses Baseline only, 
+
+S2 uses full Augmented data, and S3 adds Cross-fam and Conf. decoys, withholding GenDecoys. 
+
+Metrics. We report Spearman ρ as rank correlation with DockQ, the selectivity gap ¯Q+ − ¯Q−
+
+as mean holo vs. apo score, and best-of-K success rates. For design evaluation, we use Protein-MPNN ∆NLL and AlphaFold 3 ∆ipTM as Qθ-independent metrics, and report consensus selectivity 
+
+¯Scons as the mean over three independently trained Qθ checkpoints. Architecture and training hyperparameters are detailed in Supplementary Section S2. 
+
+4.10 Experimental Validation Protocol 
+
+Peptide selection. Candidate peptides were selected from multiple AlloGen generator–guidance combinations according to the predicted selectivity margin, ∆q = qholo − qapo . The experimental panel consisted of high-∆q candidates together with a designated low-scoring negative-control peptide. The skeletal myosin light-chain kinase M13 peptide (CPC Scientific, SIGN-010), a well-characterized Ca 2+ -dependent calmodulin-binding peptide, was included as a positive control. 
+
+Calmodulin preparation. Recombinant human calmodulin (MilliporeSigma, Cat. No. 208670) was used as the target protein. Holo CaM was prepared by supplementation with CaCl 2, whereas apo CaM was prepared by supplementation with EGTA to chelate free calcium. All other assay conditions were maintained identically between holo and apo measurements. 
+
+Bio-layer interferometry. Binding measurements were performed by Adaptyv Bio using bio-layer interferometry (BLI) on a Gator Bio Pro instrument. Designed peptides were immobilized on Twin-Strep-compatible biosensors through a Twin-Strep tag according to the manufacturer’s workflow. Following ligand loading and baseline equilibration, biosensors were transferred into wells containing serial dilutions of CaM (0, 100, and 1000 nM) to record association kinetics, 14 followed by transfer into assay buffer to monitor dissociation. All measurements were performed in duplicate. 
+
+Data analysis. Sensorgrams were reference-subtracted using control sensors and buffer-only wells. Association rate constants ( kon ), dissociation rate constants ( koff ), and equilibrium dissocia-tion constants ( KD) were obtained by fitting the processed sensorgrams to a 1:1 binding model. Designs exhibiting concentration-dependent binding responses were classified as binders and assigned fitted KD values, whereas designs that failed to produce measurable binding responses were reported as no binding detected (NB). Conformational selectivity was assessed by comparing binding to holo and apo CaM under identical assay conditions. 
+
+# Data and Code Availability 
+
+All data code required to evaluate AlloGen is publicly available at https://huggingface.co/ ChatterjeeLab/AlloGen . The repository includes an interactive Google Colab notebook for running AlloGen on user-defined targets. 
+
+# Acknowledgments 
+
+We thank the experimental team of the Chatterjee Laboratory for assistance with peptide design validation and helpful discussions throughout this project. We especially thank Adaptyv Bio for per-forming bio-layer interferometry measurements and assisting with experimental characterization of candidate binders. Finally, we thank Lauren Hong for providing the model logo. This research was supported by a grant from the High-throughput Institute for Discovery (HIT-ID) at the University of Pennsylvania to the laboratory of Pranam Chatterjee. The work described in this paper was also partially supported by the Research Grants Council of the Hong Kong Special Administrative Region, China, under Project T45-401/22-N. 
+
+# Author Contributions Statement 
+
+H.C. and P.C. conceived the project. H.C. led model development, dataset construction, com-putational experiments, and manuscript preparation. Z.Q. and S.K. led experimental validation efforts with Adaptyv Bio. A.P., Y.K., and J.Z. assisted with experimental validation, computational analyses, and result interpretation. P.A.H. and P.C. supervised the study. H.C. and P.C. wrote the manuscript with input from all authors. 
+
+# Competing Interests Statement 
+
+P.C. is a co-founder of Gameto, Inc., UbiquiTx, Inc., AtomBioworks, Inc., and Recognition Bio, Inc., and advises companies involved in biologics and therapeutic development. P.C.’s interests are reviewed and managed by the University of Pennsylvania in accordance with its conflict-of-interest policies. The remaining authors declare no competing interests. 15 References 
+
+[1] Stefan W Vetter and Estelle Leclerc. Novel aspects of calmodulin target recognition and activation. European Journal of Biochemistry , 270(3):404–414, 2003. [2] Jeung-Hoi Ha and Stewart N Loh. Protein conformational switches: from nature to design. 
+
+Chemistry–A European Journal , 18(26):7984–7999, 2012. [3] Thomas R Weikl and Fabian Paul. Conformational selection in protein binding and function. 
+
+Protein Science , 23(11):1508–1518, 2014. [4] Ruth Nussinov. Introduction to protein ensembles and allostery, 2016. [5] Gozde Kar, Ozlem Keskin, Attila Gursoy, and Ruth Nussinov. Allostery and population shift in drug discovery. Current opinion in pharmacology , 10(6):715–722, 2010. [6] RSK Vijayan, Peng He, Vivek Modi, Krisna C Duong-Ly, Haiching Ma, Jeffrey R Peterson, Roland L Dunbrack Jr, and Ronald M Levy. Conformational analysis of the dfg-out kinase motif and biochemical profiling of structurally validated type ii inhibitors. Journal of medicinal chemistry , 58(1):466–479, 2015. [7] Douglas J Kojetin and Thomas P Burris. Small molecule modulation of nuclear receptor conformational dynamics: implications for function and drug discovery. Molecular pharma-cology , 83(1):1–8, 2013. [8] Paolo Conflitti, Edward Lyman, Mark SP Sansom, Peter W Hildebrand, Hugo Gutiérrez-de Terán, Paolo Carloni, T Bertie Ansell, Shuguang Yuan, Patrick Barth, Anne S Robinson, et al. Functional dynamics of g protein-coupled receptors reveal new routes for drug discovery. 
+
+Nature Reviews Drug Discovery , 24(4):251–275, 2025. [9] Robert A Langan, Scott E Boyken, Andrew H Ng, Jennifer A Samson, Galen Dods, Alexandra M Westbrook, Taylor H Nguyen, Marc J Lajoie, Zibo Chen, Stephanie Berger, et al. De novo design of bioactive protein switches. Nature , 572(7768):205–210, 2019. [10] Leo Tianlai Chen, Zachary Quinn, Madeleine Dumas, Christina Peng, Lauren Hong, Moi-ses Lopez-Gonzalez, Alexander Mestre, Rio Watson, Sophia Vincoff, Lin Zhao, et al. Target sequence-conditioned design of peptide binders using masked language modeling. Nature Biotechnology , pages 1–9, 2025. [11] Suhaas Bhat, Kalyan Palepu, Lauren Hong, Joey Mao, Tianzheng Ye, Rema Iyer, Lin Zhao, Tianlai Chen, Sophia Vincoff, Rio Watson, et al. De novo design of peptide binders to con-formationally diverse targets with contrastive language modeling. Science Advances , 11(4): eadr8638, 2025. [12] Sophia Tang, Yinuo Zhang, and Pranam Chatterjee. Peptune: De novo generation of thera-peutic peptides with multi-objective-guided discrete diffusion. In Forty-second International Conference on Machine Learning , 2025. URL https://openreview.net/forum?id= FQoy1Y1Hd8 .[13] Sophia Vincoff, Oscar Davis, Ismail Ilkan Ceylan, Alexander Tong, Joey Bose, and Pranam 16 Chatterjee. Soapia: Siamese-guided generation of off target-avoiding protein interactions with high target affinity. In ICML 2025 Generative AI and Biology (GenBio) Workshop , 2025. [14] Hanqun Cao, Haosen Shi, Chenyu Wang, Sinno Jialin Pan, and Pheng-Ann Heng. GLID$^2$e: A gradient-free lightweight fine-tune approach for discrete biological sequence design. In 
+
+The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. URL 
+
+https://openreview.net/forum?id=AHjspi4R22 .[15] Hanqun Cao, Aastha Pal, Sophia Tang, Yinuo Zhang, Jingjie Zhang, Pheng-Ann Heng, and Pranam Chatterjee. TD3b: Transition-directed discrete diffusion for allosteric binder gen-eration. In Forty-Third International Conference on Machine Learning , 2026. URL https: //openreview.net/forum?id=r2nuhKd6vr .[16] Joseph L Watson, David Juergens, Nathaniel R Bennett, Brian L Trippe, Jason Yim, Helen E Eisenach, Woody Ahern, Andrew J Borst, Robert J Ragotte, Lukas F Milles, et al. De novo design of protein structure and function with rfdiffusion. Nature , 620(7976):1089–1100, 2023. [17] Protenix Team, Milong Ren, Jinyuan Sun, Jiaqi Guan, Cong Liu, Chengyue Gong, Yuzhe Wang, Lan Wang, Qixu Cai, Xinshi Chen, et al. Pxdesign: Fast, modular, and accurate de novo design of protein binders. bioRxiv , 2025. [18] Kieran Didi, Zuobai Zhang, Guoqing Zhou, Danny Reidenbach, Zhonglin Cao, Sooyoung Cha, Tomas Geffner, Christian Dallago, Jian Tang, Michael M. Bronstein, Martin Steinegger, Emine Kucukbenli, Arash Vahdat, and Karsten Kreis. Scaling atomistic protein binder design with generative pretraining and test-time compute. In The Fourteenth International Confer-ence on Learning Representations , 2026. URL https://openreview.net/forum?id= qmCpJtFZra .[19] Hannes Stark, Felix Faltings, MinGyu Choi, Yuxin Xie, Eunsu Hur, Timothy O’Donnell, Anton Bushuiev, Talip Uçar, Saro Passaro, Weian Mao, et al. Boltzgen: Toward universal binder design. bioRxiv , 2025. [20] Martin Pacesa, Lennart Nickel, Christian Schellhaas, Joseph Schmidt, Ekaterina Pyatova, Lucas Kissling, Patrick Barendse, Jagrity Choudhury, Srajan Kapoor, Ana Alcaraz-Serna, et al. One-shot design of functional protein binders with bindcraft. Nature , 646(8084):483–492, 2025. [21] John Jumper, Richard Evans, Alexander Pritzel, Tim Green, Michael Figurnov, Olaf Ron-neberger, Kathryn Tunyasuvunakool, Russ Bates, Augustin Žídek, Anna Potapenko, et al. Highly accurate protein structure prediction with alphafold. nature , 596(7873):583–589, 2021. [22] Zeming Lin, Halil Akin, Roshan Rao, Brian Hie, Zhongkai Zhu, Wenting Lu, Nikita Smetanin, Robert Verkuil, Ori Kabeli, Yaniv Shmueli, et al. Evolutionary-scale prediction of atomic-level protein structure with a language model. Science , 379(6637):1123–1130, 2023. [23] Li C Xue, João Pglm Rodrigues, Panagiotis L Kastritis, Alexandre Mjj Bonvin, and Anna Van-gone. Prodigy: a web server for predicting the binding affinity of protein–protein complexes. 
+
+Bioinformatics , 32(23):3676–3678, 2016. 17 [24] Anna Crivici and Mitsuhiko Ikura. Molecular and structural basis of target recognition by calmodulin. Annual review of biophysics and biomolecular structure , 24:85–116, 1995. [25] Sankar Basu and Björn Wallner. Dockq: a quality measure for protein-protein docking models. 
+
+PloS one , 11(8):e0161879, 2016. [26] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. [27] Aaron van den Oord, Yazhe Li, and Oriol Vinyals. Representation learning with contrastive predictive coding. arXiv preprint arXiv:1807.03748 , 2018. [28] Justas Dauparas, Ivan Anishchenko, Nathaniel Bennett, Hua Bai, Robert J Ragotte, Lukas F Milles, Basile IM Wicky, Alexis Courbet, Rob J de Haas, Neville Bethel, et al. Robust deep learning–based protein sequence design using proteinmpnn. Science , 378(6615):49–56, 2022. [29] Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. In 
+
+International Conference on Learning Representations , 2021. URL https://openreview. net/forum?id=PxTIG12RRHS .[30] Max Welling and Yee W Teh. Bayesian learning via stochastic gradient langevin dynamics. In Proceedings of the 28th international conference on machine learning (ICML-11) , pages 681–688, 2011. [31] Prafulla Dhariwal and Alexander Nichol. Diffusion models beat gans on image synthesis. 
+
+Advances in neural information processing systems , 34:8780–8794, 2021. [32] Luhuan Wu, Brian Trippe, Christian Naesseth, David Blei, and John P Cunningham. Practical and asymptotically exact conditional sampling in diffusion models. Advances in Neural Information Processing Systems , 36:31372–31403, 2023. [33] Zhenqiao Song, Tianxiao Li, Lei Li, and Martin Renqiang Min. PPDiff: Diffusing in hybrid sequence-structure space for protein-protein complex design. In Forty-second International Conference on Machine Learning , 2025. URL https://openreview.net/forum?id= gTYzm0Qchr .[34] Tong Chen, Zachary Quinn, Yinuo Zhang, and Pranam Chatterjee. moppit-v3: Motif-specific peptides generated via multi-objective-guided discrete flow matching. In NeurIPS 2025 AI for Science Workshop .[35] Sophia Tang, Yuchen Zhu, Molei Tao, and Pranam Chatterjee. Tr2-d2: Tree search guided trajectory-aware fine-tuning for discrete diffusion. arXiv preprint arXiv:2509.25171 , 2025. [36] Tong Chen, Yinuo Zhang, and Pranam Chatterjee. Areuredi: Annealed rectified updates for refining discrete flows with multi-objective guidance. arXiv preprint arXiv:2510.00352 , 2025. [37] Sophia Tang, Yinuo Zhang, Alexander Tong, and Pranam Chatterjee. Gumbel-softmax score and flow matching for discrete biological sequence generation. 2025. 18 [38] Joost Schymkowitz, Jesper Borg, Francois Stricher, Robby Nys, Frederic Rousseau, and Luis Serrano. The foldx web server: an online force field. Nucleic acids research , 33(suppl_2): W382–W388, 2005. [39] Chloe Hsu, Robert Verkuil, Jason Liu, Zeming Lin, Brian Hie, Tom Sercu, Adam Lerer, and Alexander Rives. Learning inverse folding from millions of predicted structures. In Interna-tional conference on machine learning , pages 8946–8970. PMLR, 2022. [40] Xiao Wang, Sean T Flannery, and Daisuke Kihara. Protein docking model evaluation by graph neural networks. Frontiers in Molecular Biosciences , 8:647915, 2021. [41] Xiaotong Xu and Alexandre MJJ Bonvin. Deeprank-gnn-esm: a graph neural network for scoring protein–protein models using protein language model. Bioinformatics advances , 4 (1):vbad191, 2024. [42] Bowen Jing, Bonnie Berger, and Tommi Jaakkola. Alphafold meets flow matching for gener-ating protein ensembles. In Forty-first International Conference on Machine Learning , 2024. URL https://openreview.net/forum?id=rs8Sh2UASt .[43] Yogesh Kalakoti and Björn Wallner. Afsample2 predicts multiple conformations and ensem-bles with alphafold2. Communications biology , 8(1):373, 2025. [44] Josh Abramson, Jonas Adler, Jack Dunger, Richard Evans, Tim Green, Alexander Pritzel, Olaf Ronneberger, Lindsay Willmore, Andrew J Ballard, Joshua Bambrick, et al. Accurate structure prediction of biomolecular interactions with alphafold 3. Nature , 630(8016):493–500, 2024. [45] P Benjamin Stranges and Brian Kuhlman. A comparison of successful and failed protein interface designs highlights the challenges of designing buried hydrogen bonds. Protein Science , 22(1):74–82, 2013. [46] Sarel J Fleishman, Timothy A Whitehead, Damian C Ekiert, Cyrille Dreyfus, Jacob E Corn, Eva-Maria Strauch, Ian A Wilson, and David Baker. Computational design of proteins targeting the conserved stem region of influenza hemagglutinin. Science , 332(6031):816–821, 2011. [47] James J Havranek and Pehr B Harbury. Automated design of specificity in molecular recog-nition. Nature structural biology , 10(1):45–52, 2003. [48] Yang Xue, Hong Wang, Jun Li, Jianguo Hu, Zhiyuan Chen, Zhi Zheng, Lihang Liu, Kunrui Zhu, Jingzhou He, Huanzhang Gong, et al. State-specific peptide design targeting g protein-coupled receptors. Journal of Chemical Information and Modeling , 65(20):11425–11438, 2025. [49] Bowen Jing, Anna Sappington, Mihir Bafna, Ravi Shah, Adrina Tang, Rohith Krishna, Adam Klivans, Daniel J Diaz, and Bonnie Berger. Generating functional and multistate proteins with a multimodal diffusion transformer. bioRxiv , 2025. 19 Supplementary Information 
+
+# S1 Related Work 
+
+S1.1 Structure-Based Binder Design 
+
+Deep generative models have transformed structure-based protein binder design. RFdiffusion [ 16 ]generates binder backbones conditioned on a fixed target surface via backbone diffusion, followed by sequence design with ProteinMPNN [ 28 ]. PPDiff [ 33 ] and PXDesign [ 17 ] extend this to joint sequence-structure generation, while Proteina-ComplexA [18] employs atomistic flow matching to produce full-atom binder complexes. On the sequence side, a growing body of work generates binder sequences through discrete diffusion and language model objectives [ 10 –15 , 34 –37 ]. De-spite their diversity, all of these methods share a fundamental constraint: they condition on a single, static receptor conformation and optimize for binding quality without any mechanism for conformational selectivity. AlloGen is designed to be complementary that its modular scorer Qθ
+
+can rerank or guide candidates produced by any of these generators. 
+
+S1.2 Protein–Protein Interface Scoring 
+
+Physics-based methods such as FoldX [ 38 ] and PRODIGY [ 23 ] estimate binding free energies, and inverse folding models such as ProteinMPNN [ 28 ] and ESM-IF [ 39 ] serve as zero-shot affinity proxies. GNN-based scorers including GNN-DOVE [ 40 ] and DeepRank-GNN-esm [ 41 ] learn interface quality from structural features, but are designed for docking re-ranking rather than conformational discrimination. Critically, all of these methods measure affinity rather than differential affinity, and provide no signal for selecting one conformational state over another. Qθ departs from this paradigm through its two-phase curriculum, which prevents the degenerate solution of ignoring receptor conformation. Moreover, its logit-space selectivity margin that explicitly reasons about score differences across states. 
+
+S1.3 Conformational Selectivity: Sampling, Design, and Negative Design 
+
+Achieving conformational selectivity requires both characterizing the conformational landscape and engineering molecules that exploit it. On the characterization side, AlphaFlow [ 42 ] uses flow matching to generate structural ensembles, AFsample2 [ 43 ] diversifies predictions via MSA sub-sampling, and AlphaFold 3 [ 44 ] extends structure prediction to biomolecular complexes. These methods map the conformational space but do not address the inverse problem of designing binders that discriminate between states. On the design side, negative design has a long history in computational protein engineering [ 45 , 46 ], and multi-state design in Rosetta [ 47 ] optimizes se-quences across multiple conformations. However, these approaches operate at the sequence level and do not provide a differentiable scoring signal compatible with modern backbone generators. Contrastive objectives inspired by InfoNCE [ 27 ] have been applied to molecular representation learning, and classifier guidance [ 31 ] and TDS [ 32 ] enable gradient-based steering of diffusion models, mechanisms we directly adopt. Concurrent work by Xue et al. [48] targets state-specific peptide design for GPCRs via a conformation-specific folding filter, and ProDiT [ 49 ] introduces multi-state structure diffusion. AlloGen unifies these threads: it learns a generalizable selectivity 20 scorer through contrastive training, applies it as a gradient-based guide across architecturally diverse generators, and demonstrates generalization across 15 protein families. 
+
+# S2 Implementation Details 
+
+S2.1 Feature Computation 
+
+Backbone frames. Backbone frames Ri ∈ SO (3) are constructed from the (N, C α, C ) triplet of each residue using the Gram–Schmidt procedure. Torsion angles (φ, ψ, ω ) are computed from four consecutive backbone atoms using the standard dihedral angle formula. At chain termini, missing torsion angles are set to zero. 
+
+RBF distance encoding. The 16-dimensional RBF encoding of distance d uses Gaussian basis functions exp( −γ(d − μk)2) with centres μk evenly spaced from 2 to 12 Å and width γ = 1 .5.
+
+S2.2 Model and Training Hyperparameters 
+
+Model size. The InterfaceGNN scorer has ∼ 898 K trainable parameters: 4 graph transformer layers with hidden dimension 128, 8 attention heads, query/key/value and edge bias projections, and a 3-layer scoring MLP. 
+
+Training hyperparameters. Hyperparameters for both training phases are listed in Table S1. Table S1: Training hyperparameters for the two-phase curriculum.                              
+
+> Hyperparameter Phase 1 Phase 2
+> Epochs 40 15 Learning rate 5×10 −44×10 −5
+> Weight decay 10 −310 −3
+> Batch size 512 256 Warmup steps 100 —Loss MSE ( Lq)InfoNCE ( Lqdropped) InfoNCE τ—0.1 LR schedule Cosine Cosine Dropout 0.1 0.1 Binder dropout 0.3 0.3
+
+Guidance hyperparameters. For RFdiffusion classifier guidance, Qθ is used as a guiding po-tential with weight ω=1.0 and global guide_scale = 5 .0, constant decay schedule, and 200 denoising steps. For PXDesign classifier guidance, guidance scale 1.0 is applied during diffusion progress fractions [0 .1, 0.8] , with noise-fraction-proportional decay within that window. Langevin refinement uses step size η=0.05 and 100 gradient steps for RFdiffusion backbones, or η=0.01 
+
+and 100 steps for PXDesign. TDS uses N = 16 particles and R=4 resampling rounds, retaining the top 50% of particles each round. 21 S2.3 Guidance Formulations 
+
+All four guidance strategies exploit the differentiability of Sθ(Y ; X1, {X0}) with respect to binder backbone coordinates x = {pi}i∈Y .
+
+Langevin backbone refinement ([ 29 , 30 ]). Given a generated backbone x0, we perform T steps of gradient ascent on the selectivity margin: 
+
+xt+1 = xt + η ∇xSθ(xt; X1, {X0}), t = 0 , . . . , T −1, (S1) where η is the step size. This operates on fully denoised backbones, avoiding the noisy-gradient regime. 
+
+Classifier guidance ([ 31 ]). During diffusion denoising, we inject the Qθ gradient into each denoising step: 
+
+ˆϵt = ϵψ(xt, t ) − ω σ t ∇xt log Qθ(X1, xt), (S2) where ϵψ is the denoiser, ω the guidance weight, and σt the noise level at timestep t.
+
+Twisted diffusion sampling (TDS) ([ 32 ]). TDS uses N particles {x(n) 
+
+> t
+
+}Nn=1 with importance weights w(n) 
+
+> t
+
+∝ Qθ(X1, ˆx(n)0 ) computed from the denoised prediction at each timestep. Multino-mial resampling is applied when the effective sample size ESS = ( P 
+
+> n
+
+wn)2/ P 
+
+> n
+
+w2 
+
+> n
+
+drops below 
+
+N/ 2.
+
+Sequential Monte Carlo (SMC) ([ 32 ]). SMC extends TDS with multiple resampling rounds: after generating N complete trajectories, the top fraction by Sθ seeds the next round, iteratively enriching the candidate pool toward high-selectivity designs. 
+
+# S3 Dataset Construction 
+
+The dataset comprises 2,896 complexes across 65 two-state protein targets in 15 families. Each complex yields 12 training samples: 1 native holo labeled 1.0, 1 apo mismatch labeled 0.0, and 10 rigid-body decoys with labels max (0 , 1 − dRMSD /4) , plus 959 FastRelax-based hard negatives with mean label 0.304. Interface graphs contain 34 .7 ± 19 .7 nodes, ranging from 3 to 128 with a median of 29, comprising 18 .1 ± 9.8 receptor and 16 .6 ± 11 .0 binder residues. The target split assigns 51 targets to training, 6 to OOD validation, and 8 to OOD test with CaM held out, yielding 30,623 samples split as 23,640 training, 4,020 validation, and 2,963 test (Table S2). Linked targets such as SRC and SRC-SH2 are forced into the same partition. All scoring experiments use the S2-augmented configuration totalling 39,867 training samples; ablations across S1/S2/S3 are detailed in Table S3. 22 S4 Extended Qθ Results 
+
+All results in this section use the S2 configuration with the target split (Table S2), ESM-2 encoder, and binder-dropout rate p= 0.3, consistent with the experimental setup in Section 2.1. The suffix S1/S2/S3 denotes the dataset augmentation configuration as defined in Table S3. Table S2: Target split. 51/6/8 train/val/test partition across 15 protein families. CaM is moved to the OOD test set as the primary design target; ALK is moved to training.                                                       
+
+> Family Train (51) Val OOD (6) Test OOD (8)
+> Kinase (9) ABL1, ALK , Aurora A, BRAF, CDK2, EGFR, GRK2, SRC, SRC-SH2 ——Small GTPase (6) Arf1, CDC42, KRAS, RhoA Rac1 Ran Nuclear Receptor (5) AR, GR, PPAR γ, RXR α—ER α
+> GPCR/Ion Ch. (6) CFTR, KcsA, nAChR β2AR, μ-opioid A2A
+> Phosphatase (4) Calcineurin, PP2A, PTP1B, SHP2 ——Protease (6) HIV-PR, MMP-2, M pro , Thrombin, USP7 Caspase-3 —BCL-2 (2) BCL-xL —BCL-2 14-3-3 (2) —14-3-3, 14-3-3 σ—Ca sensor (3) S100B, Troponin C —CaM
+> G protein (2) CheY, G αs——Chaperone/Enzyme (6) ATCase, CypA, DHFR, Enolase, Hsp70, RNase A ——Epigenetic (3) BRD4, WDR5 —MDM2 Trafficking (5) ABCB1, Importin-β, Maltose BP, p97, VHL ——Cell adhesion (3) CTLA-4, Integrin β3—Integrin Signaling (3) Gelsolin, Hemoglobin —PAI-1
+> Total (65) 51 68
+
+Table S3: Dataset configurations and scoring settings. Columns show the number of targets in each partition and the sample count of each augmentation source. FastRelax Neg.: constrained relaxation negatives (present in all configs). GenDecoys: synthetic binders from generative models. 
+
+Dataset Split Train Val Test FastRelax Neg. GenDecoys Cross-fam Conf. decoys 
+
+Baseline Target-split 51 6 8 959 – – –Augmented Target-split (ext.) 51 6 8 959 4,862 254 1,075 
+
+Scoring configurations 
+
+S1 (Base) Baseline only: native complexes + rigid-body decoys + FastRelax Neg. (34,751 samples) S2 (Full) Full Augmented: S1 + GenDecoys + Cross-fam + Conf. decoys (39,867 samples) S3 (Partial) Baseline + Cross-fam + Conf. decoys, no GenDecoys (36,080 samples) 
+
+S4.1 Per-Target Selectivity Performance 
+
+Table S4 reports the per-target Spearman ρ of Phase 1 and Phase 1+2 on the 8 OOD targets under the target split. Phase 2 delivers its largest gains on the targets where Phase 1 struggles most: Integrin ( +0 .166 ), A 2A (+0 .170 ), and, to a lesser extent, PAI-1 ( +0 .027 ) and MDM2 ( +0 .037 ). On the two targets where Phase 1 already performs well, BCL-2 and ER α, Phase 2 incurs a modest drop of −0.049 and −0.025 , while CaM and Ran remain essentially unchanged. Overall, Phase 2 trades a small loss on the easiest targets for substantial improvements on the hardest ones, lifting 23 the 8-target mean from 0.481 to 0.520 and noticeably narrowing the cross-target gap. Table S4: Phase 1 vs. Phase 1+2 Spearman ρ on 8 OOD targets under the target split. Phase 2 values are 3-seed means ± std.                                         
+
+> Target Phase 1 ρPhase 2 ρ
+> BCL-2 0.716 0.667 ±0.014
+> ER α0.689 0.664 ±0.013
+> MDM2 0.552 0.589 ±0.036
+> CaM 0.491 0.474 ±0.061
+> Ran 0.511 0.511 ±0.065
+> A2A0.299 0.469 ±0.034
+> PAI-1 0.394 0.421 ±0.045
+> Integrin 0.200 0.366 ±0.085
+> Mean (8) 0.481 0.520 ±0.010
+
+S4.2 Phase 2 Batch-Size Ablation 
+
+Table S5 ablates the InfoNCE batch size in Phase 2. All InfoNCE configurations outperform Phase 1-only regression, confirming that contrastive fine-tuning is necessary for conformational discrim-ination. Batch size 256 yields the highest mean ρ (0.530 ), striking the best balance between cross-target negative diversity (which favors larger batches) and optimization stability (which fa-vors smaller ones); BS=512 over-saturates the softmax, while BS=64 provides too few cross-target negatives per anchor. Table S5: Phase 2 ablation across InfoNCE batch sizes. All variants start from the same Phase 1 checkpoint.      
+
+> Configuration ¯ρ
+> Paired InfoNCE (cross-target negatives)
+> InfoNCE, BS =256 0.530
+> InfoNCE, BS =512 0.500
+> InfoNCE, BS =64 0.496
+> Phase 1 only (MSE) 0.489
+
+S4.3 Apo Rejection Analysis 
+
+Table S6 reports holo and apo Qθ scores for 50 vanilla designs per target across the 8 OOD test targets, evaluated under Kabsch alignment with a single Qθ seed. Seven of the eight targets exhibit a positive ∆Q, indicating that Qθ correctly prefers the holo state; MDM2 and BCL-2 reach an S> 0 rate of 100% . Integrin is the only target with a marginal apo preference ( ∆Q=−0.009 ,
+
+S> 0 =40% ). Under the 3-seed ensemble, CaM exhibits even sharper rejection, with ¯Qholo =0.456 ,
+
+¯Qapo =0 .000 , and S> 0=100% .24 Table S6: Holo vs. apo Qθ scores for 50 vanilla designs per target. 
+
+Target ¯Qholo ¯Qapo ∆Q S> 0
+
+MDM2 0.577 ± 0.189 0.003 ± 0.006 +0 .575 100% 
+
+BCL-2 0.485 ± 0.281 0.000 ± 0.000 +0 .485 100% 
+
+ER α 0.342 ± 0.250 0.120 ± 0.053 +0 .222 76% 
+
+CaM 0.213 ± 0.136 0.065 ± 0.052 +0 .148 74% 
+
+PAI-1 0.146 ± 0.093 0.018 ± 0.057 +0 .128 90% 
+
+Ran 0.065 ± 0.057 0.000 ± 0.002 +0 .064 92% 
+
+A2A 0.062 ± 0.096 0.000 ± 0.000 +0 .062 92% 
+
+Integrin 0.064 ± 0.054 0.072 ± 0.058 −0.009 40% 
+
+S4.4 Conformational landscape monotonicity. 
+
+To test whether Qθ captures the full conformational transition rather than a binary apo/holo signal, we score CaM binders against 11 interpolated receptor conformations along the apo →holo path (τ = 0 to 1). Table S7 shows that vanilla binders exhibit strong positive monotonicity ( ¯ρ=+ 0.518 ,
+
+100% with positive Spearman ρ), demonstrating that Qθ learns a genuine structural landscape rather than a binary classifier. Langevin-refined designs show earlier score onset ( τ50% =0.4–0.9
+
+vs. 0.8–1.0), consistent with their stronger holo affinity. Table S7: Conformational landscape analysis on CaM (20 Langevin + 10 vanilla designs, 11 interpolated frames per design). Monotonicity: Spearman ρ between frame index τ and 
+
+Qθ(Xτ , Y ).                
+
+> Design set Mean ρ(τ, Q )Monotone frac. Best ρOnset ( τ50% )Vanilla (10) +0.518 100% (10/10) 0.745 0.8–1.0
+> Langevin (20) +0 .246 80% (16/20) 0.891 0.4–0.9
+
+S4.5 Multi-Seed Scoring Robustness 
+
+Table S8 reports Qθ selectivity across three independently trained seeds on CaM. Vanilla and Langevin selectivity are both highly stable across seeds, confirming that Qθ’s OOD scoring is robust to initialization. Table S8: Per-seed Qθ selectivity ¯S on CaM under three independently trained seeds. 
+
+Per-seed ¯S
+
+Target Guidance s2048 s10040 s10043 Mean σ
+
+CaM Vanilla +0 .148 +0 .146 +0 .156 +0 .150 0.004 
+
+Langevin +0 .255 +0 .250 +0 .263 +0.256 0.005 
+
+25 S5 Extended Design Results 
+
+S5.1 Generation Benchmark Performance 
+
+Table S9 reports target-split results on CaM as the OOD target, evaluating end-to-end binder design across three architecturally distinct generators (RFdiffusion [ 16 ], PXDesign [ 17 ], Proteina-ComplexA [ 18 ]) and five guidance strategies. Each design is scored by an ensemble of three independently trained Qθ checkpoints. Table S9: End-to-end binder design on CaM as a held-out OOD target. Selectivity is evaluated by a 3-seed consensus Qθ ensemble. Structural quality is measured by Boltz-2 ipTM and scTM; sequence designability by ProteinMPNN NLL holo ; and success rate by SR = designable% × S> 0%. 
+
+> †
+
+Proteina-ComplexA generates full-atom complexes with co-designed sequences.                                                                                                                                                   
+
+> Generator Guidance N¯Scons Top-5 ¯S%S> 0ipTM scTM NLL holo Des% SR%
+> RFdiffusion
+> Langevin 50 +0.677 0.993 100% 0.742 0.806 1.39 88% 88 %
+> SMC 64 +0 .510 0.941 100% 0.733 0.828 3.60 94% 94%
+> Vanilla 50 +0 .456 0.932 100% 0.769 0.820 3.59 100% 100%
+> Classifier 50 +0 .427 0.891 100% 0.715 0.826 3.54 98% 98%
+> TDS 40 +0 .367 0.818 100% 0.766 0.835 3.66 90% 90%
+> PXDesign
+> SMC 64 +0 .545 0.851 100% 0.710 0.698 3.71 100% 100%
+> Classifier 50 +0 .521 0.891 100% 0.757 0.684 3.74 100% 100%
+> Vanilla 50 +0 .517 0.870 100% 0.736 0.690 3.74 100% 100%
+> TDS 64 +0 .514 0.851 100% 0.762 0.690 3.74 100% 100%
+> Langevin 50 +0 .022 0.424 24% 0.639 0.664 1.58 80% 19%
+> Proteina-ComplexA [18] †
+> SMC 52 +0.565 0.992 100 %0.420 0.340 1.38 0% 0%
+> Classifier 52 +0 .432 0.975 98% 0.399 0.597 1.88 100% 98%
+> Langevin 52 +0 .429 0.975 98% 0.381 0.596 1.88 100% 98%
+> TDS 52 +0 .374 0.981 98% 0.376 0.592 1.86 100% 98%
+> Vanilla 52 +0 .338 0.942 98% 0.387 0.601 1.80 100% 98%
+
+S5.2 Gradient Reliability Under Noise 
+
+We measure the cosine similarity between Qθ gradients computed on clean and noise-perturbed backbones as a function of Gaussian noise scale σ (Table S10). Cosine similarity drops from 0.75 
+
+at σ=0.1 Å to 0.12 at σ=0.5 Å, and approaches zero for σ≥2.0 Å. Gradient reliability therefore degrades rapidly with noise, which explains why Langevin refinement (operating at σ≈0.04 Å )succeeds while diffusion-scale classifier guidance, which spends most of its trajectory at much larger σ, fails. 26 Table S10: Qθ gradient cosine similarity under Gaussian backbone noise, averaged over 20 CaM designs.                       
+
+> σ(Å) Norm Cos Margin
+> 0.00.317 1.000 +0 .359 0.10.329 0.753 +0 .352 0.50.368 0.121 +0 .380 1.00.366 0.032 +0 .349 2.00.172 0.012 +0 .211 5.00.018 0.009 +0 .015
+
+S5.3 Noise Schedule Alignment 
+
+In Table S11, we align the RFdiffusion noise schedule ( T =50 denoising steps) with the gradient-reliability profile from Supplementary Section S5.2. Cosine similarity is 0.75 at t= 0 but falls to 0.31 
+
+by t= 5 and to 0.06 by t= 25 , remaining above 0.5 only for roughly the final 2 of 50 steps, i.e., once the trajectory enters the regime σ < 0.10 Å. This quantitatively explains the failure of classifier guidance: about 96% of the denoising trajectory operates in a regime where Qθ gradients are essentially uninformative. Table S11: RFdiffusion noise schedule mapped to Qθ gradient reliability across timesteps.                    
+
+> Timestep σ(Å) ¯αCosine
+> 00.10 0.99 0.75 50.28 0.92 0.31 10 0.40 0.84 0.15 25 0.70 0.51 0.06 49 0.93 0.13 0.05
+
+S5.4 Reranking vs. Gradient Refinement 
+
+We compare best-of-K reranking with Langevin refinement on 50 CaM designs under 3-seed ensemble scoring, where the vanilla pool already attains ¯S=+ 0.456 with 100% positive selectivity (Table S12). Because every vanilla design is positive, reranking efficiently lifts the expected best: best-of-5 reaches ¯S=+ 0.787 and best-of-10 reaches +0 .885 , both exceeding Langevin refinement at ¯S=+ 0.677 . Langevin nonetheless remains preferable when the candidate pool is small, or when per-design improvement matters more than pool selection, for example when each candidate is expensive to generate. 27 Table S12: Best-of-K reranking vs. Langevin refinement on 50 CaM vanilla designs under ensemble scoring.               
+
+> Strategy ¯SS> 0
+> Vanilla (all 50) +0 .456 100%
+> Rerank best-of-2 +0 .616 100%
+> Rerank best-of-5 +0 .787 100%
+> Rerank best-of-10 +0 .885 100%
+> Rerank best-of-20 +0 .947 100%
+> Langevin (100 steps) +0.677 100 %
+
+S5.5 Best-of-K Reranking 
+
+Best-of-K reranking measures Qθ’s ability to pick conformationally selective designs from a candidate pool. On CaM, where every vanilla design already attains positive selectivity, increasing 
+
+K improves both the mean and the high-quality fraction: K=5 raises ¯S from +0 .456 to +0 .787 
+
+with 94% of selections exceeding S> 0.5, and K=10 reaches +0 .885 with all selections above that threshold (Table S13). Reranking therefore scales reliably with pool size, with the additional gain per doubling of K tapering past K≈10 .Table S13: Best-of-K reranking statistics on CaM with 10,000 bootstrap trials. “High” denotes 
+
+S> 0.5.                     
+
+> KMean S> 0High
+> 1+0 .452 100% 41% 2+0 .616 100% 67% 5+0 .787 100% 94% 10 +0 .885 100% 100% 25 +0 .961 100% 100% 50 +0.985 100 %100 %
+
+S5.6 End-to-end Langevin Design Results 
+
+Structure-related metric analysis for Langevin refinement. Table S14 reports end-to-end results on all 8 OOD targets, with 50 vanilla designs per target refined by 100 Langevin steps. Langevin refinement improves mean selectivity on 7 of 8 targets, with the largest gains on CaM (+0 .253 ) and improvement rates (the fraction of refined designs with S > 0) reaching 100% on CaM and BCL-2 and exceeding 70% on six targets. PAI-1 is the only target where refinement marginally degrades ¯S (∆ ¯S=−0.024 ), although 71% of its refined designs are still positively selective. On the six targets with a crystal-contact reference, ∆fNAT van is approximately zero or positive (range −0.004 to +0 .168 ), indicating that the selectivity gains do not come at the expense of native-contact recovery. Overall, 390 of 400 designs survive Langevin refinement, and refined designs combine higher selectivity with comparable or improved interface fidelity. 28 Table S14: End-to-end Langevin design results across 8 OOD targets. ∆fNAT van is measured against the crystal-contact reference; CaM and A 2A are marked “—” because their available co-crystal structures contain peptide-mimetic or antibody-fragment binders rather than the canonical short peptides used to compute fNAT. Improvement rate is the fraction of Langevin-refined designs with S> 0. Hyperparameters follow Supplementary Section S2.2. 
+
+Target Nvan Nlang Improv. rate ∆fNAT van ¯Svan ¯Slang ∆ ¯S
+
+CaM 50 50 100% — 0.531 0.784 +0 .253 
+
+ER α 50 50 74% −0.004 0.110 0.250 +0 .140 
+
+BCL-2 50 50 100% +0 .168 0.886 0.911 +0 .024 
+
+MDM2 50 50 98% +0 .084 0.216 0.397 +0 .181 
+
+Ran 50 46 80% +0 .002 0.119 0.249 +0 .130 
+
+PAI-1 50 49 71% −0.001 0.188 0.164 −0.024 
+
+Integrin 50 48 58% +0 .012 0.004 0.012 +0 .008 
+
+A2A 50 47 70% — 0.363 0.412 +0 .049 
+
+Total 400 390 — —
+
+S5.7 Structural Validity of Langevin Refinement 
+
+To verify that Langevin refinement does not distort backbone geometry, Table S15 reports Ra-machandran outliers, ω deviation, and bond-length deviation for 50 designs per target before and after refinement. Across all 8 OOD targets, both vanilla and refined designs contain zero Ra-machandran outliers, and the mean ω deviation drops from 4.2◦ to 2.3◦, indicating that backbone dihedrals become more planar after refinement. The mean bond-length deviation rises from 0.000 
+
+to 0.005 Å , two orders of magnitude below typical covalent bond fluctuations and well within physically acceptable ranges. Together, these results indicate that Langevin refinement improves local geometry without compromising backbone validity. Table S15: Backbone geometry for vanilla and Langevin-refined designs across 8 OOD targets. Zero Ramachandran outliers are observed in all cases. 
+
+Rama outlier (%) ω dev ( ◦) Bond dev (Å) 
+
+Target Van Lang Van Lang Van Lang CaM 0.0 0.0 4.0 4.5 0.000 0.014 
+
+ER α 0.0 0.0 4.5 2.0 0.000 0.006 
+
+BCL-2 0.0 0.0 4.3 1.4 0.000 0.001 
+
+MDM2 0.0 0.0 4.1 2.3 0.000 0.008 
+
+Ran 0.0 0.0 3.6 1.9 0.000 0.003 
+
+A2A 0.0 0.0 3.9 1.9 0.000 0.004 
+
+PAI-1 0.0 0.0 4.7 2.0 0.000 0.003 
+
+Integrin 0.0 0.0 4.6 2.6 0.000 0.002 
+
+Mean 0.0 0.0 4.2 2.3 0.000 0.005 
+
+29 S5.8 Langevin Step-Size Sensitivity 
+
+We sweep the Langevin step size η on 50 CaM designs under ensemble scoring (Table S16). Selec-tivity improves monotonically from ¯S=+ 0.506 at η=0.01 to ¯S=+ 0.579 at η=0.08 , then plateaus, while C α RMSD from the vanilla backbone stays below 0.14 Å throughout. We adopt η=0.04 as the default ( ¯S=+ 0.559 , RMSD 0.10 Å ), a safe operating point that captures most of the achievable gain at negligible structural perturbation. Table S16: Langevin step-size sweep on CaM under ensemble scoring. RMSD denotes C α
+
+displacement from the vanilla backbone.                             
+
+> η¯S∆ ¯SS> 0RMSD (Å) — (vanilla) +0 .433 —98% —
+> 0.01 +0 .506 +0 .073 100% 0.04 0.02 +0 .533 +0 .100 100% 0.06 0.04 +0 .559 +0 .126 100% 0.10 0.08 +0.579 +0.146 100 %0.12 0.10 +0 .579 +0 .146 100% 0.14
+
+S5.9 Boltz-2 Cross-Check 
+
+As a Qθ-independent structural sanity check, we re-score the 50 vanilla designs per target with Boltz-2 and compare its ∆ipTM=ipTM holo −ipTM apo against the Qθ selectivity S (Table S17). On 5 of 8 targets, mean ∆ipTM is positive, indicating that Boltz-2 also assigns higher interface confidence to the holo state for the majority of designs; the strongest agreement with Qθ at the design level appears on A 2A (ρ=+ 0.500 ) and CaM ( ρ=+ 0.349 ), while the remaining targets yield small positive correlations. BCL-2 is the clearest disagreement, with ∆ ipTM= −0.183 and only 
+
+24% of designs above zero, suggesting that Boltz-2 and Qθ rank holo/apo differently for this target. Table S17: Boltz-2 ∆ipTM as a Qθ-independent structural cross-check across 8 OOD targets ( n= 50 
+
+vanilla designs per target). Qθ scores use the 3 seeds. Per-target Spearman ρ is computed between Qθ selectivity S and Boltz-2 ∆ipTM = ipTM holo − ipTM apo .                               
+
+> Target Mean ∆ipTM Frac >0Spearman ρ
+> A2A+0 .055 50% +0.500
+> CaM +0 .032 56% +0.349
+> MDM2 +0 .057 76% −0.047
+> Ran +0 .045 58% +0 .081
+> PAI-1 −0.022 50% +0 .076
+> Integrin −0.003 50% +0 .124
+> BCL-2 −0.183 24% +0 .087
+> ER α−0.003 44% +0 .050
+
+30 S5.10 AlphaFold-3 Cross-Check 
+
+As an additional Qθ-independent validation, we re-fold a subset of designs with AF3 in single-sequence mode (Table S18). On ALK and ER α, 100% of designs satisfy ∆ipTM > 0 under both vanilla and Langevin pipelines, with refinement leaving the mean essentially unchanged. BCL-2 is the exception ( 5% positive), which we attribute to its much larger binder-receptor length gap (20% vs. ≤5% ) pushing AF3 outside its reliable regime. Table S18: AlphaFold 3 ∆ipTM in single-sequence mode. Positive values indicate holo preference. Rec. ∆len denotes the relative length difference between binder and receptor.                              
+
+> Target Guidance Mean ∆ipTM Frac. >0nRec. ∆len ALK Vanilla +0 .058 100% 50 5%
+> Langevin +0 .057 100% 50
+> ER αVanilla +0 .034 100% 50 4%
+> Langevin +0 .034 100% 50
+> BCL-2 Langevin −0.103 5% 19 20%
+
+S5.11 Rosetta Interface Analysis 
+
+To characterize physical interface quality independently of Qθ, we compute Rosetta Interface-Analyzer metrics on 400 RFdiffusion designs across the 8 OOD targets, with repacked sidechains (Table S19). BCL-2 alone yields a clearly favorable mean interface energy ( ∆G=−9.1 REU) together with the largest buried surface ( 968 Å2), while MDM2, A 2A, and CaM achieve modestly negative or near-neutral ∆G. Ran and Integrin are the weakest, with strongly positive ∆G values ( +25 .4 and 
+
++39 .1 REU), consistent with their lower Qθ Spearman ρ. The agreement at both ends (BCL-2 and MDM2 ranking high under both scorers, Ran and Integrin ranking low) provides an independent physical validation of Qθ selectivity, even though Rosetta and Qθ disagree on intermediate cases such as Integrin’s high contact count despite an unfavorable ∆G.Table S19: Rosetta InterfaceAnalyzer metrics for 400 vanilla RFdiffusion designs across the 8 OOD targets (50 per target).                                      
+
+> Target ∆G(REU) ∆SASA (Å 2)Contacts H-bonds BCL-2 −9.1968 40.5 2.3 ALK +0 .3927 33.8 4.0 MDM2 −1.0606 25.1 2.2 A2A−0.9512 19.1 1.4 ER α+3 .8564 18.2 1.3 PAI-1 +1 .3464 16.7 1.4 Ran +25 .4292 13.0 0.7 Integrin +39 .1755 37.8 8.6
+
+31 S5.12 ProteinMPNN ∆NLL Analysis 
+
+Table S20 reports ProteinMPNN ∆NLL for 50 vanilla and 50 Langevin-refined designs per target. Two findings emerge. First, vanilla designs achieve significant holo preference on all 8 OOD targets (pooled ∆NLL van =+ 0.188 , all p< 0.05 ), confirming that holo preference is a population-level property of the generated backbones detectable without Qθ. Second, Langevin refinement does not increase ∆NLL and reduces it on 5 of 8 targets. Since Qθ score rises sharply under Langevin (Table S9) while ∆NLL falls, the two metrics cannot be measuring the same signal: Qθ captures a geometric selectivity dimension orthogonal to ProteinMPNN’s sequence-recovery likelihood, and neither serves as ground truth for the other. Independent structural validation of Qθ comes from Boltz-2 ∆ipTM (Table S17), which reaches per-target significance on A 2A and CaM. Table S20: ProteinMPNN ∆NLL for vanilla and Langevin-refined designs. ProteinMPNN measures sequence-recovery likelihood given a backbone, a Qθ-independent metric that probes a different dimension of binder–receptor compatibility than the geometric selectivity signal Qθ optimizes. Positive ∆NLL indicates holo preference; p-values are from paired Wilcoxon signed-rank tests on per-design (vanilla, Langevin) pairs. †Apo-divergent targets on which ProteinMPNN’s reference-state NLL is mis-specified on apo backbones (binder–apo NLL is depressed by training-distribution scarcity rather than by genuine binder preference); we interpret these values directionally only.                                                    
+
+> Target ∆NLL van ∆NLL lang ∆p
+> MDM2 +1 .050 +0 .743 −0.307 <10 −14 ∗
+> BCL-2 +0 .550 +0 .436 −0.114 <10 −14 ∗
+> CaM +0 .290 +0 .188 −0.102 <10 −14 ∗
+> PAI-1 +0 .120 +0 .095 −0.026 8×10 −6∗
+> Integrin +0 .014 +0 .016 +0 .002 0.020 ∗
+> ER α†−0.129 −0.054 +0 .075 <10 −12 ∗
+> Ran †−0.169 −0.136 +0 .033 6×10 −5∗
+> A†
+> 2A−0.223 −0.261 −0.040 <10 −9∗
+> Mean (5 pos.) +0.405 +0 .296 −0.109 —
+> Mean (all 8) +0 .188 +0 .128 −0.060 —
+
+S5.13 Failure-Mode Analysis of Negative-Selectivity Designs 
+
+To locate where guided binder generators break down, we audit every design with negative TS-S2 seed-1024 selectivity, 
+
+S(Y ) = Qθ(X1, Y ) − Qθ(X0, Y ) < 0,
+
+corresponding to designs that the scorer predicts bind apo CaM more strongly than holo CaM. The pool comprises N =482 designs from 9 pipelines (two diffusion priors × five sampling schemes: vanilla, classifier-guided, TDS, SMC, and Langevin refinement). After Kabsch-aligning each design’s receptor onto the 3CLN holo reference and propagating the same transform to the binder, we tag it with any of five non-exclusive failure modes: too_short (< 50 residues), wrong_binding_site 
+
+32 (binder centre-of-mass > 25 Å from the canonical CaM peptide groove at residues 84–88, 124– 125), insufficient_interface (< 5 binder residues within 10 Å of the receptor), steric_clash (any inter-chain Cα pair < 2.5 Å), and apo_binding (Qθ(X0, Y )>0.3). The negative-S rate is just 
+
+10 /482 (2.1% ), and Table S21 shows these ten designs are uniformly degenerate: every one is truncated below 50 residues, 40% are mislocalised away from the canonical groove, another 
+
+40% contain steric clashes, and 20% lack a sufficient interface, while only 1/10 crosses the apo-binding threshold. Failures therefore stem from degenerate generation (truncated, mislocalised, or sterically infeasible binders) rather than from the scorer being deceived by genuine apo-selective designs. All ten negatives come from a single pipeline (PXDesign + Langevin); the other eight pipelines produce zero negative-S designs under this scorer. Table S21: Failure-mode analysis of the 10 negative-selectivity designs out of 482 total designs from 9 guidance pipelines. Categories are not mutually exclusive: a single design may fall into several modes simultaneously.                          
+
+> Failure mode Count Fraction too_short ( <50 residues) 10/10 100 .0%
+> wrong_binding_site ( >25 Å) 4/10 40 .0%
+> steric_clash ( <2.5Å inter-chain Cα)4/10 40 .0%
+> insufficient_interface ( <5residues at 10 Å) 2/10 20 .0%
+> apo_binding ( Qapo >0.3)1/10 10 .0%
+
+S5.14 Statistical Analysis 
+
+Langevin versus vanilla comparisons in Table S20 use paired Wilcoxon signed-rank tests with 
+
+n= 50 designs per target and a one-sided alternative that Langevin exceeds vanilla. Of 8 targets, 4 reach significance at p< 0.05 , namely CaM at p< 0.001 , ALK at p= 0.012 , ER α at p=0.033 , and Ran at p=0.041 . The remaining 4 targets show negligible differences with |∆|<0.03 and p> 0.5,consistent with Langevin’s 0.04 Å perturbations falling below ProteinMPNN’s detection threshold. Overall, 238 of 350 vanilla designs across 7 targets show positive ∆NLL, significantly exceeding the 50% null expectation as assessed by a binomial test, confirming population-level holo preference. 
+
+# S6 Efficiency Analysis 
+
+S6.1 Inference Speed 
+
+Qθ achieves 2.98 ± 0.09 ms per-complex latency in single-sample mode on an A100 GPU in Table S22. At batch size 16, amortized throughput reaches 4,531 complexes per second, enabling 
+
+10 5-candidate selectivity screening with two forward passes per candidate in under 45 seconds. RFdiffusion generates one CaM binder in approximately 2 min on an A100; PXDesign requires approximately 3 min. In-process guidance via classifier guidance and TDS adds approximately 17% compute overhead due to Qθ gradient evaluation at each denoising step. Across RFdiffusion methods, Langevin achieves the best selectivity per compute unit, improving selectivity with only 17% overhead relative to vanilla generation. For PXDesign, vanilla generation 33 is the most cost-effective strategy: guidance methods add minimal selectivity gain over PXDesign’s strong generative prior. PXDesign with Langevin is the only negative-selectivity result, indicating a fundamental mismatch between PXDesign’s generation trajectory and the Langevin gradient. Table S22: Computational cost per method on a single A100 80GB GPU. 
+
+Method N min/design GPU-hr ¯S ¯S/GPU-hr RFdiff (vanilla) 50 2.0 1.7 0.249 0.146 
+
+RFdiff + Classifier 50 2.5 2.1 0.247 0.118 
+
+RFdiff + Langevin 50 2.5 2.1 0.314 0.150 
+
+RFdiff + SMC 64 2.0 2.1 0.488 0.232 
+
+RFdiff + TDS 40 2.5 1.7 0.477 0.281 
+
+PXDesign (vanilla) 50 3.0 2.5 0.166 0.066 
+
+PXDesign + Classifier 50 4.0 3.3 0.175 0.053 
+
+PXDesign + Langevin 50 3.5 2.9 0.124 0.043 
+
+PXDesign + SMC 64 3.0 3.2 0.371 0.116 
+
+PXDesign + TDS 64 4.0 4.3 0.419 0.097 
+
+Proteina-CA (vanilla) 64 0.05 0.05 0.213 4.26 
+
+Proteina-CA + Classifier 64 0.08 0.09 0.249 2.77 
+
+Proteina-CA + Langevin 64 0.13 0.14 0.267 1.91 
+
+Proteina-CA + SMC 64 0.05 0.05 0.350 7.00 
+
+Proteina-CA + TDS 64 0.10 0.11 0.470 4.27 
+
+34
