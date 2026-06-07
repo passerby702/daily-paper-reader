@@ -1,0 +1,1272 @@
+Title: Uncertainty-Calibrated Diffusion for Reliable 3D Molecular Graph Generation
+
+URL Source: https://arxiv.org/pdf/2606.01595v1
+
+Published Time: Tue, 02 Jun 2026 01:57:13 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Uncertainty-Calibrated Diffusion for Reliable 3D Molecular Graph Generation 
+
+# Fang Wan ∗
+
+fanwan@cs.stonybrook.edu State University of New York at Stony Brook Stony Brook, New York, USA 
+
+# Jingxiang Qu ∗
+
+jingxiang.qu@stonybrook.edu State University of New York at Stony Brook Stony Brook, New York, USA 
+
+# Yi Liu 
+
+yi.liu.4@stonybrook.edu State University of New York at Stony Brook Stony Brook, New York, USA 
+
+## Abstract 
+
+Bayesian inference provides a principled framework for model-ing epistemic uncertainty in neural networks by treating predic-tions as distributions rather than deterministic values. Meanwhile, diffusion-based models for 3D molecular graph generation oper-ate on fragile geometric structures governed by strict chemical constraints, making inference highly sensitive to uncertainty mis-calibration. A largely overlooked issue is that epistemic uncertainty arising from the learned denoiser interacts with the aleatoric un-certainty intentionally injected during reverse diffusion, leading to systematic variance inflation and a mismatch between the true distribution and the simulated distribution. This effect is particu-larly detrimental for high-precision molecular generation, where even small deviations can violate chemical validity. In this work, we provide a theoretical and empirical analysis of how epistemic uncertainty propagates through diffusion inference and degrades sampling quality. Building on this investigation, we propose UCD 
+
+(Uncertainty-Calibrated Diffusion), a simple yet effective method that calibrates the reverse diffusion process to account for epis-temic uncertainty. Extensive experiments on standard 3D molecu-lar benchmarks demonstrate that UCD consistently improves sam-pling quality across diverse baseline methods, establishing new state-of-the-art performance for 3D molecular diffusion. The code is available at https://github.com/jiuguaiwf/UCD. 
+
+## CCS Concepts 
+
+• Computing methodologies → Generative and developmen-tal approaches ; Neural networks ; Artificial intelligence .
+
+## Keywords 
+
+generative models, diffusion models, molecular graph generation, uncertainty estimation, trustworthy AI 
+
+ACM Reference Format: 
+
+Fang Wan, Jingxiang Qu, and Yi Liu. 2026. Uncertainty-Calibrated Diffusion for Reliable 3D Molecular Graph Generation. In Proceedings of the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining V.2 (KDD ’26), August 09–13, 2026, Jeju Island, Republic of Korea. ACM, New York, NY, USA, 12 pages. https://doi.org/10.1145/3770855.3817764  
+
+> ∗Equal contribution.
+> This work is licensed under a Creative Commons Attribution 4.0 International License.
+> KDD ’26, Jeju Island, Republic of Korea
+> ©2026 Copyright held by the owner/author(s). ACM ISBN 979-8-4007-2259-2/2026/08 https://doi.org/10.1145/3770855.3817764
+
+## 1 Introduction 
+
+Generative models provide probabilistic frameworks for approx-imating complex data distributions and synthesizing new sam-ples from learned generative procedures. By sampling from high-dimensional latent manifolds through a prescribed inference pro-cess, they have become powerful tools in automation, simulation, and scientific discovery. Among these approaches, diffusion models (DMs) [ 19 ] have emerged as a prominent paradigm due to their effectiveness in image generation and beyond [ 36 , 40 , 49 ]. A DM consists of a forward process that gradually corrupts data with Markovian noise until it becomes indistinguishable from Gaussian noise, and a reverse process parameterized by a neural network (i.e., neural denoiser) that iteratively denoises these corrupted states. At inference time, the model generates new samples by simulating this learned reverse trajectory, reconstructing structured data from pure noise. Recent work has extended DMs to 3D molecular graph gen-eration [ 10 , 20 , 50 ], where the reverse process gradually recon-structs atom types and their 3D positions. Molecular structures are tightly organized geometric objects, and the iterative denoising procedure must recover spatial relationships with sufficient pre-cision for the resulting molecule to remain valid [ 5 , 6, 29 , 35 ]. In this setting, uncertainty in the neural denoiser [ 7 , 13 , 16 , 44 ] can interact with the stochastic components of the reverse diffusion process, influencing how clean geometric structure is recovered during sampling. Meanwhile, uncertainty estimation has become an important tool for characterizing model confidence in gener-ative models [ 11 , 23 , 52 ]. Together, these perspectives motivate a natural question: how does such uncertainty affect the reverse inference dynamics in molecular diffusion, and can it help us better characterize the stochastic behavior that arises during sampling? 
+
+In this work, we analyze how the uncertainty issue arises in molecular diffusion models and show that it can artificially inflate the effective noise injected during reverse inference. This phenome-non is particularly detrimental for reconstructing sensitive molecu-lar geometries, where even small deviations can lead to chemically invalid structures. Adopting a Bayesian approximation perspec-tive [ 7 , 13 ], we introduce UCD (Uncertainty-Calibrated Diffusion), a simple yet effective correction to the sampling procedure that explicitly compensates for uncertainty-induced variance inflation, as illustrated in Fig. 1. UCD improves molecular generation quality without modifying the underlying diffusion architecture or training objective, and can be seamlessly applied to a wide range of existing diffusion backbones.  
+
+> arXiv:2606.01595v1 [cs.LG] 1 Jun 2026 KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Wan et al.
+
+Our main contributions are threefold: (i) we identify and for-malize a previously underexplored failure mode in diffusion-based molecular generation, namely variance inflation caused by the inter-action between epistemic uncertainty in the denoiser and stochas-ticity in diffusion inference; (ii) we provide a theoretical analysis characterizing how this variance inflation propagates through the reverse diffusion process and degrades sampling quality, motivating a principled correction; and (iii) we propose UCD, an inference-time uncertainty calibration method that can be readily integrated into diverse diffusion models. Extensive experiments across multiple benchmarks and diffusion backbones demonstrate that UCD consis-tently improves molecular generation quality without introducing additional architectural complexity. These contributions establish UCD as a novel approach to 3D molecular diffusion that combines state-of-the-art performance with calibrated uncertainty for en-hanced reliability, effectively bridging the gap between theoretical diffusion models and their practical deployment in real-world 3D molecular graph generation. 
+
+## 2 Preliminaries and Related Work 2.1 Epistemic Uncertainty 
+
+Neural networks are trained with data samples to predict the under-lying function, but instead of being a solver which produces deter-ministic results, their outputs are modeled as Gaussian-distributed with uncertainty due to two sources: (1) inherent noise in the train-ing data, which leads to the classical interpretation of MSE as a Gaussian likelihood [ 4]; (2) uncertainty in the model parameters arising from limited data and stochastic training, which leads to an approximately normal predictive distribution [ 13 ]. Both of these sources contribute to the predictive uncertainty of the neural net-work, which we refer to as epistemic uncertainty [ 16 ]. Throughout the paper, we use the term epistemic uncertainty in this sense. Epistemic uncertainty is typically estimated using three fami-lies of methods: deep ensembles [ 26 , 39 ], heteroscedastic regres-sion [ 45 ], and dropout-based uncertainty [ 13 , 44 ]. Deep ensembles require training multiple independent networks that predict the same target, and uncertainty is estimated from the variance across ensemble members. However, training several large generative backbones and selecting appropriate ensemble candidates is pro-hibitively expensive, making this approach impractical in diffusion settings. Heteroscedastic regression introduces an additional pre-diction head for the output variance, but this variance becomes part of the optimization objective and may collapse or inflate artificially. Moreover, it provides no true stochasticity and therefore cannot cap-ture epistemic uncertainty. In diffusion models [ 19 ], predicting an extra variance term additionally interferes with the analytically de-fined Gaussian reverse process, often degrading generation quality. In contrast, dropout-based uncertainty [ 13 ] preserves the backbone architecture and performance while providing a lightweight and effective estimate of epistemic uncertainty. Note that beyond epistemic uncertainty, aleatoric uncertainty is also commonly discussed, which refers to irreducible randomness inherent in the data generation or sampling process [ 22 , 37 ]. In diffusion models, aleatoric uncertainty arises from the stochastic noise injected during reverse inference. Once the diffusion inference configuration is fixed (e.g., noise schedule and sampling strategy), this source of uncertainty is fully determined and is not the focus of this work, as detailed in Sec. 2.2. 
+
+## 2.2 Diffusion Models and Uncertainty Estimation 
+
+Diffusion models [ 19 , 43 ] are latent-variable generative models that transform Gaussian noise into complex data samples by simulating a forward-reverse Markov chain defined over a discrete time horizon 
+
+𝑡 ∈ { 0, . . . ,𝑇 }. Let 𝒙 ∼ 𝑝 (𝒙 ) denote a clean data point in R𝑑 , and let 
+
+𝒛 𝑡 denote its progressively noised counterpart. The forward process corrupts data by adding Gaussian noise with variance schedule 
+
+𝛽 𝑡 ∈ ( 0, 1):
+
+𝑝 (𝒛 1: 𝑇 | 𝒙 ) =
+
+> 𝑇
+
+Ö
+
+> 𝑡 =1
+
+𝑝 (𝒛 𝑡 | 𝒛 𝑡 −1),𝑝 (𝒛 𝑡 | 𝒛 𝑡 −1) = N
+
+√︁ 
+
+1 − 𝛽 𝑡 𝒛 𝑡 −1, 𝛽 𝑡 𝐼 𝑑 
+
+
+
+.
+
+(1) By composition, the marginal noising distribution admits a closed form, 
+
+𝑝 (𝒛 𝑡 | 𝒙 ) = N
+
+√ ¯𝛼 𝑡 𝒙 , (1 − ¯𝛼 𝑡 )𝐼 𝑑 
+
+
+
+,
+
+¯𝛼 𝑡 =
+
+> 𝑡
+
+Ö
+
+> 𝑠 =1
+
+𝛼 𝑠 , 𝛼 𝑠 = 1 − 𝛽 𝑠 ,
+
+(2) which linearly interpolates between the data distribution 𝑝 (𝒙 ) and the Gaussian prior 𝑝 (𝒛 𝑇 ) ≈ N ( 0, 𝐼 ) [1]. The unconditional marginal at time 𝑡 is then 
+
+𝑝 (𝒛 𝑡 ) =
+
+∫
+
+𝑝 (𝒙 ) N 
+
+
+
+𝒛 𝑡 
+
+√ ¯𝛼 𝑡 𝒙 , (1 − ¯𝛼 𝑡 )𝐼 𝑑 
+
+
+
+𝑑 𝒙 . (3) After training, sampling proceeds by simulating the reverse Markov chain 𝑞 𝜃 (𝒛 0: 𝑇 ) = 𝑞 (𝒛 𝑇 ) Î𝑇 𝑡 =1 𝑞 𝜃 (𝒛 𝑡 −1 | 𝒛 𝑡 ), where each reverse transition is modeled as a Gaussian 
+
+𝑞 𝜃 (𝒛 𝑡 −1 | 𝒛 𝑡 ) = N 𝝁 𝜃 (𝒛 𝑡 , 𝑡 ), 𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 
+
+, (4) with mean predicted by a neural network and variance 𝜎 2 
+
+> 𝑡
+
+typically fixed according to the SDE or variance-preserving schedule. Training is performed via the noise-prediction objective [ 43 ], which encourages the model to recover the forward noise: 
+
+LDM = E𝒙 ,𝜺 ,𝑡 
+
+∥𝜺 − 𝜺 𝜃 (𝒛 𝑡 , 𝑡 )∥ 2 ,
+
+𝒛 𝑡 = √ ¯𝛼 𝑡 𝒙 + √1 − ¯𝛼 𝑡 𝜺 , 𝜺 ∼ N ( 0, 𝐼 𝑑 ). (5) Here 𝜺 𝜃 (𝒛 𝑡 , 𝑡 ) approximates the score field ∇𝒛 𝑡 log 𝑝 (𝒛 𝑡 ) [ 41 , 43 ]. New samples are generated by initializing from noise 𝒛 𝑇 ∼ N ( 0, 𝐼 𝑑 )
+
+and iteratively applying the reverse update: 
+
+𝒛 𝑡 −1 = 1√︁ 
+
+1 − 𝛽 𝑡 
+
+
+
+𝒛 𝑡 − 𝛽 𝑡 
+
+√1 − ¯𝛼 𝑡 
+
+𝜺 𝜃 (𝒛 𝑡 , 𝑡 )
+
+
+
++ 𝜎 𝑡 𝜺 . (6) Diffusion-based generative models intentionally inject stochastic noise 𝜺 at each reverse step through the simulation of stochastic differential equations (SDEs) [ 19 , 43 ]. This stochasticity causes the aleatoric uncertainty, which is intrinsic and fully determined once the diffusion inference configuration is fixed. Epistemic uncertainty, in contrast, originates from the learned denoiser 𝜺 𝜃 and reflects imperfect modeling of the data and the training process. These two forms of uncertainty, aleatoric uncertainty induced by the SDE simulation and epistemic Uncertainty-Calibrated Diffusion for Reliable 3D Molecular Graph Generation KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 𝑇 𝑇 − 1𝑡 𝑡 − 110
+
+# … …
+
+# 𝑥 , ℎ ∼ 𝑝 (𝑧 !)
+
+# … …
+
+> Uncertainty
+> Estimation
+> Correction
+
+(a) Diffusion Inference under Variance Inflation 
+
+(b) Uncertainty -Calibrated Diffusion Inference 
+
+Baseline 
+
+distribution with 
+
+variance 𝝈 𝒕 
+
+> 𝟐
+
+Uncertainty -induced 
+
+distribution with 
+
+inflated variance 
+
+#𝝈 𝒕 𝟐 = 𝝈 𝒕  
+
+> 𝟐
+
++ 𝜼 𝒕 
+
+> 𝟐
+
+# 𝑧 ' → 𝑧 '()
+
+Variance inflation by epistemic uncertainty 
+
+Accumulation 
+
+across timesteps 
+
+> Inference continues
+
+(c) Variance Inflation Issue 
+
+Denoising network Standard reverse transition Corrected reverse transition UCD correction path 
+
+Figure 1: Illustration of variance inflation and uncertainty calibration in diffusion inference. (a) Diffusion inference under variance inflation. Standard reverse diffusion is illustrated on a sharp bimodal Gaussian mixture setting. The orange background shadow represents the evolving simulated distribution induced by the denoiser at each reverse step. Epistemic uncertainty in successive denoiser predictions causes this simulated distribution to progressively widen and become less concentrated as inference proceeds, leading to unstable final samples. (b) Uncertainty-calibrated diffusion inference. UCD introduces an uncertainty estimation and correction mechanism that stabilizes the reverse transitions. On the same background example, the simulated distribution remains concentrated across timesteps, resulting in consistent reverse trajectories and reliable final structures. (c) Variance inflation issue. At a single reverse step 𝒛 𝑡 → 𝒛 𝑡 −1, epistemic uncertainty locally inflates the model transition variance, and this effect accumulates across successive reverse steps. uncertainty stemming from the learned model, coexist dur-ing the reverse diffusion process. However, in standard diffusion inference, epistemic uncertainty is typically ignored, as inference relies on a single deterministic denoiser prediction optimized to minimize the training objective (e.g., Eq. (5) ). Their interaction was accordingly overlooked in prior works, which distort the reverse inference dynamics with accumulated errors across timesteps, ultimately leading to degraded sample quality. 
+
+## 2.3 Relations with Prior Work 
+
+Recent years have seen substantial progress in 3D molecular gener-ation, with diffusion-based and flow-based models emerging as a dominant paradigm for generating 3D molecular graphs. Represen-tative works model a 3D molecule with 𝑁 atoms as a combination of discrete atomic features 𝒉 = (𝒉 1, . . . , 𝒉 𝑁 ) ∈ R𝑁 ×𝑑 and continuous three-dimensional coordinates 𝒙 = (𝒙 1, . . . , 𝒙 𝑁 ) ∈ R𝑁 ×3, defining the molecule directly on its original data manifold [ 28 , 47 ]. Such approaches (e.g., EDM, GeoLDM, and RADM) achieve strong per-formance in terms of chemical validity and stability [ 10 , 20 , 50 ]. Building upon these generative frameworks, subsequent studies explore improved probability paths to enhance molecular genera-tion quality and sampling efficiency [ 12 , 14 , 30 , 42 ]. Another line of research focuses on developing more effective sampling strate-gies to improve sample quality or reduce inference cost [ 31 , 32 ]. While these methods improve sampling efficiency or geometric fidelity, they generally treat the neural denoiser as deterministic at inference time. Consequently, an imperfectly learned denoiser with non-negligible predictive uncertainty can induce devia-tions from the ideal probability path. Such deviations may accumulate across sampling steps and lead to a progressive drift away from the data manifold. 
+
+Motivated by the impact of uncertainty on model reliability, uncertainty estimation has been increasingly explored in diffu-sion models as a tool to improve robustness and efficiency. One line of work leverages uncertainty estimation for active learning 
+
+and data selection , where uncertainty serves as a data-driven cri-terion for guiding data acquisition, annotation, or training-time decisions [ 3, 11 , 21 ]. In active domain adaptation, uncertainty ex-tracted from a diffusion model is used to guide the selection of unlabeled samples for annotation or refinement, enabling more ef-fective adaptation under limited supervision [ 11 ]. In safety-critical applications, such as diffusion-based PDE control, uncertainty esti-mates act as indicators of sample reliability, allowing only confident generations to be retained during fine-tuning [ 21 ]. Similarly, when diffusion models rely on costly or scarce data sources, such as com-puted tomography measurements, uncertainty-aware acquisition strategies adaptively select the most informative data points, reduc-ing acquisition cost while maintaining reconstruction quality [ 3 ]. These approaches primarily use uncertainty to guide training-time 
+
+decisions or data acquisition, whereas UCD operates as an inference-time correction and is therefore orthogonal in scope. KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Wan et al. 
+
+Another related direction employs uncertainty during inference to filter undesirable trajectories or steer diffusion toward more con-fident regions by refining denoiser outputs [ 9, 23 – 25 ]. For example, in object pose estimation, uncertainty derived from a diffusion prior is used to guide alignment and refinement for downstream tasks [ 24 ]. More generally, uncertainty is treated as a semantic or decision-level signal for selecting reliable samples [ 23 ] or reweight-ing predictions [ 9, 25 ]. These methods can be viewed as forms of uncertainty-guided inference that keep the reverse diffusion dynam-ics fixed, using uncertainty only for sample-level selection or post hoc refinement. Consequently, they do not address how epistemic uncertainty alters the underlying reverse transition kernel, nor do they provide a distribution-level characterization of uncertainty accumulation across timesteps. Moreover, many such approaches rely on last-layer Laplace approximations [ 8 ], which capture only local, readout-level uncertainty under strong linearity assumptions and may be limited for highly nonlinear diffusion dynamics. In contrast, UCD explicitly identifies epistemic uncertainty as a structural source of variance inflation in the reverse diffusion pro-cess itself. Rather than using uncertainty for data selection, sample filtering, or post hoc refinement, UCD leverages uncertainty as a mechanism to correct and calibrate the reverse sampling pro-cess itself . This distinction matters for molecular diffusion because small uncertainty-induced perturbations can accumulate along the sampling trajectory and produce invalid geometries. Overall, UCD contributes to the broader study of uncertainty in diffusion models by identifying variance inflation induced by epistemic uncertainty, characterizing its accumulation and impact on sampling quality, and introducing an effective calibration strategy that consistently improves performance across diverse 3D molecular diffusion back-bones. 
+
+## 3 Method 
+
+In this section, we first present empirical evidence revealing the overlooked uncertainty issue in existing diffusion-based molecu-lar generation methods (Sec. 3.1). We then provide a theoretical analysis of how epistemic uncertainty degrades inference perfor-mance during diffusion sampling (Sec. 3.2.1). Finally, we introduce an uncertainty correction strategy UCD that addresses this issue and enables stable and reliable molecular generation (Sec. 3.3). 
+
+## 3.1 Uncertainty Issue 
+
+During diffusion sampling, stochastic noise is injected at each re-verse step according to the prescribed diffusion SDE, yielding a fixed level of aleatoric uncertainty [ 40 , 43 ]. Beyond this analytically defined stochasticity, the reverse transition additionally depends on the denoiser prediction 𝜺 𝜃 (𝒛 𝑡 , 𝑡 ), whose output is subject to epis-temic uncertainty. In practice, standard diffusion inference treats this prediction as deterministic, ignoring uncertainty in the learned reverse drift. As introduced in Sec. 2.1, we model this epistemic uncertainty using a Gaussian approximation and estimate it via a dropout-based Bayesian approach. In Sec. 3.2.1, we show that uncertainty in the denoiser output does not merely introduce local prediction error, but instead in-duces an effective inflation of the reverse transition variance. We formalize this phenomenon as variance inflation . As illustrated in Fig. 1(c), epistemic uncertainty enlarges the transition variance at each reverse step, and this effect accumulates along the sampling trajectory. Consequently, the simulated distribution becomes pro-gressively more dispersed (Fig. 1(a)), leading to unstable reverse trajectories and degraded sample quality. 0 200 400 600 800 1000  
+
+> Starting timestep t
+> 82
+> 84
+> 86
+> 88
+> 90
+> 92
+> 94
+> 96
+> 98
+> Metric value (%)
+> Error Accumulation from Epistemic Uncertainty in Reverse Diffusion
+> Molecule Stability (%)
+> Validity (%)
+
+Figure 2: Effect of starting timestep 𝑡 on molecular genera-tion quality. Samples are initialized from the true forward diffusion distribution at timestep 𝑡 and then denoised using the learned reverse process. Because the initial state is drawn from the true distribution, performance degradation directly reflects error accumulation induced by epistemic uncertainty in the reverse dynamics. Higher is better for both metrics. Experimental setup follows EDM [ 20 ] on QM9 [ 34 ], as de-tailed in Sec. 4. 
+
+Beyond the effect of distributional dispersion, we further study how the interaction between aleatoric and epistemic uncertainty influences the entire generation trajectory by quantifying the accu-mulated impact of variance inflation. In Sec. 3.2.2, we analyze this interaction at the trajectory level and show that epistemic uncer-tainty, when coupled with aleatoric noise in the reverse process, induces a systematic and accumulating distortion of the sampling dynamics. This accumulation substantially enlarges the discrepancy between the simulated and true distributions. As empirically veri-fied in Fig. 2, generation quality degrades monotonically as the starting timestep 𝑡 increases, indicating that the interaction between aleatoric and epistemic uncertainty is consistently present at each reverse transition and accumulates along the probability path rather than arising from isolated or tran-sient errors. Building on this observation, the following sections formally characterize the accumulation behavior of this interac-tion along the reverse diffusion process by deriving trajectory level discrepancy measures and end-point deviation bounds, and sub-sequently propose a principled correction strategy based on their interaction rules during diffusion sampling. 
+
+## 3.2 Variance Inflation 
+
+3.2.1 Theoretical Characterization. As discussed above, aleatoric uncertainty from the diffusion SDE and epistemic uncertainty from the learned denoiser coexist during reverse sampling and jointly influence the inference dynamics. In this section, we show that their Uncertainty-Calibrated Diffusion for Reliable 3D Molecular Graph Generation KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+interaction admits a precise statistical characterization: epistemic uncertainty at inference time effectively enlarges the injected noise in diffusion sampling. We analyze how this additional variance propagates through the reverse chain and induces a non-trivial mismatch at the end-point 𝑡 = 0. Throughout this analysis, the trained network parameters 𝜃 and the diffusion schedule {𝛼 𝑡 , 𝛽 𝑡 }𝑇 𝑡 =1
+
+are fixed. For clarity, we use 𝑝 to denote the true (ideal) distribution and ˜𝑝 to denote the simulated distribution induced by sampling with the learned model 𝜃 under epistemic uncertainty. Consider a single step reverse update as defined in Eq. (6) , we define the reverse mean map 
+
+𝑓 𝑡 (𝒛 𝑡 ) := 1
+
+√𝛼 𝑡 
+
+
+
+𝒛 𝑡 − 𝛽 𝑡 
+
+√1 − ¯𝛼 𝑡 
+
+𝜺 𝜃 (𝒛 𝑡 , 𝑡 )
+
+
+
+, (7) so that Eq. (6) can be written as 𝒛 𝑡 −1 = 𝑓 𝑡 (𝒛 𝑡 )+ 𝜎 𝑡 𝜺 𝑡 . For convenience, we define the schedule-dependent coefficient 
+
+𝜅 𝑡 := 1
+
+√𝛼 𝑡 
+
+𝛽 𝑡 
+
+√1 − ¯𝛼 𝑡 
+
+. (8) Bayesian inference provides a principled framework for reasoning about epistemic uncertainty [ 7 , 13 ]. A standard practice is to model epistemic uncertainty by augmenting the deterministic output of the learned denoiser 𝜺 𝜃 with additive Gaussian noise: 
+
+˜𝜺 𝜃 (𝒛 𝑡 , 𝑡 ) = 𝜺 𝜃 (𝒛 𝑡 , 𝑡 ) + 𝜹 𝑡 , 𝜹 𝑡 ∼ N ( 0, 𝜏 2 
+
+> 𝑡
+
+𝐼 𝑑 ), (9) where 𝜏 2 
+
+> 𝑡
+
+may be timestep-dependent, capturing heteroscedastic epistemic uncertainty. Substituting Eq. (9) into the reverse update in Eq. (6) and using the definitions of 𝑓 𝑡 and 𝜅 𝑡 , we obtain 
+
+𝒛 𝑡 −1 = 𝑓 𝑡 (𝒛 𝑡 ) − 𝜅 𝑡 𝜹 𝑡 + 𝜎 𝑡 𝜺 . (10) Let 𝜂 2 
+
+> 𝑡
+
+:= 𝜅 2 
+
+> 𝑡
+
+𝜏 2 
+
+> 𝑡
+
+, then we have 𝜅 𝑡 𝜹 𝑡 ∼ N ( 0, 𝜂 2 
+
+> 𝑡
+
+𝐼 𝑑 ) and the following characterization of the effective reverse transition. 
+
+Proposition 3.1 (Effective reverse transition under epistemic un-certainty) . Under Eq. (9) , the conditional distribution of 𝒛 𝑡 −1 given 
+
+𝒛 𝑡 is ˜𝐾 𝑡 (𝒛 𝑡 −1 | 𝒛 𝑡 ) = N 𝒛 𝑡 −1; 𝑓 𝑡 (𝒛 𝑡 ), ˜𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 
+
+, (11) 
+
+where ˜𝜎 2 
+
+> 𝑡
+
+:= 𝜎 2 
+
+> 𝑡
+
++ 𝜂 2 
+
+> 𝑡
+
+. And the true (no-epistemic-uncertainty) reverse kernel is 
+
+𝐾 𝑡 (𝒛 𝑡 −1 | 𝒛 𝑡 ) = N 𝒛 𝑡 −1; 𝑓 𝑡 (𝒛 𝑡 ), 𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 
+
+. (12) The proof is provided in Appendix A.1. Proposition 3.1 shows that inference-time epistemic uncertainty induces a precise and unavoidable inflation of the reverse transition variance from 𝜎 2 
+
+> 𝑡
+
+to 
+
+˜𝜎 2 
+
+> 𝑡
+
+at every timestep. Proposition 3.1 admits a simple interpretation. At inference time, epistemic uncertainty in the denoiser behaves as an additional source of noise that is injected into each reverse diffusion step. Although the diffusion SDE prescribes a nominal noise variance 𝜎 2 
+
+> 𝑡
+
+, uncertainty in the model prediction effectively perturbs the reverse update, resulting in an enlarged transition variance ˜𝜎 2 
+
+> 𝑡
+
+= 𝜎 2 
+
+> 𝑡
+
++ 𝜂 2 
+
+> 𝑡
+
+.From this perspective, epistemic uncertainty does not merely introduce randomness in the denoiser output, but systemati-cally increases the stochasticity of the reverse kernel itself. 
+
+As illustrated in Fig. 1(a), even when the reverse mean 𝑓 𝑡 (𝒛 𝑡 ) is ac-curate on average, epistemic uncertainty in successive predictions causes the simulated distribution to spread more than intended. While this inflation may appear modest at a single step, its repeated application across timesteps fundamentally alters the behavior of the reverse diffusion process. A natural question then arises: how does such local variance inflation translate into a mismatch between the final sampling distribution ˜𝑝 0 and the true data distribution 𝑝 0?
+
+To obtain results that are both rigorous and assumption-light, we proceed in two complementary steps: (i) we first quantify dis-crepancy at the level of entire reverse trajectories using path-space KL, which admits an exact closed form and captures the cumula-tive effect of variance inflation across timesteps; and (ii) we then analyze how epistemic uncertainty propagates to the end-point via a trajectory-local perturbation recursion, yielding a concrete lower bound on the end-point deviation that directly characterizes how this discrepancy manifests in the final samples under mild non-collapse conditions. 
+
+3.2.2 Trajectory-Level Divergence via Path-Space KL. Let 𝑃 base (𝒛 0: 𝑇 )
+
+and 𝑃 unc (𝒛 0: 𝑇 ) denote the trajectory distributions generated by the Markov chains using kernels {𝐾 𝑡 } and { ˜𝐾 𝑡 }, respectively, starting from the same initialization 𝑝 𝑇 . Let 𝑝 𝑡 and ˜𝑝 𝑡 denote the corre-sponding marginals. We define the relative variance inflation ratio 
+
+𝑟 𝑡 := 𝜂 2
+
+> 𝑡
+
+𝜎 2
+
+> 𝑡
+
+= 𝜅 2 
+
+> 𝑡
+
+𝜏 2
+
+> 𝑡
+
+𝜎 2
+
+> 𝑡
+
+, 𝑟 𝑡 ≥ 0. (13) Since 𝐾 𝑡 (· | 𝒛 𝑡 ) and ˜𝐾 𝑡 (· | 𝒛 𝑡 ) are Gaussians with the same mean and isotropic covariances, for any fixed 𝒛 𝑡 ,
+
+KL 
+
+ ˜𝐾 𝑡 (· | 𝒛 𝑡 ) ∥ 𝐾 𝑡 (· | 𝒛 𝑡 )
+
+
+
+= KL  N  0, (1 + 𝑟 𝑡 )𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 
+
+ ∥ N  0, 𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 
+
+ 
+
+= 𝑑 
+
+2
+
+
+
+𝑟 𝑡 − log (1 + 𝑟 𝑡 )
+
+
+
+.
+
+(14) Notably, Eq. (14) depends only on the inflation ratio 𝑟 𝑡 and not on the nonlinear map 𝑓 𝑡 .
+
+Proposition 3.2 (Exact KL divergence on trajectory space) . Assum-ing both chains share the same initialization 𝑝 𝑇 , the KL divergence between trajectory measures satisfies 
+
+KL 
+
+
+
+𝑃 unc (𝒛 0: 𝑇 ) ∥ 𝑃 base (𝒛 0: 𝑇 )
+
+
+
+=
+
+> 𝑇
+
+∑︁  
+
+> 𝑡 =1
+
+𝑑 
+
+2
+
+
+
+𝑟 𝑡 − log (1 + 𝑟 𝑡 )
+
+
+
+. (15) We give the derivation in Appendix A.2. Proposition 3.2 high-lights the central role of the variance inflation ratio 𝑟 𝑡 in determin-ing overall inference behavior. In particular, the path-space KL di-vergence grows additively across timesteps and is given by Eq. (15) .Whenever the relative variance inflation 𝑟 𝑡 is non-negligible over a nontrivial portion of the reverse trajectory, the quantity Í𝑇 𝑡 =1 𝑑 
+
+> 2
+
+
+
+𝑟 𝑡 −
+
+log (1 + 𝑟 𝑡 )
+
+
+
+becomes large, certifying a significant divergence be-tween the induced and ideal sampling procedures. Proposition 3.2 makes explicit that the effect of variance inflation is cumulative rather than local. Although the additional variance 
+
+𝜂 2 
+
+> 𝑡
+
+introduced at each step may be small, its contribution to the path-space KL divergence accumulates additively over the 𝑇 reverse diffusion steps. As a result, even mild epistemic uncertainty, when present across a nontrivial portion of the trajectory, certifies a substantial divergence between the induced sam-pling process and the ideal reverse diffusion. 
+
+This accumulation perspective provides a direct explanation for the empirical behavior observed in Fig. 2. As the number of reverse KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Wan et al. 
+
+steps increases, molecular quality degrades monotonically, even when initialization is drawn from the true forward distribution. The theory thus confirms that small uncertainty-induced deviations introduced early in the trajectory propagate and amplify over time, ultimately leading to significant loss of molecular stability and validity at the final timestep. 
+
+3.2.3 Local Propagation to the End-point. While the path-space KL divergence certifies a substantial discrepancy between infer-ence procedures, it does not directly explain how injected variance propagates to the final sample. We therefore complement the KL analysis with a trajectory-local perturbation propagation argument, which explicitly tracks how uncertainty-induced noise is trans-formed through the nonlinear reverse mapping and accumulates into a non-negligible end-point deviation. Consider the ideal sampler and its uncertainty-inflated counter-part under a synchronous coupling: 
+
+𝒁 𝑡 −1 = 𝑓 𝑡 (𝒁 𝑡 ) + 𝜎 𝑡 𝜺 , ˜𝒁 𝑡 −1 = 𝑓 𝑡 ( ˜𝒁 𝑡 ) + 𝜎 𝑡 𝜺 + 𝜂 𝑡 𝒖 𝑡 , (16) where 𝜂 𝑡 = 𝜅 𝑡 𝜏 𝑡 and all 𝒖 𝑡 ∼ N ( 0, 𝐼 𝑑 ) are independent. Let Δ𝑡 :=
+
+˜𝒁 𝑡 − 𝒁 𝑡 (with Δ𝑇 = 0 if initialized identically). Subtracting Eq. (16) gives the exact recursion 
+
+Δ𝑡 −1 =  𝑓 𝑡 (𝒁 𝑡 + Δ𝑡 ) − 𝑓 𝑡 (𝒁 𝑡 ) + 𝜂 𝑡 𝒖 𝑡 . (17) Eq. (17) makes explicit the two sources of deviation: transport of existing perturbations through the reverse mean map, and fresh isotropic noise injected by epistemic uncertainty at timestep 𝑡 . To quantify how deviations propagate, we measure the sensitivity of 𝑓 𝑡 along the trajectory. By the mean value theorem, for each realization there exists a matrix 
+
+𝐽 𝑡 :=
+
+∫ 10
+
+∇𝑓 𝑡 (𝒁 𝑡 + 𝑠 Δ𝑡 ) 𝑑𝑠, (18) such that 𝑓 𝑡 (𝒁 𝑡 + Δ𝑡 ) − 𝑓 𝑡 (𝒁 𝑡 ) = 𝐽 𝑡 Δ𝑡 and hence Δ𝑡 −1 = 𝐽 𝑡 Δ𝑡 +
+
+𝜂 𝑡 𝒖 𝑡 . The matrix 𝐽 𝑡 is a trajectory-dependent linearization of the reverse mean map along the segment connecting 𝒁 𝑡 and ˜𝒁 𝑡 . To rule out degenerate cases in which the reverse dynamics annihilate all perturbations, we impose a mild non-collapse condition on the sensitivity of 𝑓 𝑡 along the trajectory. 
+
+Assumption 3.3 (Bounded sensitivity of the reverse mean map) .
+
+There exist constants 0 ≤ 𝑚 𝑡 ≤ 𝐿 𝑡 such that 
+
+𝑚 𝑡 ≤ 𝜆 min (𝐽 𝑡 ) and 𝜆 max (𝐽 𝑡 ) ≤ 𝐿 𝑡 , (19) where 𝜆 min (·) and 𝜆 max (·) denote the minimum and maximum sin-gular values. Intuitively, this assumption imposes positive lower and upper bounds on the singular values of 𝐽 𝑡 , which quantify how perturba-tions are transformed by the reverse mean map at each timestep. The lower bound prevents the reverse dynamics from completely collapsing perturbations, while the upper bound rules out uncon-trolled amplification of small deviations. Together, these bounds en-sure that uncertainty is transported in a stable and well-conditioned manner along the reverse trajectory. It is consistent with empirical observations in diffusion models, where the reverse dynamics are locally smooth and do not exhibit degenerate collapse or explo-sion on the data manifold although the learned score function is imperfect. 
+
+Proposition 3.4 (End-point deviation induced by variance infla-tion) . Under Eq. (18) and Assumption 3.3, the end-point deviation under the synchronous coupling satisfies 
+
+𝑑 
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+𝜂 2 
+
+> 𝑡 𝑡 −1
+
+Ö
+
+> 𝑠 =1
+
+𝑚 2 
+
+> 𝑠
+
+≤ E∥Δ0 ∥2 ≤ 𝑑 
+
+> 𝑇
+
+∑︁  
+
+> 𝑡 =1
+
+𝜂 2 
+
+> 𝑡 𝑡 −1
+
+Ö
+
+> 𝑠 =1
+
+𝐿 2 
+
+> 𝑠
+
+, (20) 
+
+where the empty product is defined as 1.
+
+The derivation is provided in Appendix A.3. Proposition 3.4 characterizes how epistemic uncertainty injected at each reverse step accumulates into an end-point deviation through the reverse dynamics. The lower bound establishes that, in the absence of degeneracy in the reverse mean map, uncertainty-induced pertur-bations necessarily lead to a non-negligible deviation at the final sample. Importantly, the upper bound reveals that this deviation does not grow arbitrarily: the total error is governed by a multi-plicative accumulation of per-step uncertainty, scaled by the local sensitivity of the reverse mean maps. This shows that the impact of epistemic uncertainty is systematic and controlled, rather than unstable or explosive. Together, these bounds imply that while inference-time epistemic uncertainty inevitably degrades sample quality, its effect can be effectively regulated through bounded, step-wise corrections to the reverse transition. This observation directly motivates the uncertainty-aware noise calibra-tion strategy introduced in Sec. 3.3. Together with the path-space KL analysis, this result provides complementary theoretical evidence that inference-time epistemic uncertainty induces both a substantial algorithmic shift and a tan-gible, yet controllable, degradation of final sample quality. 
+
+## 3.3 Uncertainty-Calibrated Diffusion 
+
+As established in Proposition 3.1, the core issue arises from epistemic uncertainty inflating the effective variance of the reverse transition .As a result, the stochasticity injected during inference is no longer purely aleatoric, but instead becomes a mixture of aleatoric noise and accumulated epistemic uncertainty, leading to unstable reverse dynamics and degraded sample quality. To address this issue, we propose UCD , an Uncertainty-Calibrated 
+
+Diffusion reverse sampling strategy grounded in the analysis of Sec. 3.2.1. A conceptual illustration of the effect of UCD is shown in Fig. 1(b). Proposition 3.1 characterizes how epistemic uncertainty induces systematic variance inflation at each reverse step, while Propositions 3.2 and 3.4 further show that this inflated variance accumulates through the reverse dynamics in a controlled manner. Motivated by these results, we correct the reverse transition at each timestep by adjusting the aleatoric uncertainty variance according to the estimated epistemic uncertainty. Concretely, we modify the scale of the stochastic noise injected by the sampler such that the resulting effective variance compensates for epistemic inflation, while leaving the reverse mean map unchanged. This step-wise calibration restores a balanced uncertainty level during inference and stabilizes the reverse sampling trajectory. Our analysis in Sec. 3.2.1 is conducted under the standard DDPM-based reverse diffusion framework [ 19 , 43 ], which is also the default inference setting for most 3D molecular diffusion models [ 10 , 20 , 50 ]. Although our primary focus is molecular generation, where strict chemical constraints demand especially precise reverse inference, Uncertainty-Calibrated Diffusion for Reliable 3D Molecular Graph Generation KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Algorithm 1 Uncertainty-Calibrated Generalized Sampler                                                                                                               
+
+> Inputs: dropout denoiser 𝜺 𝜃 , noise schedule {𝛽 𝑡 , 𝛼 𝑡 }𝑇 𝑡 =1, interpolation coefficients {𝜌 𝑡 } ∈ [ 0,1]𝑇 , dropout passes 𝑀 , aleatoric noise adjustment function Φ𝑡 (· ,·) , uncertainty estimator 𝑈 (· , 𝑀 )
+> Output: generated sample 𝒙 ,𝒉 ∼𝑝 (𝒙 ,𝒉 |𝒛 0)
+> Sample initial noise 𝒛 𝑇 ∼ N ( 0, 𝐼 𝑑 )
+> for 𝑡 =𝑇 ,𝑇 −1, . . . , 1do (Dropout uncertainty estimation)
+> ˜𝜺 𝜃 (𝒛 𝑡 , 𝑡 ), 𝜏 𝑡 ←𝑈 (𝜺 𝜃 (𝒛 𝑡 , 𝑡 ), 𝑀 )
+> ˜𝛽 𝑡 ←𝛽 𝑡 1−¯𝛼 𝑡 −1
+> 1−¯𝛼 𝑡
+> 𝜅 𝑡 ←√︃ 1−¯𝛼 𝑡 −1−𝜌 𝑡 2˜𝛽 𝑡 𝜏 𝑡
+> 𝜎 𝑡 ←𝜌 𝑡 √︃ ˜𝛽 𝑡
+> (Adjustment for aleatoric noise)
+> 𝜎 adj
+> 𝑡 ←Φ𝑡 (𝜅 𝑡 , 𝜎 𝑡 )
+> ˆ𝒛 0←𝒛 𝑡 − √1−¯𝛼 𝑡 ˜𝜺 𝜃 (𝒛 𝑡 , 𝑡 )√¯𝛼 𝑡
+> Sample 𝜺 =(𝜺 𝑥 ,𝜺 ℎ) ∼ N ( 0, 𝐼 𝑑 )
+> Subtract center of mass from 𝜺 𝑥
+> (Corrected reverse update)
+> 𝒛 𝑡 −1← √¯𝛼 𝑡 −1ˆ𝒛 0+√︃ 1−¯𝛼 𝑡 −1−𝜌 𝑡 2˜𝛽 𝑡 ˜𝜺 𝜃 (𝒛 𝑡 , 𝑡 ) + 𝜎 adj
+> 𝑡 𝜺
+> end for
+
+the proposed correction naturally extends to more general sam-pling schemes. In particular, we consider a generalized inference formulation [ 40 ], which interpolates between stochastic SDE-based sampling and deterministic ODE-based sampling via a continuous interpolation parameter. In practice, we estimate epistemic uncertainty using dropout-based Bayesian inference [ 13 ], which has been shown to provide a lightweight yet effective approximation. At each reverse timestep, the estimated epistemic variance is used to adjust the aleatoric uncertainty scale, yielding a corrected reverse update that stabi-lizes the sampling trajectory. This correction is especially beneficial for 3D molecular generation, where small accumulated errors can easily violate geometric or chemical constraints. The complete uncertainty-calibrated generalized sampler is summarized in Algo-rithm 1. 
+
+## 4 Experiments 4.1 Setups 
+
+Datasets. We evaluate the effectiveness of our method on two widely used standard benchmarks for 3D molecular generation: QM9 [ 34 ] and GEOM-Drugs [ 2], following standard experimental protocols adopted in prior work [ 10 , 20 , 50 ]. The QM9 dataset contains approximately 130K small organic molecules, each with up to 29 atoms. We follow the standard split from Hoogeboom et al .[20] , using 100K molecules for training, 18K for validation, and 13K for testing. GEOM-Drugs is substantially larger, consisting of around 420K molecules with an average of 44.4 atoms and up to 181 atoms per molecule. Following Hoogeboom et al . [20] , we select the 30 lowest-energy conformations for each molecule. Together, these two datasets cover a wide range of molecular sizes and complexities, providing a comprehensive evaluation setting. 
+
+Evaluation metrics. Consistent with prior work [ 10 , 20 , 50 ], we as-sess generation quality using a suite of standard molecular metrics: 
+
+atom stability , molecule stability , validity , and validity ×uniqueness [ 15 ,38 ]. Atom Stability measures the percentage of atoms whose num-ber of bonds matches their chemical valence (e.g., H:1, C:4, O:2). 
+
+Molecule Stability reports the percentage of molecules in which all atoms are stable. Validity denotes the fraction of molecules that satisfy valence constraints for all atoms, while Uniqueness mea-sures the proportion of distinct molecules among valid samples. For GEOM-Drugs, following prior work, we omit molecule stability and uniqueness metrics, as they are consistently close to 0% and 
+
+100% , respectively, across all evaluated methods. 
+
+Baselines. We consider several representative state-of-the-art diffusion models for 3D molecular generation as backbone archi-tectures, including EDM [ 20 ], GeoLDM [ 50 ], and RADM DiT-B [ 10 ]. These models span a diverse range of design choices, including GNN-based and Transformer-based architectures, equivariant and non-equivariant formulations, and generation in either Euclidean or latent spaces. We apply our method as a plug-in module to each backbone and compare against their original implementations with-out uncertainty correction. In addition, we report results from non-diffusion-based baselines, including ENF [ 15 ] and G-SchNet [ 17 ], as provided in their original papers. 
+
+Implementation details. To demonstrate the plug-in nature of our approach and ensure a fair comparison, we strictly use the officially released model settings for all backbone diffusion models. We do not modify any hyperparameters unrelated to Bayesian dropout inference or noise calibration, including noise schedules, encoder– decoder architectures, or dataset partitions. 
+
+## 4.2 Unconditional Generation 
+
+Following standard evaluation protocols in 3D molecular gener-ation [ 10 , 20 , 50 ], we generate 10,000 molecules for each model on both QM9 and GEOM-Drugs. All results reported in Table 1 are evaluated directly on the generated samples without any post-hoc refinement using computational chemistry tools (e.g., Open Babel). For QM9, we report the mean and standard deviation over three independent runs to account for randomness in sampling. For GEOM-Drugs, performance variance across runs is negligible, and we therefore report single-run results, consistent with prior work. 
+
+The consistent performance gains observed in Table 1 across all standard evaluation metrics highlight the urgency of addressing the long-overlooked uncertainty issue in 3D molecular generation. This phenomenon is universal and cannot be resolved solely through architectural design choices. In particu-lar, the issue persists across diverse modeling paradigms, including GNN-based equivariant EDM [ 20 ], GeoLDM [ 50 ], and Transformer-based non-equivariant RADM [ 10 ]. Notably, even for GeoLDM and RADM, which operate in latent space, variance inflation re-mains consistently evident. These results demonstrate that UCD effectively mitigates the detrimental impact of epistemic uncer-tainty in molecular diffusion. Importantly, the observed improve-ments are achieved without any modification to the underlying model architectures or training targets. As such, UCD provides a KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Wan et al. 
+
+Table 1: Results for atom stability, molecule stability, validity, and validity ×uniqueness. Baseline results are referred from the original papers. ↑ represents higher values indicating better performance. All models combined with UCD surpass their original counterparts, and the improved results are shown in bold. Globally best results are underlined. QM9 GEOM-Drugs 
+
+# Metrics Atom Sta (%) ↑ Mol Sta (%) ↑ Valid (%) ↑ Valid ×Unique (%) ↑ Atom Sta (%) ↑ Valid (%) ↑
+
+Data 99.0 95.2 97.7 97.7 86.5 99.9 ENF 85.0 4.9 40.2 39.4 - -G-SchNet 95.7 68.1 85.5 80.3 - -EDM 98.7 82.0 91.9 90.7 81.3 92.6 
+
+EDM+UCD 98.8 ±0.0 87.2 ±0.2 94.3 ±0.1 92.9 ±0.2 83.5 95.7 
+
+GeoLDM 98.9 89.4 93.8 92.7 84.4 99.3 
+
+GeoLDM+UCD 99.1 ±0.0 91.4 ±0.1 95.7 ±0.2 93.1 ±0.2 85.9 99.5 
+
+RADM 98.5 87.3 94.1 91.7 85.0 99.3 
+
+RADM+UCD 98.9 ±0.0 88.4 ±0.2 96.4 ±0.3 91.8 ±0.2 89.2 99.4 
+
+model-agnostic, inference-time calibration that complements exist-ing architectural innovations rather than replacing them. Overall, augmenting existing diffusion models with UCD establishes new state-of-the-art performance for 3D molecular diffusion across mul-tiple benchmarks. 
+
+## 4.3 Conditional Generation 
+
+To further evaluate the ability of our method to generate molecules with desired properties, we consider conditional generation tasks on QM9 following prior work [ 10 , 20 , 50 ]. We report the Mean Absolute Error (MAE) computed using pretrained property predictors, where a smaller deviation from the QM9 ground-truth distribution (lower bound) indicates better performance. Each target property requires training a separate conditional diffusion model. Due to computa-tional constraints, we conduct conditional generation experiments only on the strongest baseline diffusion model, RADM [10]. The results are summarized in Table 2. Across all six con-ditional tasks, RADM+UCD consistently outperforms the baselines, demonstrating improved accuracy in property-controlled molecular generation. Combined with the uncondi-tional results in Sec. 4.2, these findings indicate that our approach not only generates more stable molecules, but also more faithfully satisfies target property constraints. Additional experimental details are provided in Appendix B.1. 
+
+## 4.4 Efficiency and Ablation on Dropout Passes 
+
+UCD introduces minimal additional complexity and only one new hyperparameter: the number of Monte Carlo dropout passes 𝑀 used for epistemic uncertainty estimation under the Bayesian approxi-mation [ 13 ]. In this section, we jointly analyze the computational efficiency and generation quality as a function of 𝑀 .
+
+Training and sampling efficiency. For training efficiency, replac-ing standard linear layers with dropout-enabled layers does not increase training cost . Although dropout is active during training, it requires only a single forward pass per iteration and introduces no additional learnable parameters, resulting in negligible overhead. 
+
+Table 2: Mean Absolute Error (MAE) for molecular prop-erty prediction using a pretrained predictor (lower is better). Baseline results are taken from the original papers. The best results are highlighted in bold. 
+
+Property 𝛼 Δ𝜀 𝜀 HOMO 𝜀 LUMO 𝜇 𝐶 𝑣 
+
+Unit Bohr 3 meV meV meV D cal mol KQM9 0.10 64 39 36 0.043 0.040 Random 9.01 1470 645 1457 1.616 6.857 EDM 2.76 655 356 584 1.111 1.101 GeoLDM 2.37 587 340 522 1.108 1.025 RADM 1.98 458 290 383 0.814 0.869 RADM+UCD 1.94 439 280 368 0.773 0.862 
+
+Moreover, UCD does not alter the diffusion sampling procedure or the total number of reverse steps. As a result, the Number of Function Evaluations (NFEs), which is the standard measure of diffusion sampling efficiency, remains unchanged. 
+
+Inference-time overhead. The primary computational cost of UCD arises during inference, where epistemic uncertainty is estimated via Monte Carlo dropout. Specifically, estimating uncertainty re-quires 𝑀 stochastic forward passes of the denoiser at each reverse step, increasing the per-step denoiser forward time while keeping the number of reverse steps fixed. While the original Bayesian dropout formulation applies dropout at every layer, prior work has shown that inserting dropout only in selected layers (e.g., near the network output) is sufficient to obtain reliable uncertainty estimates with low computational cost [18, 48]. We report both the wall-clock time per single NFE and the corre-sponding generation quality on QM9 in Table 3, measured using the widely adopted foundation model EDM [ 20 ] as the backbone. As the number of dropout passes 𝑀 increases, the per-step inference cost grows due to repeated forward evaluations of the denoiser. In practice, hardware-level parallelism and batch processing keep the overhead modest for small 𝑀 , while beyond 𝑀 = 10 the runtime Uncertainty-Calibrated Diffusion for Reliable 3D Molecular Graph Generation KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Table 3: Efficiency–quality trade-off under different num-bers of dropout passes 𝑀 using EDM as the backbone on QM9. Time is reported as wall-clock milliseconds per single NFE, while all molecular generation metrics are reported as percentages. ↑ and ↓ denote metrics where higher values and lower values indicate better performance, respectively.                                    
+
+> 𝑀 Time (ms) ↓Atom Sta (%) ↑Mol Sta (%) ↑Valid (%) ↑Valid ×Unique (%) ↑
+> 379.28 98.7 86.7 93.8 92.1 579.66 98.7 87.0 94.0 92.4 10 81.47 98.8 87.2 94.3 92.9 20 88.17 98.8 87.3 94.6 93.1 30 99.54 98.8 87.4 94.6 93.0
+
+increases approximately linearly. Detailed settings are provided in Appendix B.2. At the same time, Table 3 shows that molecular generation qual-ity improves as 𝑀 increases from small values due to the improved accuracy of estimated epistemic uncertainty. However, the gains saturate once 𝑀 reaches 10 . Table 4 further reports the correspond-ing wall-clock time per NFE across different diffusion backbones. While the absolute runtime varies substantially across models due to architectural differences, all backbones exhibit a consistent trend: inference cost increases mildly for small 𝑀 . In particular, large 
+
+𝑀 leads to diminishing quality gains but disproportionately higher runtime. These results indicate that increasing 𝑀 improves the accuracy of epistemic uncertainty estimation. However, this improvement saturates once 𝑀 > 10 , beyond which additional dropout passes provide diminishing benefits while incurring higher computational cost. Accordingly, we set 𝑀 = 10 as the default choice in our method. 
+
+Table 4: Wall-clock time (ms) per single NFE under different dropout configurations. 
+
+Method 𝑀 =3 𝑀 =5 𝑀 =10 𝑀 =20 𝑀 =30 
+
+EDM+UCD 79.28 79.66 81.47 88.17 99.54 GeoLDM+UCD 74.32 78.82 80.39 84.03 95.94 RADM+UCD 24.29 25.51 30.10 44.67 61.36 
+
+## 4.5 Comparison with Alternative Uncertainty Estimators 
+
+We further compare dropout-based uncertainty estimation with a last-layer Laplace approximation, using EDM on QM9 as the back-bone. As shown in Table 5, both uncertainty estimators improve over the original EDM sampler, confirming that accounting for epis-temic uncertainty is beneficial for molecular diffusion. However, dropout-based estimation yields substantially stronger gains, espe-cially on molecule stability and validity. This result is consistent with our discussion in Sec. 2.3: last-layer Laplace approximation relies on a local linearization of the model output and therefore captures only readout-level uncertainty, whereas dropout provides a lightweight stochastic approximation that better reflects uncer-tainty in the denoising network during reverse sampling. 
+
+Table 5: Comparison of uncertainty estimators on QM9 using EDM as the backbone.                     
+
+> Model Atom Sta (%) ↑Mol Sta (%) ↑Valid (%) ↑Valid ×Unique (%) ↑
+> EDM 98.7 82.0 91.9 90.7 EDM+Laplace 98.7 82.9 93.0 91.6 EDM+Dropout 98.8 87.2 94.3 92.9
+
+## 5 Conclusion and Future Work 
+
+In this work, we identify a long-overlooked harmful interaction be-tween epistemic uncertainty from the learned denoiser and aleatoric uncertainty introduced by the diffusion process in 3D molecular generation, and formalize its effect as a variance inflation issue in reverse diffusion inference. Building on the theoretical analysis characterizing how this interaction degrades sampling quality, we propose Uncertainty-Calibrated Diffusion (UCD), a model-agnostic, inference-time calibration method that directly mitigates this is-sue. Extensive experimental results demonstrate that augmenting existing diffusion models with UCD consistently improves molecu-lar generation quality across multiple backbones and benchmarks. Broadly speaking, investigating epistemic uncertainty, together with explainability [27, 33], lays the foundation of trustworthy AI for 3D molecular modeling and generation. This work focuses on diffusion-based 3D molecular generation, where the term molecule refers to relatively small organic molecules such as those in QM9 and GEOM-Drugs. We do not evaluate UCD on macromolecular systems such as 3D materials [ 51 ] or proteins [ 46 ], which form a distinct generation task with different modeling choices and evaluation protocols. This scope is important because small-molecule configuration distributions are highly concentrated and effectively discontinuous with respect to chemical validity: small perturbations to atomic positions can break valency con-straints or local chemical rules, while precise but minor changes can yield different valid molecules [ 5 , 6 , 29 , 35 ]. Consequently, ac-curate recovery of fine-grained geometry during reverse diffusion is crucial, and uncertainty-induced variance inflation can have a significant effect on stability and validity. Particularly, extending UCD to protein-level diffusion remains an important but non-trivial direction. Protein conformational spaces are typically smoother and more tolerant to local perturbations; for example, local fluctuations such as side-chain motions often do not alter the global fold, and geometric noise can sometimes be absorbed rather than producing a different valid structure. Pro-tein generation also involves long-range interactions, hierarchical constraints, higher-dimensional configuration spaces, and different structural or functional metrics. A promising future direction is to adapt UCD to hierarchical protein diffusion pipelines by calibrating uncertainty at multiple structural scales, such as backbone and side-chain levels [ 46 ], and by incorporating long-range interaction structure into the uncertainty estimator. We further believe that relating learned uncertainty estimates to underlying chemical struc-ture may yield deeper insight into molecular stability. Overall, our findings highlight that explicitly accounting for epistemic uncer-tainty at inference time is a critical ingredient for building robust and reliable generative models. KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Wan et al. 
+
+## References 
+
+[1] Michael S Albergo, Nicholas M Boffi, and Eric Vanden-Eijnden. 2023. Stochastic interpolants: A unifying framework for flows and diffusions. arXiv preprint arXiv:2303.08797 (2023). [2] Simon Axelrod and Rafael Gomez-Bombarelli. 2022. GEOM, energy-annotated molecular conformations for property prediction and molecular generation. Sci-entific Data 9, 1 (2022), 185. [3] Luis Barba, Johannes Kirschner, Tomas Aidukas, Manuel Guizar-Sicairos, and Benjamín Béjar. 2025. Diffusion Active Learning: Towards Data-Driven Experi-mental Design in Computed Tomography. arXiv preprint arXiv:2504.03491 (2025). [4] Christopher M Bishop. 1995. Neural networks for pattern recognition . Oxford university press. [5] Montgomery Bohde, Mrunali Manjrekar, Runzhong Wang, Shuiwang Ji, and Connor W Coley. 2025. Diffms: Diffusion generation of molecules conditioned on mass spectra. arXiv preprint arXiv:2502.09571 (2025). [6] Seungyeon Choi, Hwanhee Kim, Chihyun Park, Dahyeon Lee, Seungyong Lee, Yoonju Kim, Hyoungjoon Park, Sein Kwon, Youngwan Jo, and Sanghyun Park. 2025. Controllable 3D Molecular Generation for Structure-Based Drug Design Through Bayesian Flow Networks and Gradient Integration. arXiv preprint arXiv:2508.21468 (2025). [7] Merlise Clyde and Edward I George. 2004. Model uncertainty. (2004). [8] Erik Daxberger, Agustinus Kristiadi, Alexander Immer, Runa Eschenhagen, Matthias Bauer, and Philipp Hennig. 2021. Laplace redux-effortless bayesian deep learning. Advances in neural information processing systems 34 (2021), 20089–20103. [9] Michele De Vita and Vasileios Belagiannis. 2025. Diffusion model guided sam-pling with pixel-wise aleatoric uncertainty estimation. In 2025 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV) . IEEE, 3844–3854. [10] Yuhui Ding and Thomas Hofmann. 2025. Scalable Non-Equivariant 3D Molecule Generation via Rotational Alignment. arXiv preprint arXiv:2506.10186 (2025). [11] Zhekai Du and Jingjing Li. 2023. Diffusion-based probabilistic uncertainty esti-mation for active domain adaptation. Advances in Neural Information Processing Systems 36 (2023), 17129–17155. [12] Shikun Feng, Yuyan Ni, Zhi-Ming Ma, Wei-Ying Ma, Yanyan Lan, et al . 2025. Unigem: A unified approach to generation and property prediction for molecules. In International conference on learning representations , Vol. 2025. 12824–12849. [13] Yarin Gal and Zoubin Ghahramani. 2016. Dropout as a bayesian approximation: Representing model uncertainty in deep learning. In international conference on machine learning . PMLR, 1050–1059. [14] Wenhan Gao, Jingxiang Qu, and Yi Liu. 2026. Scaling the Prior: Size-Consistent Geometric Diffusion for 3D Molecular Generation. In Proceedings of the 43rd International Conference on Machine Learning .[15] Victor Garcia Satorras, Emiel Hoogeboom, Fabian Fuchs, Ingmar Posner, and Max Welling. 2021. E (n) equivariant normalizing flows. Advances in Neural Information Processing Systems 34 (2021), 4181–4192. [16] Jakob Gawlikowski, Cedrique Rovile Njieutcheu Tassi, Mohsin Ali, Jongseok Lee, Matthias Humt, Jianxiang Feng, Anna Kruspe, Rudolph Triebel, Peter Jung, Ribana Roscher, et al . 2023. A survey of uncertainty in deep neural networks. 
+
+Artificial Intelligence Review 56, Suppl 1 (2023), 1513–1589. [17] Niklas Gebauer, Michael Gastegger, and Kristof Schütt. 2019. Symmetry-adapted generation of 3d point sets for the targeted discovery of molecules. Advances in neural information processing systems 32 (2019). [18] James Harrison, John Willes, and Jasper Snoek. 2024. Variational Bayesian last layers. arXiv preprint arXiv:2404.11599 (2024). [19] Jonathan Ho, Ajay Jain, and Pieter Abbeel. 2020. Denoising diffusion probabilistic models. Advances in neural information processing systems 33 (2020), 6840–6851. [20] Emiel Hoogeboom, Vıctor Garcia Satorras, Clément Vignac, and Max Welling. 2022. Equivariant diffusion for molecule generation in 3d. In International confer-ence on machine learning . PMLR, 8867–8887. [21] Peiyan Hu, Xiaowei Qian, Wenhao Deng, Rui Wang, Haodong Feng, Ruiqi Feng, Tao Zhang, Long Wei, Yue Wang, Zhi-Ming Ma, et al . [n. d.]. From Uncertain to Safe: Conformal Adaptation of Diffusion Models for Safe PDE Control. In 
+
+Forty-second International Conference on Machine Learning .[22] Eyke Hüllermeier and Willem Waegeman. 2021. Aleatoric and epistemic uncer-tainty in machine learning: An introduction to concepts and methods. Machine learning 110, 3 (2021), 457–506. [23] Metod Jazbec, Eliot Wong-Toi, Guoxuan Xia, Dan Zhang, Eric Nalisnick, and Stephan Mandt. 2025. Generative Uncertainty in Diffusion Models. arXiv preprint arXiv:2502.20946 (2025). [24] Zhaodong Jiang, Ashish Sinha, Tongtong Cao, Yuan Ren, Bingbing Liu, and Binbin Xu. 2025. UnPose: Uncertainty-Guided Diffusion Priors for Zero-Shot Pose Estimation. arXiv preprint arXiv:2508.15972 (2025). [25] Siqi Kou, Lei Gan, Dequan Wang, Chongxuan Li, and Zhijie Deng. 2023. Bayesdiff: Estimating pixel-wise uncertainty in diffusion via bayesian inference. arXiv preprint arXiv:2310.11142 (2023). [26] Maksim Kulichenko, Kipton Barros, Nicholas Lubbers, Ying Wai Li, Richard Messerly, Sergei Tretiak, Justin S Smith, and Benjamin Nebgen. 2023. Uncertainty-driven dynamics for active learning of interatomic potentials. Nature computa-tional science 3, 3 (2023), 230–239. [27] Xufeng Liu, Dongsheng Luo, Wenhan Gao, and Yi Liu. 2025. 3DGraphX: Explain-ing 3D Molecular Graph Models via Incorporating Chemical Priors. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 1. 859–870. [28] Yi Liu, Limei Wang, Meng Liu, Yuchao Lin, Xuan Zhang, Bora Oztekin, and Shui-wang Ji. 2022. Spherical message passing for 3D molecular graphs. In International Conference on Learning Representations .[29] Eric Martin and Eddie Cao. 2015. Euclidean chemical spaces from molecular fingerprints: Hamming distance and Hempel’s ravens. Journal of computer-aided molecular design 29, 5 (2015), 387–395. [30] Yuyan Ni, Shikun Feng, Haohan Chi, Bowen Zheng, Huan-ang Gao, Wei-Ying Ma, Zhi-Ming Ma, and Yanyan Lan. 2025. Straight-Line Diffusion Model for Efficient 3D Molecular Generation. arXiv preprint arXiv:2503.02918 (2025). [31] Yuyan Ni, Shikun Feng, Wei-Ying Ma, Zhi-Ming Ma, and Yanyan Lan. 2025. Revisiting Sampling Strategies for Molecular Generation. arXiv preprint arXiv:2506.17340 (2025). [32] Jingxiang Qu, Wenhan Gao, Ruichen Xu, and Yi Liu. 2026. GAGA: Gaussianity-Aware Gaussian Approximation for Efficient 3D Molecular Generation. In 
+
+The Fourteenth International Conference on Learning Representations . https: //openreview.net/forum?id=Q9gz8lVyAi [33] Jingxiang Qu, Wenhan Gao, Jiaxing Zhang, Xufeng Liu, Hua Wei, Haibin Ling, and Yi Liu. 2025. RISE: Radius of Influence based Subgraph Extraction for 3D Molecular Graph Explanation. In International Conference on Machine Learning .PMLR, 50744–50761. [34] Raghunathan Ramakrishnan, Pavlo O Dral, Matthias Rupp, and O Anatole Von Lilienfeld. 2014. Quantum chemistry structures and properties of 134 kilo molecules. Scientific data 1, 1 (2014), 1–7. [35] Jean-Louis Reymond, Lars Ruddigkeit, Lorenz Blum, and Ruud Van Deursen. 2012. The enumeration of chemical space. Wiley Interdisciplinary Reviews: Computational Molecular Science 2, 5 (2012), 717–733. [36] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. 2021. High-Resolution Image Synthesis with Latent Diffusion Models. arXiv:2112.10752 [cs.CV] [37] Yassine Sabbar and Kottakkaran Sooppy Nisar. 2025. A Selective Review of Modern Stochastic Modeling: SDE/SPDE Numerics, Data-Driven Identification, and Generative Methods with Applications in Biomathematics. arXiv preprint arXiv:2508.11004 (2025). [38] Martin Simonovsky and Nikos Komodakis. 2018. Graphvae: Towards generation of small graphs using variational autoencoders. In International conference on artificial neural networks . Springer, 412–422. [39] Justin S Smith, Ben Nebgen, Nicholas Lubbers, Olexandr Isayev, and Adrian E Roitberg. 2018. Less is more: Sampling chemical space with active learning. The Journal of chemical physics 148, 24 (2018). [40] Jiaming Song, Chenlin Meng, and Stefano Ermon. 2020. Denoising Diffusion Implicit Models. arXiv:2010.02502 (October 2020). https://arxiv.org/abs/2010. 02502 [41] Yang Song, Conor Durkan, Iain Murray, and Stefano Ermon. 2021. Maximum like-lihood training of score-based diffusion models. Advances in neural information processing systems 34 (2021), 1415–1428. [42] Yuxuan Song, Jingjing Gong, Hao Zhou, Mingyue Zheng, Jingjing Liu, and Wei-Ying Ma. 2024. Unified generative modeling of 3d molecules with bayesian flow networks. In The Twelfth International Conference on Learning Representations .[43] Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. 2020. Score-based generative modeling through stochastic differential equations. arXiv preprint arXiv:2011.13456 (2020). [44] Ronast Subedi, Lu Wei, Wenhan Gao, Shayok Chakraborty, and Yi Liu. 2024. Empowering active learning for 3D molecular graphs with geometric graph isomorphism. Advances in Neural Information Processing Systems 37 (2024), 55507–55537. [45] Aik Rui Tan, Shingo Urata, Samuel Goldman, Johannes CB Dietschreit, and Rafael Gómez-Bombarelli. 2023. Single-model uncertainty quantification in neural network potentials does not consistently outperform model ensembles. 
+
+npj Computational Materials 9, 1 (2023), 225. [46] Limei Wang, Haoran Liu, Yi Liu, Jerry Kurtin, and Shuiwang Ji. 2023. Learning Hierarchical Protein Representations via Complete 3D Graph Networks. In The Eleventh International Conference on Learning Representations . https://openreview. net/forum?id=9X-hgLDLYkQ [47] Limei Wang, Yi Liu, Yuchao Lin, Haoran Liu, and Shuiwang Ji. 2022. ComENet: Towards Complete and Efficient Message Passing for 3D Molecular Graphs. In 
+
+The 36th Annual Conference on Neural Information Processing Systems . 650–664. [48] Joe Watson, Jihao Andreas Lin, Pascal Klink, Joni Pajarinen, and Jan Peters. 2021. Latent derivative Bayesian last layer networks. In International Conference on Artificial Intelligence and Statistics . PMLR, 1198–1206. [49] Joseph L. Watson, David Juergens, Nathaniel R. Bennett, Brian L. Trippe, Ja-son Yim, Helen E. Eisenach, Woody Ahern, Andrew J. Borst, Robert J. Ragotte, Lukas F. Milles, Basile I. M. Wicky, Nikita Hanikel, Samuel J. Pellock, Alexis Courbet, William Sheffler, Jue Wang, Preetham Venkatesh, Isaac Sappington, Uncertainty-Calibrated Diffusion for Reliable 3D Molecular Graph Generation KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Susana Vázquez Torres, Anna Lauko, Valentin De Bortoli, Emile Mathieu, Sergey Ovchinnikov, Regina Barzilay, Tommi S. Jaakkola, Frank DiMaio, Minkyung Baek, and David Baker. 2023. De novo design of protein structure and function with RFdiffusion. Nature 620, 7976 (2023), 1089–1100. doi:10.1038/s41586-023-06415-8 [50] Minkai Xu, Alexander S Powers, Ron O Dror, Stefano Ermon, and Jure Leskovec. 2023. Geometric latent diffusion models for 3d molecule generation. In Interna-tional Conference on Machine Learning . PMLR, 38592–38610. [51] Keqiang Yan, Yi Liu, Yuchao Lin, and Shuiwang Ji. 2022. Periodic Graph Trans-formers for Crystal Material Property Prediction. In The 36th Annual Conference on Neural Information Processing Systems . 15066–15080. [52] Xuan Zhang, Limei Wang, Jacob Helwig, Youzhi Luo, Cong Fu, Yaochen Xie, Meng Liu, Yuchao Lin, Zhao Xu, Keqiang Yan, Keir Adams, Maurice Weiler, Xiner Li, Tianfan Fu, Yucheng Wang, Haiyang Yu, YuQing Xie, Xiang Fu, Alex Strasser, Shenglong Xu, Yi Liu, Yuanqi Du, Alexandra Saxton, Hongyi Ling, Han-nah Lawrence, Hannes Stärk, Shurui Gui, Carl Edwards, Nicholas Gao, Adriana Ladera, Tailin Wu, Elyssa F. Hofgard, Aria Mansouri Tehrani, Rui Wang, Ameya Daigavane, Montgomery Bohde, Jerry Kurtin, Qian Huang, Tuong Phung, Minkai Xu, Chaitanya K. Joshi, Simon V. Mathis, Kamyar Azizzadenesheli, Ada Fang, Alán Aspuru-Guzik, Erik Bekkers, Michael Bronstein, Marinka Zitnik, Anima Anandkumar, Stefano Ermon, Pietro Liò, Rose Yu, Stephan Günnemann, Jure Leskovec, Heng Ji, Jimeng Sun, Regina Barzilay, Tommi Jaakkola, Connor W. Co-ley, Xiaoning Qian, Xiaofeng Qian, Tess Smidt, and Shuiwang Ji. 2025. Artificial in-telligence for science in quantum, atomistic, and continuum systems. Foundations and Trends ® in Machine Learning 18, 4 (2025), 385–912. doi:10.1561/2200000115 
+
+## Appendix A Proofs 
+
+Here we provide the proofs of Proposition 3.1, Proposition 3.2 and Proposition 3.4. 
+
+## A.1 Proposition 3.1 
+
+Proposition 3.1 (Effective reverse transition under epistemic un-certainty) . Under Eq. (9) , the conditional distribution of 𝒛 𝑡 −1 given 
+
+𝒛 𝑡 is ˜𝐾 𝑡 (𝒛 𝑡 −1 | 𝒛 𝑡 ) = N 𝒛 𝑡 −1; 𝑓 𝑡 (𝒛 𝑡 ), ˜𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 
+
+, (11) 
+
+where ˜𝜎 2 
+
+> 𝑡
+
+:= 𝜎 2 
+
+> 𝑡
+
++ 𝜂 2 
+
+> 𝑡
+
+. And the true (no-epistemic-uncertainty) reverse kernel is 
+
+𝐾 𝑡 (𝒛 𝑡 −1 | 𝒛 𝑡 ) = N 𝒛 𝑡 −1; 𝑓 𝑡 (𝒛 𝑡 ), 𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 
+
+. (12) 
+
+Proof. Condition on 𝒛 𝑡 . The quantity 𝑓 𝑡 (𝒛 𝑡 ) is then determin-istic, and the remaining randomness in Eq. (10) is the sum of two independent Gaussian vectors: −𝜅 𝑡 𝜹 𝑡 and 𝜎 𝑡 𝜺 .Since 𝜹 𝑡 ∼ N ( 0, 𝜏 2 
+
+> 𝑡
+
+𝐼 𝑑 ), scaling by −𝜅 𝑡 gives 
+
+−𝜅 𝑡 𝜹 𝑡 ∼ N ( 0, 𝜅 2 
+
+> 𝑡
+
+𝜏 2 
+
+> 𝑡
+
+𝐼 𝑑 ). (21) Similarly, 
+
+𝜎 𝑡 𝜺 ∼ N ( 0, 𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 ). (22) Since 𝜹 𝑡 and 𝜺 are independent, where 𝜹 𝑡 captures epistemic un-certainty of the learned model itself and 𝜺 denotes the stochastic noise injected at each timestep, their linear combination remains Gaussian. In particular, 
+
+−𝜅 𝑡 𝜹 𝑡 + 𝜎 𝑡 𝜺 ∼ N  0, (𝜅 2 
+
+> 𝑡
+
+𝜏 2 
+
+> 𝑡
+
++ 𝜎 2 
+
+> 𝑡
+
+)𝐼 𝑑 
+
+ . (23) Therefore, from Eq. (10) we obtain the conditional distribution 
+
+𝒛 𝑡 −1 | 𝒛 𝑡 ∼ N  𝑓 𝑡 (𝒛 𝑡 ), (𝜎 2 
+
+> 𝑡
+
++ 𝜅 2 
+
+> 𝑡
+
+𝜏 2 
+
+> 𝑡
+
+)𝐼 𝑑 
+
+ . (24) Defining 𝜂 2 
+
+> 𝑡
+
+:= 𝜅 2 
+
+> 𝑡
+
+𝜏 2 
+
+> 𝑡
+
+and ˜𝜎 2 
+
+> 𝑡
+
+:= 𝜎 2 
+
+> 𝑡
+
++ 𝜂 2 
+
+> 𝑡
+
+gives 
+
+˜𝐾 𝑡 (𝒛 𝑡 −1 | 𝒛 𝑡 ) = N  𝑓 𝑡 (𝒛 𝑡 ), ˜𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 
+
+ ,
+
+which is exactly Eq. (11). Finally, the baseline (no-uncertainty) kernel follows directly from Eq. (6): 
+
+𝒛 𝑡 −1 | 𝒛 𝑡 ∼ N  𝑓 𝑡 (𝒛 𝑡 ), 𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 
+
+ , (25) which matches Eq. (12). 
+
+□
+
+## A.2 Proposition 3.2 
+
+Proposition 3.2 (Exact KL divergence on trajectory space) . Assum-ing both chains share the same initialization 𝑝 𝑇 , the KL divergence between trajectory measures satisfies 
+
+KL 
+
+
+
+𝑃 unc (𝒛 0: 𝑇 ) ∥ 𝑃 base (𝒛 0: 𝑇 )
+
+
+
+=
+
+> 𝑇
+
+∑︁  
+
+> 𝑡 =1
+
+𝑑 
+
+2
+
+
+
+𝑟 𝑡 − log (1 + 𝑟 𝑡 )
+
+
+
+. (15) 
+
+Proof. Let the baseline and uncertainty-inflated reverse chains be Markov measures on the path 𝒛 0: 𝑇 := (𝒛 𝑇 , 𝒛 𝑇 −1, . . . , 𝒛 0) with the same initialization 𝑝 𝑇 :
+
+𝑃 base (𝒛 0: 𝑇 ) = 𝑝 𝑇 (𝒛 𝑇 )
+
+> 𝑇
+
+Ö 
+
+> 𝑡 =1
+
+𝐾 𝑡 (𝒛 𝑡 −1 | 𝒛 𝑡 ), (26) 
+
+𝑃 unc (𝒛 0: 𝑇 ) = 𝑝 𝑇 (𝒛 𝑇 )
+
+> 𝑇
+
+Ö 
+
+> 𝑡 =1
+
+˜𝐾 𝑡 (𝒛 𝑡 −1 | 𝒛 𝑡 ), (27) where (from Proposition 3.1) 
+
+𝐾 𝑡 (𝒛 𝑡 −1 | 𝒛 𝑡 ) = N 𝒛 𝑡 −1; 𝑓 𝑡 (𝒛 𝑡 ), 𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 
+
+, (28) 
+
+˜𝐾 𝑡 (𝒛 𝑡 −1 | 𝒛 𝑡 ) = N 𝒛 𝑡 −1; 𝑓 𝑡 (𝒛 𝑡 ), (𝜎 2 
+
+> 𝑡
+
++ 𝜂 2 
+
+> 𝑡
+
+)𝐼 𝑑 
+
+ (29) 
+
+= N 𝒛 𝑡 −1; 𝑓 𝑡 (𝒛 𝑡 ), (1 + 𝑟 𝑡 )𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 
+
+. (30) By definition, 
+
+KL 
+
+
+
+𝑃 unc ∥ 𝑃 base 
+
+= E𝒛 0: 𝑇 ∼𝑃 unc 
+
+
+
+log 𝑃 unc (𝒛 0: 𝑇 )
+
+𝑃 base (𝒛 0: 𝑇 )
+
+
+
+. (31) Substituting the Markov factorizations Eq. (26)-(27) and canceling the common initial density 𝑝 𝑇 (𝒛 𝑇 ) yields 
+
+log 𝑃 unc (𝒛 0: 𝑇 )
+
+𝑃 base (𝒛 0: 𝑇 ) =
+
+> 𝑇
+
+∑︁  
+
+> 𝑡 =1
+
+log ˜𝐾 𝑡 (𝒛 𝑡 −1 | 𝒛 𝑡 )
+
+𝐾 𝑡 (𝒛 𝑡 −1 | 𝒛 𝑡 ) . (32) Plugging Eq. (32) into Eq. (31) and exchanging expectation and sum-mation gives the standard chain-rule form for Markov measures: 
+
+KL 
+
+
+
+𝑃 unc ∥ 𝑃 base 
+
+=
+
+> 𝑇
+
+∑︁  
+
+> 𝑡 =1
+
+E(𝒛 𝑡 ,𝒛 𝑡 −1 )∼ 𝑃 unc 
+
+
+
+log ˜𝐾 𝑡 (𝒛 𝑡 −1 | 𝒛 𝑡 )
+
+𝐾 𝑡 (𝒛 𝑡 −1 | 𝒛 𝑡 )
+
+
+
+=
+
+> 𝑇
+
+∑︁  
+
+> 𝑡 =1
+
+E𝒛 𝑡 ∼ ˜𝑝 𝑡 
+
+h
+
+KL 
+
+ ˜𝐾 𝑡 (· | 𝒛 𝑡 ) ∥ 𝐾 𝑡 (· | 𝒛 𝑡 )
+
+i 
+
+,
+
+(33) where ˜𝑝 𝑡 is the marginal of 𝒛 𝑡 under 𝑃 unc .It remains to compute the one-step conditional KL. For any fixed 𝒛 𝑡 , both kernels in Equation (28) -(30) are Gaussians with the same mean 𝑓 𝑡 (𝒛 𝑡 ) and isotropic covariances 𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 and (1 + 𝑟 𝑡 )𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 .Therefore, 
+
+KL 
+
+ ˜𝐾 𝑡 (· | 𝒛 𝑡 ) ∥ 𝐾 𝑡 (· | 𝒛 𝑡 )
+
+
+
+= KL  N ( 0, (1 + 𝑟 𝑡 )𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 ) ∥ N ( 0, 𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 )
+
+= 12
+
+
+
+tr  (𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 )−1 (( 1 + 𝑟 𝑡 )𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 ) − 𝑑 + log det (𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 )
+
+det (( 1 + 𝑟 𝑡 )𝜎 2 
+
+> 𝑡
+
+𝐼 𝑑 )
+
+
+
+= 12 𝑑 (1 + 𝑟 𝑡 ) − 𝑑 + log (𝜎 2 
+
+> 𝑡
+
+)𝑑 
+
+(( 1 + 𝑟 𝑡 )𝜎 2 
+
+> 𝑡
+
+)𝑑 
+
+!
+
+= 𝑑 
+
+2
+
+
+
+𝑟 𝑡 − log (1 + 𝑟 𝑡 )
+
+
+
+. (34) KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Wan et al. 
+
+Since Eq. (34) does not depend on 𝒛 𝑡 , the expectation in Eq. (33) drops and we obtain 
+
+KL 
+
+
+
+𝑃 unc ∥ 𝑃 base 
+
+=
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+𝑑 
+
+2
+
+
+
+𝑟 𝑡 − log (1 + 𝑟 𝑡 )
+
+
+
+. (35) 
+
+□
+
+## A.3 Proposition 3.4 
+
+Proposition 3.4 (End-point deviation induced by variance infla-tion) . Under Eq. (18) and Assumption 3.3, the end-point deviation under the synchronous coupling satisfies 
+
+𝑑 
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+𝜂 2 
+
+> 𝑡 𝑡 −1
+
+Ö
+
+> 𝑠 =1
+
+𝑚 2 
+
+> 𝑠
+
+≤ E∥Δ0 ∥2 ≤ 𝑑 
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+𝜂 2 
+
+> 𝑡 𝑡 −1
+
+Ö
+
+> 𝑠 =1
+
+𝐿 2 
+
+> 𝑠
+
+, (20) 
+
+where the empty product is defined as 1.
+
+Proof. We begin by expanding the squared norm: 
+
+∥Δ𝑡 −1 ∥2 = ∥𝐽 𝑡 Δ𝑡 + 𝜂 𝑡 𝒖 𝑡 ∥2
+
+= ∥𝐽 𝑡 Δ𝑡 ∥2 + 2𝜂 𝑡 ⟨𝐽 𝑡 Δ𝑡 , 𝒖 𝑡 ⟩ + 𝜂 2 
+
+> 𝑡
+
+∥𝒖 𝑡 ∥2. (36) At timestep 𝑡 , the deviation Δ𝑡 is fully determined by randomness used at later reverse steps, while 𝒖 𝑡 is freshly sampled at the current step and is independent of Δ𝑡 . Therefore, 
+
+E[⟨ 𝐽 𝑡 Δ𝑡 , 𝒖 𝑡 ⟩] = 0, E∥𝒖 𝑡 ∥2  = 𝑑. 
+
+Taking expectation in Eq. (36) yields 
+
+E∥Δ𝑡 −1 ∥2 = E∥𝐽 𝑡 Δ𝑡 ∥2 + 𝑑𝜂 2 
+
+> 𝑡
+
+. (37) By Assumption 3.3, the singular values of 𝐽 𝑡 satisfy 𝑚 𝑡 ≤ 𝜆 min (𝐽 𝑡 )
+
+and 𝜆 max (𝐽 𝑡 ) ≤ 𝐿 𝑡 . Hence, for any vector 𝒗 ,
+
+𝑚 𝑡 ∥𝒗 ∥ ≤ ∥ 𝐽 𝑡 𝒗 ∥ ≤ 𝐿 𝑡 ∥𝒗 ∥. (38) Applying this inequality to 𝒗 = Δ𝑡 and taking expectations gives 
+
+𝑚 2 
+
+> 𝑡
+
+E∥Δ𝑡 ∥2 ≤ E∥𝐽 𝑡 Δ𝑡 ∥2 ≤ 𝐿 2 
+
+> 𝑡
+
+E∥Δ𝑡 ∥2. (39) Combining Eq. (37) and Eq. (39) yields the two-sided recursion 
+
+𝑚 2 
+
+> 𝑡
+
+E∥Δ𝑡 ∥2 + 𝑑𝜂 2 
+
+> 𝑡
+
+≤ E∥Δ𝑡 −1 ∥2 ≤ 𝐿 2 
+
+> 𝑡
+
+E∥Δ𝑡 ∥2 + 𝑑𝜂 2 
+
+> 𝑡
+
+. (40) Unrolling Eq. (40) from 𝑡 = 𝑇 down to 𝑡 = 1 using Δ𝑇 = 0 yields 
+
+E∥Δ0 ∥2 ≥ 𝑑 
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+𝜂 2 
+
+> 𝑡 𝑡 −1
+
+Ö
+
+> 𝑠 =1
+
+𝑚 2 
+
+> 𝑠
+
+, (41) 
+
+E∥Δ0 ∥2 ≤ 𝑑 
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+𝜂 2 
+
+> 𝑡 𝑡 −1
+
+Ö
+
+> 𝑠 =1
+
+𝐿 2 
+
+> 𝑠
+
+, (42) where the empty product for 𝑡 = 1 is defined as 1.
+
+□
+
+## B Experimental Details B.1 Conditional Generation 
+
+Task. Following prior work on conditional diffusion for molecu-lar generation [ 20 ], the goal of conditional generation is to sample molecular structures with desired target properties. Formally, given a property value 𝑐 , we aim to generate atomic positions and features 
+
+(𝒙 , 𝒉 ) ∼ 𝑝 (𝒙 , 𝒉 | 𝑐 ).
+
+QM9 Conditional Properties. We consider conditional generation with respect to several molecular properties from the QM9 dataset. Specifically, 𝛼 denotes the molecular polarizability, which measures the tendency of a molecule to acquire an induced dipole moment under an external electric field. 𝜀 HOMO and 𝜀 LUMO correspond to the energies of the highest occupied and lowest unoccupied molecular orbitals, respectively, and their difference Δ𝜀 = 𝜀 LUMO − 𝜀 HOMO 
+
+defines the HOMO-LUMO gap. The dipole moment 𝜇 quantifies the separation of positive and negative charge within a molecule. Finally, 𝐶 𝑣 denotes the heat capacity measured at 298 .15 K .
+
+Method. Conditioning is incorporated by augmenting the de-noiser with the target property. Specifically, the reverse diffusion model is parameterized as 𝜺 𝑐 𝜃 = 𝜙 (𝒛 𝑡 , 𝑡, 𝑐 ), where 𝑐 is concatenated to the node features. The forward diffusion process remains un-changed. Training follows the standard variational diffusion ob-jective, with the conditional evidence lower bound decomposing as 
+
+log 𝑝 (𝒙 , 𝒉 | 𝑐 ) ≥ L 𝑐, 0 + L 𝑐, base +
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+L𝑐,𝑡 ,
+
+where the conditional loss terms differ from the unconditional case only through the conditioned denoiser. At inference time, molecular size 𝑁 and property value 𝑐 are first sampled from their empirical joint distribution estimated on the training set. The conditional diffusion model then generates 
+
+(𝒙 , 𝒉 ) given (𝑐, 𝑁 ).
+
+Experimental Setup. All conditional experiments follow the same setup as the unconditional case and prior EDM-based methods. An EGNN backbone is used for both the conditional generator and a separately trained property predictor. The predictor is trained on a half disjoint split of the QM9 dataset and is used only for evaluation. 
+
+## B.2 Wall-clock Efficiency 
+
+All experiments are conducted on QM9 with a fixed batch size of 64, on a single NVIDIA RTX A6000 GPU with CUDA 12.4. Backbones and the task are introduced in Sec. 4. For uncertainty-calibrated diffusion (UCD), the primary factor affecting wall-clock time is the number of Monte Carlo dropout passes 𝑀 used to estimate epistemic uncertainty. Since UCD does not modify the diffusion schedule or the number of sampling steps, the total NFE count remains unchanged. We therefore focus on per-step inference time to quantify the computational overhead introduced by uncertainty estimation.

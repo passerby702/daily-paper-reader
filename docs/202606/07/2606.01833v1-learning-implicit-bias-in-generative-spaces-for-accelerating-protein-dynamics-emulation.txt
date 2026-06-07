@@ -1,0 +1,596 @@
+Title: Learning Implicit Bias in Generative Spaces for Accelerating Protein Dynamics Emulation
+
+URL Source: https://arxiv.org/pdf/2606.01833v1
+
+Published Time: Tue, 02 Jun 2026 02:15:14 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Learning Implicit Bias in Generative Spaces for Accelerating Protein Dynamics Emulation 
+
+Kaihui Cheng 1,2 Zhiqiang Cai 2 Wenkai Xiang 2 Zhihang Hu 2
+
+Siyu Zhu 1,2,3, † Tzuhsiung Yang 2, † Yuan Qi 1,2, †
+
+> 1
+
+Fudan University 2Shanghai Academy of AI for Science 3Shanghai Innovation Institute 
+
+> †
+
+Corresponding authors. 
+
+Abstract 
+
+Generative emulators of protein dynamics produce plausible trajectories at a frac-tion of the cost of molecular dynamics, but they inherit their training distribution and tend to revisit known states rather than reach rare ones under long-horizon extrapolation. Inspired by classical enhanced sampling, we introduce an implicit, history-dependent bias in the generative space of a pretrained emulator. Specifi-cally, a history-aware score estimator augments the frozen emulator with a distance-weighted bias that steers reverse-time sampling away from previously generated structures, regularized by an environment-support term. To preserve structural validity at long horizons, a score-based refinement step re-projects drifted samples onto the data manifold using the frozen emulator. Our experiments demonstrate that the method (i) raises diversity by 35% on DynamicPDB-80; (ii) on 12 zero-shot Fast-Folding proteins, the learned bias alone reaches the unbiased emulator’s coverage up to ∼15 × faster, and pairing it with refinement reaches the coverage up to ∼37 × faster while covering ∼3× as many low-energy states. Code will be released soon. 
+
+1 Introduction 
+
+Generative emulators of protein dynamics reproduce short trajectories at a fraction of the cost of molecular dynamics (MD), yet their long-horizon rollouts tend to revisit known states rather than reach rare ones. These rare states underlie biological processes including catalysis, transport, and folding [ 12 , 7], but sit behind high free-energy barriers that direct MD rarely crosses on routine timescales [ 13 , 19 ]. Classical enhanced-sampling methods, including umbrella sampling [ 36 ], metadynamics [ 20 , 4], and replica exchange [ 35 ], bias MD toward underexplored regions, but still incur substantial per-system simulation cost. On the generative side, score-based diffusion [ 14 , 31 , 32 ,33 ] extended with SE (3) -equivariant architectures [ 41 , 6, 40 ] has driven trajectory-level emulators that generate protein trajectories from sequence and structure conditioning [ 38 , 1 , 17 , 8, 11 ]. To encourage exploration in such emulators, recent work injects guidance through collective variables (CVs) or exploration objectives into the reverse process [26, 39, 28]. To accelerate long-horizon exploration, we introduce a history-dependent bias directly in the gen-erative space of a pretrained protein dynamics emulator, leaving the emulator itself frozen. Ahistory-aware score estimator augments the frozen emulator’s reverse-time score with a bias con-ditioned on the rollout history, such that the same noisy state yields different biased reverse scores under different histories and the bias adapts as the history bank updates, analogously to history-dependent biasing in molecular dynamics. During training, the biased reverse step is regularized by an environment-support term that keeps the score on the emulator’s data manifold. At infer-ence, a complementary score-based refinement step re-projects samples back onto this manifold 
+
+> Preprint.
+> arXiv:2606.01833v1 [cs.LG] 1 Jun 2026
+
+through the frozen emulator, correcting drift that accumulates over long-horizon rollouts. The left panel of Figure 1 illustrates the bias steering reverse-time sampling away from previously visited conformations. Our main contributions are summarized as follows. Both components operate on a pretrained protein dynamics emulator that remains frozen throughout: • We propose a history-dependent bias in the generative space of a pretrained protein dy-namics emulator. A history-aware score estimator augments the reverse-time score with a distance-weighted bias conditioned on past rollout frames, regularized during training by an environment-support term that keeps the biased score on the emulator’s data manifold. • We introduce a score-based refinement step that re-projects samples onto the emulator’s data manifold through a short forward-then-reverse diffusion. Applied at inference, it sustains structural validity under strong bias and on horizons well beyond the training timescale. • We empirically validate the method at both short- and long-horizon scales: on DynamicPDB-80, the bias raises diversity (mDiv-mean) by 35% ; on 12 zero-shot Fast-Folding proteins, the bias alone reaches the unbiased emulator’s coverage up to ∼15 × faster, and pairing it with refinement reaches the coverage up to ∼37 × faster while covering ∼3× as many low-energy states. 
+
+2 Related Work 
+
+2.1 Generative Modeling of Protein Structure and Conformational Ensembles 
+
+Generative modeling of protein structure has progressed from single-state prediction to richer confor-mational distributions, yet the targets remain state-level rather than trajectory-level. Deep learning methods such as AlphaFold2 [ 18 ], RoseTTAFold [ 3], and ESMFold [ 22 ] predict protein struc-tures from sequence with high accuracy. Beyond deterministic prediction, generative approaches sample over conformational distributions [ 2 , 25 , 16 , 42 ], often parameterized by score-based dif-fusion [ 31 , 33 ] on rigid-frame and SE (3) -equivariant representations [ 41 , 40 , 6]. However, these methods generate conformations independently rather than as time-ordered trajectories. 
+
+2.2 Generative Modeling of Protein Dynamics 
+
+Generative emulators of protein dynamics fill this gap by learning the transitions between succes-sive conformations directly from simulation trajectories. Among score-based trajectory models, DiffMD [ 38 ] estimates score fields over molecular conformations; MDGen [ 17 ] models protein motions relative to the input structure; DynaFold [ 11 ] operates in a latent trajectory space; and Al-phaFolding [ 8 ] predicts future conformations from a reference structure and past frames. Force-field learners take a different route: DFF [ 1 ] learns a coarse-grained force field without force supervision, with a follow-up [ 27 ] enforcing consistency with Langevin dynamics. While these methods improve short-horizon fidelity, repeated rollouts may concentrate in visited basins, reaching new conformations only after many extrapolation steps. Rather than training a new emulator, we freeze the pretrained one and learn a history-dependent bias in the generative space to accelerate long-horizon coverage. 
+
+2.3 Enhanced Sampling and Controlled Generative Dynamics 
+
+Enhanced sampling has long sought to bias exploration toward underrepresented regions. Classical approaches bias exploration through different mechanisms: umbrella sampling [ 36 ] along CVs, replica exchange [ 35 ] across parallel temperatures, and metadynamics [ 20 , 4], which builds a history-dependent bias from past visits. Controlled diffusion adopts a similar mechanism in generative modeling, guiding reverse-time sampling by modifying the score or drift [ 31 , 9 , 15 ]. ConfDiff [ 37 ]biases the frozen score with a force network learned from MD forces and energies, CV-guided diffusion [ 26 ] steers reverse sampling along a chosen reaction coordinate, and recent diffusion-based formulations of enhanced sampling [ 39 , 28 ] embed exploration objectives into the reverse process. We instead build the bias from the rollout history itself, lifting the history-dependent biasing principle of metadynamics into the generative space of a frozen SE (3) emulator, with an environment-support term preventing the learned bias from drifting off the emulator’s manifold during training. 21              
+
+> 2
+> 3Noise
+> Rigids
+> Condition
+> Dynamic
+> Emulator
+> ❄
+> Score
+> Estimator
+> 🔥
+> History States
+> Diffusion Loss
+> Regularization Loss
+> 𝑠 !"# 𝑠 $
+> 𝑠 %&' 𝑠 (&)'
+> 𝑥 !
+> 𝑥 "#$
+> 𝑥 "%
+> Repulse
+> Emulator
+> Score
+> Estimator
+> 𝑥 "%
+> &#'$
+> Bias -Guided
+> Trajectory
+> 𝑥 "#$
+> 𝑥 "%
+> &#'$
+> 𝑥 "%
+> Implicit Bias in Generative Space
+> State 1State 2State 3
+> …
+
+Figure 1: Illustration of the proposed framework. Left: concept. A history-aware score estimator adds a history-dependent bias to the reverse score; the generated structure ˆxbias 0 is shifted away from the trajectory history xhis . Middle: architecture. A frozen emulator produces the reverse score semu ;the estimator produces history-aware scores shis , aggregated into a bias sbias that is added to semu to form the biased reverse score sπ . Color overlays on the score fields encode the bias direction: dark red marks regions of higher biased density, while dark blue marks regions suppressed (penalized by the history). Training combines a diffusion loss with an environment-support regularizer. Right: the biased rollout (red) visits three metastable states on the TICA free-energy surface, while the unbiased rollout (gray) stays near the starting structure (yellow star). 
+
+3 Preliminaries 
+
+3.1 Problem Formulation 
+
+We formulate long-horizon protein dynamics generation as an autoregressive trajectory problem. For clarity of exposition, we adopt a single-frame extrapolation setting in which each step generates one new structure conditioned on past frames; repeating this for K steps produces a trajectory 
+
+τ = ( x0, x1, . . . , xK−1) with xk ∈ SE (3) N , where k indexes frames along the trajectory and N
+
+is the number of residues. Each step conditions on a residue sequence feature c shared across all frames and on a history bank H = {h0, h1, . . . , hH−1} of H previously generated clean structures. The frame xk is sampled by a reverse diffusion process evolving from t = 1 to t = 0 , with 
+
+xkt denoting the noisy state at diffusion time t and xk 
+
+> 1
+
+drawn from the diffusion prior [ 41 ]. The frozen emulator parameterizes this process through a score sθ 
+
+> emu
+
+and a one-step denoising kernel 
+
+Kemu (xkt−∆t | xkt , sθ
+
+> emu
+
+); our goal is to learn a history-aware score estimator that biases this reverse process using the rollout history. 
+
+3.2 Score-Based Diffusion on SE (3) 
+
+We build the emulator on the SE (3) diffusion framework of [ 41 ]. Following AlphaFold2 [ 18 ], each residue is represented by a rigid frame in SE (3) , and a protein backbone of N residues lies in SE (3) N . We decompose the noisy state as xt = ( ωt, νt), where ωt ∈ so (3) is the rotation vector parameterizing an element of SO (3) and νt ∈ R3 is the translation. For the translational component on R3, the forward perturbation kernel is Gaussian, q(νt | ν0) = N (νt; αtν0, σ 2 
+
+> t
+
+I), with score strans (νt, t ; ν0) = ∇νt log q(νt | ν0). For the rotational component on SO (3) , the forward perturbation kernel is the IGSO(3) density ft(ωt | ω0) conditional on the clean rotation ω0 [ 41 ], with score srot (ωt, t ; ω0) = ∇ωt log ft(ωt | ω0).The emulator predicts a denoised rigid structure ˆx0 = ( ˆ ω0, ˆν0) from xt, which we substitute as the clean state in the per-component score formulas above. The combined reverse-step score is 
+
+s(xt, t ) = ( srot (ωt, t ; ˆ ω0), strans (νt, t ; ˆ ν0)) , and we denote by K(xt−∆t | xt, s) the one-step reverse transition kernel obtained by an Euler–Maruyama update under score field s.
+
+4 Methodology 
+
+As illustrated in Figure 1, our method keeps the emulator introduced in Section 3 frozen and trains a history-aware score estimator that augments the emulator’s reverse score with a history-dependent bias. Because the bias is conditioned on the rollout history H, the same noisy state xt yields different 3biased scores under different histories, and the bias adapts as the history bank updates. For long-horizon rollouts, a complementary score-based refinement step re-projects drifted samples onto the data manifold using the same frozen emulator score, sustaining per-frame structural validity. 
+
+4.1 Implicit Bias in Generative Space 
+
+Although the frozen emulator’s reverse score sθ 
+
+> emu
+
+can faithfully reproduce its training trajectories, those trajectories rarely sample the equilibrium distribution: crossing the high free-energy barriers behind rare states requires timescales beyond what direct MD can routinely access [ 13 , 19 ]. As a result, rollouts driven by this score tend to revisit known states rather than reach rare ones, limiting long-horizon exploration. To address this, we learn a history-aware score estimator that augments 
+
+sθ 
+
+> emu
+
+with a history-dependent bias, yielding a biased reverse score conditioned on the history H.
+
+History-dependent bias score. Let ϕ parameterize the history-aware score estimator. The estimator has H parallel branches, one per structure in the history bank. Given the current noisy state xkt ,diffusion time t, sequence feature c, and history H, branch j outputs a score sϕ 
+
+> his ,j
+
+(xkt , t, H, c) trained (Section 4.2) to denoise xkt toward the history structure hj ∈ H . The bias aggregates these branch scores as a weighted sum of differences from the emulator score, 
+
+sϕ
+
+> bias
+
+ xkt , t, H, c =
+
+> H−1
+
+X
+
+> j=0
+
+wj
+
+
+
+sθ
+
+> emu
+
+(xkt , t ) − sϕ 
+
+> his ,j
+
+(xkt , t, H, c)
+
+
+
+. (1) By construction, sϕ 
+
+> bias
+
+points away from directions that denoise toward previously visited conforma-tions. The biased reverse score is the emulator score augmented with sϕ 
+
+> bias
+
+at strength η ≥ 0,
+
+sϕπ
+
+ xkt , t, H, c = sθ
+
+> emu
+
+(xkt , t ) + η sϕ
+
+> bias
+
+(xkt , t, H, c). (2) 
+
+Branch weights. The weights {wj } concentrate the bias on branches whose denoised prediction is closest to the emulator’s. We parameterize them as a softmax over Kabsch-aligned C α root-mean-square deviation (RMSD), 
+
+wj = exp( −dj /κ )
+
+PH−1 
+
+> l=0
+
+exp( −dl/κ ) , (3) where dj is the C α RMSD between the emulator’s and branch j’s denoised structures (both Kabsch-aligned), and κ > 0 is the softmax temperature. 
+
+Sampling with the biased score. At inference, the estimator enters only through sϕπ : we apply the same Euler–Maruyama reverse update as the unbiased emulator, with sϕπ in place of sθ
+
+> emu
+
+,
+
+Kπ
+
+ xkt−∆t xkt , H, t  = K xkt−∆t xkt , sϕπ (xkt , t, H, c) , (4) preserving the parametric form of the frozen reverse dynamics. 
+
+4.2 Loss Function 
+
+We train the history-aware score estimator with two complementary objectives: a per-branch diffusion loss that supervises each branch sϕ 
+
+> his ,j
+
+to denoise toward its history target hj , and an environment-support regularizer that prevents the biased reverse kernel Kπ from drifting off the frozen emulator’s manifold. 
+
+Per-branch diffusion loss. Each branch sϕ 
+
+> his ,j
+
+is trained to match the reverse-time score that denoises the current noisy state toward its history structure hj . Given a clean training structure 
+
+xk and a sampled diffusion time t, we perturb xk forward into xkt . For each hj ∈ H , the target 
+
+starget (xkt , hj , t ) is the closed-form reverse score that denoises xkt toward hj , obtained by substituting 
+
+hj as the clean state in the per-component score formulas of Section 3. The loss is the per-branch denoising score-matching objective, 
+
+Ldiff = Et, xkt
+
+ 1
+
+H
+
+> H−1
+
+X
+
+> j=0
+
+γ(t) sϕ 
+
+> his ,j
+
+(xkt , t, H, c) − starget (xkt , hj , t ) 2
+
+ , (5) where γ(t) is the time-dependent loss weight from [41]. 4Environment-support regularizer. The per-branch diffusion loss trains each branch individually but does not constrain the resulting biased reverse kernel. At inference, Eq. (4) evaluates the frozen reverse kernel at the biased score, so the biased score must propose next states where sθ 
+
+> emu
+
+remains reliable; otherwise the kernel sees out-of-distribution states and sample quality degrades. To prevent this, we regularize the expected KL divergence between the biased and frozen reverse kernels: 
+
+Lsupport = Ek,t 
+
+
+
+KL 
+
+
+
+Kπ (· | xkt , H, t ) Kemu (· | xkt , sθ
+
+> emu
+
+(xkt , t )) 
+
+ 
+
+. (6) Both kernels share the Gaussian transition form of Eq. (4) and differ only in their reverse-drift score, so the KL admits an unbiased single-sample Monte Carlo estimator: we draw a proposal 
+
+˜xkt−∆t ∼ Kπ (· | xkt , H, t ) and evaluate the log-density ratio 
+
+Lk 
+
+> support
+
+= log Kπ
+
+ ˜xkt−∆t xkt , H, t  − log Kemu 
+
+ ˜xkt−∆t xkt , sθ
+
+> emu
+
+(xkt , t ) , (7) averaging Lsupport ≈ Ek,t [Lk
+
+> support
+
+] over training frames and diffusion times. The total loss is 
+
+Ltotal = Ldiff + λsupport Lsupport , (8) where λsupport ≥ 0 balances the two objectives: Ldiff shapes each branch’s score toward its history target hj , while Lsupport keeps the biased score on the frozen emulator’s manifold during training. 
+
+4.3 Refinement for Long-Horizon Rollouts 
+
+Long-horizon biased rollouts gradually drift off the data manifold, degrading per-frame structural validity. Prior work mitigates this drift by augmenting the emulator’s conditioning structures with noise during training [ 30 ]; we instead repair drifted frames at inference time, without fine-tuning the emulator, by reusing the frozen emulator score sθ 
+
+> emu
+
+as a refinement projection. Each generated frame 
+
+xgen is forward-diffused to a small noise level tref and then denoised by S reverse steps under sθ
+
+> emu
+
+:
+
+ˆxref ∼ KS (· | q(xtref | xgen ), sθ
+
+> emu
+
+). The refinement runs as a post-processing step over generated frames, leaving the rollout history H and the learned bias unchanged. 
+
+5 Experiments 
+
+5.1 Experimental Setup Dataset. We construct training and evaluation sets from DynamicPDB [ 24 ], a corpus of over 5,300 
+
+protein trajectories curated from the Protein Data Bank (PDB) [ 5] and simulated with OpenMM [ 10 ]under the Amber ff14SB force field for 100 ns each. To prevent information leakage, we cluster all proteins at 40% sequence identity with MMseqs2 [ 34 ] and split the clusters 80:20 , yielding 
+
+4,315 training trajectories for emulator pretraining. For the score estimator, conditioning on a history bank of H structures multiplies the per-frame memory footprint, so we restrict training to the 3,578 trajectories with at most 224 residues. For evaluation, we randomly sample 80 proteins of up to 284 residues from the held-out clusters, hereafter DynamicPDB-80 ; this budget keeps full-trajectory rollout and TICA reconstruction tractable across all evaluated methods. For long-horizon extrapolation beyond the training distribution, we additionally evaluate on 12 Fast-Folding proteins simulated on the Anton supercomputer by D. E. Shaw Research [ 23 ]; these proteins are held out from DynamicPDB and evaluated zero-shot, with no per-protein fine-tuning. 
+
+Training. The emulator is trained from scratch for 700 epochs on 8 NVIDIA H800 GPUs with the joint SE(3) diffusion objective, then frozen. The score estimator is trained for 300 epochs on the same hardware, conditioning on a history bank of H=3 past structures, with branch-weight temperature 
+
+κ=1 .0 and support-regularization weight λsupport =0 .5. As a transferability test across emulator backbones, we train an additional estimator on top of the frozen pretrained ConfRover [ 29 ] under the same λsupport . Full architecture and optimization details are in Section 5.2.1. 
+
+Inference. At rollout time, we sample the initial noisy backbone from the SE (3) diffusion prior and condition on the PDB starting structure and the residue-sequence embedding from Evoformer [ 18 ]. Each generated frame uses 100 reverse steps, and each rollout consists of E autoregressive extrapola-tion segments of 16 frames each, with E varying by benchmark. Unless otherwise noted, we use bias 5strength η=0 .05 on DynamicPDB-80 and η=0 .1 on Fast-Folding. Refinement (Section 4.3) uses 
+
+tref =0 .2 and S=20 steps. Full rollout settings and baseline configurations are in Section 5.2.2. 
+
+Evaluation. We evaluate in two timescale regimes: a short-timescale regime on DynamicPDB-80 with E=16 extrapolation segments, and a long-timescale regime on Fast-Folding with E ≥ 640 .Refinement is applied only in the long-timescale regime. 
+
+Structural validity. For each generated frame, we compute three validity rates and average them over the trajectory. Cα-Level Validity (CA%) is the fraction of adjacent C α–C α pairs whose distance is below 4.5 Å; Peptide-Bond Validity (CN%) is the fraction of adjacent peptide-bond C–N pairs whose distance is below 2.0 Å; and Steric Validity (Clash-Free) is the fraction of non-neighboring atom pairs separated by more than 1.0 Å. 
+
+Coverage and diversity. All metrics are computed against the MD reference in a two-dimensional TICA space. A frame is compliant at threshold τ when its CA, CN, and Clash-Free rates all satisfy 
+
+≥ τ . Ensemble Diversity (Div) is the mean pairwise 1 − lDDT Cα over the generated ensemble. To trace the validity–diversity trade-off, we restrict Div to compliant frames, denoted Div@ τ , and define mDiv-mean as the average of Div@ τ over τ ∈ [0 .90 , 0.99] on a 10-point grid. Low-Energy State Coverage (Cov) [21 ] is the fraction of low-energy states (TICA regions with free energy below 
+
+4 kcal /mol ) visited by τ =0 .9-compliant frames. To isolate the exploration gain from the bias, we treat each architecture’s η=0 rollout as its own reference and report Time-to-Coverage (TTC) : the smallest frame count at which the biased coverage first exceeds the η=0 coverage at the full frame budget F . Speedup is TTC η=0 /TTC η , the factor by which the bias reaches the reference coverage faster. Cov and TTC require an MD reference long enough to visit all metastable states; we therefore report them only on the Fast-Folding benchmark (Section 5.4). 
+
+5.2 Implementation Details 5.2.1 Training Emulator backbone. The emulator is a joint SE (3) frame diffusion network with sequence and trajectory-context conditioning. Single-residue and pair tracks have node embedding dim 384 and edge embedding dim 128 , with 4 Invariant Point Attention (IPA) blocks [ 18 ]; each IPA block uses 8
+
+heads, 8 query/key points, 12 value points, and hidden dim 256 . Amino-acid type and residue-index features are projected to 32 -dim embeddings before the trunk. 
+
+Emulator training. We train from scratch on the DynamicPDB training partition with batch size 
+
+4 per GPU on 8 NVIDIA H800 GPUs, giving 32 samples per optimizer step. Optimization uses Adam with AMSGrad at learning rate 10 −4 with no warmup, no LR schedule. The objective is a sum of translation, rotation, backbone-atom, distance-matrix, and torsion losses with weights 1.0,plus an auxiliary loss with weight 0.25 , following the joint SE (3) formulation of [ 41 ]. Each training window contains 16 frames, with the underlying MD trajectories subsampled at stride 40 . We train the emulator for 700 epochs. The pretrained emulator is then frozen for the rest of the pipeline. 
+
+Score estimator. The history-aware score estimator shares the IPA backbone with the emulator (same dims, 4 blocks, same head/point counts) but is a fully separate module trained independently. It conditions on a history bank of H=3 structures via a single shared trunk, where each history frame is folded into the pair track through the same self-conditioning pathway used by the emulator. 
+
+Score estimator training. We train the estimator on the same DynamicPDB training partition with batch size 1, frame length 16 , history bank H=3 , trajectory-segment stride 40 , and maximum residue length 224 . Optimization uses AdamW at learning rate 10 −4 with weight decay 10 −6 for 300 epochs on 8 NVIDIA H800 GPUs in fully synchronous data-parallel mode, with mixed precision off. The emulator backbone is frozen, so only the estimator weights receive gradients. The objective combines the per-branch diffusion loss of Eq. (5) with the environment-support regularizer of Eq. (6) at weight 
+
+λsupport =0 .5, evaluated by the single-sample MC estimator of Eq. (7) . The transferability variant on the frozen pretrained ConfRover [29] backbone uses the same implementation. 6Table 1: Structural quality and diversity on DynamicPDB-80. Metric definitions follow Sec-tion 5.1; Div@ τ is diversity over frames passing the compliance threshold τ (τ =0 recovers the raw diversity over all frames), and mDiv-mean averages Div@ τ over τ ∈ [0 .90 , 0.99] . Values are means over 80 proteins. Shaded rows add our implicit bias on top of a frozen baseline.                                                                               
+
+> Structural validity Diversity Method CA% ↑CN% ↑Clash-Free ↑Div@.00 ↑Div@.90 ↑Div@.95 ↑mDiv-mean ↑
+> MD (Oracle) 100.00% 100.00% 100.00% 0.135 0.135 0.135 0.135 Conformation Generation BioEMU [21] 99.99% 99.97% 99.99% 0.234 0.234 0.234 0.234 AlphaFlow [16] 100.00% 100.00% 99.99% 0.122 0.122 0.122 0.122 Str2Str [25] 100.00% 100.00% 100.00% 0.192 0.192 0.192 0.192 Trajectory Generation MDGEN [17] 84.52% 68.51% 97.57% 0.353 0.193 0.171 0.170 ConfRover [29] 97.47% 96.89% 99.26% 0.182 0.182 0.181 0.179 + Implicit Bias 96.91% 96.34% 99.37% 0.221 0.221 0.222 0.212
+> Emulator 99.82% 98.43% 99.51% 0.185 0.185 0.184 0.181 + Implicit Bias 98.37% 95.82% 98.87% 0.313 0.289 0.252 0.245
+
+5.2.2 Inference and Baselines Rollout. At inference time we sample the initial noisy backbone from the joint SE (3) diffusion prior used during training: translations follow a VP-SDE schedule with βmin =0 .1, βmax =20 .0 and a coordinate scaling factor of 0.1, while rotations follow an IGSO(3) schedule with σ ∈ [0 .1, 1.5] 
+
+on a logarithmic grid of 1000 points in both ω and σ. Each generated frame uses T =100 uniform Euler–Maruyama reverse steps from t=1 to tmin =0 .01 , and each rollout produces E autoregressive extrapolation segments of frame length 16 . Sequence conditioning uses MSA-based Evoformer [ 18 ]embeddings, feeding the same 384 -dim node and 128 -dim pair tracks used at training. The bias strength is η=0 .05 on DynamicPDB-80 and η=0 .1 on Fast-Folding. The branch weighting uses the Kabsch-aligned RMSD with temperature κ=1 .0. Refinement (Section 4.3) applies a partial forward noising to tref =0 .2 followed by S=20 environment-only reverse steps. 
+
+Baselines. For protein ensemble generation, we evaluate three baselines from publicly released pretrained checkpoints, each producing 256 ensemble structures: • AlphaFlow [16]: template conditioning enabled, 10 denoising steps (released default). • BioEmu [21]: v1.1, with the unphysical filter disabled. • Str2Str [25]: forward-noise level ∆t=0 .2.For trajectory generation, we use the pretrained ConfRover-Base [ 29 ] model, retrain MDGEN [ 17 ]on the DynamicPDB training set, and train another generator from scratch with the AlphaFolding [ 8 ]architecture, but replacing its OmegaFold sequence embedding with Evoformer. All trajectory-generation methods produce rollouts of approximately 100 ns at a 0.4 ns sampling interval, yielding 
+
+256 frames per trajectory. 
+
+5.3 Short-Timescale Trajectory Emulation 
+
+We first verify that the bias preserves per-frame structural validity at modest rollout depth, a precondi-tion for any longer-horizon claim. Following Section 5.1, every method generates F =256 frames per protein on DynamicPDB-80. Baselines fall into two classes: IID conformation generation, which samples frames independently, and trajectory generation, which propagates frames autoregressively. Table 1 reports per-frame structural validity and diversity at increasing compliance thresholds τ .Adding the bias improves diversity within each trajectory architecture while preserving structural validity. On our frozen emulator, the bias raises Div@ .00 from 0.185 to 0.313 with a CA drop of 
+
+1.45 percentage points, and the gains persist at stricter thresholds (mDiv-mean from 0.181 to 0.245 ). The same mechanism transfers to ConfRover [ 29 ]: adding the bias raises Div@ .00 from 0.182 to 
+
+0.221 with CA dropping only 0.56 percentage points (from 97 .47% to 96 .91% ), confirming that the bias is not specific to our emulator backbone. Among trajectory baselines, MDGEN reaches the highest raw diversity ( 0.353 ) but at low validity (CA 84 .5% , CN 68 .5% ), reflecting cumulative error in its autoregressive rollouts; once a compliance 70 100 200 300 400 500 600       
+
+> Extrapolation Time
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Coverage 0100 200 300 400 500 600
+> Extrapolation Time
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Coverage
+> =0.0
+> =0.05
+> =0.1
+> =0.2
+> =0.4
+
+(a) Coverage 0 100 200 300 400 500 600        
+
+> Extrapolation Time
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Validity Rate 0100 200 300 400 500 600
+> Extrapolation Time
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Validity Rate
+> =0.0
+> =0.05
+> =0.1
+> =0.2
+> =0.4
+
+(b) Validity Rate 0.0 0.05 0.1 0.2 0.4      
+
+> Bias Strength
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Max Coverage  2.9 ×
+> 2.1 × 0.0 0.05 0.1 0.2 0.4
+> Bias Strength
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Max Coverage  3.1 ×
+> 3.3 ×
+
+(c) Max Coverage 0.0 0.05 0.1 0.2 0.4      
+
+> Bias Strength
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> 600
+> Time-to-Coverage  14.8 ×
+> 6.6 × 0.0 0.05 0.1 0.2 0.4
+> Bias Strength
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> 600
+> Time-to-Coverage  15.9 ×
+> 37.5 ×
+
+(d) Time-to-Coverage 
+
+Figure 2: Refinement extends the usable range of bias strength η, recovering validity and low-energy state coverage that raw rollouts lose with long extrapolation. Each panel stacks raw rollouts (top) above the same trajectories after refinement at tref =0 .2 (bottom): (a) coverage vs. extrapolation depth E, (b) cumulative validity rate, (c) max coverage vs. η, (d) TTC vs. η, with hatched bars marking η where TTC is never reached within the E=640 budget. Curves and bars show mean ±SEM across the 12 Fast-Folding proteins, each averaged over 3 seeds. threshold is applied, its mDiv-mean drops to 0.170 . IID conformation generators are flat across τ by construction, since every frame is sampled independently. 
+
+5.4 Long-Timescale Trajectory Extrapolation 
+
+We extend rollouts to microsecond horizons, far beyond the 100 ns training trajectories, and test whether the proposed method still improves conformational coverage without losing per-frame structural validity. The 12 Fast-Folding proteins from D. E. Shaw Research [ 23 ] are held out from the DynamicPDB training set; we evaluate zero-shot, using a single checkpoint across all 12 systems rather than fine-tuning a separate model per protein as in leave-one-out cross-validation. We sweep bias strengths η ∈ { 0, 0.05 , 0.1, 0.2, 0.4} across 3 seeds, with each rollout spanning E=640 
+
+autoregressive extrapolation segments, totaling 10 ,240 frames per protein. For raw biased rollouts, speedup peaks at η=0 .1 and decays at higher η as per-frame validity degrades, as shown in the top rows of Figure 2: η=0 .1 yields 14 .8× over the η=0 baseline, η=0 .2 yields 6.6×, and η=0 .4 fails to reach baseline coverage within the E=640 budget. To recover this lost speedup, we apply the refinement step of Section 4.3 to the full biased rollouts. At 
+
+η=0 .2, refinement restores per-frame validity at τ =0 .9 from 28 .3% to 94 .8% , raises max coverage to 
+
+3.3× the η=0 baseline, and pushes speedup to 37 .5×, as shown in the bottom rows of Figure 2. As a control, refining the unbiased η=0 rollout yields max coverage 0.203 versus 0.208 for the unrefined baseline, isolating the exploration gain to the bias. The full η vs. refinement grid is in Section 5.5. Figure 3 shows the biased rollout reaching metastable basins missed by the unbiased baseline on three representative proteins, raising low-energy state coverage from 0.29 to 0.88 on Protein G, 0.44 
+
+to 1.00 on WW domain, and 0.46 to 0.73 on α3D. 
+
+5.5 Bias and Refinement Decomposition on Fast-Folding 
+
+To disentangle the contributions of the learned bias and the score-based refinement step, we evaluate the full η vs. refinement grid on the 12 Fast-Folding proteins at E=640 and 3 seeds, varying the bias strength η ∈ { 0, 0.05 , 0.1, 0.2, 0.4} and toggling refinement at tref =0 .2. Table 2 reports peak coverage, time-to-coverage (TTC), and the corresponding speedup over the baseline. 
+
+5.6 Ablation Studies Refinement Noise Level. We sweep tref from 0.0 to 1.0 on the 50 worst-validity segments per protein at η=0 .2, where refinement is most needed. Figure 4 shows that the per-frame pass-rate at 8Protein G     
+
+> WW domain
+> 𝛼 3D
+> MD Unbiased Rollouts Biased Rollouts
+
+Figure 3: The bias expands low-energy state coverage on three representative proteins. Column 1: MD reference free-energy surface with metastable basins labeled 1–3. Column 2: unbiased rollouts. Column 3: biased rollouts. Column 4: 3D structure overlay between MD reference (gray) and a representative biased frame (green). Red dots are TICA projections of generated frames; yellow star marks the input PDB structure. Table 2: η×{refinement} control on Fast-Folding. Speedup is computed against the unbiased η=0 
+
+no-refinement reference; “–” indicates that the configuration never reaches that reference within the 
+
+E=640 budget. Pooled means across 12 proteins × 3 seeds; SEM in parentheses.                                              
+
+> No refinement Refinement at tref =0 .2
+> ηmax coverage ↑TTC ↓speedup ↑max coverage ↑TTC ↓speedup ↑
+> 00.208 (0 .025) 637 1.0×0.203 (0 .024) 637 1.0×
+> 0.05 0.426 (0 .033) 84 7.6×0.409 (0 .031) 82 7.8×
+> 0.10.602 (0 .035) 43 14 .8×0.636 (0 .035) 40 15 .9×
+> 0.20.438 (0 .033) 96 6.6×0.678 (0 .033) 17 37 .5×
+> 0.40.156 (0 .035) ––0.669 (0 .028) 12 53 .1×
+
+τ =0 .9 rises sharply with tref and saturates near 0.2, climbing from 4.4% to 77 .9% while preserving diversity; the right panels show that refinement repairs broken local geometries while keeping structures plausible. We adopt tref =0 .2 at this inflection, where validity has recovered while the forward marginal remains well short of the prior. At small η, refinement also does not degrade coverage (Section 5.5). 
+
+Loss Function and Bias Strength. We sweep bias strength η ∈ { 0.05 , . . . , 1.0} with and without the environment-support regularizer Lsupport . Figure 5 shows that without Lsupport , Cα validity drops sharply at high η, whereas adding Lsupport preserves structural validity across the entire sweep and shifts the curve toward the upper-right, where both validity and diversity are higher. 9BBA Villin NTL9 
+
+w/o. 
+
+w/. Figure 4: Refinement noise level tref controls validity recovery while preserving diversity. Left :structure validity at τ =0 .9 rises sharply with tref from the pre-refinement baseline (dashed). Middle :diversity (Div@.00) stays near the pre-refinement baseline (dashed) at low tref , then drops as forward noising approaches the prior. Right : structure overlays on representative proteins, before (top) and after (bottom) refinement; broken local geometries (red boxes) are repaired. 0 20 40 60 80 100  
+
+> C-Level Validity (CA%)
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Ensemble Diversity (Div)
+> Diffusion Loss
+> + KL
+> MD (Oracle)
+
+Figure 5: Lsupport preserves validity across the η-sweep on DynamicPDB-80. Validity– diversity curves trained with and without Lsupport . Yellow star: MD oracle. 1 3 5 7 9 
+
+> History Length (H)
+> 80
+> 85
+> 90
+> 95
+> 100
+> CA%
+> C-Validity
+> Diversity
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> 0.40
+> Div@  = 0.9
+
+Figure 6: History length H
+
+trades structural fidelity for diversity on DynamicPDB-80. 
+
+Increasing H raises diversity while Cα validity decreases. Div@.00 Div@.90 Div@.95 mDiv-mean   
+
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> Diversity
+> No bias Uniform 1/ HDistance-aware (ours)
+
+Figure 7: Weighting Strategies on DynamicPDB-80. Distance-aware weighting outperforms uniform 1/H aggregation across compliance thresholds τ .
+
+History Length. We sweep the history length H ∈ { 1, 3, 5, 7, 9} to characterize the validity– diversity trade-off. Figure 6 shows that diversity rises with H and saturates while Cα validity drops. We adopt H=3 , where diversity is near saturation and validity is still high. 
+
+Weighting Strategies. We compare our distance-aware weighting (Eq. 3) against a uniform 
+
+wj =1 /H aggregation at η=0 .05 , H=3 , using the η=0 rollout as the no-bias reference. Figure 7 shows that uniform aggregation barely improves over the no-bias reference, whereas distance-aware weighting consistently captures most of the diversity gain across compliance thresholds. 
+
+6 Discussion 
+
+Limitations. Our experiments have validated history-dependent generative-space biasing for accel-erated exploration of pretrained protein dynamics emulators. The current bias is unconditional: it explores the free-energy surface but cannot condition on a specific target endpoint. The reachable conformational space is bounded by the frozen emulator’s training distribution: the bias redistributes density within this support, not beyond it. Finally, the base emulator does not target the equilibrium distribution, complicating post-hoc free-energy reconstruction via the multistate Bennett acceptance ratio (MBAR) or other schemes. 
+
+Opportunities. Beyond protein dynamics, history-dependent biasing in generative space may apply to long-horizon sampling in other pretrained physical-system generators. Goal-conditioned biasing, in which the score estimator is augmented with target-conformation inputs, would lift the unconditional limitation above by converting exploration bias into a controllable sampler for targeted conformational change. The framework can extend to multi-chain complexes and nucleic acid dynamics with appropriately retrained emulators. Uncertainty-aware sampling could prioritize the bias toward conformations where the emulator’s score is most uncertain, allocating compute to under-10 explored regions of the free-energy surface. Finally, integrating the post-hoc Girsanov reweighting into a training-time objective could close the loop between biased rollouts and free-energy estimates. 
+
+Broader impacts. Accelerated exploration of protein conformational landscapes supports structural biology and drug discovery, including cryptic-pocket detection and allosteric-state characterization. The released models inherit the dual-use profile of public protein-structure generators and introduce no new high-risk capabilities; we release them under a permissive license without additional safeguards. 
+
+References 
+
+[1] Marloes Arts, Victor Garcia Satorras, Chin-Wei Huang, Daniel Zugner, Marco Federici, Cecilia Clementi, Frank Noé, Robert Pinsler, and Rianne van den Berg. Two for one: Diffusion models and force fields for coarse-grained molecular dynamics. Journal of Chemical Theory and Computation, 19(18):6151–6159, 2023. [2] Martina Audagnotto, Werngard Czechtizky, Leonardo De Maria, Helena Käck, Garegin Papoian, Lars Tornberg, Christian Tyrchan, and Johan Ulander. Machine learning/molecular dynamic protein structure prediction approach to investigate the protein conformational ensemble. Scientific Reports, 12(1):10018, 2022. [3] Minkyung Baek, Frank DiMaio, Ivan Anishchenko, Justas Dauparas, Sergey Ovchinnikov, Gyu Rie Lee, Jue Wang, Qian Cong, Lisa N Kinch, R Dustin Schaeffer, et al. Accurate prediction of protein structures and interactions using a three-track neural network. Science, 373(6557):871–876, 2021. [4] Alessandro Barducci, Giovanni Bussi, and Michele Parrinello. Well-tempered metadynamics: a smoothly converging and tunable free-energy method. Physical review letters, 100(2):020603, 2008. [5] Helen M Berman, Tammy Battistuz, Talapady N Bhat, Wolfgang F Bluhm, Philip E Bourne, Kyle Burkhardt, Zukang Feng, Gary L Gilliland, Lisa Iype, Shri Jain, et al. The protein data bank. Biological Crystallography, 58(6):899–907, 2002. [6] Avishek Joey Bose, Tara Akhound-Sadegh, Guillaume Huguet, Kilian Fatras, Jarrid Rector-Brooks, Cheng-Hao Liu, Andrei Cristian Nica, Maksym Korablyov, Michael Bronstein, and Alexander Tong. SE(3)-Stochastic Flow Matching for Protein Backbone Generation, April 2024. [7] Zimei Bu and David JE Callaway. Proteins move! protein dynamics and long-range allostery in cell signaling. Advances in protein chemistry and structural biology, 83:163–221, 2011. [8] Kaihui Cheng, Ce Liu, Qingkun Su, Jun Wang, Liwei Zhang, Yining Tang, Yao Yao, Siyu Zhu, and Yuan Qi. 4d diffusion for dynamic protein structure prediction with reference and motion guidance. In Proceedings of the AAAI Conference on Artificial Intelligence, pages 93–101, 2025. [9] Prafulla Dhariwal and Alexander Nichol. Diffusion models beat gans on image synthesis. In Advances in neural information processing systems, volume 34, pages 8780–8794, 2021. [10] Peter Eastman, Jason Swails, John D. Chodera, Robert T. McGibbon, Yutong Zhao, Kyle A. Beauchamp, Lee-Ping Wang, Andrew C. Simmonett, Matthew P. Harrigan, Chaya D. Stern, Rafal P. Wiewiora, Bernard R. Brooks, and Vijay S. Pande. Openmm 7: Rapid development of high performance algorithms for molecular dynamics. PLoS Comput. Biol., 13(7):1–17, 07 2017. [11] Zirui Fan, Junjie Zhu, and Hai-Feng Chen. Dynafold: A latent diffusion based generative framework for protein dynamic trajectory. bioRxiv, pages 2025–09, 2025. [12] Jingjing Guo and Huan-Xiang Zhou. Protein allostery and conformational dynamics. Chemical reviews, 116(11):6503–6515, 2016. [13] Jérôme Hénin, Tony Lelièvre, Michael R. Shirts, Omar Valsson, and Lucie Delemotte. Enhanced sam-pling methods for molecular dynamics simulations. Living Journal of Computational Molecular Science, 4(1):1583, December 2022. [14] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In Advances in neural information processing systems, volume 33, pages 6840–6851, 2020. [15] Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. arXiv preprint arXiv:2207.12598, 2022. 
+
+11 [16] Bowen Jing, Bonnie Berger, and Tommi Jaakkola. AlphaFold Meets Flow Matching for Generating Protein Ensembles, September 2024. [17] Bowen Jing, Hannes Stärk, Tommi Jaakkola, and Bonnie Berger. Generative Modeling of Molecular Dynamics Trajectories, September 2024. [18] John Jumper, Richard Evans, Alexander Pritzel, Tim Green, Michael Figurnov, Olaf Ronneberger, Kathryn Tunyasuvunakool, Russ Bates, Augustin Žídek, Anna Potapenko, Alex Bridgland, Clemens Meyer, Simon A. A. Kohl, Andrew J. Ballard, Andrew Cowie, Bernardino Romera-Paredes, Stanislav Nikolov, Rishub Jain, Jonas Adler, Trevor Back, Stig Petersen, David Reiman, Ellen Clancy, Michal Zielinski, Martin Steinegger, Michalina Pacholska, Tamas Berghammer, Sebastian Bodenstein, David Silver, Oriol Vinyals, Andrew W. Senior, Koray Kavukcuoglu, Pushmeet Kohli, and Demis Hassabis. Highly accurate protein structure prediction with AlphaFold. Nature, 596(7873):583–589, August 2021. [19] Jarek Juraszek, Jocelyne Vreede, and Peter G. Bolhuis. Transition path sampling of protein conformational changes. Chemical Physics, 396:30–44, March 2012. [20] Alessandro Laio and Michele Parrinello. Escaping free-energy minima. Proceedings of the national academy of sciences, 99(20):12562–12566, 2002. [21] Sarah Lewis, Tim Hempel, José Jiménez-Luna, Michael Gastegger, Yu Xie, Andrew YK Foong, Victor Gar-cía Satorras, Osama Abdin, Bastiaan S Veeling, Iryna Zaporozhets, et al. Scalable emulation of protein equilibrium ensembles with generative deep learning. Science, 389(6761):eadv9817, 2025. [22] Zeming Lin, Halil Akin, Roshan Rao, Brian Hie, Zhongkai Zhu, Wenting Lu, Allan dos Santos Costa, Maryam Fazel-Zarandi, Tom Sercu, Sal Candido, et al. Language models of protein sequences at the scale of evolution enable accurate structure prediction. BioRxiv, 2022:500902, 2022. [23] Kresten Lindorff-Larsen, Stefano Piana, Ron O Dror, and David E Shaw. How fast-folding proteins fold. Science, 334(6055):517–520, 2011. [24] Ce Liu, Jun Wang, Zhiqiang Cai, Yingxu Wang, Huizhen Kuang, Kaihui Cheng, Liwei Zhang, Qingkun Su, Yining Tang, Fenglei Cao, et al. Dynamic pdb: a new dataset and a se (3) model extension by integrating dynamic behaviors and physical properties in protein structures. arXiv preprint arXiv:2408.12413, 2024. [25] Jiarui Lu, Bozitao Zhong, Zuobai Zhang, and Jian Tang. Str2Str: A Score-based Framework for Zero-shot Protein Conformation Sampling. In International Conference on Learning Representations, 2024. [26] Juno Nam, Bálint Máté, Artur P Toshev, Manasa Kaniselvan, Rafael Gómez-Bombarelli, Ricky TQ Chen, Brandon Wood, Guan-Horng Liu, and Benjamin Kurt Miller. Enhancing diffusion-based sampling with molecular collective variables. arXiv preprint arXiv:2510.11923, 2025. [27] Michael Plainer, Hao Wu, Leon Klein, Stephan Günnemann, and Frank Noé. Consistent sampling and simulation: Molecular dynamics with energy-based diffusion models. arXiv preprint arXiv:2506.17139, 2025. [28] Daniel D Richman, Jessica Karaguesian, Carl-Mikael Suomivuori, and Ron O Dror. Unlocking hidden biomolecular conformational landscapes in diffusion models at inference time. ArXiv, pages arXiv–2512, 2026. [29] Yuning Shen, Lihao Wang, Huizhuo Yuan, Yan Wang, Bangji Yang, and Quanquan Gu. Simultaneous mod-eling of protein conformation and dynamics via autoregression. In The Thirty-ninth Annual Conference on Neural Information Processing Systems, 2025. [30] Nima Shoghi, Yuxuan Liu, Yuning Shen, Rob Brekelmans, Pan Li, and Quanquan Gu. Scalable spatio-temporal se (3) diffusion for long-horizon protein dynamics. arXiv preprint arXiv:2602.02128, 2026. [31] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. In International Conference on Learning Representations, 2021. [32] Yang Song and Stefano Ermon. Generative modeling by estimating gradients of the data distribution. In Advances in neural information processing systems, volume 32, 2019. [33] Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. In International Conference on Learning Representations, 2021. [34] Martin Steinegger and Johannes Söding. Mmseqs2 enables sensitive protein sequence searching for the analysis of massive data sets. Nat. Biotechnol., 35(11):1026–1028, 2017. 
+
+12 [35] Yuji Sugita and Yuko Okamoto. Replica-exchange molecular dynamics method for protein folding. Chemical physics letters, 314(1-2):141–151, 1999. [36] Glenn M Torrie and John P Valleau. Nonphysical sampling distributions in monte carlo free-energy estimation: Umbrella sampling. Journal of computational physics, 23(2):187–199, 1977. [37] Yan Wang, Lihao Wang, Yuning Shen, Yiqun Wang, Huizhuo Yuan, Yue Wu, and Quanquan Gu. Protein Conformation Generation via Force-Guided SE(3) Diffusion Models, September 2024. [38] Fang Wu and Stan Z Li. DIFFMD: A geometric diffusion model for molecular dynamics simulations. In Proceedings of the AAAI Conference on Artificial Intelligence, pages 5321–5329, 2023. [39] Yu Xie, Ludwig Winkler, Lixin Sun, Sarah Lewis, Adam E. Foster, José Jiménez Luna, Tim Hempel, Michael Gastegger, Yaoyi Chen, Iryna Zaporozhets, Cecilia Clementi, Christopher M. Bishop, and Frank Noé. Enhanced Diffusion Sampling: Efficient Rare Event Sampling and Free Energy Calculation with Diffusion Models, February 2026. [40] Jason Yim, Andrew Campbell, Andrew Y. K. Foong, Michael Gastegger, José Jiménez-Luna, Sarah Lewis, Victor Garcia Satorras, Bastiaan S. Veeling, Regina Barzilay, Tommi Jaakkola, and Frank Noé. Fast protein backbone generation with SE(3) flow matching, October 2023. [41] Jason Yim, Brian L Trippe, Valentin De Bortoli, Emile Mathieu, Arnaud Doucet, Regina Barzilay, and Tommi Jaakkola. Se (3) diffusion model with application to protein backbone generation. In International Conference on Machine Learning, pages 40001–40039. PMLR, 2023. [42] Shuxin Zheng, Jiyan He, Chang Liu, Yu Shi, Ziheng Lu, Weitao Feng, Fusong Ju, Jiaxi Wang, Jianwei Zhu, Yaosen Min, He Zhang, Shidi Tang, Hongxia Hao, Peiran Jin, Chi Chen, Frank Noé, Haiguang Liu, and Tie-Yan Liu. Predicting equilibrium distributions for molecular systems with deep learning. Nature Machine Intelligence, 6(5):558–567, May 2024. 
+
+13
