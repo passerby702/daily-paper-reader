@@ -1,0 +1,506 @@
+Title: TrioPose: Native Triple-Stream Diffusion Transformers for Pose-Guided Text-to-Image Generation
+
+URL Source: https://arxiv.org/pdf/2606.07053v1
+
+Published Time: Mon, 08 Jun 2026 00:39:50 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# TrioPose: Native Triple-Stream Diffusion Transformers for Pose-Guided Text-to-Image Generation 
+
+Dian Gu Zhengyi Yang Institute of Automation, Chinese Academy of Sciences Beijing, China 
+
+{gudian2024, zhengyi.yang}@ia.ac.cn 
+
+## Abstract 
+
+Pose-guided text-to-image generation often suffers from limb distortions and fea-ture crosstalk in complex multi-person scenarios. While existing UNet-based adapters struggle with long-range spatial dependencies, emerging Multimodal Dif-fusion Transformers (MM-DiTs) offer superior global modeling. However, naive signal concatenation in MM-DiTs severely disrupts pre-trained latent distributions. To address this, we propose TrioPose, a native pose-driven framework built upon the SD3.5M architecture. Specifically, we introduce a Triple-Stream Pose-Aware DiT (TSPA-DiT) that treats pose as an independent modality. It employs layer-wise activation and zero-initialized dual-residual injection to smoothly enforce geo-metric constraints while preserving pre-trained latent stability. To resolve severe multi-instance occlusions, we design a Learnable Relational Bias Mask that cate-gorizes topological connectivity into fine-grained physical states, mapping them into continuous attention soft constraints to effectively decouple inter-instance interference. Furthermore, a Pose-Guided Spatial Loss Weighting strategy mod-ulates the native diffusion objective using heatmap-derived error maps, focusing anatomical supervision strictly on distortion-prone regions. Extensive experiments demonstrate that TrioPose achieves state-of-the-art performance across challenging benchmarks, including Human-Art, CrowdPose, and OCHuman. Notably, it attains an AP of 64 .33 on Human-Art, representing a 30% improvement over prior arts, while setting new standards for visual fidelity and text-image semantic alignment in complex multi-human generation. 
+
+## 1 Introduction 
+
+Text-to-image (T2I) diffusion models [9, 29] have transformed digital content generation. However, high-precision applications, such as animation production [ 24 ], virtual try-on [ 37 ], and embodied AI simulations, demand control beyond natural language, which often struggles to define the complex joint positions and fine-grained dynamics of deformable entities like humans [ 9]. Controllable human image generation (HIG) addresses this by aligning high-level semantics with structural priors, such as human pose [ 21 , 32 ], body parsing [ 37 , 43 ], and multi-granularity language descriptions [ 17 , 33 ]. By lowering the technical barriers to high-quality content creation, these controllable synthesis techniques significantly streamline production workflows across creative industries. While earlier HIG solutions based on Generative Adversarial Networks (GANs) [ 6 , 20 , 22 , 38 ] and Variational Auto-encoders (VAEs) [ 3 , 13 ] achieved success in specific domains, they often faced training instability and limited multi-modality fusion capabilities. The field has since transitioned to diffusion-based architectures [ 9, 28 ]. Existing state-of-the-art methods [ 12 , 39 , 41 , 15 , 23 , 31 , 35 , 36 ]
+
+> Preprint.
+> arXiv:2606.07053v1 [cs.CV] 5 Jun 2026
+
+primarily rely on CNN-based UNet backbones, utilizing frozen weights and auxiliary adapters for spatial conditioning. Although effective for standard single-person synthesis [ 35 ], the local receptive field of convolutions limits global interaction modeling. Consequently, multi-person scenarios involving overlapping poses frequently lack long-range spatial dependencies, resulting in limb malformations and anatomical distortions. Currently, the paradigm is shifting from UNet-based models to Multimodal Diffusion Transformers (MM-DiT) [ 4], which offer superior global context modeling. However, this transition challenges existing pose control strategies. Traditional plug-in concatenation [ 23 , 31 ] forcibly injects signals at shallow feature levels, which in MM-DiT architectures disrupts the aligned latent space, leading to convergence issues. Furthermore, in multi-subject interactions, global self-attention [ 31 ] induces signal crosstalk and identity confusion, while standard hard masking fails to capture true limb dependencies during complex overlaps. To address these challenges, we propose TrioPose, a native pose modeling framework built upon the SD3.5M model [ 4]. Discarding traditional adapters, we introduce the Triple-Stream Pose-Aware DiT (TSPA-DiT), treating pose as an independent modality parallel to text and image. To maintain latent space stability, TSPA-DiT employs Layer-wise Activation and Dual Residual Injection with zero-initialization, enabling a smooth transition from unconditional to constrained generation. To mitigate interference in multi-person interactions, we design a Learnable Relational Bias Mask that decouples topological connectivity into five physical states. These are mapped to continuous attention biases to adaptively regulate cross-regional interaction. Finally, we introduce Pose-Guided Spatial Loss Weighting, where a frozen ViTPose [ 34 ] extracts keypoint errors to re-weight the denoising objective, focusing anatomical supervision on distortion-prone regions. TrioPose achieves state-of-the-art performance, yielding a 64 .33 AP on Human-Art [ 11 ], outperforming prior art [ 36 ] by 30% .The main contributions are summarized as follows: • We propose TSPA-DiT, a novel triple-stream architecture that encodes pose as an inde-pendent modality, utilizing zero-initialized Dual Residual Injection for stable, high-fidelity control without disrupting the MM-DiT distribution. • We design a Learnable Relational Bias Mask to map fine-grained physical states into continuous attention biases, effectively mitigating feature crosstalk in complex overlaps via soft constraints. • We introduce Pose-Guided Spatial Loss Weighting to transform anatomical supervision into latent spatial weights for the native denoising objective, thereby improving structural rigor. • Extensive experiments demonstrate that TrioPose achieves state-of-the-art performance, notably yielding an AP of 64 .33 on the HumanArt dataset, representing a 30% improvement over existing methods. 
+
+## 2 Related Works 
+
+Controllable Diffusion Models: Text-to-image diffusion models excel in visual synthesis but struggle with fine-grained spatial control using text alone. To address this, ControlNet [ 39 ] introduces a dual-branch architecture with frozen pre-trained weights to encode spatial conditions for structure-aware generation. Similarly, T2I-Adapter [ 23 ] and GLIGEN [ 15 ] offer efficient feature injection and layout constraints via lightweight adapters and gated self-attention, respectively. For complex multi-condition guidance, Uni-ControlNet [ 41 ] designs a unified multi-resolution adapter, while PixelPonder [ 25 ] dynamically allocates computational priority to patches during inference, mitigating feature conflicts and accelerating generation. However, these adapter-based methods rely heavily on UNet architectures. Directly transferring these plug-and-play concatenation strategies to emerging MM-DiT severely disrupts the aligned latent distribution, causing convergence failures and structural distortions. 
+
+Pose-Guided Human Image Generation: Pose-guided generation synthesizes human visuals based on structural priors. Early works like PG2 [ 21 ] formulated this task as conditional image translation, though they suffered from pixel misalignment during large pose transfers. To handle spatial deformation, PATN [ 44 ] leverages progressive attention, while Liquid Warping GAN [ 6]and DensePose-based methods [ 7] utilize 3D flows and UV mapping to mitigate occlusion and texture loss. PISE [ 38 ] further employs parsing maps for part-level decoupling and local texture 2D
+
+ɛ 
+
+> TSPA-DiT-B lock 3
+> TSPA-DiT-Block n
+> TSPA-DiT-B lock 1
+> TSPA-DiT-B lock 2
+> …
+> zt
+> + noise t
+
+ɛ
+
+> pc
+
+＋
+
+＋
+
+> “a cartoon
+> character hugging
+> an old woman.”
+
+ɛ
+
+ɛ/D 
+
+> m
+
+ɛGT     
+
+> image
+> GT
+> latent MSE
+> Original loss
+> Loss
+> MLP
+> Joint-Attention
+> Norm m
+> MLP
+> Norm m
+> MLP
+> Norm m
+> Add & Norm m
+> Add & Norm m
+> Add & Norm m
+> Self
+> Attention
+> Self
+> Attention
+
+(b) One TSPA-DiT block 
+
+(a) Pipeline (c) Pose-Guided Spatial Loss Weighting    
+
+> ẑ0
+> Positional
+> Embedding
+> c
+> zt
+> p
+> Frozen/ Trainable Modulation
+> from Timestep
+> VAE Encoder
+> /Decoder
+> Caption
+> Encoder
+> Vitpose
+> Encoder
+> Caption
+> Embedding
+> Noisy Latent
+> Embedding
+> Pose Latent
+> Embedding
+> ẑ0
+> Pred Latent
+> Embedding
+> Zero-Conv
+> Zero-Conv
+
+＋
+
+> m
+
+＋ ＋ 
+
+> mm
+> loss
+> stream
+> pose
+> stream
+> image
+> stream
+> text
+> stream
+
+λp
+
+> High attention
+> (Host-to-Overlap bias)
+> Moderate attention
+> (Pure Self bias)
+> Low attention
+> (Background bias)
+
+(d) Learnable R elational Bias Mask  
+
+> Zero-Conv Zero
+> Convolution
+
+ɛ  
+
+> MMLatent
+> Mask
+
+-
+
+> High attention
+> (Overlap internal)
+> Reduced attention
+> (Non-related bias)
+
+ɛFigure 1: Overall architecture of TrioPose. (a) The Triple-Stream Pose-Aware DiT (TSPA-DiT) processes pose as an independent modality. (b) A TSPA-DiT block integrates spatial priors via zero-initialized dual-residual injection to preserve latent stability. (c) Pose-Guided Spatial Loss Weighting modulates the denoising objective using heatmap-derived error maps. (d) The Learnable Relational Bias Mask translates topological connectivity into physical states to decouple inter-instance interference. injection. Diffusion models have advanced synthesis fidelity; specifically, HumanSD [ 12 ] uses heatmap-guided losses to enhance native pose awareness. KB-DMGen [ 18 ] and Champ [ 42 ] integrate global knowledge and 3D geometric information for structural consistency. To improve sparse signal guidance, SP-Ctrl [ 35 ] and GRPose [ 36 ] leverage learnable representations and graph networks to extract topological correlations. Despite single-person success, these methods struggle with multi-person interactions and severe occlusions. Limited by local receptive fields or rudimentary interaction mechanisms, they fail to establish robust long-range dependencies, leading to anatomical distortions. We therefore develop a native pose modeling mechanism within the DiT architecture to eliminate feature interference and overlapping artifacts in multi-subject scenarios. 
+
+## 3 Method 
+
+Preliminaries: Rectified Flow and MM-DiT TrioPose integrates skeletal priors into the MM-DiT via a native triple-stream architecture built upon a frozen SD3.5M [ 4] backbone. To preserve the aligned latent distribution while ensuring efficient, high-precision constrained generation, op-timization is restricted to Low-Rank Adaptation (LoRA) [ 10 ] modules, the novel pose branch, zero-initialized injection layers, and continuous attention biases. Eschewing discrete noise scheduling, SD3.5M employs continuous-time Rectified Flow (RF) [ 19 ] to connect data z0 ∼ pdata and noise ϵ ∼ N (0 , I ) distributions via a linear trajectory zt = tz 0 + (1 − t)ϵ
+
+for t ∈ [0 , 1] , optimizing a parameterized ODE vector field vθ via: 
+
+LRF = Eϵ,z 0,t,c 
+
+h
+
+w(t) ∥vθ (zt, t, c ) − (z0 − ϵ)∥22
+
+i
+
+, (1) where w(t) is an empirical weighting function and c denotes the semantic condition. Although MM-DiT’s dual-stream architecture facilitates semantic alignment by processing text and image modalities independently via joint attention, this isolation complicates the native integration of high-dimensional, dense spatial controls. 3Algorithm 1 Generation of Attention Bias Mask  
+
+> 1:
+
+Input: Flattened binarized pose masks M ∈ { 0, 1}N ×L 
+
+> 2:
+
+C ← M ⊤M , T ← PNn=1 M [n, :] , R ← 0L×L 
+
+> 3:
+
+for (i, j ) where T [i] > 0 ∧ T [j] > 0 do  
+
+> 4:
+
+if C[i, j ] == 0 then R[i, j ] ← 3 ▷ Non-related  
+
+> 5:
+
+else if T [i] == 1 ∧ T [j] == 1 then R[i, j ] ← 1 ▷ Pure Self  
+
+> 6:
+
+else if T [i] ≥ 2 ∧ T [j] ≥ 2 then R[i, j ] ← 2 ▷ Overlap Internal  
+
+> 7:
+
+else R[i, j ] ← 4 ▷ Host-to-Overlap  
+
+> 8:
+
+end if  
+
+> 9:
+
+end for  
+
+> 10:
+
+return R
+
+Triple-Stream Pose-Aware DiT To mitigate distribution shift and convergence issues inherent to plug-and-play adapters, we propose a native TSPA-DiT (Fig. 1 (a)) . Treating spatially aligned pose latents as an independent modality, a VAE encoder [ 13 ] maps them into a 1D sequence Tpose .To ensure strict topological alignment, the pose and image streams share identical Spatial Position Embeddings . A layer-wise activation mechanism balances geometric constraints with semantic freedom; the Pose Stream activates exclusively in the first Lp layers, reverting to the standard dual-stream backbone thereafter (Sec. 4.3) . Abstracting layer normalization and signal modulation into pre-processing Fpre (·) and post-processing 
+
+Fpost (·) modules, we design a Dual-Residual Zero-Initialized Injection mechanism for smooth prior integration, computing the intermediate pose feature ˜P (l) and output feature P (l) 
+
+> out
+
+as: 
+
+˜P (l) = P (l) 
+
+> in
+
++ Fpost (Attn (Fpre (P (l) 
+
+> in
+
+))) , (2) 
+
+P (l) 
+
+> out
+
+= Fpost (MLP (Fpre ( ˜P (l)))) . (3) Concurrently, the visual context I(l) 
+
+> out
+
+extracted from the image backbone: 
+
+I(l) 
+
+> out
+
+= Fpost (Attn (Fpre (X(l) 
+
+> in
+
+))) (4) interacts with joint text-image attention, integrating the intermediate pose prior ˜P (l) via a zero-initialized projection (ZeroConv 1): 
+
+˜X(l) = X(l) 
+
+> in
+
++ I(l) 
+
+> out
+
++ Fpost (JointAttn (Fpre (X(l) 
+
+> in
+
+), Fpre (C(l) 
+
+> in
+
+))) + α · ZeroConv 1( ˜P (l)). (5) During the subsequent MLP stage, the image feature undergoes non-linear transformation and fuses the final pose topology P (l) 
+
+> out
+
+via a second injection (ZeroConv 2): 
+
+X(l) 
+
+> out
+
+= X(l) 
+
+> in
+
++ Fpost (MLP (Fpre ( ˜X(l)))) + α · ZeroConv 2(P (l) 
+
+> out
+
+). (6) This dual-residual structure efficiently injects dense pose priors without compromising pre-trained representations. 
+
+Learnable Relational Bias Mask In multi-subject generation, global self-attention often induces feature crosstalk, whereas hard boolean masks disrupt non-local dependencies. To resolve this, we propose a Learnable Relational Bias Mask that translates discrete topological connectivity into continuous attention biases. First, instance keypoints are rendered as independent 2D skeletal masks via adaptive thickness and Gaussian smoothing. These masks are max-pooled to the latent resolution and binarized into an occupancy matrix M ∈ { 0, 1}N ×L for N instances and L tokens. We then derive a token occupancy vector T = PNn=1 M [n, :] ∈ NL and a co-occurrence matrix 
+
+C = M ⊤M ∈ NL×L. Based on T and C, token pairs (i, j ) are classified into five physical states (Algorithm 1): (1) Background ( R = 0 ), (2) Pure Self ( R = 1 ), (3) Overlap Internal ( R = 2 ), (4) Non-related ( R = 3 ), and (5) Host-to-Overlap ( R = 4 ). Discrete relations R are mapped to a continuous bias B to smoothly modulate attention logits: Attn (Q, K, V ) = Softmax (QK ⊤/√d + B)V. (7) 4We maintain two sets of five near-zero-initialized learnable scalars: one dedicated to the pose self-attention branch, and another shared by the joint and image self-attention branches. This formulation enables the network to dynamically learn soft relational constraints across occlusion boundaries. To prevent spatial priors from degrading semantic reasoning, we restrict joint bias injection strictly to the image-to-image interaction quadrant. Finally, we employ Bias Mask Dropout [ 30 ], randomly zeroing 
+
+B during training to avert shortcut learning and enhance generative robustness. 
+
+Pose-Guided Spatial Loss Weighting Lacking explicit geometric supervision in the Rectified Flow objective, we introduce a Heatmap-Error-Guided Spatial Loss Weighting strategy. Replacing disruptive pose distillation losses, this approach translates local anatomical deviations into continuous latent weight maps. To guarantee global layout stability and prevent large early-stage noise gradients from corrupting the pre-trained latent space, we restrict activation via a Time-step Truncation Constraint: 
+
+wt = I(t/T ≤ τt), (8) where τt is a predefined threshold. Under this constraint, a frozen ViTPose [ 34 ] extracts heatmaps ( Hpred , Hgt ) from predicted and ground-truth single-person regions. We aggregate the pixel-wise squared error E = ( Hpred − Hgt )2
+
+across keypoint channels, binarizing it to isolate severe distortions. This error map is then Gaussian-smoothed and downsampled into a latent mask Mlatent :
+
+Mlatent = Downsample  Gaussian   [ Kk=1 RoI k(I(Ek > τ e))  , (9) where τe defines the error threshold across K valid RoIs. The base spatial weight is formulated as: 
+
+Wbase = 1 + λ · Mlatent , (10) with λ scaling the supervision intensity. Following intra-sample mean normalization to yield Wfinal ,this term spatially modulates the original denoising loss Loriginal :
+
+Ltotal = mean (wt · Wfinal ⊙ L original ). (11) Ultimately, this mechanism focuses anatomical supervision precisely on distortion-prone regions while preserving the native diffusion optimization trajectory. 
+
+## 4 Experiments 
+
+4.1 Experimental Settings Datasets. TrioPose is evaluated on three benchmark datasets to validate generalization across diverse styles, extreme occlusions, and high-density scenarios. Human-Art[ 11 ] serves as the core benchmark for multi-instance decoupling in natural and artistic scenes. OCHuman[ 40 ] focuses on severe occlusion challenges, while CrowdPose [ 14 ]addresses complex pose modeling in crowded environments. To leverage the text encoding capabilities of SD3.5-Medium, training annotations are augmented using the Qwen3-VL vision-language model[ 1]. A mixed-prompt strategy is designed to accommo-date multi-granularity semantic instructions. Specifically, new text labels comprise detailed long descriptions ranging from 80 to 180 words and concise short descriptions ranging from 30 to 60 words at a seven-to-three ratio. This ensures the capture of both fine-grained anatomical attributes and macroscopic environmental semantics. To further enhance robustness in complex multi-person interactions, a mixed training set of 15,500 images is constructed. This set consists of 8,000 randomly sampled Human-Art images, 5,000 CrowdPose images, and all 2,500 OCHuman images. For evalua-tion, original validation splits are strictly followed to ensure fair comparisons. All human keypoints are preprocessed into the standard COCO-17 format[ 16 ], with relationship matrices generated offline based on instance spatial distributions. 
+
+4.2 Comparison with SOTA Methods Quantitative Evaluation. Table 1 reports performance on the Human-Art dataset using AP, CAP [ 5], PCE [ 3], FID [ 8], KID [ 2] (scaled by 100), and CLIP-score [ 27 ]. Using original annotations, 5Table 1: Results on Human-Art dataset. Methods marked with * are evaluated using released checkpoints. TrioPose † denotes the version trained and evaluated with extended long captions. Excluding the foundation baselines (SD* and SD3.5m), the best overall results and the best results among prior competing methods are highlighted in green and blue , respectively. Dataset Method Pose Accuracy Image Quality T2I Alignment AP ↑ CAP ↑ PCE ↓ FID ↓ KID ↓ CLIP-score ↑
+
+Human-Art SD* 0.24 55.71 2.30 11.53 3.36 33.33 SD3.5M 8.17 80.57 0.92 2.17 1.66 34.50 T2I-Adapter 27.22 65.65 1.75 11.92 2.73 33.27 ControlNet 39.52 69.19 1.54 11.01 2.23 32.65 Uni-ControlNet 41.94 69.32 1.48 14.63 2.30 32.51 GLIGEN 18.24 69.15 1.46 – – 32.52 HumanSD 44.57 69.68 1.37 10.03 2.70 32.24 Stable-Pose 48.88 70.83 1.50 11.12 2.35 32.60 GRPose 49.50 70.84 1.43 13.76 2.53 32.31 TrioPose(Ours) 59.24 82.94 0.91 3.03 1.22 33.50 TrioPose †(Ours) 64.33 83.23 0.86 1.65 0.87 34.46 TrioPose achieves 59 .24 AP and 82 .94 CAP, outperforming the previous, GRPose [ 36 ], by approxi-mately 20% . This demonstrates the triple-stream architecture’s superiority in precise pose alignment under identical constraints. With the mixed-prompt strategy, TrioPose † leverages extended captions to engage SD3.5M’s deep semantic priors, elevating AP to a state-of-the-art 64 .33 . For image quality, TrioPose † yields the lowest FID ( 1.65 ), significantly surpassing HumanSD ( 10 .03 ) [ 12 ] and Stable-Pose ( 11 .12 ) [ 31 ] , successfully avoiding the severe texture loss common in traditional feature concatenation methods. Additionally, TrioPose †’s peak CLIP-score ( 34 .46 ) confirms the framework strengthens spatial constraints without compromising semantic alignment. Overall, these results highlight TrioPose’s robust pose control and visual fidelity, establishing a new SOTA standard for complex human generation. 
+
+Qualitative Comparison. Qualitative analysis demonstrates TrioPose’s advantages in anatomical rigor and spatial consistency. In complex scenarios with entangled limbs (e.g., Drama and Cartoon in Fig. 2), TrioPose exhibits exceptional instance decoupling. Modulated by the learnable relational bias mask, attention flows maintain topological integrity in distortion-prone regions like hands and legs. Conversely, HumanSD and Stable-Pose frequently suffer from feature entanglement during severe overlaps, such as incorrectly attaching limb A to body B. TrioPose remains robust even under imperfect pose guidance. Despite missing limbs in the input pose image (e.g., Sketch, Movie, and Relief in Fig. 2), it reconstructs absent anatomical details by combining triple-stream structural modeling with global semantic priors. This self-consistency ensures physical logic and prevents inheriting input defects. In scenes with numerous small figures (e.g., Digital art in Fig. 2), TrioPose maintains precise micro-scale pose alignment and clear boundaries, validating the native diffusion transformer’s capability in cross-scale spatial control. This visual purity, achieved via the synergy of relational biases and spatial loss weighting, effectively eliminates signal diffusion into irrelevant regions. 
+
+Robustness in Complex Multi-Human Scenarios To validate generalization in high-density and occluded scenes, cross-dataset evaluations are performed using the mixed training configuration. As shown in Table 2, TrioPose consistently outperforms Stable-Pose in pose and semantic alignment across three distributionally diverse independent validation sets. On the multi-style Human-Art validation set, TrioPose achieves 61 .52 AP and 1.93 FID, com-pared to Stable-Pose’s 58 .24 and 4.30 . This substantial margin confirms the native triple-stream architecture’s generalization in parsing complex semantics and diverse stylistic mappings. 6Cartoon, the animated movie is called big hero 6          
+
+> Movie, harry potter and the deathly hallows part 2
+> Digital art, the pirate village in assassin's creed origins
+> Drama, a man and woman in a dress sitting on a bench Sketch, a sketch of a man running in the air
+> Oil painting, a painting of a family eating in a restaurant
+> Relief, an ancient relief depicting a woman and a man
+> Dance, a man and woman in ballet costumes performing on stage
+> (a) Pose (b) SD3.5m (c) HumanSD (d) Stable-pose (e) TrioPose(Ours) (a) Pose (b) SD3.5m (c) HumanSD (d) Stable-pose (e) TrioPose(Ours)
+
+Figure 2: Qualitative comparisons. Compared to SD3.5M, HumanSD, and Stable-Pose across diverse styles and complex occlusions, TrioPose achieves precise anatomical alignment and robust instance decoupling, effectively eliminating the feature crosstalk prevalent in baselines. Table 2: Evaluation on individual validation sets after mixed-dataset training. Both Stable-Pose and Trio-Pose are trained on the 15.5k mixed dataset with Qwen3-VL long captions. The best results for each dataset are highlighted in bold. Dataset Method AP ↑ FID ↓ CLIP ↑
+
+Stable-Pose 58.24 4.30 32.17 Human-Art TrioPose (Ours) 61.52 1.93 34.48 
+
+Stable-Pose 50.25 0.65 30.98 CrowdPose TrioPose (Ours) 58.56 0.78 32.85 
+
+Stable-Pose 58.84 0.89 30.86 OCHuman TrioPose (Ours) 62.59 0.92 31.86 
+
+For high-density CrowdPose scenarios, AP significantly improves from 50 .25 to 
+
+58 .56 . Although the 0.78 FID slightly trails Stable-Pose’s 0.65 , this minor vari-ance preserves visual quality while yield-ing substantial pose accuracy gains. On the highly occluded OCHuman set, Tri-oPose achieves 62 .59 AP. The marginal FID difference ( 0.92 vs. 0.89 ) indicates enhanced pose control under extreme oc-clusion without visual degradation. These cross-dataset results reflect robust generalization, demonstrating effective extraction of structural priors from the mixed training set. Furthermore, TrioPose achieves higher CLIP scores across all sets, proving the text augmentation strategy ensures stable text-to-image semantic alignment. Overall, TrioPose optimally balances spatial constraints, visual fidelity, and semantic consistency in complex multi-person scenarios. 
+
+4.3 Ablation Study Component-wise Efficacy. Progressive ablation studies, shown in Table 3, validate the proposed modules. Transitioning to the TSPA architecture alone yields a substantial AP increase from 8.17 
+
+to 63 .50 , confirming that native pose modeling within the DiT framework[ 26 ] resolves structural collapse during pose-guided generation. Incorporating LRBM further improves AP to 64 .34 in multi-person scenarios, proving soft-constrained attention modulation across physical relations effectively decouples cross-instance feature entanglement. Furthermore, replacing our fine-grained 5-state relational mask with a traditional binary hard mask degrades AP to 62 .63 and increases FID to 1.82 , proving that nuanced topological division is essential for resolving complex limb overlaps rather than simple boolean isolation. Inte-grating PSLW stabilizes AP gains while significantly optimizing visual quality, reducing FID and 7Table 3: Ablation study on the effectiveness of proposed modules. The Triple-Stream Pose-Aware DiT (TSPA), Learnable Relational Bias Mask (LRBM), and Pose-Guided Spatial Loss Weighting (PSLW) are progressively integrated into the baseline model. ◦ denotes the substitution of our proposed LRBM with a traditional binary hard mask. The best results for each metric are highlighted in bold. Modules Pose Accuracy Image Quality T2I Alignment TSPA LRBM PSLW AP ↑ CAP ↑ PCE ↓ FID ↓ KID ↓ CLIP-score ↑× × × 8.17 80.57 0.92 2.17 1.66 34.50 
+
+✓ × × 63.50 83.32 0.85 2.03 1.31 34.39 
+
+✓ ✓ × 64.34 83.25 0.86 1.95 1.17 34.39 
+
+✓ × ✓ 63.37 83.16 0.88 1.82 0.98 34.45 
+
+✓ ◦ ✓ 62.63 83.14 0.87 1.82 1.03 34.58 
+
+✓ ✓ ✓ 64.33 83.23 0.86 1.65 0.87 34.46 KID to 1.65 and 0.87 , respectively. Modulating the native denoising objective with spatial weight maps corrects micro-anatomical distortions without compromising fidelity. Ultimately, synergizing these three core mechanisms optimally balances robust pose constraints and high-fidelity image synthesis. 
+
+Optimization of TSPA-DiT Configuration. Sensitivity analysis of the triple-stream architecture focuses on pose stream activation layers ( Lp) and injection scale ( α). As shown in Table 4, Lp = 12 
+
+optimally balances geometric constraints and image quality, yielding the highest AP ( 64 .33 ) and lowest FID ( 1.65 ). This establishes a spatial geometric framework in lower layers while preserving semantic freedom in higher layers. Shallow activation ( Lp = 6 ) provides inadequate constraints for complex distortions, whereas deep activation ( Lp = 24 ) imposes rigid spatial suppression, degrading diversity and increasing FID to 2.27 .Adjusting α reveals a similar pattern, where α = 0 .5 yields optimal stability and alignment. Coupled with zero-initialized [ 39 ] dual-residual injection, this ensures robust pose guidance without disrupting the pre-trained latent distribution[ 29 ]. Lower intensity ( α = 0 .3) provides insufficient guidance, while excessive injection ( α = 0 .7) interferes with the latent space, degrading both AP and FID. This synergy of layer-wise activation and controlled scaling forms the architectural foundation for robust pose awareness. Table 4: Ablation study on TS-PA-DiT configuration. Top: ablating the number of activated layers (Lp). Bottom: ablating the injection scale factor ( α). The default setting is highlighted in gray. Config Pose Accuracy Image Quality T2I Alignment 
+
+Lp α AP ↑ CAP ↑ PCE ↓ FID ↓ KID ↓ CLIP ↑
+
+6 0.5 63.03 83.34 0.88 1.78 1.03 34.49 
+
+12 0.5 64.33 83.23 0.86 1.65 0.87 34.46 24 0.5 62.70 82.97 0.85 2.27 1.17 34.37 12 0.3 64.19 83.25 0.87 2.00 0.98 34.43 12 0.5 64.33 83.23 0.86 1.65 0.87 34.46 
+
+12 0.7 62.87 83.20 0.85 2.01 0.93 34.37 
+
+Initialization Strategies for Relational Bias Mask. Table 5 compares relational bias mask ini-tialization strategies: fixed non-learnable biases, zero initialization ( θ = 0), and physics-derived prior-guided initialization ( θprior ). While learnable parameters effectively lower FID and KID com-pared to fixed biases, uniform zero initialization restricts pose alignment accuracy, yielding only 
+
+63 .12 AP. Training dynamics reveal that zero-initialized parameters naturally converge toward specific physical magnitudes, establishing the topological prior θprior . Specifically, associated states (e.g., pure self, overlap internal) receive positive initializations, while physically inhibitory connections (non-related 8Table 5: Ablation study on relational bias initialization. We compare fixed (non-learnable) biases with learnable biases under different initialization strategies. By employing empirical topological priors ( θprior ) derived from the steady-state convergence trajectories of zero-initialized parameters, the proposed model effectively circumvents early-stage gradient oscillation and achieves superior spatial guidance compared to the zero initialization ( 0) baseline. Pose Accuracy Image Quality T2I Alignment Bias Strategy AP ↑ CAP ↑ PCE ↓ FID ↓ KID ↓ CLIP-score ↑
+
+Fixed Bias 62.93 83.16 0.87 2.08 1.02 34.43 Learnable ( θ = 0) 63.12 83.30 0.88 1.81 0.96 34.45 Learnable ( θ = θprior ) 64.33 83.23 0.86 1.65 0.87 34.46 
+
+subjects) are uniformly initialized to −0.3. This physics-guided initialization substantially increases AP to an optimal 64 .33 and minimizes FID to 1.65 . Ultimately, this validates that rational topological priors provide precise spatial guidance, enabling multimodal attention layers to bypass early-stage gradient oscillations and smoothly converge toward an optimal feature space.                 
+
+> 62 63 64 65 66
+> 1.6
+> 1.8
+> 2
+> 2.2
+> τt= 0 .2
+> τt= 0 .35
+> τt= 0 .65
+> λ= 0 .3
+> λ= 0 .2
+> λ= 0 .05
+> τt= 0 .5, λ = 0 .1
+> Optimal direction ↘
+> AP ↑
+> FID  ↓
+> Varying τt
+> Varying λ
+
+Figure 3: Impact of hyper-parameters τt and λ on the AP-FID trade-off. 
+
+Impact of Spatial Loss Weighting. 
+
+Sensitivity analysis on the truncation threshold τt (Eq. 8) and spatial weight co-efficient λ (Eq. 10) investigates the trade-off between anatomical supervision (AP) and generative fidelity (FID). As shown in Fig. 3, the optimal performance direc-tion is the bottom-right. For τt, smaller values ( 0.2 or 0.35 ) cause a significant FID surge, indicating early-stage intense guidance severely disrupts visual fidelity despite marginal pose accuracy gains. In-creasing τt to 0.5 shifts performance opti-mally, drastically improving image qual-ity while maintaining precise alignment. Similarly, λ is critical. An excessively strong weight ( λ = 0 .3) collapses both AP and FID, proving that overpowering spatial constraints disrupt the diffusion model’s native denoising logic. Evaluating the distribution trajectories, τt = 0 .5 and λ = 0 .1 (dual-colored star in Fig. 3) is selected as the optimal configuration, effectively balancing robust spatial constraints with natural visual synthesis. 
+
+## 5 Conclusion 
+
+We propose TrioPose, a native pose-driven framework that addresses feature crosstalk and anatomical distortion in multi-person image generation. By treating pose as an independent modality within the TSPA-DiT architecture and employing a Learnable Relational Bias Mask, our method effectively decouples complex instance interactions while preserving the pre-trained MM-DiT distribution. Extensive evaluations demonstrate that TrioPose establishes a new state-of-the-art across Human-Art, CrowdPose, and OCHuman benchmarks, achieving a superior balance between spatial control and visual fidelity. However, TrioPose’s high-fidelity synthesis capabilities introduce potential misuse risks, notably Deepfakes. To mitigate these societal impacts and ensure responsible deployment, we will integrate digital watermarking into our released checkpoints to facilitate robust provenance tracking. Future work will explore lightweight attention mechanisms to accelerate inference and extend the framework for temporally consistent pose-guided video synthesis. 9References 
+
+[1] Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, et al. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 , 2025. [2] Mikołaj Bi´ nkowski, Danica J Sutherland, Michael Arbel, and Arthur Gretton. Demystifying mmd gans. arXiv preprint arXiv:1801.01401 , 2018. [3] Soon Yau Cheong, Armin Mustafa, and Andrew Gilbert. Kpe: Keypoint pose encoding for transformer-based image generation. arXiv preprint arXiv:2203.04907 , 2022. [4] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas Müller, Harry Saini, Yam Levi, Dominik Lorenz, Axel Sauer, Frederic Boesel, et al. Scaling rectified flow trans-formers for high-resolution image synthesis. In Forty-first international conference on machine learning , 2024. [5] freshsomebody. Posenet similarity. https://github.com/freshsomebody/ posenet-similarity , 2023. Accessed: 2026-05-05. [6] Ian J Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and Yoshua Bengio. Generative adversarial nets. Advances in neural information processing systems , 27, 2014. [7] Artur Grigorev, Artem Sevastopolsky, Alexander Vakhitov, and Victor Lempitsky. Coordinate-based texture inpainting for pose-guided human image generation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 12135–12144, 2019. [8] Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochreiter. Gans trained by a two time-scale update rule converge to a local nash equilibrium. Advances in neural information processing systems , 30, 2017. [9] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in neural information processing systems , 33:6840–6851, 2020. [10] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Liang Wang, Weizhu Chen, et al. Lora: Low-rank adaptation of large language models. Iclr , 1(2):3, 2022. [11] Xuan Ju, Ailing Zeng, Jianan Wang, Qiang Xu, and Lei Zhang. Human-art: A versatile human-centric dataset bridging natural and artificial scenes. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 618–629, 2023. [12] Xuan Ju, Ailing Zeng, Chenchen Zhao, Jianan Wang, Lei Zhang, and Qiang Xu. Humansd: A native skeleton-guided diffusion model for human image generation. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 15988–15998, 2023. [13] Diederik P Kingma and Max Welling. Auto-encoding variational bayes. arXiv preprint arXiv:1312.6114 , 2013. [14] Jiefeng Li, Can Wang, Hao Zhu, Yihuan Mao, Hao-Shu Fang, and Cewu Lu. Crowdpose: Effi-cient crowded scenes pose estimation and a new benchmark. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 10863–10872, 2019. [15] Yuheng Li, Haotian Liu, Qingyang Wu, Fangzhou Mu, Jianwei Yang, Jianfeng Gao, Chunyuan Li, and Yong Jae Lee. Gligen: Open-set grounded text-to-image generation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 22511–22521, 2023. [16] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollár, and C Lawrence Zitnick. Microsoft coco: Common objects in context. In European conference on computer vision , pages 740–755. Springer, 2014. 10 [17] Deyin Liu, Lin Wu, Feng Zheng, Lingqiao Liu, and Meng Wang. Verbal-person nets: Pose-guided multi-granularity language-to-person generation. IEEE Transactions on Neural Networks and Learning Systems , 34(11):8589–8601, 2022. [18] Shibang Liu, Xuemei Xie, and Guangming Shi. Kb-dmgen: Knowledge-based global guidance and dynamic pose masking for human image generation. arXiv preprint arXiv:2507.20083 ,2025. [19] Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. arXiv preprint arXiv:2209.03003 , 2022. [20] Zhengyao Lv, Xiaoming Li, Xin Li, Fu Li, Tianwei Lin, Dongliang He, and Wangmeng Zuo. Learning semantic person image generation by region-adaptive normalization. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 10806–10815, 2021. [21] Liqian Ma, Xu Jia, Qianru Sun, Bernt Schiele, Tinne Tuytelaars, and Luc Van Gool. Pose guided person image generation. Advances in neural information processing systems , 30, 2017. [22] Yifang Men, Yiming Mao, Yuning Jiang, Wei-Ying Ma, and Zhouhui Lian. Controllable person image synthesis with attribute-decomposed gan. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 5084–5093, 2020. [23] Chong Mou, Xintao Wang, Liangbin Xie, Yanze Wu, Jian Zhang, Zhongang Qi, and Ying Shan. T2i-adapter: Learning adapters to dig out more controllable ability for text-to-image diffusion models. In Proceedings of the AAAI conference on artificial intelligence , volume 38, pages 4296–4304, 2024. [24] Xichen Pan, Pengda Qin, Yuhong Li, Hui Xue, and Wenhu Chen. Synthesizing coherent story with auto-regressive latent diffusion models. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision , pages 2920–2930, 2024. [25] Yanjie Pan, Qingdong He, Zhengkai Jiang, Pengcheng Xu, Chaoyi Wang, Jinlong Peng, Haox-uan Wang, Yun Cao, Zhenye Gan, Mingmin Chi, et al. Pixelponder: Dynamic patch adaptation for enhanced multi-conditional text-to-image generation. arXiv preprint arXiv:2503.06684 ,2025. [26] William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4195–4205, 2023. [27] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In International conference on machine learning ,pages 8748–8763. PmLR, 2021. [28] Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu, and Mark Chen. Hierarchical text-conditional image generation with clip latents. arXiv preprint arXiv:2204.06125 , 1(2):3, 2022. [29] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 10684–10695, 2022. [30] Nitish Srivastava, Geoffrey Hinton, Alex Krizhevsky, Ilya Sutskever, and Ruslan Salakhutdinov. Dropout: a simple way to prevent neural networks from overfitting. The journal of machine learning research , 15(1):1929–1958, 2014. [31] Jiajun Wang, Morteza Ghahremani, Yitong Li, Björn Ommer, and Christian Wachinger. Stable-pose: Leveraging transformers for pose-guided text-to-image generation. Advances in Neural Information Processing Systems , 37:65670–65698, 2024. [32] Xiaogang Xu, Ying-Cong Chen, Xin Tao, and Jiaya Jia. Text-guided human image manipulation via image-text shared space. IEEE Transactions on Pattern Analysis and Machine Intelligence ,44(10):6486–6500, 2021. 11 [33] Xiaogang Xu, Ying-Cong Chen, Xin Tao, and Jiaya Jia. Text guided human image manipulation via image-text shared space. IEEE Transactions on Pattern Analysis and Machine Intelligence ,44(10):6486–6500, 2021. [34] Yufei Xu, Jing Zhang, Qiming Zhang, and Dacheng Tao. Vitpose++: Vision transformer for generic body pose estimation. IEEE Transactions on Pattern Analysis and Machine Intelligence ,46(2):1212–1230, 2023. [35] Wenjie Xuan, Jing Zhang, Juhua Liu, Bo Du, and Dacheng Tao. Rethink sparse signals for pose-guided text-to-image generation. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 15896–15906, 2025. [36] Xiangchen Yin, Donglin Di, Lei Fan, Hao Li, Wei Chen, Yang Song, Xiao Sun, Xun Yang, et al. Grpose: Learning graph relations for human image generation with pose priors. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 9526–9534, 2025. [37] Ruiyun Yu, Xiaoqi Wang, and Xiaohui Xie. Vtnfp: An image-based virtual try-on network with body and clothing feature preservation. In Proceedings of the IEEE/CVF international conference on computer vision , pages 10511–10520, 2019. [38] Jinsong Zhang, Kun Li, Yu-Kun Lai, and Jingyu Yang. Pise: Person image synthesis and editing with decoupled gan. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 7982–7990, 2021. [39] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. In Proceedings of the IEEE/CVF international conference on computer vision ,pages 3836–3847, 2023. [40] Song-Hai Zhang, Ruilong Li, Xin Dong, Paul Rosin, Zixi Cai, Xi Han, Dingcheng Yang, Haozhi Huang, and Shi-Min Hu. Pose2seg: Detection free human instance segmentation. In 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 889–898, 2019. [41] Shihao Zhao, Dongdong Chen, Yen-Chun Chen, Jianmin Bao, Shaozhe Hao, Lu Yuan, and Kwan-Yee K Wong. Uni-controlnet: All-in-one control to text-to-image diffusion models. 
+
+Advances in neural information processing systems , 36:11127–11150, 2023. [42] Shenhao Zhu, Junming Leo Chen, Zuozhuo Dai, Zilong Dong, Yinghui Xu, Xun Cao, Yao Yao, Hao Zhu, and Siyu Zhu. Champ: Controllable and consistent human image animation with 3d parametric guidance. In European Conference on Computer Vision , pages 145–162. Springer, 2024. [43] Shizhan Zhu, Raquel Urtasun, Sanja Fidler, Dahua Lin, and Chen Change Loy. Be your own prada: Fashion synthesis with structural coherence. In Proceedings of the IEEE international conference on computer vision , pages 1680–1688, 2017. [44] Zhen Zhu, Tengteng Huang, Baoguang Shi, Miao Yu, Bofei Wang, and Xiang Bai. Progressive pose attention transfer for person image generation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 2347–2356, 2019. 12 A Appendix: Data Processing Details 
+
+This section details our data standardization and annotation pipeline for Human-Art, OCHuman, and CrowdPose datasets. 
+
+A.1 Pose Standardization 
+
+We unify all skeletal annotations into the COCO-17 format .( 17 × 3 keypoints) 
+
+OCHuman: Original COCO-style annotations are converted into instance-level .npz files. 
+
+CrowdPose: The 14-keypoint annotations are mapped to COCO indices 5–16. Head and neck points without direct COCO equivalents are set to zero to maintain a consistent 17 × 3 topology. 
+
+A.2 Multi-granularity Captioning 
+
+We use Qwen3-VL-30B-Instruct to augment training images with multi-scale textual descriptions. 
+
+Inference Settings: We employ the vLLM engine with 4-bit AWQ quantization. Images are resized to a maximum side of 1280 pixels while preserving the aspect ratio. 
+
+Caption Types: For each image, we generate a short_caption (30–60 words) for core attributes and a 
+
+long_caption (80–180 words) for detailed spatial and pose descriptions. 
+
+Style Preservation: For artistic datasets like Human-Art, we prepend original style tags (e.g., “oil painting”) to the VLM-generated prompts. 
+
+A.3 Mixed Training Configuration 
+
+To balance controllability and robustness, we implement a mixed-prompt training strategy. 
+
+Mixing Strategy: We use a long_ratio of 0.7, meaning 70% of samples use long captions and 30% use short captions. Samples are assigned using a fixed random seed. 
+
+Dataset Scale: The final mixed training set contains 15,500 images, comprising 8,000 from Human-Art, 5,000 from CrowdPose, and 2,500 from OCHuman. 
+
+Format: All metadata is stored in a unified JSON mapping, pairing image paths with synchronized captions and pose files. 
+
+## B Implementation details 
+
+SD3.5-Medium serves as the pre-trained backbone. In the triple-stream architecture, the pose stream activation layer Lp is set to 12 , and the injection scale α is set to 0.5. The model is optimized using Adam with a learning rate of 4 × 10 −5. A separate learning rate of 10 −4 with FP32 precision optimization is applied to the ten learnable relational bias parameters. For the spatial loss weighting strategy, the threshold τt is set to 0.5, and λeff undergoes a linear warmup over the first 500 steps. Following standard practice, text prompts are randomly dropped with a probability of 0.1 to strengthen pose guidance. During inference, text prompts are retained, and DDIM sampling with 50 steps is employed for image generation. The model is trained for 6000 steps on the Human-Art dataset using three NVIDIA A40 GPUs, with bias mask dropout enabled at a probability of 0.2 to improve generalization. 
+
+## C Evaluation Metrics 
+
+To provide a multi-dimensional assessment of TrioPose, we employ six quantitative metrics catego-rized into pose accuracy, image quality, and semantic alignment. 
+
+C.1 Pose Accuracy Metrics 
+
+These metrics quantify the structural fidelity of the generated human instances relative to the input pose conditions: 13 Average Precision (AP): Following the standard COCO evaluation protocol, we use a pre-trained ViTPose-H estimator to extract keypoints from the generated images. The AP is calculated by comparing these extracted keypoints against the ground-truth conditional poses using Object Keypoint Similarity (OKS) thresholds. 
+
+Cosine Similarity-based Average Precision (CAP): CAP measures the angular alignment of limb vectors between the generated and conditional poses. It provides a more nuanced evaluation of joint orientations, which is particularly critical in complex, multi-person overlapping scenarios. 
+
+Person Count Error (PCE): PCE evaluates the model’s ability to generate the exact number of human instances specified by the pose condition. It is defined as the absolute difference between the number of detected persons in the generated image and the number of instances in the input pose map. 
+
+C.2 Image Fidelity and Diversity 
+
+We evaluate the visual realism and distribution alignment of the synthesized results using the follow-ing: 
+
+Fréchet Inception Distance (FID): FID calculates the Fréchet distance between Gaussian distribu-tions fitted to features extracted by a pre-trained Inception-V3 network for both real and generated image sets. Lower FID values indicate higher image fidelity and better coverage of the real data distribution. 
+
+Kernel Inception Distance (KID): KID measures the squared Maximum Mean Discrepancy (MMD) between Inception representations. Unlike FID, KID is an unbiased estimator, making it more reliable for smaller validation sets. Note that in our quantitative reports, KID values are scaled by 100 for better readability. 
+
+C.3 Text-Image Semantic Alignment 
+
+CLIP Score: This metric utilizes a pre-trained CLIP (ViT-L/14) model to compute the cosine similarity between the latent embeddings of the generated image and the corresponding text prompt. It evaluates the model’s success in following complex semantic instructions and text-guided attribute synthesis. 
+
+## D Appendix: Dataset and Model Assets 
+
+In accordance with the NeurIPS 2026 guidelines, this section provides detailed documentation for all datasets and pre-trained models utilized in this research. We have strictly adhered to the licenses and terms of use stipulated by the original creators. 
+
+D.1 Detailed Asset Descriptions 
+
+Our framework and the comparative baselines are trained and evaluated on several distinct assets as described below: 
+
+Human-Art [ 11 ]: The Human-Art dataset comprises 38,000 images distributed across 19 distinct scenarios, encompassing natural scenes, 2D artificial scenarios (e.g., oil paintings, sketches), and 3D artificial scenarios (e.g., statues, digital art). We adopt the standardized train-validation split as suggested by the authors. The dataset is licensed under the Attribution-Non Commercial-Share Alike 4.0 International License (CC BY-NC-SA 4.0). 
+
+CrowdPose [ 14 ]: This dataset is specifically designed to address human pose estimation in crowded scenes. It contains approximately 20,000 images with 80,000 human instances. The images are categorized by a "crowd index" to reflect varying degrees of occlusion and instance density. It is released under the Creative Commons Attribution 4.0 International License (CC BY 4.0) for academic and non-commercial research purposes. 
+
+OCHuman [40 ]: The OCHuman dataset focuses on "Occluded Human" instances, providing 5,000 images with over 10,000 instances characterized by extreme overlap and occlusion (at least 50% of the body). It serves as a rigorous benchmark for multi-instance decoupling. The annotations are 14 licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0). 
+
+COCO-17 [16 ]: As a foundational benchmark, the MS-COCO 2017 dataset provides over 200,000 images across 80 object categories. For our task, we utilize the person category with standard 17-keypoint annotations. The dataset is licensed under the Creative Commons Attribution 4.0 License, posing no specific restrictions for research. 
+
+SD3.5-Medium [4]: This serves as our pre-trained generative backbone, utilizing a Multimodal Diffusion Transformer (MM-DiT) architecture. The model is released by Stability AI under the Sta-bility Community License, which allows free use for academic research and small-scale commercial applications. 
+
+Qwen3-VL [ 1]: We employ this state-of-the-art vision-language model to augment our training data with multi-granularity textual descriptions. The model and its weights are released under the Apache 2.0 License / Research License, supporting reproducible open-source development. 
+
+ViTPose [34 ]: A Vision Transformer-based pose estimator used in our Pose-Guided Spatial Loss Weighting strategy to extract keypoint heatmaps. The model is available under the Apache 2.0 License. 
+
+D.2 Asset Summary and Licensing 
+
+Table 6 provides a quick reference for the licensing information and primary utility of the core assets used in our experiments. Table 6: Summary of Dataset and Model Licenses                         
+
+> Asset Name Primary Use Creator/Source License Type
+> Human-Art Benchmark Ju et al. CC BY-NC-SA 4.0 CrowdPose Benchmark Li et al. CC BY 4.0 / Academic OCHuman Benchmark Zhang et al. CC BY-NC 4.0 COCO-17 Pre-training Microsoft COCO Team CC BY 4.0 SD3.5-Medium Backbone Model Stability AI Stability Community Qwen3-VL Data Augmentation Alibaba Qwen Team Apache 2.0 ViTPose Loss Weighting Xu et al. Apache 2.0
+
+D.3 Terms of Use and Compliance 
+
+For all assets listed above, we have ensured compliance with their respective legal frameworks: 
+
+Academic and Non-commercial Use: Benchmarks such as Human-Art and OCHuman are restricted to non-commercial research purposes. We have verified our usage aligns with these constraints and have not utilized the data for commercial product development. 
+
+Model Redistribution: The SD3.5-Medium model is governed by the Stability Community License, which permits free use for research. Our academic publication and proposed release of derived weights fall within these permitted boundaries. 
+
+Standardized Protocol: All datasets used in this research adhere to a standardized keypoint format featuring 17 keypoints per person, consistent with the COCO and Human-Art protocols. 
+
+Data Integrity: We have not re-distributed raw dataset files; instead, we provide scripts to acquire data directly from original sources to respect creators’ distribution rights. 15

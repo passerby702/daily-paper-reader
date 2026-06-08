@@ -6,41 +6,46 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-07
-- 运行时间：2026-06-07 21:19:54 UTC
+- 最新运行日期：2026-06-08
+- 运行时间：2026-06-08 21:53:44 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：4
-- 速读区：3
+- 本次总论文数：8
+- 精读区：3
+- 速读区：5
 
 ### 今日简报（AI）
-今日共处理7篇论文，精读4篇、速读3篇。最值得关注的是《Can We Extract Physics-like Energies from Generative Protein Diffusion Models?》（9.0分）在生成式蛋白质扩散模型中提取类物理能量的探索，以及《Uncertainty-Calibrated Diffusion for Reliable 3D Molecular Graph Generation》（8.0分）在分子图生成中引入不确定性校准。建议普通读者优先精读这两篇，关注扩散模型在蛋白质与分子生成领域的物理可解释性与可靠性提升。
-- 详情：[/202606/07/README](/202606/07/README)
+1) 今日8篇论文精读《ShallowBench》与《TrioPose》，聚焦药物设计浅口袋靶点基准测试和姿态引导图像生成。  
+2) 最值得看《ShallowBench》的浅口袋靶点评估方法，以及《AgentPLM》利用推理增强解码优化蛋白质序列设计。  
+3) 建议关注蛋白质序列设计中推理与扩散模型的融合，并测试浅口袋靶点的实际应用效果。
+- 详情：[/202606/08/README](/202606/08/README)
 
 ### 精读区论文标签
-1. [Can We Extract Physics-like Energies from Generative Protein Diffusion Models?](/202606/07/biorxiv-10-1101-2025-11-28-690021-v4-can-we-extract-physics-like-energies-from-generative-protein-diffusion-models)  
-   标签：评分：9.0/10、query:pocket-lig
-   evidence：分析蛋白质扩散模型用于分子设计和蛋白质-配体打分
-2. [Uncertainty-Calibrated Diffusion for Reliable 3D Molecular Graph Generation](/202606/07/2606.01595v1-uncertainty-calibrated-diffusion-for-reliable-3d-molecular-graph-generation)  
+1. [ShallowBench: Benchmarking Generative Drug Design Models on Shallow-Pocket Targets](/202606/08/2606.06717v1-shallowbench-benchmarking-generative-drug-design-models-on-shallow-pocket-targets)  
+   标签：评分：8.0/10、query:pocket-lig
+   evidence：针对浅口袋靶标的生成药物设计基准
+2. [TrioPose: Native Triple-Stream Diffusion Transformers for Pose-Guided Text-to-Image Generation](/202606/08/2606.07053v1-triopose-native-triple-stream-diffusion-transformers-for-pose-guided-text-to-image-generation)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：扩散模型用于3D分子图生成
-3. [Structured drift design for denoising diffusion models](/202606/07/2606.03360v1-structured-drift-design-for-denoising-diffusion-models)  
+   evidence：用于姿态引导文本到图像生成的多模态扩散Transformer
+3. [Generative Molecular Morphing for Flexible-Size Design via Unbalanced Optimal Transport](/202606/08/2606.07239v1-generative-molecular-morphing-for-flexible-size-design-via-unbalanced-optimal-transport)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：提出几何感知的扩散模型前向过程，提升样本质量和收敛速度
-4. [Scaling SMILES-Based Chemical Language Models for Therapeutic Peptide Engineering](/202606/07/biorxiv-10-64898-2026-01-06-697994-v4-scaling-smiles-based-chemical-language-models-for-therapeutic-peptide-engineering)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：用于治疗肽工程的化学语言模型
+   evidence：柔性尺寸分子生成，使用非平衡最优传输
 
 ### 速读区论文标签
-1. [Diffusing in the Right Space: A Systematic Study of Latent Diffusability](/202606/07/2606.03578v1-diffusing-in-the-right-space-a-systematic-study-of-latent-diffusability)  
+1. [AgentPLM: Agentic Protein Language Models with Reasoning-Augmented Decoding for Protein Sequence Design](/202606/08/2606.02386v1-agentplm-agentic-protein-language-models-with-reasoning-augmented-decoding-for-protein-sequence-design)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：对潜在扩散模型属性的系统性研究
-2. [Learning Implicit Bias in Generative Spaces for Accelerating Protein Dynamics Emulation](/202606/07/2606.01833v1-learning-implicit-bias-in-generative-spaces-for-accelerating-protein-dynamics-emulation)  
+   evidence：使用深度学习和强化学习进行蛋白质序列生成
+2. [Structured drift design for denoising diffusion models](/202606/08/2606.03360v1-structured-drift-design-for-denoising-diffusion-models)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：使用分数修正的蛋白质动力学生成仿真器，与分子生成相关
-3. [Structure-guided compound prioritization strategy for virtual screening identifies putative binders for the nuclear receptor LRH-1](/202606/07/biorxiv-10-64898-2026-06-04-730240-v1-structure-guided-compound-prioritization-strategy-for-virtual-screening-identifies-putative-binders-for-the-nuclear-receptor-lrh-1)  
+   evidence：提出结构化漂移设计改进扩散模型，有助于分子和3D生成等应用
+3. [HonestAffinity: Leak-Aware Evaluation of Protein and Pocket Priors for Binding Affinity Prediction](/202606/08/2606.03422v1-honestaffinity-leak-aware-evaluation-of-protein-and-pocket-priors-for-binding-affinity-prediction)  
    标签：评分：6.0/10、query:pocket-lig
-   evidence：使用生成模型盲对接优先排序LRH-1口袋的化合物
+   evidence：评估口袋先验用于亲和力预测，可应用于口袋条件生成
+4. [An Agentic Platform for Drug Repurposing Unified across Molecular, Phenotypic, and Clinical Scales](/202606/08/biorxiv-10-64898-2026-04-19-719462-v2-an-agentic-platform-for-drug-repurposing-unified-across-molecular-phenotypic-and-clinical-scales)  
+   标签：评分：6.0/10、query:pocket-lig
+   evidence：基于扩散的亲和力预测用于药物-靶标结合，属于口袋-配体主题
+5. [Structure-guided compound prioritization strategy for virtual screening identifies putative binders for the nuclear receptor LRH-1](/202606/08/biorxiv-10-64898-2026-06-04-730240-v1-structure-guided-compound-prioritization-strategy-for-virtual-screening-identifies-putative-binders-for-the-nuclear-receptor-lrh-1)  
+   标签：评分：6.0/10、query:pocket-lig
+   evidence：使用生成模型盲对接的结构引导化合物优先排序
 
 
 <div class="dpr-home-promo-card">
