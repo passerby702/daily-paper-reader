@@ -1,0 +1,1259 @@
+Title: Forward-Free Diffusion Language Models
+
+URL Source: https://arxiv.org/pdf/2606.08357v1
+
+Published Time: Tue, 09 Jun 2026 01:06:54 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# Forward-Free Diffusion Language Models 
+
+Haotian Sun Rushi Qiang Yuqian Zheng Bo Dai ∗
+
+Georgia Institute of Technology 
+
+haotian.sun@gatech.edu, bodai@cc.gatech.edu 
+
+## Abstract 
+
+Diffusion language models generate text through iterative denoising, offering a powerful alternative to autoregressive generation. However, discrete language spaces lack a natural neighborhood structure for defining effective perturbations, so some artificial corruption schemes are proposed in the forward process. Such prescribed forward processes often produce states that are mathematically conve-nient but misaligned with drafts and errors encountered during generation, resulting in degraded sample quality. To address this limitation, we propose FReDA , a forward-free diffusion language model that eliminates the need for a hand-designed forward process. We formulate diffusion language modeling as recursive distri-bution refinement, in which model-generated drafts serve as implicit intermediate states, and the learned refinement model progressively moves the draft distribution toward the target distribution. Concretely, FReDA refines drafts by proposing can-didate draft sequences and either directly performing self-refinement or selecting among parallel candidates via best-of-N refinement. With this design, FReDA is neighborhood-agnostic, model-complexity-aware, and compatible with flexible refinement parameterizations. Extensive evaluations in the sub-8B regime show that FReDA -4B outperforms larger diffusion base models on reasoning and coding benchmarks, achieving absolute gains of up to 15%, while reaching a 1.5-1.8 ×
+
+average speedup over diffusion baselines and scaling effectively with additional refinement computation. 
+
+## 1 Introduction 
+
+Diffusion models have emerged as a powerful generative paradigm across diverse domains, including image synthesis [ 32 , 55 ], biological sequence generation [ 6, 1], and language modeling [ 44 , 5 , 57 ]. Unlike autoregressive (AR) models, which generate sequences via a left-to-right factorization, diffu-sion models formulate generation as an iterative refinement process that transforms samples from a simple initial distribution towards the target distribution through learned backward transitions, there-fore, have the potential to improve long-horizon text modeling and accelerate generation procedure. Conventional diffusion models typically prescribe a forward noising process that gradually perturbs data samples under a predefined noise schedule [ 32 , 59 ] from the initial distribution. This forward process defines the intermediate distribution path that the backward model learns to invert, thereby strongly shaping the difficulty of both training and inference [ 5, 49 , 36 ]. In continuous domains, this paradigm is naturally supported by Gaussian perturbations, which exploit local neighborhoods under Euclidean geometry and preserve meaningful proximity between nearby states [ 32 , 61 ]. In discrete language modeling, however, there is no analogous canonical geometry for noise design. Token indices carry no intrinsic metric, and semantic proximity is highly context-dependent [ 5, 22 ]. Consequently, the choice of initial distribution and forward corruption process becomes the key in modeling languages with diffusion: a poorly matched forward process may induce intermediate states 
+
+> ∗Corresponding author. Preprint.
+> arXiv:2606.08357v1 [cs.CL] 6 Jun 2026
+
+that are misaligned with the drafts and errors encountered during generation, making the learned backward transitions less effective [3, 29]. Plenty of structured perturbation attempts have been proposed in diffusion language modeling, including structured discrete transition kernels [ 33 , 10 , 5 ], absorbing-state masking [ 57 , 59 ], discrete score-based objectives [ 44 , 74 ], and scaling recipes adapted from autoregressive models [ 26 , 50 ,18 , 71 ]. However, discrete diffusion methods with such predefined corruption paths still exhibit a significant performance gap relative to AR models in language modeling [ 5, 28 , 30 , 44 ], showing that without a natural neighborhood structure in discrete language spaces, the best design of perturbation is still unclear. By witnessing the difficulty in forward perturbation design in discrete space, we revisit the problem and are wondering whether we can bypass the need for a hand-designed forward corruption process. We propose Forward-F Re e Diffusion L Anguage Model ( FReDA ) to echo the question affirmatively. We emphasize that diffusion language models recursively refine distribution from an initial draft distribution, and progressively close the gap to the target data distribution via the learned reverse transition. Motivated by this view, FReDA uses the drafts generated from premature model as implicit intermediate states, allowing the distributional path to be induced by the sampler itself rather than prescribed by an external noising schedule. This design makes FReDA both neighborhood agnostic , i.e. , avoiding artificial token-level perturbations in the discrete space, and model flexibility aware , i.e. , allowing each refinement step to improve the current draft as much as possible from the expressiveness of the learned transition model. FReDA naturally supports arbitrary flexible refinement parameterizations, and we instantiate it with two designs: 1) self-refinement, which directly revises the model’s own draft; and 2) stochastic best-of-N refinement, which proposes multiple candidate sequences in parallel, with an additional score head to select the most promising one. At inference time, FReDA repeatedly proposes candidate sequences and refines its own drafts, aligning training with the generation dynamics rather than predefined corruptions. This also enables flexible inference-time scaling, allowing early exit from intermediate marginals with limited computation or additional refinement steps to improve sample quality. We train FReDA at the 4B scale using a 10B-token continued-pretraining corpus, which is substantially smaller than the training budgets used by several competing diffusion baselines. We also evaluate it extensively across general knowledge, mathematical reasoning, and code generation benchmarks in the sub-8B regime. Although substantially smaller than several competing diffusion models, FReDA -4B surpasses 7-8B diffusion base models on four reasoning and coding benchmarks, achieving absolute improvements of 5-15%, while remaining competitive on general knowledge tasks. FReDA 
+
+also establishes a stronger quality-speed Pareto frontier, requiring fewer forward passes to reach comparable accuracy and generating more tokens per forward pass than existing diffusion baselines, with an average speedup of 1.5-1.8 ×. Additional analyses further show that FReDA scales effectively with refinement computation, yielding consistent gains over refinement iterations. Our main contributions are as follows: (1) We propose FReDA , a forward-free diffusion lan-guage model that uses model-generated drafts as implicit intermediate states and learns to refine them through flexible refinement parameterizations, enabling neighborhood-agnostic and model-complexity-aware generation in discrete language space. (2) We empirically evaluate FReDA across general knowledge, mathematical reasoning, and code generation benchmarks, demonstrating that 
+
+FReDA -4B substantially outperforms 7-8B diffusion baselines and establishes a strong quality-speed Pareto frontier. 
+
+## 2 Preliminaries 
+
+Discrete diffusion models Let x = ( x1, . . . , x L) ∈ V L denote a discrete sequence over a finite vocabulary V, and let p0(x) denote the target data distribution. A diffusion model defines generation through a learned backward process, 
+
+pθ (x0: T ) = pT (xT ) QTt=1 pθ,t (xt−1 | xt) , (1) where xT is sampled from a simple initial distribution, x0 denotes target samples, and x1: T −1 are auxiliary intermediate variables. Without additional structure, these intermediate variables are latent, making it generally intractable to directly maximize the marginal likelihood for pθ (x0). Conventional diffusion models bypass this complication by prescribing a forward corruption process, 
+
+q (x0: T ) = p (x0) QTt=1 qt (xt | xt−1) , (2) 2which defines an auxiliary joint distribution over clean data and corrupted states. Training can then be written as joint distribution matching, 
+
+min  
+
+> θ
+
+KL( q (x0: T ) ∥ pθ (x0: T )) . (3) For diffusion language modeling, a common choice is masked diffusion models (MDM), where the forward process qt is absorbing-state masking corruption [59, 57], 
+
+qt (zi | xi) = αt1{zi = xi} + (1 − αt)1{zi = [MASK] }, (4) where each token is either kept unchanged or replaced by a mask token [MASK] controlled by some predefined masking schedule αt. The resulting masked diffusion objective reduces to a weighted denoising loss over masking-corrupted positions, 
+
+LMDM (θ) = Et, x0,xt∼qt(·| x0)
+
+h
+
+λt
+
+P 
+
+> i:xt,i =[MASK]
+
+− log pθ (x0,i | xt, t )
+
+i
+
+, (5) where λt is determined by the masking schedule. 
+
+Complications in forward process design The objective in Eq. (5) highlights the central role of the forward corruption process, which specifies both the training inputs xt and the distributional path q (x0: T ) that the learned backward process learns to invert. Thus, the difficulty of learning and inference is strongly determined by how the forward process decomposes the gap between the initial distribution and the target distribution. While Gaussian perturbations provide a natural local geometry in continuous diffusion [ 32 , 61 ], discrete language modeling has no intrinsic analogue. For MDM with absorbing-state masking in Eq. (4) , the induced neighborhood of token a degenerates to Nt(a) = {a, [MASK] }, where each token can only remain unchanged or collapse to the shared absorbing state. Therefore, no direct token-to-token proximity is preserved [ 3, 29 ]. As a result, the model is trained on mathematically convenient intermediate states that may be misaligned with the drafts and errors encountered during generation. 
+
+## 3 FReDA : Forward-Free Diffusion Language Model 
+
+To address these challenges in discrete diffusion, we formulate a forward-free diffusion model in which refinement is learned directly from sampler-induced intermediate drafts. We outline the proposed FReDA below and defer detailed derivations and proofs to Appendix A. 
+
+3.1 Diffusion via Recursive Marginal Refinement Draft distribution initialization We begin by defining an initial draft distribution pθ,T . Since the goal is to approximate the target data distribution p0 (x), a natural design principle is to make 
+
+pθ,T (x) as close as possible to p0 (x), thereby reducing the number of refinement iterations required at inference time. This leads to the initial matching objective 
+
+min  
+
+> θ
+
+KL( p0(x) ∥ pθ,T (x)) . (6) If pθ,T = p0, generation can be performed in a single step and no refinement is needed. In practice, finite model capacity, factorized decoding, and imperfect optimization introduce an approximation gap between pθ,T and p0.
+
+Recursive marginal refinement To close this gap, we introduce refinement transitions 
+
+Kθ,t (x | x′) , x′ ∼ pθ,t , t = T, T − 1, . . . , 1, (7) where each transition maps samples from the current draft distribution toward the target distribution. Applying Kθ,t to the current marginal pθ,t induces a refined marginal 
+
+pθ,t −1(x) = R Kθ,t (x | x′) pθ,t (x′) dx′. (8) Recursive application of these transitions yields a sequence of model-induced marginals which progressively closes the gap to the target distribution p0. Unlike conventional diffusion, this path is not prescribed by a hand-designed forward corruption process, but instead emerges from the learned refinement dynamics themselves. 
+
+Refinement learning objective Given the current draft marginal pθ,t , the ideal refinement transition should make the next marginal pθ,t −1 closer to p0. Plugging Eq. (8) into Eq. (6) gives 
+
+min  
+
+> θ
+
+KL  p0(x) R Kθ,t (x | x′)pθ,t (x′) dx′ . (9) This objective requires marginalizing over drafts x′, which makes direct optimization difficult. Variational learning through evidence lower bound (ELBO) is a potential choice [2], 3Proposition 1 (Joint surrogate for marginal refinement) . For any refinement kernel Kθ,t (x | x′) and any coupling γt(x, x′) with marginals p0(x) and pθ,t (x′), we have 
+
+KL  p0(x) R Kθ,t (x | x′)pθ,t (x′) dx′ ⩽ KL( γt(x, x′) ∥ Kθ,t (x | x′)pθ,t (x′)) . (10) 
+
+The equivalency holds if γt (x, x′) = p0(x)q(x′|x), where q(x′|x) = Kθ,t (x|x′)pθ,t (x′)R Kθ,t (x|x′)pθ,t (x′)dx′ .
+
+However, the ELBO quickly becomes unaffordable in terms of computation and memory cost w.r.t. the model size increasing, due to the requirement of the auxiliary model for posterior q(x′|x)
+
+approximation. We hereby introduce a tractable and efficient coupling, which is inherited from the diffusion learning spirit, therefore, without explicit posterior approximation; meanwhile, without predefined forward perturbation, therefore, bypassing the presumed neighborhood in discrete space. Intuitively, we revisit the generation procedure: given the target x, the model is gradually refining the output x′ aiming towards x, which implies γ (x, x′) = p0 (x)q (x′|x) should reflect the reverse of such a generation procedure. Such a dependency can be easily induced through the current learned 
+
+pθ,t (·). Concretely, given the context y of x, which could be the prefix or random mask version of x
+
+in unconditional generation or the corresponding prompts in conditional generation, we can easily construct q(x′|x) = pθ,t (x′|y). For the detailed efficient implementation of the sampling operation, please refer to Appendix C. With our construction, the refinement kernel is pushing further towards the ground truth x from current intermediate output x′, therefore, we obtain our objective, 
+
+min  
+
+> θ
+
+Lt(θ) := −Ex∼p0,x′∼pθ,t [log Kθ,t (x | x′)] . (11) This joint probability facilitates learning the marginal objective in Eq. (9) through the tractable surrogate established in Proposition 1. After learning Kθ,t , next draft marginal pθ,t −1 becomes available through Eq. (8) and we repeat the procedure to further reduce the gap between the current draft distribution and the target distribution. In FReDA , the joint γt is constructed from model-generated drafts x′ ∼ ˜pθ,t and clean targets x ∼ p0
+
+under the same conditioning context, rather than from a predefined forward perturbation. Thus, the intermediate states used for learning are induced by the sampler itself. This recursive marginal refinement formulation has two practical benefits. 
+
+Neighborhood-agnostic refinement By removing the explicit forward corruption process, FReDA 
+
+does not require a predefined token-level neighborhood perturbation. This is especially important in discrete language spaces, where there is no canonical metric for deciding which token states should be treated as nearby or easily reversible. 
+
+Capacity-adaptive refinement In our construction, each refinement transition is trained to move the current draft distribution closer to the target distribution p0. Since Kθ,t is constrained by finite model capacity and finite candidate search, each refinement step closes only the portion of the remaining distributional gap that the current parameterization can represent. As a result, the useful number of refinement steps adapts naturally to the expressiveness of the learned refinement model. Furthermore, we also provide formal justifications for the good properties of recursive marginal refinement in Appendix A, showing that the joint surrogate upper-bounds the marginal refinement objective, preserves the target marginal at the optimum, and yields monotonic improvement under ideal refinement. 
+
+3.2 Parameterization Design for Refinement Transitions 
+
+The FReDA framework allows flexible parameterizations of the refinement transition Kθ . In the following, we discuss two design choices for Kθ .
+
+Self-refinement. Given a current draft x′, the model predicts a clean sequence through a token-factorized conditional distribution, 
+
+KSR  
+
+> θ
+
+(x | x′) = QLi=1 KSR  
+
+> θ
+
+(xi | x′) , (12) where the model conditions on the full current draft and outputs per-token refinement probabilities. Plugging (12) into Eq. (11) gives the self-refinement objective 
+
+min  
+
+> θ
+
+LSR (θ) := −Et, x∼p0, x′
+
+> t∼pθ,t
+
+hPLi=1 log KSR  
+
+> θ
+
+(xi | x′
+
+> t
+
+)
+
+i
+
+. (13) 4At inference time, the model repeatedly feeds its own predicted draft back into the same refinement operator: xk+1 = Decode  KSR  
+
+> θ
+
+(· | yk), where Decode( ·) can be greedy decoding, sampling, or threshold-based commitment. This yields a stochastic fixed-point refinement process in which high-quality samples should become increasingly stable as refinement proceeds. 
+
+Best-of-N refinement. The self-refinement parameterization in Eq. (12) follows a single refinement trajectory from each draft. To expand the search space, we further introduce a stochastic best-of-N
+
+refinement parameterization. Given a current draft x′, the self-refinement proposer Kθ, SR (x | x′)
+
+first generates N candidate refined sequences, 
+
+{xi}Ni=1 ∼ KSR  
+
+> θ
+
+(· | x′) . (14) We then augment the proposer with a learned scorer Qψ (·) that evaluates and selects the top candidate via a stochastic best-of-N refinement step, 
+
+J = arg max   
+
+> j∈[N]
+
+{Qψ (xj ) + ξj } , ξj ∼ Gumbel(0 , 1) , x⋆ = xJ . (15) By the Gumbel-Max trick [46], the selected samples follows 
+
+x⋆ ∼ P
+
+
+
+x⋆ = xℓ | { xi}Ni=1 
+
+
+
+= exp( τ Q ψ (xℓ))     
+
+> PNj=1 exp( τ Q ψ(xj))
+
+, (16) where τ is the temperature factor. The finite-candidate selection rule induces a valid refinement parameterization as depicted in Proposition 2. 
+
+Proposition 2 (Induced best-of-N refinement transition) . Without loss of generality, we assume x1
+
+corresponds to the best candidate. This parameterizes the refinement probability as 
+
+KBoN  
+
+> θ,ψ
+
+(x⋆ = x1 | x′) ∝
+
+KSR  
+
+> θ
+
+(x1 | x′) Ex2: N ∼KSR  
+
+> θ(xi|x′)
+
+ exp( τ Q ψ (x1)) exp( τ Q ψ (x1))+ PNj=2 exp( τ Q ψ (xj )) 
+
+
+
+, (17) which shows that best-of-N refinement selects the self-refinement proposal toward candidates pre-ferred by the learned scorer. Optimizing Eq. (11) with the transition defined in Eq. (17) leads to a tractable objective for best-of-N refinement 
+
+min  
+
+> ψ
+
+LBoN (ψ) := Et, x1∼p0, {xi}Ni=2 ∼KSR  
+
+> θ(·| x′)
+
+h
+
+−Qψ (x1) + log PNj=1 exp ( Qψ (xj )) 
+
+i
+
+. (18) During this stage, the proposal distribution KSR  
+
+> θ
+
+(· | x′) is treated with stop-gradient, so that LBoN 
+
+optimizes only the scorer head parameters. Through Eq. (18) , the scorer learns how much more likely a candidate is under the target distribution than under the self-refinement proposal, enabling best-of-N decoding to select higher-quality refinements from parallel candidates. 
+
+3.3 Discussions and Implementation 
+
+We discuss several key properties of FReDA and its connections to related refinement-based generative modeling frameworks. 
+
+Flexible inference The learned refinement chain in Eq. (11) naturally induces a sampling procedure of the same form as the backward process in Eq. (1) . However, forward-free refinement also enables more flexible inference beyond a fixed-horizon diffusion sampler. Since each refinement stage is trained to move the current marginal pθ,t closer to the target distribution p0, any intermediate marginal can serve as an approximate generator when computation is limited. Conversely, once the learned refinement dynamics approach the target distribution, the transition approximately preserves p0:
+
+p0(x′
+
+> 0
+
+) ≈ R Kθ (x′ 
+
+> 0
+
+| x0) p0(x0) dx0, which indicates that p0 is approximately stationary under the learned refinement transition, allowing additional refinement iterations beyond the training horizon. Thus, FReDA provides a controllable quality-cost tradeoff at inference time, where one can stop early for faster decoding or apply more refinement steps to improve sample quality. Detailed empirical studies are provided in Sec. 4.2. 
+
+Connections to iterative refinement methods The proposed formulation is related to several broader ideas in generative modeling and search. Consistency models [ 60 ] learn direct maps from arbitrary noisy states xt to clean data x0 and enforce agreement along a prescribed diffusion trajectory. 
+
+FReDA shares the x0-prediction perspective but eliminates the prescribed trajectory. This perspective casts FReDA as a forward-free consistency model, where consistency is induced by the fixed-point behavior of the learned refinement operator rather than imposed along a predefined diffusion trajectory. 5Table 1: Performance comparison (%) of AR and diffusion base models under 8B parameters across general knowledge, mathematics, and coding benchmarks. Numbers in parentheses denote the number of shots used for evaluation. Among diffusion base models, the best and second-best scores are highlighted in bold and underlining , respectively. ∗The DiffuLLaMA-7B GSM8K result is taken from the corresponding fine-tuned setting reported in the original source. “–” indicates that the model is not open-sourced and the corresponding result is not reported, or meaningful generation could not be obtained.                                                                            
+
+> Tasks ( →)General Knowledge Mathematics Coding Method ( ↓)MMLU (5) GPQA-D (5) GSM8K (4) MATH-500 (4) HumanEval (0) HumanEval+ (0)
+> AR Base Models
+> Qwen2.5-3B-Base [52] 65.60 26.30 79.10 42.60 42.10 36.00 Qwen3-4B-Base [70] 71.76 33.68 84.99 52.60 65.24 57.93
+> Diffusion Base Models
+> DiffuLLaMA-7B [26] 27.42 22.80 63.10 ∗11.00 ––LLaDA-MoE-7B-A1B-Base [75] 64.59 28.50 66.41 41.20 45.73 42.07 Dream-7B-Base [71] 69.50 36.60 81.00 39.20 57.90 50.00 LLaDA-8B-Base [50] 65.90 25.20 74.37 39.60 35.40 31.10 TiDAR-8B (Trust AR) [42] 76.57 –79.83 –55.49 52.44 TiDAR-8B (Trust Diff) [42] ––80.44 –57.93 55.49 BlockDiff-4B [4] 64.56 33.68 77.33 50.60 57.32 51.83
+> FReDA -4B (Self-refine) 69.11 36.27 83.55 51.98 60.98 58.54
+> FReDA -4B (Best-of-N) 69.11 36.27 84.15 53.00 63.41 59.76
+
+The proposed best-of-N design is also related to learning-to-search [ 13 ], since the refinement KBoN 
+
+> θ,ψ
+
+learns to evaluate among model-generated candidate drafts under the same dynamics used at inference time. Finally, the marginal recursion in Eq. (8) is conceptually related to power iteration over distributions, where repeated application of an operator moves a distribution toward a fixed point. Variational power methods [ 66 ] estimate stationary distributions of Markov chains by learning correction ratios from sampled transitions. From this view, the learned scorer acts as a density-ratio correction between target refinements and proposal candidates, allowing best-of-N refinement to reweight sampler-induced candidates toward the target distribution. 
+
+Key implementation choices We adopt several practical designs to make recursive refinement efficient and stable. (1) Iteration-sampled training. For each sample, we start from a blank sequence and run the proposer for t refinement iterations, where t ∼ Unif ( {1, . . . , K }) and K
+
+is a hyperparameter. Gradients are stopped through the first t − 1 refinement steps and applied only to the final step, covering both initial draft prediction and later-stage refinement with limited training overhead. (2) Blockwise semi-causal attention. For sequence generation, we use blockwise semi-causal attention with block size B, where token i can attend to token j if their block indices satisfy b(j) ⩽ b(i), allowing bidirectional attention within each block and causal attention across previous blocks, similar to block diffusion [ 4 ]. The bidirectional within-block attention enables global refinement and scoring over the current block, while the causal structure across blocks preserves efficient left-to-right block generation. (3) Efficient Best-of-N scoring. For Best-of-N refinement, we generate high-quality candidates using marginal-cost beam search (Pseudocode in Appendix C). Empirically, we select candidates using log Kθ, SR (x | x′) + τ Q ψ (x) to combine proposal likelihood with the learned correction and mitigate prediction noise in both proposer and scorer (justifications for this design is available in Appendix A). (4) Shared backbone. For efficiency, the proposer and scorer share the same backbone parameters, with only a lightweight scorer head added for Best-of-N selection. Further details on the attention mask, training and inference pseudocode, scorer architecture, and hyperparameter choices are provided in Appendix C and Appendix D. 
+
+## 4 Evaluations 
+
+Training setups We build FReDA on top of Qwen3-4B-Base [ 70 ] and perform continued pretraining on a curated 10B-token data mixture containing several open-sourced datasets, which we decontami-nated against all evaluation benchmarks. The model adopts blockwise causal attention with a block size of 4, allowing bidirectional attention within each block while preserving causal attention across blocks. We implement this attention pattern with FlexAttention [ 21 ] to improve training efficiency. Training proceeds in two phases: 1) We continue pretraining for 8B tokens with the self-refinement 61 2 3 4 5              
+
+> # Refinement
+> 50
+> 60
+> 70
+> Accuracy (%)
+> Mathematics
+> +35.9
+> +49.7
+> +55.7 +55.9 +56.2
+> FRᴇDA (Best-of-N)
+> FRᴇDA (Self-refine)
+> 12345
+> # Refinement
+> 20
+> 40
+> 60
+> Coding
+> +16.2
+> +46.0
+> +55.8 +56.1 +56.4
+> 12345
+> # Refinement
+> 30
+> 50
+> 70
+> Overall
+> +25.9
+> +47.9
+> +55.7 +56.0 +56.3
+
+Figure 1: Iterative refinement continuously improves FReDA . Accuracy (%) of FReDA (Best-of-N) and FReDA (Self-refine) with increasing number of refinement iterations over initial draft on Mathematics, Coding, and Overall. We report the gain over the single-iteration baseline of the better variant at each iteration. For refinement iterations 4 and 5, early stopping is disabled to isolate the effect of additional refinement. objective in Eq. (13) , with the budget of refinement forwards K = 3 ; 2) We then branch into two refinement variants for the remaining 2B tokens. The self-refinement model continues to optimize the refinement objective, whereas the best-of-N model optimizes Eq. (18) using four model-generated negative candidates per instance ( N = 4 ). All training is conducted on 64 NVIDIA GH200 GPUs with a global batch size of 128. Further implementation details are presented in Appendix D. 
+
+Baseline models We compare FReDA -4B against representative diffusion base models below 8B parameters, including DiffuLLaMA [ 26 ], LLaDA-MoE-7B-A1B-Base [75 ], LLaDA-8B-Base [50 ], 
+
+Dream-7B-Base [ 71 ], and TiDAR-8B [42 ] (for which we report both the trusting-AR and trusting-diffusion variants). For a controlled efficiency comparison with masked-diffusion training, we further train a BlockDiff-4B baseline using the same training setups as FReDA , following the blockwise masked diffusion formulation in [4]. 
+
+Evaluation benchmarks We evaluate FReDA and baselines on six benchmarks spanning General Knowledge (MMLU [ 31 ] and GPQA-Diamond [ 54 ]), Mathematical Reasoning (GSM8K [ 19 ] and MATH-500 [ 41 ]), and Code Generation (HumanEval [ 16 ] and HumanEval+ [ 43 ]). All evaluations follow the standard shot settings for base models [ 70 ] and report the final accuracy (%). As depicted in Sec. 3.2, we investigate FReDA of two parameterization designs: Self-refinement uses greedy decoding, and Best-of-N generates candidates via greedy marginal-cost beam search and evaluates them by log Kθ, SR (x | x′) + τ Q ψ (x) with τ = 0 .1.
+
+4.1 Main Results 
+
+Table 1 presents the decoding performance of FReDA and seven diffusion base models across general knowledge, mathematical reasoning, and code generation benchmarks. Overall, FReDA -4B achieves the strongest diffusion-model performance on four reasoning and coding benchmarks, despite be-ing smaller than several 7-8B competitors. The two variants of FReDA validate the effectiveness of forward-free refinement. With best-of-N refinement, FReDA improves over the strongest prior diffusion baselines by at least 2.60% on mathematical reasoning and 4.27% on code generation, and delivers gains of roughly 5-15% over representative larger diffusion models on most reasoning and coding tasks. Notably, FReDA achieves these gains with only a 10B-token continued-pretraining bud-get, whereas strong AR-adapted diffusion baselines such as Dream-7B-Base [ 71 ] and TiDAR-8B [ 42 ]reportedly use 600B and 50B tokens, respectively. Self-refinement also consistently outperforms existing diffusion baselines by at least 4.37% on reasoning and coding tasks, showing that recursive draft refinement alone is already effective. Under the same initial model and training data, FReDA also surpasses the BlockDiff-4B baseline trained with a masked-diffusion objective by 5.06% on average across all evaluated benchmarks [ 4]. Notably, FReDA -4B also matches or exceeds the Qwen3-4B AR base model across most of the evaluated benchmarks, suggesting that forward-free refinement can substantially narrow the gap between diffusion and autoregressive language models. 
+
+4.2 Inference Efficiency Improvement through refinement As discussed in Sec. 3.3, FReDA supports flexible inference by applying additional refinement iterations after the initial draft prediction. Figure 1 shows how 71.5 2.0 2.5 3.0              
+
+> TPF
+> 50
+> 70
+> 90
+> Accuracy (%)
+> GSM8K
+> 1.5 2.0 2.5 3.0
+> TPF
+> 20
+> 40
+> 60
+> MATH500
+> 1.5 2.0 2.5 3.0
+> TPF
+> 20
+> 40
+> 60
+> HumanEval
+> 1.5 2.0 2.5 3.0
+> TPF
+> 20
+> 40
+> 60
+> HumanEval+
+> FRᴇDA (Best-of-N) FRᴇDA (Self-refine) LLaDA-MoE-7B-A1B-Base Dream-7B-Base LLaDA-8B-Base
+
+Figure 2: FReDA Pareto frontier outperforms open diffusion baselines across math and coding tasks. Accuracy (%) of FReDA (Best-of-N) and FReDA (Self-refine) against tokens-per-forward (TPF) on GSM8K, MATH-500, HumanEval, and HumanEval+. The two FReDA curves are the Pareto envelopes of a joint sweep over the number of iterations and the confidence threshold for early stop; diffusion baselines follow each model’s native TPF schedule. performance evolves as the number of refinement steps increases. Across benchmarks of different domains, both parameterizations of FReDA substantially improve over the single-step draft baseline, with overall accuracy increasing from 25.9% at one refinement step to 56.3% after five steps. The gains are most pronounced in the early refinement stage: moving from one to three steps improves overall accuracy by nearly 30%, after which performance begins to converge. This convergence is consistent with a block size of 4, in which most refinable positions within each block are revisited after a small number of iterations. Comparing the two parameterizations, self-refinement is slightly stronger in the low-iteration regime, suggesting that greedy refinement can provide an efficient trajectory when only limited refinement computation is available. As the refinement budget increases, best-of-N becomes more effective and benefits from parallel candidate exploration and scorer-based selection. Overall, FReDA exhibits consistent self-improvement through iterative refinement and provides a controllable quality-compute tradeoff at inference time. 
+
+Speed–quality Pareto frontier A key feature of diffusion language models is their ability to generate multiple tokens per forward pass, often at the expense of sample quality. Figure 2 compares the speed-quality Pareto frontiers of FReDA and diffusion baselines. Across a wide range of tasks, both variants of FReDA achieve 1.5-2.5 tokens per forward while delivering at least 10% higher decoding accuracy. Moreover, FReDA matches the best performance of existing diffusion baselines with fewer forward passes, yielding an average generation speedup of 1.5-1.8 × at matched quality. Even in the high-throughput regime with more than 2.5 tokens per forward pass, FReDA remains competitive with, and often surpasses, the diffusion baselines. These results highlight that forward-free refinement improves not only generation quality but also the quality-speed trade-off over existing masking diffusion language models. 
+
+4.3 Ablation Studies 
+
+Table 2: Ablation of two proposed decod-ing strategies. Best-of-N selects candidates using log Kθ, SR (x | x′) + τ Q ψ (x).                    
+
+> Strategy τMath Coding Overall
+> Self-refine –67.77 59.76 63.76 Best-of-N 0.1 68.58 61.59 65.08
+> Best-of-N 0.3 68.58 61.28 64.93 Best-of-N 1.0 68.62 60.07 64.34
+
+Temperature factor in Best-of-N scorer Table 2 ab-lates the temperature τ in Best-of-N selection, where candidates are scored by log Kθ, SR (x | x′) + τ Q ψ (x).As shown in Sec. 3.2, the scorer is trained to estimate a correction to the backbone likelihood, corresponding to the log-probability gap between the target distribution and the proposal distribution. With τ = 0 .1, Best-of-N achieves the best overall performance and improves the average score of self-refinement by 1.32%. This suggests that the scorer is most effective as a calibrated correction signal rather than a dominant ranking objec-tive. Too large weights preserve similar mathematical performance but degrade coding and overall accuracy, suggesting that over-amplifying the scorer can introduce ranking noise. A reasonably small weight likely flips candidate preferences only when the estimated refinement gap is large, while retaining the backbone likelihood as the primary signal when scorer estimates are uncertain. 8Table 3: Ablation on refinement iterations and Best-of-N width. Iter/Width denotes the num-ber of refinement iterations and the number of Best-of-N candidates.                      
+
+> Iter/Width Math Coding Overall
+> 2/248.13 18.60 33.36
+> 2/448.82 (+0.70) 19.21 (+0.61) 34.01 (+0.65)
+> 4/268.14 60.98 64.56
+> 4/468.58 (+0.44) 61.59 (+0.61) 65.08 (+0.52)
+
+Search width in Best-of-N Table 3 studies the ef-fect of increasing the Best-of-N search width from 2 to 4 candidates under different refinement budgets. Although the gains are modest, increasing the width consistently improves performance across mathemat-ics, coding, and overall averages. With two refine-ment iterations, the larger candidate set improves the overall score by 0.65%, and with four iterations, it fur-ther improves it by 0.52%. This suggests that broader candidate exploration provides a reliable complemen-tary benefit to iterative refinement, and FReDA can exploit additional parallel inference computation by using a wider Best-of-N search. 
+
+Model parameterization We compare the two refinement parameterizations introduced in Sec. 3.2. In Table 1, Best-of-N achieves better final performance than self-refinement. This improvement comes from its ability to explore multiple candidates in parallel and use the learned scorer to select more reliable refinements. Hypothesically, the scorer may provide a useful correction signal beyond the base model’s likelihood, helping rectify generation-format errors in chain-of-thought reasoning and select syntactically or functionally better code snippets. This advantage is also reflected in Figure 2, where Best-of-N yields a slightly stronger Pareto frontier in the medium-throughput regime. On the other hand, self-refinement is more effective under limited refinement budgets, as shown in Figure 1, and often performs better in the high-throughput regime above 2.5 TPF. Overall, self-refinement is preferable for fast decoding, while Best-of-N provides stronger quality when additional candidate exploration is affordable. 
+
+## 5 Related Work 
+
+Discrete diffusion language models Discrete diffusion models adapt the iterative denoising paradigm to categorical spaces. Early work on discrete diffusion studies how to design corruption kernels for categorical data, including uniform, structured, nearest-neighbor, and absorbing-state tran-sitions [ 5, 33 , 10 ]. In language modeling, absorbing-state masking has become a dominant template, in which models learn to recover clean tokens from partially masked sequences [ 57 , 59 ]. Other formu-lations improve or reinterpret this paradigm through discrete score estimation, conditional-distribution modeling, or importance-sampling-based refinement of the reverse process [ 44 , 74 , 69 , 23 ]. Re-cent scaling efforts further show that diffusion language models can be trained or adapted at scaled model sizes up to 100B, substantially improving generation quality and downstream per-formance [ 26 , 75 , 50 , 71 , 18 , 17 , 9 , 8]. Despite this progress, most methods still define learning as a prescribed forward corruption process. FReDA departs from this paradigm by learning refinement directly from sampler-induced intermediate states. 
+
+Refinement-based language generation Drafting and refinement have been studied as alternatives to purely left-to-right AR generation. Edit-based generation methods revise sequences through insertion, deletion, or iterative rewriting, providing early evidence that language generation can be organized as refinement rather than strict autoregression [ 27 , 53 ]. Corrector-style samplers further model refinement as a reverse causal process, in which tokens are corrected while conditioning on already generated future context [ 24 ]. In diffusion language models, several methods augment masked-diffusion backbones with token-level correction or remasking heads that decide which positions should be revisited during generation [ 73 , 34 , 37 , 56 ]. Other approaches model refinement at the sequence level, combine diffusion proposals with AR verification and rejection sampling [ 11 , 42 ], or employ self-correction [ 35 , 72 , 8]. These methods show that refinement is a useful mechanism for improving draft quality and correcting local errors. Nevertheless, most of them still operate within a predefined masking or corruption framework, so the refinement dynamics remain tied to hand-designed intermediate states. By contrast, FReDA treats model-generated drafts themselves as the intermediate states and learns a forward-free refinement operator. 
+
+Efficient decoding for language models Improving inference efficiency is a central challenge for language models, especially when generation requires many sequential forward passes. For AR models, a large body of work accelerates decoding through multi-token prediction, speculative drafting, verification, and lightweight draft models [ 25 , 20 , 40 , 38 , 39 ]. Diffusion language models offer a different opportunity: they can update multiple tokens per forward pass, but this parallelism often introduces a quality-speed trade-off. Prior work improves diffusion decoding by controlling 9confidence thresholds [ 48 , 68 ], prediction entropy [ 7], or sampling policies [ 62 , 65 , 63 ]. Other methods transfer diffusion-forcing ideas to discrete generation [ 14 , 64 ], approximate KV-cache reuse [ 68 , 67 , 45 ], or combine diffusion proposal with autoregressive likelihood correction [ 11 , 42 , 15 ]. These approaches primarily accelerate or stabilize inference under an existing diffusion or hybrid decoding process. FReDA further improves the underlying refinement formulation itself, aligning training with the drafts used at inference time. 
+
+## 6 Conclusion 
+
+We introduced FReDA , a forward-free diffusion language model that learns generation through recursive refinement rather than a predefined corruption path. By using model-generated drafts as intermediate states, FReDA aligns training with sampling dynamics while avoiding hand-designed discrete perturbations. The framework is neighborhood-agnostic, model-complexity-aware, and compatible with flexible parameterizations including self-refinement and best-of-N refinement. Empirically, FReDA -4B outperforms larger 7-8B diffusion baselines while achieving a 1.5-1.8 ×
+
+average speedup. Overall, FReDA with forward-free recursive refinement offers a promising direction for efficient and high-quality diffusion-based language generation. 10 References 
+
+[1] S. Alamdari, N. Thakkar, R. van den Berg, A. X. Lu, N. Fusi, A. P. Amini, and K. K. Yang. Protein generation with evolutionary diffusion: sequence is all you need. bioRxiv , 2023. [2] A. G. ALIAS PARTH GOYAL, N. R. Ke, S. Ganguli, and Y. Bengio. Variational walkback: Learning a transition operator as a stochastic recurrent net. Advances in Neural Information Processing Systems , 30, 2017. [3] A. N. Amin, N. Gruver, and A. G. Wilson. Why Masking Diffusion Works: Condition on the Jump Schedule for Improved Discrete Diffusion. arXiv , 2025. [4] M. Arriola, A. Gokaslan, J. T. Chiu, Z. Yang, Z. Qi, J. Han, S. S. Sahoo, and V. Kuleshov. Block Diffusion: Interpolating Between Autoregressive and Diffusion Language Models. arXiv , 2025. [5] J. Austin, D. D. Johnson, J. Ho, D. Tarlow, and R. v. d. Berg. Structured Denoising Diffusion Models in Discrete State-Spaces. arXiv , 2021. [6] P. Avdeyev, C. Shi, Y. Tan, K. Dudnyk, and J. Zhou. Dirichlet diffusion score model for biological sequence generation, 2023. [7] H. Ben-Hamu, I. Gat, D. Severo, N. Nolte, and B. Karrer. Accelerated sampling from masked diffusion models via entropy bounded unmasking, 2025. [8] T. Bie, M. Cao, X. Cao, B. Chen, F. Chen, K. Chen, L. Du, D. Feng, H. Feng, M. Gong, Z. Gong, Y. Gu, J. Guan, K. Guan, H. He, Z. Huang, J. Jiang, Z. Jiang, Z. Lan, C. Li, J. Li, Z. Li, H. Liu, L. Liu, G. Lu, Y. Lu, Y. Ma, X. Mou, Z. Pan, K. Qiu, Y. Ren, J. Tan, Y. Tian, Z. Wang, L. Wei, T. Wu, Y. Xing, W. Ye, L. Zha, T. Zhang, X. Zhang, J. Zhao, D. Zheng, H. Zhong, W. Zhong, J. Zhou, J. Zhou, L. Zhu, M. Zhu, and Y. Zhuang. Llada2.1: Speeding up text diffusion via token editing, 2026. [9] T. Bie, M. Cao, K. Chen, L. Du, M. Gong, Z. Gong, Y. Gu, J. Hu, Z. Huang, Z. Lan, C. Li, C. Li, J. Li, Z. Li, H. Liu, L. Liu, G. Lu, X. Lu, Y. Ma, J. Tan, L. Wei, J.-R. Wen, Y. Xing, X. Zhang, J. Zhao, D. Zheng, J. Zhou, J. Zhou, Z. Zhou, L. Zhu, and Y. Zhuang. Llada2.0: Scaling up diffusion language models to 100b, 2025. [10] A. Campbell, J. Benton, V. D. Bortoli, T. Rainforth, G. Deligiannidis, and A. Doucet. Acontinuous time framework for discrete denoising models, 2022. [11] A. Campbell, V. D. Bortoli, J. Shi, and A. Doucet. Self-Speculative Masked Diffusions. arXiv ,2025. [12] A. Chandiramani, A. Blakeman, A. Olaoye, A. Gupta, A. Somasamudramath, A. Khattar, A. Adesoba, A. Renduchintala, A. Asif, A. Agrawal, et al. Nemotron 3 super: Open, efficient mixture-of-experts hybrid mamba-transformer model for agentic reasoning. arXiv preprint arXiv:2604.12374 , 2026. [13] K.-W. Chang, A. Krishnamurthy, A. Agarwal, H. D. III, and J. Langford. Learning to search better than your teacher, 2015. [14] B. Chen, D. M. Monso, Y. Du, M. Simchowitz, R. Tedrake, and V. Sitzmann. Diffusion forcing: Next-token prediction meets full-sequence diffusion, 2024. [15] J. Chen, Y. Liang, and Z. Liu. DFlash: Block Diffusion for Flash Speculative Decoding. arXiv ,2026. [16] M. Chen, J. Tworek, H. Jun, Q. Yuan, H. P. de Oliveira Pinto, J. Kaplan, H. Edwards, Y. Burda, N. Joseph, G. Brockman, A. Ray, R. Puri, G. Krueger, M. Petrov, H. Khlaaf, G. Sastry, P. Mishkin, B. Chan, S. Gray, N. Ryder, M. Pavlov, A. Power, L. Kaiser, M. Bavarian, C. Winter, P. Tillet, F. P. Such, D. Cummings, M. Plappert, F. Chantzis, E. Barnes, A. Herbert-Voss, W. H. Guss, A. Nichol, A. Paino, N. Tezak, J. Tang, I. Babuschkin, S. Balaji, S. Jain, W. Saunders, C. Hesse, A. N. Carr, J. Leike, J. Achiam, V. Misra, E. Morikawa, A. Radford, M. Knight, M. Brundage, M. Murati, K. Mayer, P. Welinder, B. McGrew, D. Amodei, S. McCandlish, I. Sutskever, and W. Zaremba. Evaluating large language models trained on code, 2021. 11 [17] Z. Chen, G. Fang, X. Ma, R. Yu, and X. Wang. DMax: Aggressive Parallel Decoding for dLLMs. arXiv , 2026. [18] S. Cheng, Y. Bian, D. Liu, L. Zhang, Q. Yao, Z. Tian, W. Wang, Q. Guo, K. Chen, B. Qi, and B. Zhou. SDAR: A Synergistic Diffusion-AutoRegression Paradigm for Scalable Sequence Generation. arXiv , 2025. [19] K. Cobbe, V. Kosaraju, M. Bavarian, M. Chen, H. Jun, L. Kaiser, M. Plappert, J. Tworek, J. Hilton, R. Nakano, C. Hesse, and J. Schulman. Training verifiers to solve math word problems, 2021. [20] DeepSeek-AI, A. Liu, B. Feng, B. Xue, B. Wang, B. Wu, C. Lu, C. Zhao, C. Deng, C. Zhang, C. Ruan, D. Dai, D. Guo, D. Yang, D. Chen, D. Ji, E. Li, F. Lin, F. Dai, F. Luo, G. Hao, G. Chen, G. Li, H. Zhang, H. Bao, H. Xu, H. Wang, H. Zhang, H. Ding, H. Xin, H. Gao, H. Li, H. Qu, J. L. Cai, J. Liang, J. Guo, J. Ni, J. Li, J. Wang, J. Chen, J. Chen, J. Yuan, J. Qiu, J. Li, J. Song, K. Dong, K. Hu, K. Gao, K. Guan, K. Huang, K. Yu, L. Wang, L. Zhang, L. Xu, L. Xia, L. Zhao, L. Wang, L. Zhang, M. Li, M. Wang, M. Zhang, M. Zhang, M. Tang, M. Li, N. Tian, P. Huang, P. Wang, P. Zhang, Q. Wang, Q. Zhu, Q. Chen, Q. Du, R. J. Chen, R. L. Jin, R. Ge, R. Zhang, R. Pan, R. Wang, R. Xu, R. Zhang, R. Chen, S. S. Li, S. Lu, S. Zhou, S. Chen, S. Wu, S. Ye, S. Ye, S. Ma, S. Wang, S. Zhou, S. Yu, S. Zhou, S. Pan, T. Wang, T. Yun, T. Pei, T. Sun, W. L. Xiao, W. Zeng, W. Zhao, W. An, W. Liu, W. Liang, W. Gao, W. Yu, W. Zhang, X. Q. Li, X. Jin, X. Wang, X. Bi, X. Liu, X. Wang, X. Shen, X. Chen, X. Zhang, X. Chen, X. Nie, X. Sun, X. Wang, X. Cheng, X. Liu, X. Xie, X. Liu, X. Yu, X. Song, X. Shan, X. Zhou, X. Yang, X. Li, X. Su, X. Lin, Y. K. Li, Y. Q. Wang, Y. X. Wei, Y. X. Zhu, Y. Zhang, Y. Xu, Y. Xu, Y. Huang, Y. Li, Y. Zhao, Y. Sun, Y. Li, Y. Wang, Y. Yu, Y. Zheng, Y. Zhang, Y. Shi, Y. Xiong, Y. He, Y. Tang, Y. Piao, Y. Wang, Y. Tan, Y. Ma, Y. Liu, Y. Guo, Y. Wu, Y. Ou, Y. Zhu, Y. Wang, Y. Gong, Y. Zou, Y. He, Y. Zha, Y. Xiong, Y. Ma, Y. Yan, Y. Luo, Y. You, Y. Liu, Y. Zhou, Z. F. Wu, Z. Z. Ren, Z. Ren, Z. Sha, Z. Fu, Z. Xu, Z. Huang, Z. Zhang, Z. Xie, Z. Zhang, Z. Hao, Z. Gou, Z. Ma, Z. Yan, Z. Shao, Z. Xu, Z. Wu, Z. Zhang, Z. Li, Z. Gu, Z. Zhu, Z. Liu, Z. Li, Z. Xie, Z. Song, Z. Gao, and Z. Pan. Deepseek-v3 technical report, 2025. [21] J. Dong, B. Feng, D. Guessous, Y. Liang, and H. He. Flex attention: A programming model for generating optimized attention kernels, 2024. [22] K. Ethayarajh. How contextual are contextualized word representations? comparing the geometry of bert, elmo, and gpt-2 embeddings, 2019. [23] I. Gat, T. Remez, N. Shaul, F. Kreuk, R. T. Q. Chen, G. Synnaeve, Y. Adi, and Y. Lipman. Discrete Flow Matching. arXiv , 2024. [24] I. Gat, N. Shaul, U. Singer, and Y. Lipman. Corrector Sampling in Language Models. arXiv ,2025. [25] F. Gloeckle, B. Y. Idrissi, B. Rozière, D. Lopez-Paz, and G. Synnaeve. Better & Faster large language models via multi-token prediction, 2024. [26] S. Gong, S. Agarwal, Y. Zhang, J. Ye, L. Zheng, M. Li, C. An, P. Zhao, W. Bi, J. Han, H. Peng, and L. Kong. Scaling Diffusion Language Models via Adaptation from Autoregressive Models. 
+
+arXiv , 2024. [27] J. Gu, C. Wang, and J. Zhao. Levenshtein Transformer. arXiv , 2019. [28] I. Gulrajani and T. B. Hashimoto. Likelihood-based diffusion language models. Advances in Neural Information Processing Systems , 36:16693–16715, 2023. [29] H. He, K. Renz, Y. Cao, and A. Geiger. Mdpo: Overcoming the training-inference divide of masked diffusion language models, 2025. [30] Z. He, T. Sun, Q. Tang, K. Wang, X.-J. Huang, and X. Qiu. Diffusionbert: Improving generative masked language models with diffusion models. In Proceedings of the 61st annual meeting of the association for computational linguistics (volume 1: Long papers) , pages 4521–4534, 2023. [31] D. Hendrycks, C. Burns, S. Basart, A. Zou, M. Mazeika, D. Song, and J. Steinhardt. Measuring massive multitask language understanding, 2021. 12 [32] J. Ho, A. Jain, and P. Abbeel. Denoising diffusion probabilistic models, 2020. [33] E. Hoogeboom, D. Nielsen, P. Jaini, P. Forré, and M. Welling. Argmax flows and multinomial diffusion: Learning categorical distributions, 2021. [34] Z. Huang, Y. Wang, Z. Chen, and G.-J. Qi. Don’t Settle Too Early: Self-Reflective Remasking for Diffusion Language Models. arXiv , 2025. [35] Y. Ji, T. Wang, Y. Ge, Z. Liu, S. Yang, Y. Shan, and P. Luo. From Denoising to Refining: A Corrective Framework for Vision-Language Diffusion Model. arXiv , 2025. [36] T. Karras, M. Aittala, T. Aila, and S. Laine. Elucidating the design space of diffusion-based generative models, 2022. [37] J. Kim, S. Kim, T. Lee, D. Z. Pan, H. Kim, S. Kakade, and S. Chen. Fine-Tuning Masked Diffusion for Provable Self-Correction. arXiv , 2025. [38] Y. Li, F. Wei, C. Zhang, and H. Zhang. Eagle-2: Faster inference of language models with dynamic draft trees, 2024. [39] Y. Li, F. Wei, C. Zhang, and H. Zhang. Eagle-3: Scaling up inference acceleration of large language models via training-time test, 2025. [40] Y. Li, F. Wei, C. Zhang, and H. Zhang. Eagle: Speculative sampling requires rethinking feature uncertainty, 2025. [41] H. Lightman, V. Kosaraju, Y. Burda, H. Edwards, B. Baker, T. Lee, J. Leike, J. Schulman, I. Sutskever, and K. Cobbe. Let’s verify step by step, 2023. [42] J. Liu, X. Dong, Z. Ye, R. Mehta, Y. Fu, V. Singh, J. Kautz, C. Zhang, and P. Molchanov. TiDAR: Think in Diffusion, Talk in Autoregression. arXiv , 2025. [43] J. Liu, C. S. Xia, Y. Wang, and L. Zhang. Is your code generated by chatgpt really correct? rigorous evaluation of large language models for code generation, 2023. [44] A. Lou, C. Meng, and S. Ermon. Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution. arXiv , 2023. [45] X. Ma, R. Yu, G. Fang, and X. Wang. dKV-Cache: The Cache for Diffusion Language Models. 
+
+arXiv , 2025. [46] C. J. Maddison, D. Tarlow, and T. Minka. A* sampling. Advances in neural information processing systems , 27, 2014. [47] R. K. Mahabadi, S. Satheesh, S. Prabhumoye, M. Patwary, M. Shoeybi, and B. Catanzaro. Nemotron-cc-math: A 133 billion-token-scale high quality math pretraining dataset, 2025. [48] A. Mohamed, Y. Zhang, M. Vazirgiannis, and G. Shang. Fast-decoding diffusion language models via progress-aware confidence schedules, 2025. [49] A. Q. Nichol and P. Dhariwal. Improved denoising diffusion probabilistic models. In M. Meila and T. Zhang, editors, Proceedings of the 38th International Conference on Machine Learning ,volume 139 of Proceedings of Machine Learning Research , pages 8162–8171. PMLR, 18–24 Jul 2021. [50] S. Nie, F. Zhu, Z. You, X. Zhang, J. Ou, J. Hu, J. Zhou, Y. Lin, J.-R. Wen, and C. Li. Large Language Diffusion Models. arXiv , 2025. [51] G. Penedo, H. Kydlíˇ cek, L. B. allal, A. Lozhkov, M. Mitchell, C. Raffel, L. V. Werra, and T. Wolf. The fineweb datasets: Decanting the web for the finest text data at scale, 2024. [52] Qwen, :, A. Yang, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Li, D. Liu, F. Huang, H. Wei, H. Lin, J. Yang, J. Tu, J. Zhang, J. Yang, J. Yang, J. Zhou, J. Lin, K. Dang, K. Lu, K. Bao, K. Yang, L. Yu, M. Li, M. Xue, P. Zhang, Q. Zhu, R. Men, R. Lin, T. Li, T. Tang, T. Xia, X. Ren, X. Ren, Y. Fan, Y. Su, Y. Zhang, Y. Wan, Y. Liu, Z. Cui, Z. Zhang, and Z. Qiu. Qwen2.5 Technical Report. arXiv , 2024. 13 [53] M. Reid, V. J. Hellendoorn, and G. Neubig. DiffusER: Discrete Diffusion via Edit-based Reconstruction. arXiv , 2022. [54] D. Rein, B. L. Hou, A. C. Stickland, J. Petty, R. Y. Pang, J. Dirani, J. Michael, and S. R. Bowman. Gpqa: A graduate-level google-proof Q&A benchmark, 2023. [55] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer. High-resolution image synthesis with latent diffusion models, 2022. [56] D. v. Rütte, J. Fluri, Y. Ding, A. Orvieto, B. Schölkopf, and T. Hofmann. Generalized Interpo-lating Discrete Diffusion. arXiv , 2025. [57] S. S. Sahoo, M. Arriola, Y. Schiff, A. Gokaslan, E. Marroquin, J. T. Chiu, A. Rush, and V. Kuleshov. Simple and Effective Masked Diffusion Language Models. arXiv , 2024. [58] A. Shabalin, V. Meshchaninov, and D. Vetrov. Smoothie: Smoothing Diffusion on Token Embeddings for Text Generation. arXiv , 2025. [59] J. Shi, K. Han, Z. Wang, A. Doucet, and M. K. Titsias. Simplified and Generalized Masked Diffusion for Discrete Data. arXiv , 2024. [60] Y. Song, P. Dhariwal, M. Chen, and I. Sutskever. Consistency models, 2023. [61] Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole. Score-based generative modeling through stochastic differential equations, 2021. [62] Y. Song, Z. Zhang, C. Luo, P. Gao, F. Xia, H. Luo, Z. Li, Y. Yang, H. Yu, X. Qu, Y. Fu, J. Su, G. Zhang, W. Huang, M. Wang, L. Yan, X. Jia, J. Liu, W.-Y. Ma, Y.-Q. Zhang, Y. Wu, and H. Zhou. Seed diffusion: A large-scale diffusion language model with high-speed inference, 2025. [63] K. Wang, Z. Jiang, H. Feng, W. Zhao, L. Liu, J. Li, Z. Lan, and W. Lin. CreditDecoding: Accelerating Parallel Decoding in Diffusion Large Language Models with Trace Credits. arXiv ,2025. [64] X. Wang, C. Xu, Y. Jin, J. Jin, H. Zhang, and Z. Deng. Diffusion llms can do faster-than-ar inference via discrete diffusion forcing, 2025. [65] Y. Wang, L. Yang, B. Li, Y. Tian, K. Shen, and M. Wang. Revolutionizing reinforcement learning framework for diffusion large language models, 2025. [66] J. Wen, B. Dai, L. Li, and D. Schuurmans. Batch stationary distribution estimation. arXiv preprint arXiv:2003.00722 , 2020. [67] C. Wu, H. Zhang, S. Xue, S. Diao, Y. Fu, Z. Liu, P. Molchanov, P. Luo, S. Han, and E. Xie. Fast-dllm v2: Efficient block-diffusion llm, 2025. [68] C. Wu, H. Zhang, S. Xue, Z. Liu, S. Diao, L. Zhu, P. Luo, S. Han, and E. Xie. Fast-dllm: Training-free acceleration of diffusion llm by enabling kv cache and parallel decoding, 2025. [69] M. Xu, T. Geffner, K. Kreis, W. Nie, Y. Xu, J. Leskovec, S. Ermon, and A. Vahdat. Energy-based diffusion language models for text generation. arXiv , 2024. [70] A. Yang, A. Li, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Gao, C. Huang, C. Lv, C. Zheng, D. Liu, F. Zhou, F. Huang, F. Hu, H. Ge, H. Wei, H. Lin, J. Tang, J. Yang, J. Tu, J. Zhang, J. Yang, J. Yang, J. Zhou, J. Zhou, J. Lin, K. Dang, K. Bao, K. Yang, L. Yu, L. Deng, M. Li, M. Xue, M. Li, P. Zhang, P. Wang, Q. Zhu, R. Men, R. Gao, S. Liu, S. Luo, T. Li, T. Tang, W. Yin, X. Ren, X. Wang, X. Zhang, X. Ren, Y. Fan, Y. Su, Y. Zhang, Y. Zhang, Y. Wan, Y. Liu, Z. Wang, Z. Cui, Z. Zhang, Z. Zhou, and Z. Qiu. Qwen3 Technical Report. arXiv , 2025. [71] J. Ye, Z. Xie, L. Zheng, J. Gao, Z. Wu, X. Jiang, Z. Li, and L. Kong. Dream 7B: Diffusion Large Language Models. arXiv , 2025. [72] S. Zhang, F. Z. Peng, Y. Zhang, J. Pan, and G. G. Chrysos. Corrective diffusion language models. arXiv preprint arXiv:2512.15596 , 2025. 14 [73] Y. Zhao, J. Shi, F. Chen, S. Druckmann, L. Mackey, and S. Linderman. Informed Correctors for Discrete Diffusion Models. arXiv , 2025. [74] K. Zheng, Y. Chen, H. Mao, M.-Y. Liu, J. Zhu, and Q. Zhang. Masked Diffusion Models are Secretly Time-Agnostic Masked Models and Exploit Inaccurate Categorical Sampling. arXiv ,2024. [75] F. Zhu, Z. You, Y. Xing, Z. Huang, L. Liu, Y. Zhuang, G. Lu, K. Wang, X. Wang, L. Wei, H. Guo, J. Hu, W. Ye, T. Chen, C. Li, C. Tang, H. Feng, J. Hu, J. Zhou, X. Zhang, Z. Lan, J. Zhao, D. Zheng, C. Li, J. Li, and J.-R. Wen. LLaDA-MoE: A Sparse MoE Diffusion Language Model. arXiv , 2025. 15 A Theoretical Derivations 
+
+A.1 Proof of Proposition 1 
+
+Proof. The marginal refinement objective is 
+
+KL 
+
+
+
+p0 (x) ∥
+
+Z
+
+Kθ,t (x | x′) pθ,t (x′) dx′
+
+
+
+=
+
+Z
+
+p0 (x) log p0 (x)
+
+R Kθ,t (x | x′) pθ,t (x′) dx′ dx.
+
+By Jensen’s inequality and the concavity of log , for every fixed x,Z
+
+q (x′|x) log Kθ,t (x | x′) pθ,t (x′)
+
+q (x′|x) dx′ ⩽ log 
+
+Z
+
+q (x′|x) Kθ,t (x | x′) pθ,t (x′)
+
+q (x′|x) dx′.
+
+Multiplying by p0 (x) and integrating over x gives 
+
+KL 
+
+
+
+p0 (x)
+
+Z
+
+Kθ,t (x | x′) pθ,t (x′) dx′
+
+
+
+⩽ KL( p0 (x) q(x′|x) ∥ Kθ,t (x | x′) pθ,t (x′)) .
+
+This proves the desired upper bound. 
+
+A.2 Derivation of Refinement Objective in Eq. (11) We show that minimizing the joint surrogate reduces to conditional negative log-likelihood training. We have proven that the original matching objective in Eq. (9) is upper-bounded by the joint surrogate 
+
+KL( p0 (x) pθ,t (x′) ∥ Kθ,t (x | x′) pθ,t (x′)) .
+
+Expanding the KL divergence gives 
+
+KL( p0 (x) pθ,t (x′|x) ∥ Kθ,t (x | x′) pθ,t (x′)) =
+
+Z
+
+p0 (x) pθ,t (x′|x) log p0 (x) pθ,t (x′|x)
+
+Kθ,t (x | x′) pθ,t (x′) dx dx′
+
+=
+
+Z
+
+p0 (x) pθ,t (x′) log ( p0 (x) pθ,t (x′)) dx dx′ −
+
+Z
+
+p0 (x) pθ,t (x′|x) log ( Kθ,t (x | x′) pθ,t (x′)) dx dx′
+
+∝ − Ex∼p0, x′∼pθ,t [log Kθ,t (x | x′)] .
+
+Therefore, minimizing the joint surrogate over Kθ,t is equivalent to minimizing 
+
+Lt (θ) = −Ex∼p0, x′∼pθ,t [log Kθ,t (x | x′)] .
+
+This proves Eq. (11). 
+
+A.3 Proof of Proposition 2 
+
+Proof. Given a draft x′, the self-refinement proposer draws N candidates independently, 
+
+x1, . . . , xN ∼ KSR  
+
+> θ
+
+(· | x′) .
+
+Conditioned on the candidate set {xi}Ni=1 , the Gumbel-Max selection rule selects candidate j with probability 
+
+P
+
+
+
+J = j | { xi}Ni=1 
+
+
+
+= exp ( τ Q ψ (xj )) 
+
+PNℓ=1 exp ( τ Q ψ (xℓ)) .
+
+We first compute the contribution of the event that the first candidate equals a given sequence x and is selected. Conditioning on x1 = x and integrating over the remaining candidates gives 
+
+P (x1 = x | x′)=
+
+Z
+
+P
+
+
+
+x1 is the best among {xi}Ni=1 | x′, {xi}Ni=1 
+
+
+
+Kθ, SR 
+
+
+
+{xi}Ni=1 | x′
+
+dx2: N
+
+= KSR  
+
+> θ
+
+(x | x′)
+
+Z NY
+
+> i=2
+
+KSR  
+
+> θ
+
+(xi | x′) exp ( τ Q ψ (x)) exp ( τ Q ψ (x)) + PNj=2 exp ( τ Q ψ (xj )) dx2: N
+
+= KSR  
+
+> θ
+
+(x | x′) Ex2: N ∼KSR  
+
+> θ(·| x′)
+
+"
+
+exp ( τ Q ψ (x)) exp ( τ Q ψ (x)) + PNj=2 exp ( τ Q ψ (xj )) 
+
+#
+
+.
+
+(19) Therefore, Eq. (19) gives the induced best-of-N refinement transition, 
+
+KBoN  
+
+> θ,ψ
+
+(x | x′) ∝ KSR  
+
+> θ
+
+(x | x′) Ex2: N ∼KSR  
+
+> θ(·| x′)
+
+"
+
+exp ( τ Q ψ (x)) exp ( τ Q ψ (x)) + PNj=2 exp ( τ Q ψ (xj )) 
+
+#
+
+.
+
+(20) 16 This proves Proposition 2. 
+
+A.4 Derivation of Eq. (18) We derive the tractable scorer objective by plugging the best-of-N refinement transition into the conditional refinement loss. Let x1 ∼ p0 denote the positive target sequence, and let x2, . . . , xN be proposal candidates sampled from KSR  
+
+> θ
+
+(· | x′). From Eq. (19) , the first-candidate contribution to the best-of-N transition is 
+
+KSR  
+
+> θ
+
+(x1 | x′) Ex2: N ∼KSR  
+
+> θ(·| x′)
+
+"
+
+exp ( τ Q ψ (x1)) exp ( τ Q ψ (x1)) + PNj=2 exp ( τ Q ψ (xj )) 
+
+#
+
+.
+
+Both N and KSR  
+
+> θ
+
+(x1 | x′) are independent of the scorer parameters during scorer training, since the proposer is treated with stop-gradient. Thus, the scorer-dependent part of the conditional refinement loss in Eq. (11) is 
+
+−Ex1∼p0
+
+"
+
+log Ex2: N ∼KSR  
+
+> θ(·| x′)
+
+"
+
+exp ( τ Q ψ (x1)) exp ( τ Q ψ (x1)) + PNj=2 exp ( τ Q ψ (xj )) 
+
+## 
+
+. (21) To obtain a tractable objective, we apply Jensen’s inequality. Since − log( ·) is convex, for any positive random variable R,
+
+− log E [R] ⩽ E [− log R] .
+
+Using 
+
+R = exp ( τ Q ψ (x1)) exp ( τ Q ψ (x1)) + PNj=2 exp ( τ Q ψ (xj )) ,
+
+Eq. (21) is upper-bounded by 
+
+−Et, x1∼p0, {xj }Nj=2 ∼KSR  
+
+> θ(·| x′)
+
+"
+
+log exp ( τ Q ψ (x1)) exp ( τ Q ψ (x1)) + PNj=2 exp ( τ Q ψ (xj )) 
+
+#
+
+.
+
+Therefore, dropping constants independent of the scorer gives 
+
+LBoN (ψ)=Et, x1∼p0, {xj }Nj=2 ∼KSR  
+
+> θ(·| x′)
+
+−τ Q ψ (x1) + log 
+
+exp ( τ Q ψ (x1)) + 
+
+> N
+
+X
+
+> j=2
+
+exp ( τ Q ψ (xj )) 
+
+ .
+
+This is Eq. (18). 
+
+A.5 Properties and Justifications of Recursive Marginal Refinement 
+
+Although the learned sampler has the backward-chain form 
+
+pθ (x0: T ) = pθ,T (xT )
+
+> T
+
+Y
+
+> t=1
+
+Kθ,t (xt−1 | xt) ,
+
+its learning procedure differs from conventional diffusion because the intermediate states are sampled from the model rather than generated by a predefined forward corruption path. We justify the recursive marginal refinement objective through two properties. 
+
+Proposition 3 (Marginal consistency) . Let γt (x, x′) = p0 (x) pθ,t (x′) be the product joint used in the refinement surrogate. If a refinement kernel K satisfies 
+
+KL( p0 (x) pθ,t (x′) ∥ K (x | x′) pθ,t (x′)) = 0 ,
+
+then the induced refined marginal matches the target distribution: Z
+
+K (x | x′) pθ,t (x′) dx′ = p0 (x) .
+
+More generally, if the joint surrogate is small, then the marginal refinement objective is also small: 
+
+KL( p0 ∥ Kp θ,t ) ⩽ KL( p0 (x) pθ,t (x′) ∥ K (x | x′) pθ,t (x′)) .
+
+Proof. If the joint surrogate equals zero, then the two joint distributions are equal almost everywhere: 
+
+p0 (x) pθ,t (x′) = K (x | x′) pθ,t (x′) .
+
+17 Integrating both sides over x′ gives Z
+
+p0 (x) pθ,t (x′) dx′ =
+
+Z
+
+K (x | x′) pθ,t (x′) dx′.
+
+Since pθ,t is normalized, the left-hand side is p0 (x). Therefore, 
+
+p0 (x) = 
+
+Z
+
+K (x | x′) pθ,t (x′) dx′,
+
+which proves exact marginal consistency. 
+
+Proposition 4 (Ideal monotonic refinement) . Let K be a refinement family that contains the identity kernel 
+
+I (x | x′) = 1 (x = x′) .
+
+Given the current draft marginal pθ,t , define the ideal refinement kernel as 
+
+K⋆t = arg min  
+
+> K∈K
+
+KL 
+
+
+
+p0 (x) ∥
+
+Z
+
+K (x | x′) pθ,t (x′) dx′
+
+
+
+.
+
+Let the corresponding ideal refined marginal be 
+
+p⋆θ,t −1 (x) = 
+
+Z
+
+K⋆t (x | x′) pθ,t (x′) dx′.
+
+Then the ideal refinement step cannot increase the marginal KL to the target distribution: 
+
+KL  p0 (x) ∥ p⋆θ,t −1 (x) ⩽ KL( p0 (x) ∥ pθ,t (x)) .
+
+Proof. By definition of K⋆t , we have 
+
+KL  p0 (x) ∥ p⋆θ,t −1 (x) = min  
+
+> K∈K
+
+KL 
+
+
+
+p0 (x) ∥
+
+Z
+
+K (x | x′) pθ,t (x′) dx′
+
+
+
+.
+
+Since K contains the identity kernel I (x | x′) = 1 (x = x′), the minimization over K includes the choice K = I. Therefore, 
+
+min  
+
+> K∈K
+
+KL 
+
+
+
+p0 (x) ∥
+
+Z
+
+K (x | x′) pθ,t (x′) dx′
+
+
+
+⩽ KL 
+
+
+
+p0 (x) ∥
+
+Z
+
+I (x | x′) pθ,t (x′) dx′
+
+
+
+.
+
+The identity kernel preserves the current marginal: Z
+
+I (x | x′) pθ,t (x′) dx′ = pθ,t (x) .
+
+Thus, 
+
+KL  p0 (x) ∥ p⋆θ,t −1 (x) ⩽ KL( p0 (x) ∥ pθ,t (x)) ,
+
+which proves the claim. 
+
+A.6 Interpretation of Empirical Best-of-N Selection 
+
+Let the proposal marginal induced by the current draft distribution and self-refinement proposer be 
+
+pSR  
+
+> θ,t
+
+(x) = 
+
+Z
+
+KSR  
+
+> θ
+
+(x | x′) pθ,t (x′) dx′.
+
+The finite-candidate ranking objective contrasts positives x1 ∼ p0 with proposal samples xj ∼ pSR  
+
+> θ,t
+
+.At the population optimum, the score logit satisfies 
+
+τ Q ⋆ψ (x) = log p0 (x) − log pSR  
+
+> θ,t
+
+(x) + C, 
+
+where C is independent of x. Thus, the scorer estimates how much more likely a sequence is under the target distribution than under the proposal marginal. This also motivates the empirical selection rule used in implementation. For candidates generated from a particular draft x′, ranking by 
+
+log KSR  
+
+> θ
+
+(x | x′) + τ Q ψ (x)
+
+combines the draft-conditioned proposal likelihood with a marginal correction toward the target distribution. This preserves the local preference of the proposer while using the scorer to favor globally more data-like candidates. 18 B Experiment Details 
+
+B.1 Baseline Models 
+
+We compare FReDA with representative diffusion language models in the sub-8B regime as follows: 
+
+DiffuLLaMA [26 ] is a 7B-parameter diffusion language model adapted from the autoregressive LLaMA2 backbone. It bridges autoregressive and diffusion-style training by modifying the attention mechanism and mitigating the causal-masking bias inherited from AR pretraining. 
+
+LLaDA-MoE-7B-A1B-Base [ 75 ] is a sparse mixture-of-experts diffusion language model with 7B total parameters and approximately 1B active parameters. It combines masked diffusion modeling with MoE routing to improve model capacity while keeping the inference-time active-parameter budget relatively small. 
+
+LLaDA-8B-Base [50 ] is a large masked diffusion language model that uses a forward masking process and a learned reverse generation process. It is parameterized by a Transformer denoiser that predicts masked tokens and is trained by optimizing a likelihood-based diffusion objective. 
+
+Dream-7B-Base [71 ] is a 7B-parameter diffusion language model that refines sequences through parallel iterative denoising. It is initialized from an autoregressive language model and further trained with diffusion-style objectives and context-adaptive token-level noise scheduling. 
+
+TiDAR-8B [42 ] is an 8B-parameter hybrid model that combines diffusion-based draft generation with autoregressive-style verification or correction. It uses structured attention mechanisms to balance drafting and verification, and we report both its trusting-AR and trusting-diffusion variants when available. Since this model has not been open-sourced yet, all evaluation results are sourced from the original paper [42]. 
+
+BlockDiff-4B [ 4 ] follows the block diffusion language modeling paradigm. It generates text autore-gressively at the block level, while modeling the conditional distribution within each block using discrete diffusion. We train the BlockDiff-4B baseline using the same training setups as FReDA ,following the blockwise masked diffusion formulation in [4]. 
+
+B.2 Evaluation Benchmarks 
+
+We evaluate all models on six benchmarks covering general knowledge, mathematical reasoning, and code generation. Unless otherwise specified, we follow the shot settings described in the main text. 
+
+B.2.1 General Knowledge MMLU [ 31 ] is a multitask multiple-choice benchmark covering 57 subjects, including mathematics, history, computer science, law, medicine, and social sciences. In our evaluation, we use the standard test split with 14,042 questions. 
+
+GPQA-Diamond [54 ] is the most challenging 198-question subset of GPQA, consisting of expert-written multiple-choice questions in biology, physics, and chemistry. Following our evaluation loader, we reserve the first 5 examples as in-context exemplars and evaluate on the remaining 193 questions. 
+
+B.2.2 Mathematical Reasoning GSM8K [ 19 ] contains grade-school-level math word problems that require multi-step arithmetic reasoning. We evaluate on the full HuggingFace openai/gsm8k main/test split, which contains 1,319 questions. 
+
+MATH-500 [41 ] is a commonly used 500-problem subset of the MATH benchmark, covering competition-style mathematical reasoning across algebra, geometry, number theory, counting and probability, and related topics. 
+
+B.2.3 Code Generation HumanEval [ 16 ] evaluates functional code generation using 164 hand-written Python programming problems. Each problem includes a function signature, docstring, reference solution, and unit tests, and model outputs are evaluated by execution-based pass rates. 19 HumanEval+ [ 43 ] extends HumanEval with substantially more comprehensive test cases and cor-rected evaluation cases. It provides a stricter execution-based evaluation protocol for assessing the functional correctness of generated code. 
+
+## C Implementation Details of FReDA 
+
+C.1 Attention Mask Design xt              
+
+> xt
+> x0
+> x0
+> Key / Value position →
+> ↓ Query position
+> Self-refinement: [xt|x0]
+> bidir
+> block-causal
+> offset-causal
+> cand 1
+> cand 1
+> cand 2
+> cand 2
+> cand 3
+> cand 3
+> x0
+> x0
+> Key / Value position →
+> ↓ Query position
+> Best-of-N: [ cand 1| cand 2| cand 3|x0]
+> bidir
+> bidir
+> block-causal
+> offset-causal
+> isolated
+> Blocked Within-block (bidirectional) Block-causal (clean self) Offset-causal ( → clean)
+
+Figure 3: Attention mask design for FReDA ’s Self-refinement and Best-of-N forwards. Figure 3 illustrates the attention masks used for self-refinement and Best-of-N refinement. We adopt a similar mask design for self-refinement following [ 4, 18 , 9]. In self-refinement, the input is organized as [xt | x0]. The refinement segment xt uses bidirectional attention within each block, allowing all positions in the current block to be jointly denoised, while the clean segment x0 uses block-causal attention. In addition, refinement block j can attend only to clean blocks 0, . . . , j − 1, ensuring that the model conditions on committed prefix tokens without seeing the clean version of the block being refined. For Best-of-N refinement, the input is organized as [cand 1 | · · · | cand N | x0] and follows the same within-block bidirectional and offset-causal rules, but different candidate segments are mutually isolated. This isolation ensures that each candidate is scored only from its own tokens and the shared clean prefix, preventing the scorer from exploiting interactions among candidates. The bidirectional within-block attention enables global refinement and scoring within each block, while the block-causal structure preserves efficient left-to-right block generation. 
+
+C.2 Best-of-N Scorer Architecture Backbone hidden Hard tokens emb             
+
+> RMSNorm RMSNorm
+> Linear Projection (2D→D)
+> Transformer Block
+> Mean-Pooling
+> MLP : Linear( D,D/2) → GELU → Linear( D/2, 1)
+> [B⋅nblk , 1+ n, blk_size, D][B⋅nblk , 1+ n, blk_size, D]
+> [B⋅nblk , 1+ n, blk_size, D]
+> [B⋅nblk , 1+ n,D]
+> score ∈ [ B⋅nblk , 1+ n]
+
+Figure 4: Best-of-N scorer head with soft–hard fusion. The Best-of-N variant of FReDA uses a lightweight scorer head to rank block-level candidate refinements. As shown in Fig. 4, the scorer shares the self-refinement backbone, which is mostly frozen during scorer training, and predicts one scalar score for each candidate slot. Given n candi-date refinements and one clean positive slot, the scorer processes (1 + n) slots per block and is trained with the Best-of-N objective, which treats the clean x0 slot as the positive. For each candidate, the scorer uses two complementary input channels. The soft channel is the frozen backbone hidden state H, which captures contextual compatibility under the blockwise attention pattern. The hard channel is 20 the embedding of the candidate’s discrete argmax tokens which preserves token-level identity information that may be weakened by the soft embedding. Inspired by the feature fusion adopted in multi-token prediction (MTP) module in DeepSeek-V3 [ 20 ], the two channels are separately normalized and fused through a linear projection: 
+
+Z = Wfuse [RMSNorm( H) ; RMSNorm ( E(arg max c))] .
+
+The fused representation is processed by a lightweight Qwen3-style Transformer block [ 70 ], masked mean pooling, and a two-layer MLP: 
+
+s(c) = MLP (MeanPool (TransformerBlock( Z))) ,
+
+MLP = Linear( D, D/ 2) → GELU → Linear( D/ 2, 1) .
+
+The resulting (1 + n) scores are normalized with a softmax under the Best-of-N objective. Because the scorer reuses the frozen proposer backbone and only adds a small head over pooled block representations, Best-of-N selection remains efficient during both training and inference. 
+
+C.3 Soft Prediction Embedding 
+
+To represent sampler-induced drafts during recursive refinement, we adopt a soft prediction embedding from [ 17 ], rather than feeding back only hard argmax tokens. Let h(t) 
+
+> i
+
+be the logits at position i after refinement step t, and let 
+
+ˆx(t) 
+
+> i
+
+= arg max  
+
+> v∈V
+
+h(t)
+
+> i,v
+
+denote the selected token. We construct the next-step input embedding as 
+
+e(t+1)  
+
+> i
+
+= α(t) 
+
+> i
+
+E
+
+
+
+ˆx(t)
+
+> i
+
+
+
++
+
+
+
+1 − α(t)
+
+> i
+
+
+
+E ([BLANK] ) , α(t) 
+
+> i
+
+= softmax 
+
+
+
+h(t)
+
+> i
+
+
+
+> ˆx(t)
+> i
+
+, (22) where E is the token embedding table and α(t) 
+
+> i
+
+is the model probability of the selected token. Thus, high-confidence selected tokens are represented close to their hard token embeddings, while uncertain predictions remain close to the mask embedding and can be further refined. This confidence-weighted interpolation is related to recent smoothing and trace-based decoding techniques for diffusion language models [ 58 , 63 ]. Unlike methods that apply such smoothing only during inference, 
+
+FReDA uses the same soft prediction embedding during both training and inference, reducing the train–inference mismatch of intermediate drafts and improving refinement stability. 
+
+C.4 Pseudocode for Training and Inference 
+
+We provide pseudocode for the main training and decoding procedures of FReDA . Algorithm 1 summarizes the two-stage training pipeline, including sampler-induced self-refinement training and optional Best-of-N scorer training. Algorithm 2 describes self-refinement decoding for a single block, where the model iteratively updates a draft and commits high-confidence tokens. Algorithm 3 extends this procedure with Best-of-N candidate selection, and Algorithm 4 details the marginal-cost beam sampler used to construct diverse candidate blocks efficiently. 
+
+## D Training Details of FReDA 
+
+D.1 Dataset Preparation 
+
+We construct a curated 10B-token continued-pretraining corpus from four public data streams. The largest component is nemotron_math , drawn from nvidia/Nemotron-CC-Math-v1 
+
+with the 4plus_MIND configuration, using the train split and text field. This stream corre-sponds to the highest-quality MIND-classified bucket in NVIDIA’s Nemotron-CC-Math corpus and serves as the primary source for mathematics and reasoning [ 47 ]. The nemotron_code 
+
+stream is drawn from nvidia/Nemotron-Pretraining-Specialized-v1.1 with the 
+
+Nemotron-Pretraining-Code-Concepts configuration, using the train split and text field. This stream provides algorithmic reasoning and code concept documents [ 12 ]. The nemotron_logic 
+
+stream is also drawn from nvidia/Nemotron-Pretraining-Specialized-v1.1 , using the 
+
+Nemotron-Pretraining-Formal-Logic configuration, and provides formal-reasoning and logic data. Finally, the fineweb_edu stream is drawn from HuggingFaceFW/fineweb-edu 
+
+with the sample-10BT configuration, using the train split and text field. FineWeb-Edu is an educational subset of FineWeb filtered from large-scale web data and serves as a general educational stabilizer [51]. 21 Algorithm 1: FReDA Training 
+
+Input: Training corpus D; refinement backbone Kθ ; optional scorer Qψ ;maximum refinements Kmax ; Best-of-N width n; blockwise attention mask Mblock from Fig. 3. 
+
+Output: Trained self-refinement model Kθ and optional Best-of-N scorer Qψ .
+
+/* Stage I: train sampler-induced self-refinement */ 
+
+Initialize Kθ from the base language model 
+
+for training step do 
+
+Sample clean sequence x0 ∼ D and sample K ⩽ Kmax 
+
+Initialize draft xK ← [[BLANK] ] for the current block 
+
+for r = K, . . . , 1 do 
+
+Form training input ur ← [ xr ; x0 ]
+
+Run Kθ on ur with blockwise attention mask Mblock 
+
+if r > 1 then 
+
+Update draft xr−1 from the prediction with no gradient 
+
+xr−1 ← stopgrad ( xr−1)
+
+else Update θ by minimizing the self-refinement loss in Eq. (13) 
+
+end end end 
+
+/* Stage II: train Best-of-N scorer, if used */ 
+
+if Best-of-N refinement is enabled then 
+
+Freeze the refinement backbone Kθ
+
+for training step do 
+
+Sample clean positive x+ ∼ D and sample K ⩽ Kmax 
+
+Generate n candidate refinements {x− 
+
+> i
+
+}ni=1 by running the self-refinement sampler with frozen Kθ
+
+Concatenate positive and candidates into one BoN input ubon ← [ x+; x− 
+
+> 1
+
+; · · · ; x− 
+
+> n
+
+]
+
+Run frozen Kθ on ubon with BoN attention mask MBoN , which isolates candidate slots Score the (1 + n) slots with Qψ
+
+Update ϕ with the Best-of-N objective in Eq. (18) 
+
+end end 
+
+The final mixture contains NVIDIA-Nemotron math [ 47 ] (40%, approximately 4.0B tokens), NVIDIA-Nemotron code-concepts [ 12 ] (36%, approximately 3.6B tokens), FineWeb-Edu [ 51 ] (22%, approxi-mately 2.2B tokens), and NVIDIA-Nemotron formal-logic [ 12 ] (2%, approximately 0.2B tokens). The resulting corpus is intentionally STEM- and reasoning-oriented, with 78% of the data coming from mathematics, code, and formal logic sources, aligning with our downstream focus on mathemat-ical reasoning and code generation. We additionally decontaminate the training corpus against all evaluation benchmarks used in this work to reduce the risk of test-set leakage. All documents are tokenized with the Qwen3-4B-Base tokenizer, which has a vocabulary size of 151,936. We pack tokenized examples into fixed-length sequences of 4096 using neat-packing, where multiple shorter documents may be concatenated into a single training sequence. To prevent information leakage between unrelated documents during training, we maintain a per-token document identifier and apply document-segmented attention masks, ensuring that tokens cannot attend across document boundaries. The prepared corpus is stored as int32 token IDs and used for continued pretraining of the FReDA backbone. 
+
+D.2 Training Schedule and Optimizer Setup 
+
+We train FReDA in two stages. First, we continue pretraining the Qwen3-4B-Base backbone with the forward-free denoising cross-entropy objective for 8B tokens. To stabilize refinement learning and encourage the model to preserve already correct tokens, we randomly replace a small fraction of initial mask positions with their ground-truth tokens and also include these positions in the cross-entropy loss. The ground-truth replacement ratio is linearly annealed from 0.3 to 0.1 over the first 4B training tokens and is kept at 0.1 for the remainder of training. After the 8B-token warm-up, we branch 22 Algorithm 2: Self-Refinement Decoding for One Block 
+
+Input: Refinement backbone Kθ ; committed prefix xpre ; block size B; refinement budget K;confidence threshold η.
+
+Output: Decoded block ˆc ∈ V B .Initialize ˆc ← [[BLANK] ]B and commitment mask m ← [0] B
+
+Initialize p ← Uniform( V)B
+
+for k = 1 , . . . , K do if k = 1 then 
+
+Form input u ← [ ˆ c; xpre ] using hard blank tokens 
+
+else 
+
+Build soft input embeddings e ← SOFT EMBED (ˆ c, p, m ) using Eq. (22) Form input u ← [ e; xpre ]
+
+end 
+
+Compute p ← softmax ( Kθ (u; Mblock )) 1: B
+
+Set ˜ci ← arg max v∈V pi,v and αi ← pi, ˜ci for all i
+
+Reset m ← [0] B
+
+/* Early commitment. */ 
+
+for i = 1 , . . . , B do if αi ⩾ η then 
+
+ˆci ← ˜ci and mi ← 1
+
+else break end end 
+
+/* Early stop if all positions in the block are committed. */ 
+
+if ∀i, m i = 1 then break end end 
+
+/* If the iteration budget is exhausted, force-commit remaining positions. */ 
+
+for each i with mi = 0 do 
+
+ˆci ← arg max v∈V pi,v 
+
+end return ˆc
+
+into two variants for the remaining 2B tokens. The self-refinement variant continues optimizing the same denoising cross-entropy objective, while the best-of-N variant is trained with the NCE ranking objective. For NCE training, we freeze either the full backbone or all but the last Transformer layer and train the scorer module for stability; we select the final checkpoint from these settings based on validation performance. 23 Algorithm 3: Best-of-N Refinement Decoding for One Block 
+
+Input: Refinement backbone Kθ ; scorer Qψ ; committed prefix xpre ;block size B; refinement budget K; width n; commitment threshold η; scorer weight τ .
+
+Output: Decoded block ˆc ∈ V B .Initialize draft ˆc ← [[BLANK] ]B , commitment mask m ← [0] B , and p ← Uniform( V)B
+
+for k = 1 , . . . , K do 
+
+/* Generate n candidate drafts from the current state. */ 
+
+Generate candidate drafts {ˆci}ni=1 from ˆc using marginal-cost beam sampling or stochastic candidate sampling Compute proposal scores ℓi ← log qθ (ˆ ci | ˆc, x pre ) for i = 1 , . . . , n 
+
+/* One packed BoN forward gives both refinement predictions and scorer values. */ 
+
+Form BoN input ubon ← [ ˆ c1; ˆ c2; · · · ; ˆ cn; xpre ]
+
+Run frozen Kθ on ubon with BoN attention mask MBoN 
+
+// MBoN isolates candidate slots while allowing each candidate to attend to the committed prefix. 
+
+Obtain backbone token probabilities pi and scorer values si ← Qψ (ˆ ci, x pre ) for each candidate slot 
+
+/* Select the best candidate and continue refinement from it. */ 
+
+i⋆ ← arg max i∈{ 1,...,n } (ℓi + τ s i)ˆc ← ˆci⋆ , p ← pi⋆
+
+/* Early commitment under the selected candidate. */ 
+
+Set ˜cj ← arg max v∈V pj,v and κj ← pj, ˜cj for all j
+
+Reset m ← [0] B
+
+for j = 1 , . . . , B do if κj ⩾ η then 
+
+ˆcj ← ˜cj and mj ← 1
+
+else break end end 
+
+/* Early stop if all positions are committed. */ 
+
+if ∀j, m j = 1 then break end end 
+
+/* If the iteration budget is exhausted, force-commit remaining positions. */ 
+
+for each j with mj = 0 do 
+
+ˆcj ← arg max v∈V pj,v 
+
+end return ˆc
+
+24 Algorithm 4: Marginal-Cost Beam Candidate Sampling 
+
+Input: Per-position probabilities p ∈ [0 , 1] B×|V| ; block size B; number of candidates n;maximum swap size R.
+
+Output: Ordered candidate blocks (ˆ c1, . . . , ˆcn) and proposal scores (ℓ1, . . . , ℓ n).
+
+for j = 1 , . . . , B do 
+
+v1[j] ← arg max v∈V pj,v 
+
+v2[j] ← arg max v∈V\{ v1[j]} pj,v 
+
+∆[ j] ← log pj,v 1[j] − log pj,v 2[j]
+
+end 
+
+B ← { (∅, 0) }
+
+for r = 1 , . . . , R do for each subset S ⊆ { 1, . . . , B } with |S| = r do 
+
+B ← B ∪ { (S, P 
+
+> j∈S
+
+∆[ j]) }
+
+end end 
+
+Sort B by marginal cost and keep the n cheapest subsets 
+
+for i = 1 , . . . , n do 
+
+(Si, ·) ← B [i]ˆci ← v1
+
+for each j ∈ Si do 
+
+ˆci[j] ← v2[j]
+
+end 
+
+ℓi ← PBj=1 log pj, ˆci[j]
+
+end return (ˆ c1, . . . , ˆcn), (ℓ1, . . . , ℓ n)
+
+Table 4: Training and optimization details for FReDA .
+
+Configuration Value 
+
+Base model Qwen3-4B-Base Block size B 4Sequence length S 4096 Mixed precision bf16 Gradient checkpointing enabled Optimizer AdamW Learning rate 5 × 10 −5, constant after warm-up Warm-up 250 steps, linear Weight decay 0.01 Adam betas (0 .9, 0.999) 
+
+Max gradient norm 1.0 EMA disabled Backbone LR scale 1.0 
+
+set_to_none true Random seed 42 25

@@ -1,0 +1,883 @@
+Title: Few-step Cofolding with All-Atom Flow Maps
+
+URL Source: https://arxiv.org/pdf/2606.08375v1
+
+Published Time: Tue, 09 Jun 2026 01:28:02 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Few-step Cofolding with All-Atom Flow Maps 
+
+Gianluca Scarpellini 1∗
+
+, Ron Shprints 2, Peter Holderrieth 2, Juno Nam 2,Pranav Murugan 1, Rafael Gómez-Bombarelli 2, Tommi Jaakola 2,
+
+Maruan Al-Shedivat 1, Nicholas Matthew Boffi 3, Avishek Joey Bose 1,4,51Genesis Molecular AI, 2 Massachusetts Institute of Technology,  
+
+> 3
+
+Carnegie Mellon University, 4 Imperial College London, 5Mila, 
+
+Abstract 
+
+All-atom generative modeling of 3D biomolecular complexes has emerged as the dominant paradigm for predicting the structure of proteins and protein-ligand systems. Generating structures at the atomic level of fidelity, however, typically requires expensive iterative diffusion rollouts, making both conventional deployment and inference-time search techniques computationally costly. In this paper, we introduce the DENOISER COFOLDING ALL -ATOM FLOWMAP 
+
+(D ECAF) framework for distilling state-of-the-art all-atom cofolding models into all-atom flow maps that produce high-quality samples in only a few inference steps. We build D ECAF on a denoiser-based formulation of flow maps with endpoint losses that naturally support SE(3) rigid alignment, which we show is critical for training accurate models. We further derive a simple change of variables that lets D ECAF operate in the σ-space noise schedule of EDM-style architectures, enabling direct distillation from pretrained cofolding diffusion models. Equipped with D ECAF’s flowmap lookahead, we introduce a purpose-built inference-time framework that improves sampling through reward-guided search. Empirically, DECAF-Boltz statistically improves over Boltz-1x in both accuracy (RMSD) and physical validity scores of protein-ligand poses at strict NFE budgets on the challenging Runs N’ Poses, while also showing a more optimal Pareto frontier across all inference compute budgets on PoseBusters. Distilling the state-of-the-art Pearl cofolding model, D ECAF-Pearl outperforms diffusion-based cofolding models and matches its teacher on success rate while using 5× fewer NFEs. We release our code at https://github.com/genesistherapeutics/decaf .
+
+1 Introduction 
+
+The accurate and efficient computational modeling of biological complexes has the potential to transform both our understanding of biomolecular mechanisms and our ability to catalyze the rational design of novel therapeutics [Chevalier et al., 2017, Ebrahimi and Samanta, 2023]. At the core of this challenge is the need to model the intricate 3D intermolecular structures that govern processes such as protein folding, protein–ligand binding, and biocatalysis. This perspective is the thesis of structure-based drug design (SBDD), which seeks to engineer molecular structure to impart a desired down-stream biological function . Despite its promise, progress in traditional SBDD is limited by the cost and latency of experimental structure determination. In contrast, AI-driven design offers a promising alter-native by instead leveraging scalable computational approaches to unlock discoveries of novel thera-pies [Silva et al., 2019, Murray et al., 2022, Strauch et al., 2017, Gainza et al., 2020, Cao et al., 2020]. The modern de facto standard for AI-based SBDD is underpinned by large-scale generative models that represent biomolecular complexes of experimentally resolved structures directly at all-atom resolution, beginning with AlphaFold 3 [Abramson et al., 2024] and followed by other luminary  
+
+> ∗Correspondence to gianscarpe@genesistherapeutics.ai, joey.bose@imperial.ac.uk
+> Preprint.
+> arXiv:2606.08375v1 [cs.LG] 7 Jun 2026 Figure 1: D ECAF accelerates all-atom biomolecular structure prediction with a few-step flow-map lookahead across EDM noise levels. Atom-resolution guidance enables candidate search toward high-reward configurations.
+
+works [Boitreaud et al., 2024, Wohlwend et al., 2025, Passaro et al., 2025, Team et al., 2026, Gen-esis Research, 2025]. This perspective is well-suited to learning the global geometry of the target dis-tribution, reflected in structural features such as relative pose, backbone arrangement, and secondary structure. However, unlike in classical generative modeling domains, success in biomolecular genera-tion fundamentally requires modeling fine-grained local structure. Indeed, in high-impact application settings like protein-ligand cofolding, inaccurate local structure modeling leads to catastrophic failure modes, yielding physically invalid generations that often include steric clashes, incorrect bond lengths and angles, strained side chain placements, and other stereochemical artifacts [Wohlwend et al., 2025]. Strict physical and biological constraints have shifted much of the compute burden to inference time methods . In particular, generating structures requires expensive and fine-grained numerical simulation of the learned dynamics, which are needed to accurately predict local structure. In addition, for downstream testing, it remains essential to generate a diverse pool of candidates that increases the transfer rate from in-silico design to wet lab success. Furthermore, refining samples via inference-time search with proxy physical reward models is a critical aspect of the evolving protein generative pipeline and plays an important role in facilitating utility in high-impact downstream applications. Despite this appeal, scaling inference is not a silver bullet and compounds the already expensive cost of numerical integration. For instance, reward functions in the biological setting can often be expensive to query and are only applicable to fully denoised 3D structures. Moreover, employing popular inference-time techniques that leverage multiple particles, such as Sequential Monte Carlo (SMC) [Del Moral et al., 2006], Feynman-Kac steering (FK) [Singhal et al., 2025], and Monte-Carlo Tree Search (MCTS) [Jain et al., 2025], doubly inflict the inference tax as they require multiple reward queries over each particle during the inference trajectory. This raises the natural motivating research question: 
+
+Q. Can we train an all-atom cofolding model that can generate reward-optimized samples efficiently, using only a small number of neural function evaluations (NFEs) at inference time? 
+
+Main contributions . In this paper, we answer the above question affirmatively and introduce the 
+
+DENOISER COFOLDING ALL -ATOM FLOWMAP (D ECAF) framework. D ECAF is built on the flow map framework [Boffi et al., 2025b,a] (Figure 1) and efficiently distills a pretrained Boltz-1 model into the first all-atom cofolding model. Overall, we summarize our contributions as follows: 1. Training methods . We design the first all-atom protein flow-map with D ECAF-Boltz, and outline key methodological innovations that enable effective distillation of a pre-trained Boltz-1 teacher (we refer to D ECAF for short when the pre-trained teacher is clear from the context). In particular, we construct a novel reparameterization of the flow map in σ space that allows an easy conversion of standard flow map objectives for all-atom modeling. D ECAF further exploits a denoiser-based flow map parametrization that crucially enables an SE(3) weighted rigid alignment of the ground truth structure—softly enforcing SE(3) symmetry—that is critical for stable training. 2. Inference methods . We introduce D ECAF-SEARCH, an inference-time framework that lever-ages D ECAF’s flow map lookahead that enables higher fidelity reward estimation in comparison to all-atom diffusion models. D ECAF-SEARCH shares the benefits of stochastic sampling [Kim 2et al., 2023], diffusion-SMC samplers [Singhal et al., 2025], Diffusion MCTS [Jain et al., 2025], Diamond maps [Holderrieth et al., 2026b, Potaptchik et al., 2026a], and FMRG [Huang et al., 2026] while being fundamentally an inference-time search method generating physically valid structures. 3. Empirical performance . We find that D ECAF-Boltz outperforms Boltz-1x at low NFE budgets 
+
+on Runs N’ Poses and matches the full-budget Boltz-1x (600 NFE) on PoseBusters with 20 ×
+
+less compute at inference. Finally, we further apply D ECAF to a state-of-the-art cofolding model in Pearl [Genesis Research, 2025] and find D ECAF-Pearl improves over Boltz-1 and outperforms other potent baselines with full simulation while requiring ≈ 5 − 20 × fewer model evaluations. 
+
+2 Background, Preliminaries, and Related Work 
+
+2.1 All-Atom Biomolecular Diffusion Modeling 
+
+The dominant paradigm for all-atom biomolecular generative modeling is centered around diffusion-based cofolding models such as AlphaFold 3 [Abramson et al., 2024], which operates directly on the native Euclidean coordinates of structures. Through learning, AF3 like models can perform the task of cofolding —i.e., simultaneously predict the structure of a protein and a bound ligand. Standard implementations follow the EDM parameterization [Karras et al., 2022], which we review below. 
+
+VE Process . Given a target distribution of all-atom structures pdata (x) ∈ P (Rd), the variance-exploding noising process corrupts a sample x0 ∼ p0(x0) := pdata (x) with additive Gaussian noise, 
+
+xσ = x0 + σϵ, ϵ ∼ N (0 , I ), pσ (xσ ) = p0(x0) ∗ N (0 , σ 2I), (1) where σ ∈ [σmin , σ max ] indexes the noise level such that at times t = 0 and t = 1 there is σmin 
+
+and σmax amounts of corruption added to x0 respectively. Generation proceeds by solving for the time-reversal of the forward VE dynamics, which can be numerically simulated by following an ODE or SDE from high to low noise. For instance, we can simulate the probability-flow ODE: dx σ /dσ =
+
+−σ2∇xσ log pσ (xσ ). These reverse ODE dynamics require the Stein score ∇xσ log pσ (xσ ), which can be estimated through a diffusion model’s denoiser D via Tweedie’s formula [Tweedie, 1957]: 
+
+sσ (xσ ) := ∇xσ log pσ (xσ ) ≈ Dσ (xσ ) − xσ
+
+σ2 . (2) Eq. 2 can then be substituted in the flow ODE to simulate the reverse dynamics. The denoiser itself can be learned by a simulation-free ℓ2-regression objective that performs denoising score matching across all noise levels ith a noise-dependent weighting function λ(σ) against a clean sample x0,
+
+L(θ) = Eσ, x 0, ϵ 
+
+h
+
+λ(σ) ∥Dθ,σ (x0 + σϵ ) − x0∥22
+
+i
+
+, ϵ ∼ N (0 , I ). (3) 
+
+Structure prediction head . For biomolecular all-atom diffusion models, the denoiser commonly leverages the EDM parametrization [Karras et al., 2022] that designs a σ-dependent preconditioning: 
+
+ˆxEDM 0 := Dθ,σ (xσ ) = cskip (σ) xσ + cout (σ) Fθ,σ (cin (σ) xσ , c noise (σ)) . (4) where Fθ is the raw network, cskip controls the skip connection, cin and cout normalize input and out-put magnitudes, and cnoise embeds the noise level. In practice, the denoiser is implemented as a struc-ture prediction head, typically a diffusion transformer with atom-attention encoder-decoder blocks. The basic loss in Eq. 3 is augmented through SE(3) weighted rigid alignment of the ground truth structures to the prediction ˆxEDM  
+
+> 0
+
+. This crucial step serves to simultaneously enforce soft global SE(3) 
+
+symmetry and also reduce the variance of the diffusion loss. Finally, additional loss terms, including smooth-LDDT or bond-geometry penalties, encourage generating chemically plausible structures 
+
+2.2 Flow Maps 
+
+To accelerate inference in diffusion models, rather than simulating infinitesimal dynamics, one can learn a jump operator that directly traverses the probability-flow ODE associated with the diffusion model [Song et al., 2023, Song and Dhariwal, 2024, Boffi et al., 2025b,a]. This operator is known as the flow-map and constitutes a map Xs,t : [0 , 1] 2 × Rd → Rd, which is the unique solution to the ODE that evolves the state dynamics between times s and t—i.e., the jump condition satisfies 3Xs,t (xs) = xt, for all (s, t ) ∈ [0 , 1] 2. This leads to a natural parametrization of the flow-map as a displacement using the average velocity us,t (xs), between the two time points s and t:
+
+Xs,t (xs) = xs + ( t − s)us,t (xs), us,t (xs) = 1
+
+t − s
+
+Z ts
+
+vτ (xτ )dτ, (5) where vτ (xτ ), is the instantaneous velocity. It is clear from Eq. 5, that in the limit where the two time points converge the average velocity recovers the instantaneous velocity of the ODE, 
+
+lim 
+
+> s→t
+
+∂tXs,t (xs) = ut,t (xt) := vt(xt). This is known as the tangent condition [Boffi et al., 2025b], and demonstrates that the flow-map contains an implicit instantaneous velocity in its parametrization. At optimality, the flow-map simultaneously enforces the following consistency rules: 
+
+∂tXs,t (xs) = ut,t (Xs,t (xs)) 
+
+| {z }
+
+> Lagrange
+
+, ∂ sXs,t (xs) = −us,s (xs)∇Xs,t (xs)
+
+| {z }
+
+> Euler
+
+, X r,t (Xs,r (xs)) = Xs,t (xs)
+
+| {z }
+
+> Progressive
+
+.
+
+Each consistency condition naturally gives rise to a PINN-style loss function that facilitates learning the flow-map [Boffi et al., 2025b,a, Frans et al., 2025, Kim et al., 2024]. Furthermore, these losses can be employed to either self-distill or distill a pre-trained diffusion model into a flow-map by computing the RHS of each consistency condition with a frozen pre-trained model. 
+
+3 Method 
+
+We now introduce DENOISER COFOLDING ALL -ATOM FLOWMAP (D ECAF), a novel σ-space flow-map framework that constructs an all-atom protein flow map by distilling a pre-trained all-atom teacher in the vein of AF3 [Abramson et al., 2024]. In particular, D ECAF outputs a few-step generative model that captures the 3D structure of protein-ligand interactions for the task of cofolding. Critically, D ECAF offers two principal advantages over its pre-trained all-atom teacher: 1. Few-step inference: DECAF offers accelerated inference that compresses the full simulation of a diffusion trajectory into a few denoising steps without compromising sample quality. 2. Flowmap lookahead: DECAF by construction defines a lookahead map over end points that allows higher fidelity terminal reward estimation than a denoiser of an EDM model. As a result, any inference-time technique for reward optimization benefits not only fewer simulation steps that reduce simulation latency but also improved reward estimation and alignment. We organize the remainder of the section as follows: in §3.1, we introduce our primary learning framework that exploits a denoiser-parametrization to learn D ECAF. In §3.2, we exploit our D ECAF to unlock new, more efficient mechanisms for inference-time search and reward alignment. 
+
+3.1 DENOISER COFOLDING ALL -ATOM FLOWMAP 
+
+We first highlight several key technical challenges prevalent in the EDM parametrization that prevent the distillation of all-atom teacher models. EDM’s residual form (Eq. 4) is conditioned on a single 
+
+σ and does not extend cleanly to dual-time flow maps. Importantly, this has already motivated the simplification of the EDM parametrization when distilling to flow-maps [Nie et al., 2026]. In addition, for practical noise schedules, the monotone time reparameterization σ : [0 , 1] → [σmin , σ max ]
+
+is non-linear, making loss computations that require time partials numerically unstable [Sabour et al., 2025b]. More precisely, when computing the chain rule ∂x/∂t = ( ∂x/∂σ ) ( ∂σ/∂t ) for the suggested EDM noise schedule σt [Karras et al., 2022], the end points are prone to large magnitudes of |∂σ/∂t |. This, in turn, leads to numerical instability when computing flow-map-based objectives. To circumvent the numerical instability of flow-map training using a pre-trained EDM protein model, we directly define a flow-map in the σ-noise space, allowing us to redefine all objectives and sampling directly over σ-steps—thus eliminating the problematic factor ∂σ/∂t . This leads to our notion of σ-velocity, which represents the σ-instantaneous velocity along the PF-ODE, 
+
+vσ (xσ ) ≜ dx σ
+
+dσ , vEDM  
+
+> σ
+
+(xσ ) = xσ − Dσ (xσ )
+
+σ = xσ − ˆxEDM 
+
+> 0
+
+σ . (6) Our reparametrization of time extends, in a natural way, to now a two-noise level map that denoises 
+
+ρ → σ, for ρ > σ , using the analogous notion of average σ-velocity and flow-map parametrization 4Xρ,σ (xρ). This forms the basis of the sampling update at inference: 
+
+uρ,σ (xρ) = 1
+
+ρ − σ
+
+Z σρ
+
+v¯σ (x¯σ )d¯σ, Xρ,σ (xρ) = xρ − (ρ − σ)uρ,σ (xρ). (7) 
+
+Denoiser Parametrization . To train our all-atom protein flow map, we follow the mean-flow objective [Geng et al., 2025a], which is also equivalent to the Eulerian objective [Boffi et al., 2025a]. This requires the construction of the instantaneous σ-velocity implied by the average σ-velocity of Eq. 7. Explicitly, we efficiently compute this quantity using Jacobian-vector products jvp ,
+
+vρ(xρ) = uρ,σ (xρ) + ( ρ − σ) ddρ uρ,σ (xρ), (8) 
+
+V (xρ, ρ, σ ) ≜ uρ,σ (xρ) + ( ρ − σ) · sg (jvp (uρ,σ (xρ), (xρ, ρ, σ ), (v, 1, 0))) . (9) In Eq. 8, d/dρ represents the total derivative of the average σ-velocity, while sg is the stopgrad operator applied to duρ,σ /dρ. In the case of distilling from a pre-trained EDM model, we simply substitute the ground-truth σ-velocity with vEDM  
+
+> σ
+
+. This leads to a natural learning objective of computing the predicted instantaneous σ-velocity using Eq. 9 and matching it to the EDM teacher velocity in Eq. 6 [Geng et al., 2025a,b, Lu et al., 2026, Potaptchik et al., 2026b]. We, however, motivate a different approach in the context of all-atom protein models. Specifically, we highlight a standard practice in AF3 diffusion models that leads to a lower variance loss estimate, which is to instead predict the target end-point ˆxtgt and find the closest rigid transformation—i.e., SE(3) rigid alignment—to the target ˆxEDM  
+
+> 0
+
+. As a result, we parametrize our all-atom flow map as a denoiser that consumes two noise levels D(xρ, ρ, σ ). Specifically, we can recover a ˆxtgt -prediction by computing using the predicted σ-instantaneous velocity of Eq. 9: 
+
+ˆxDECAF tgt := D(xρ, ρ, σ ) = xρ − ρ · V (xρ, ρ, σ ) (10) The above equation gives rise to a two-time denoiser [Lu et al., 2026, Lee et al., 2026, Potaptchik et al., 2026b, Roos et al., 2026] that can be leveraged to construct an endpoint loss: 
+
+L = Ex0,x ρ,x σ
+
+ 1
+
+σ2
+
+
+
+min  
+
+> g∈SE(3)
+
+ˆxDECAF tgt − sg  ζ(g) ◦ ˆxEDM 
+
+> 0
+
+ 2
+
+ 
+
+. (11) Here we take argmin over the entire group SE(3) : ζ(g) is its matrix representation and is the rigid alignment step performed using the Kabsch algorithm, while ˆxEDM  
+
+> 0
+
+is the prediction computed by the pre-trained EDM teacher. We emphasize that this exact formulation fails under a velocity loss, as subtracting translation would lose a degree of freedom, and thus complicates the distillation setup. The loss in Eq. 11 naturally supports both off-diagonal training and diagonal training through sampling of noise levels (ρ, σ ) ∼ Sampler (σmin , σ max ). In particular, when ρ = σ, we learn to match exactly the score associated with the PF-ODE of the EDM teacher, while in all other off-diagonal cases, we learn to take (ρ − σ) jumps along the trajectory of the PF-ODE as in Eq. 7. 
+
+Flow map sampling algorithm . To sample from D ECAF we design a stochastic γ-sampler, which shares inspiration from the consistency models literature [Kim et al., 2023]. We present this γ-sampler in algorithm 1, which allows us to toggle deterministic sampling ( γ = 0 ) to more stochastic sampling for γ > 0. As we later demonstrate in our experiments §4, the added stochasticity aids overall performance at no added cost and also enjoys seamless integration with our inference strategy in §3.2. 
+
+3.2 Inference-Time Search Algorithm 1 DECAF γ-sampling 
+
+Require: FlowMap X; N steps; γ ∈ [0 , 1] . 
+
+> 1:
+
+xσN ∼ N (0 , σ 2 
+
+> N
+
+I) 
+
+> 2:
+
+for n = N down to 1 do  
+
+> 3:
+
+˜σn−1 ← p1 − γ2 σn−1 
+
+> 4:
+
+x˜σn−1 ← X(xσn , σ n, ˜σn−1) ▷ flowmap  
+
+> 5:
+
+ϵ ∼ N (0 , I ) 
+
+> 6:
+
+xσn−1 ← x˜σn−1 + γ σ n−1 ϵ ▷ re-noise  
+
+> 7:
+
+return xσ0
+
+The challenge of generating physically plau-sible biomolecular structures has motivated a vast literature on computationally intensive inference-time correction of pre-trained all-atom diffusion models. While D ECAF is primarily designed as a few-step all-atom model that reduces inference latency for conventional deployment, it also enables a second computational advantage. Specifically, 5DECAF also enables substantial gains in inference-time search (i.e., reward alignment [Uehara et al., 2025]) for the cofolding problems we consider. In biomolecular modeling, a common form of inference-time search defines a terminal reward 
+
+R : Rd → R that measures physical validity, for example, penalizing steric clashes or violations of bond lengths and angles [Wohlwend et al., 2025, Section 4]. The goal is to steer generation toward samples with high R(x0) while preserving structural accuracy. A central difficulty is that R is only defined on clean structures, whereas steering decisions must be made from noisy intermediate states 
+
+xσ . Consequently, we require an efficient estimate of the reward expected after denoising xσ to a clean structure. D ECAF provides such an estimate through its learned two-time flow map: given an intermediate state xσ , we compute a look-ahead (end point) prediction over clean samples 
+
+ˆx0 = X(xσ , σ, 0) = xσ − σ · uσ, 0(xσ ), (12) and use R(ˆ x0) as a proxy for the expected reward of xσ . Similar flow map look-aheads have been used for steering in the image domain [Sabour et al., 2025a, Holderrieth et al., 2026a, Potaptchik et al., 2026a, Huang et al., 2026]. We explore their analogue in all-atom biomolecular generation, which differs in two important ways. First, our base sampler is not a standard ODE or SDE integrator but γ-sampler. Second, rewards are based on physical violations whose supervisory signal is highly non-smooth and uninformative at noisy states xσ . These considerations motivate refining generations through clean-space look-aheads rather than through gradients in noisy state space. 
+
+DECAF-SEARCH . We introduce an inference-time search algorithm D ECAF-SEARCH for all-atom flow maps (see algorithm 2). D ECAF-SEARCH adapts standard inference-time steering methods, including Feynman–Kac (FK) [Singhal et al., 2025, Skreta et al., 2025] and diffusion-based MCTS [Jain et al., 2025], to flow maps and the γ-sampling setting. Starting from a population of particles, we repeatedly denoise each particle from xσ to a clean look-ahead ˆx0 (possibly over several flow map steps), evaluate its reward, and optionally improve it by clean-space gradient ascent 
+
+ˆx0 ← ˆx0 + β∇ˆx0 R(ˆ x0). (13) Then, we renoise the improved structure to a noisy state x˜σ before continuing to the next γ-sampling iteration. Inspired by Holderrieth et al. [2026a, Proposition 5.1.], we also consider a variant where the gradient is an average of several Monte Carlo samples (MC-GRAD in §A). Across particles, compute is preferentially allocated to promising branches using either SMC resampling or an upper-confidence-bound criterion. With finite-temperature resampling, D ECAF-SEARCH resembles FK steering with UCB/UCT selection and recovers a simple MCTS-style variant [Jain et al., 2025]. D ECAF-SEARCH also extends the FK-style steering used in Boltz-1x [Wohlwend et al., 2025]: intermediate clean predictions are obtained using the learned D ECAF flow map, which can provide more accurate or more efficient look-aheads than a single-step denoiser. 
+
+4 Experiments 
+
+We investigate the application of D ECAF for the task of cofolding protein-ligand interactions. In particular, we distill a pre-trained Boltz-1 model using Eq. 11 and sample using D ECAF-SEARCH (algorithm 2), in contrast to Boltz-1x the physical potential variant [Wohlwend et al., 2025]. For fair comparison, D ECAF shares architecture, training data, and pretraining with Boltz-1 (see §B for architecture, experimental setup, and hyperparameters). We include additional ablations in §C. 
+
+Benchmarks . The primary benchmark we use for analysis is Runs N’ Poses (RnP) [Škrinjar et al., 2025]. We limit the experiments to a stricter set of 702 structures with a cutoff date of 2023-06-01 .We also conduct additional analysis on PoseBusters [Buttenschoen et al., 2024] with cutoff date of 
+
+2021-10-01 , yielding 282 structures that can be handled by Boltz-1 on a single A100-80GB GPU. 
+
+Metrics . Following the standard practice, we report the following metrics: (i) RMSD < 2 Å defined as the percentage of the test structures for which root mean square distance between ground-truth and generated ligand poses is under 2 Å; (ii) PB-Valid defined as the percentage of test structures that are physically valid according to the PoseBusters library; (iii) lDDT-PLI defined as local distance difference test [Mariani et al., 2013] on the short-range protein–ligand contacts within a 6 Å protein-ligand pocket, where side-chain atoms typically outnumber backbone atoms. We also define 
+
+Success Rate (%) as a percentage of the test structures that satisfy RMSD < 2 Å and PB-Valid criteria. Our experiments seek to answer three key questions that test the empirical caliber of D ECAF: 6Table 1: DECAF vs Boltz-1x on Runs N’ Poses benchmark. The best recipe at or below the NFE budget is reported per method av-eraged over 5 poses. Bold marks the winner between Boltz-1x and DECAF; stars indicate paired Wilcoxon signed-rank significance vs the other model (two-sided): ∗p< 0.05 , ∗∗ p< 0.01 , ∗∗∗ p< 0.001 . 
+
+> †
+
+Indicates numbers taken from [Genesis Research, 2025]                                                             
+
+> Method PB Valid ↑Success Rate ↑lDDT-PLI ↑≤10 NFEs (2 steps)
+> Boltz-1x (default) 0.0 0.0 0.0 Boltz-1x (tuned) 21.8 17.2 45.8 DECAF-SEARCH ∗24 .0∗∗ 19 .646.4
+> ≤20 NFEs (5 steps)
+> Boltz-1x (tuned) 75.9 50.3 59.8 DECAF-SEARCH ∗∗∗ 83 .5∗∗∗ 57 .4∗∗∗ 66 .5
+> ≤25 NFEs (6 steps)
+> Boltz-1x (tuned) 73.4 51.9 61.8 DECAF-SEARCH ∗∗∗ 80 .1∗∗∗ 57 .0∗∗∗ 67 .8
+> ≤40 NFEs (10 steps)
+> Boltz-1x (tuned) 86.6 55.4 64.2 DECAF-SEARCH ∗∗∗ 91 .6∗∗∗ 61 .8∗∗∗ 67 .2
+> ≤50 NFEs (12 steps)
+> Boltz-1x (tuned) 86.3 56.5 63.7 DECAF-SEARCH ∗∗∗ 92 .7∗∗∗ 62 .6∗∗ 67 .1
+> ≤160 NFEs
+> Boltz-1x (default, 40 steps) 88.5 58.7 67.6 DECAF-SEARCH (MC-GRAD, 15 steps) ∗∗∗ 92 .1∗∗∗ 63 .7∗∗∗ 69 .2
+> 800 NFEs (Full budget)
+> Boltz-1x (ref., 200 steps) 95.9 64.9 69.9
+> DECAF-SEARCH (MCTS, 10 steps) 95.5 65.0 69.5
+> Frontier cofolding models †
+> AlphaFold 3 73.9 60.7 80.9 Pearl 96.1 72.1 81.9
+
+Figure 2: Success rate vs. training-set simi-larity on the RnP benchmark at 40 NFE. 
+
+Figure 3: Mean RMSD per structure for DECAF-SEARCH (150 NFEs) (x) vs. Boltz-1x (800 NFEs) ( y) on RnP. 
+
+(Q1.) Low NFE regime. Does D ECAF outperform Boltz-1 with a limited inference budget (§4.1)? 
+
+(Q2.) Analysis of compute-optimal frontier. What is the Pareto frontier of D ECAF-SEARCH against Boltz-1x for inference time scaling across any inference compute budget (§4.2)? 
+
+(Q3.) Performance analysis. What are the relative quantitative and qualitative differences in generation quality at the sample-level of D ECAF in comparison to its teacher Boltz-1 (§4.3)? 
+
+4.1 Performance at low NFEs (Q1.) 
+
+We evaluate D ECAF and Boltz-1 on Runs N’ Poses for various NFE inference regimes. We report our main results in table 1 (average over 5 poses) on Runs N’ Poses structures drawn entirely from PDB depositions released after the 2023-06 cutoff date for training. Specifically, we sample DECAF-SEARCH with SMC resampling over 4 particles—bearing similarity to FK steering [Sing-hal et al., 2025]—at compute budgets of 10 , 20 , 25 , 40 , and 50 NFEs. We also include a high-budget (800 NFEs) comparison between Boltz-1x and D ECAF-SEARCH with a variation that is closest to MCTS. As table 1 demonstrates, Boltz-1x fails catastrophically at generating plausible structures at low steps regime under the default sampling configuration. As an orthogonal contribution, we remedy this by tuning the step scale in the default Boltz-1x to η = 1 when ≤ 15 diffusion steps, which restores stable SDE sampling in the few-step regime. We refer to this setting as Boltz-1x-tuned. At every low compute budget in table 1, D ECAF outperforms Boltz-1x-tuned on every metric. The improvement is significant in the 20–160 NFE range (paired Wilcoxon signed-rank, p < 0.001 on nearly all metrics). At 50 NFEs, D ECAF is also competitive with frontier cofolding models that use ≥ 800 NFEs—surpassing even AlphaFold 3 on the Success Rate and PB-Valid metrics. At a matched budget of 800 NFEs, D ECAF is on par with Boltz-1x on all three metrics. 
+
+Generalization . An important criterion for cofolding models is their ability to handle difficult targets, as it is a proxy for model generalization beyond the training set. In fig. 2, we plot the success rate against the pocket-similarity metric PLI Q-Coverage (shaded regions show 95% bootstrap confidence intervals (1000 resamples per bin). We observe that D ECAF’s margin over Boltz-1x holds across every quartile, including the most out-of-distribution bin (lowest PLI Q-Coverage), confirming that the performance gain is not driven by structures that are close to the training set. Lastly, in fig. 3 we perform a fine-grained analysis of performance at the sample-level. In particular, we conduct a comparison between D ECAF-SEARCH (MC-GRAD) at 150 NFEs and Boltz-1x 7(800 NFEs) for each of the 702 structures in Runs N’ Poses. Each point gives one target’s mean pose RMSD under D ECAF ( x) and Boltz-1x (y); points above the y = x diagonal indicate D ECAF wins. D ECAF matches Boltz-1x on the per-target distribution of mean RMSD at 5.3×less inference compute. The advantage holds in the difficult tail: among the targets where at least one method exceeds 10 ,Å, D ECAF attains the lower RMSD on 71% of them.                                                                       
+
+> Table 2: Post-2023 Runs N’ Poses comparison ( n=196 ). AlphaFold3, Chai-1, and Boltz-1 were trained with
+> 2021-09 cutoff date. Boltz-2 and Pearl models are trained on 2023-06 and 2023-12 cutoff dates, respectively. Bolding is reserved for only the 40 NFE comparisons and not the frontier models at full budget.
+> best@1 best@5
+> Method PB-valid Success Rate lDDT-PLI PB-valid Success Rate lDDT-PLI
+> Full budget
+> AF3 †66.3 53.5 76.1 86.2 69.9 79.3 Chai-1 †71.2 49.5 69.9 90.3 63.3 72.9 Boltz-1x †93.7 62.2 71.3 95.9 66.3 73.2 Boltz-2 †(2023-06 cutoff) 67.9 50.1 74.3 79.1 58.2 77.3 Pearl-2026.1.dev (2023-12 cutoff) 96.7 67.8 73.0 98.5 77.0 78.9
+> 40 NFEs ( 10 steps)
+> Pearl-2026.1.dev (2023-12 cutoff) 83.9 52.0 60.6 97.4 75.0 78.7
+> DECAF-Boltz 89.5 55.5 62.3 98.0 66.8 67.7
+> DECAF-Pearl 95.1 64.8 71.1 99.5 76.0 77.2
+
+State-of-the-art cofolding model distillation: Pearl [Genesis Research, 2025] . We next explore applying our D ECAF framework to develop a few-step co-folding model by distilling the state-of-the-art model Pearl [Genesis Research, 2025]. We specifically adopt Pearl-2026.1.dev, as a development checkpoint of Pearl trained with a 2023-12 cutoff date, and distill it into a student following the procedure in §3, yielding D ECAF-Pearl. In table 2 we compare D ECAF-Pearl to its teacher, to D ECAF-Boltz, and to several public frontier cofolding baselines on the post-2023 
+
+subset of Runs N’ Poses ( n=196 ). D ECAF-Pearl matches the Pearl-2026.1.dev teacher ( p = 0 .593 )on the key best@5 success rate while using 5× fewer neural-network evaluations ( 40 NFEs vs. full simulation ≥ 200 NFEs) and outperforms Pearl-2026.1.dev on PB-valid ( p = 0 .034 ). While the teacher retains a small edge on single-pose metrics (best@1 success rate and PB-validity), DECAF-Pearl significantly outperforms all external baselines as well as Pearl-2026.1.dev 10 diffusion steps and D ECAF-Boltz on these metrics across both best@1 and best@5. These results confirm that D ECAF can compress a diffusion-based cofolding model into a competitive student. The 5× NFEs savings unlocked by D ECAF enable new workflows that remain impractical for full simulation. Concretely, for virtual screening, D ECAF-Pearl makes it feasible to cofold entire ligand libraries against a target of interest. In parallel, for synthetic data generation, the same speedup translates into an order-of-magnitude increase in the number of high-quality protein–ligand complexes that can be produced per unit of compute, which is a key bottleneck for training downstream scoring, affinity, and generative models. In both regimes, the success rate parity with the Pearl-2026.1.dev teacher indicates that the diversity and quality of the top samples are preserved, and as a result, D ECAF-Pearl can be substituted for its teacher without sacrificing the structural signal that downstream applications depend on. 
+
+4.2 Analysis of the compute-optimal frontier (Q2.) 
+
+We next investigate the efficacy of D ECAF-Boltz in comparison to Boltz-1x as a function of increas-ing inference budget on the PoseBusters benchmark. Through this study, we characterize the peak attainable performance of Boltz-1x and D ECAF-Boltz. As such, we elucidate the precise inference recipe for D ECAF-SEARCH that is optimal at each NFE budget. We use PoseBusters because its modest size ( ∼300 structures) makes the dense recipe-and-NFE sweep tractable. Moreover, its 2021-10-01 cutoff enables the principled investigation of the in-distribution Pareto frontier. Figure 4 studies the frontier across PB Valid, RMSD < 2 Å and Success Rate with a best @5 selection criterion for each NFE threshold. We find significant inference cost reductions for D ECAF-SEARCH over Boltz-1x full-scale configuration with 3 particles ( 600 NFEs) with as few as 30 NFEs— a 20 ×
+
+inference cost reduction . Importantly, owing to D ECAF-Boltz’s flowmap lookahead, this reduction also leads to better quantitative performance with D ECAF-SEARCH’s Pareto frontier dominating 83 10 30 100 300 600             
+
+> NFEs per sample
+> 60
+> 62
+> 64
+> 66
+> 68
+> (%)  (FK) 6 steps
+> (FK) 8 steps
+> (MC-GRAD) 15 steps
+> (MCTS) 10 steps
+> Success Rate
+> 310 30 100 300 600
+> NFEs per sample
+> 71
+> 72
+> 73
+> 74
+> 75
+> 76
+> (%)
+> (FK) 6 steps
+> (FK) 8 steps
+> (FK) 10 steps
+> (MCTS) 10 steps
+> RMSD <2Å
+> 310 30 100 300 600
+> NFEs per sample
+> 86
+> 88
+> 90
+> 92
+> 94
+> (%)
+> (FK) 6 steps
+> (FK) 8 steps
+> (MC-GRAD) 15 steps
+> PB-valid
+> Method
+> Boltz-1(x)
+> DeCAF (Ours)
+> Pareto Frontier
+> compute-optimal
+> sub-optimal
+
+Figure 4: DECAF-Boltz is cost-effective as we increase compute. A comparison of D ECAF-SEARCH and Boltz-1x as a function of NFE budget. The solid lines are the per-NFE compute optimal frontier for each method. 
+
+Boltz-1x across every NFE budget on all metrics. We further find that at different inference budgets, the exact Pareto-optimal recipe for D ECAF-SEARCH varies. Specifically, at low NFEs ( ≤ 30 ), particle-based SMC akin to FK-steering is optimal. At the moderate NFEs ( 100 − 250 ), we find our Monte Carlo estimation of the reward gradient (MC-GRAD) to be the most effective. Finally, at large NFE budgets, we find D ECAF-SEARCH with MCTS to be the most impactful at NFEs ≥ 142 .
+
+Fine grained analysis . As we increase the NFE based on the hyperparams in D ECAF-SEARCH, however, we note that the head-to-head with Boltz-1x favors different complexes, i.e., the successful complexes at high NFE are not a superset of the successful complexes at low NFE (table 7). This sug-gests that a more complex interplay between sampling accuracy and reward guidance within D ECAF-Boltz. We highlight representative samples from D ECAF-SEARCH (FK) at low NFE, which have higher accuracy than any pose sampled from Boltz-1x at any NFE (fig. 5, additional samples in fig. 9). 
+
+4.3 Performance Analysis (Q3.) 
+
+Table 3: Parameterization ablation. The 
+
+x0-aligned parameterization implements eq. (10); the velocity parameterization predicts vρ(xρ);consistency distillation (CD) follows Song et al. [2023]. Numbers on PoseBusters, 30 NFEs. 
+
+Parametrization PB-Valid ↑ RMSD <2Å ↑
+
+x0-aligned 90.4 75.6 
+
+velocity 9.2 49.1 Cons. Distillation 0.0 49.5 
+
+Posebusters validity. We qualitatively study the pose quality at various NFE budgets. In fig. 5 we visually depict the samples and observe that, in comparison to Boltz-1x , the MCTS version of DECAF-SEARCH ( 600 NFEs) can improve pose accuracy. Meanwhile, MC-GRAD ( 150 NFEs) reduces steric clashes in comparison to Boltz-1x ,highlighting improved physical reward alignment. DECAF-SEARCH methods benefit from having both generally high pose quality (i.e., reward optimization) and more accurate ligand placement. While few-NFE inference with D ECAF-Boltz already yields better failure rates in relation to Boltz-1x (c.f. table 8) we see further refinement in pose quality when scaling NFEs further with the MC-GRAD and MCTS variants. We additionally note that pose quality on PoseBusters is greatly determined by reward design, and leads to common failure modes across D ECAF-Boltz and Boltz-1x that share the same potentials. For instance, we observe that sp2-hybridized bonds are often not planar. In addition, some PoseBusters quality checks have stricter tolerances than are chemically accurate, such as flagging metal ion coordination as a "clash" based solely on the neutral atoms’ van der Waals radii (fig. 7). We find majority of these failures can be mitigated through inference search. 
+
+Generalization on chemically-relevant targets . We stratify the Runs N’ Poses benchmark to evaluate our models on challenging scenarios most relevant to drug discovery tasks. We consider several slices which probe these settings: drug-like ligands only, ligands interacting with ions and cofactors, and ligands at protein-protein interfaces. In these subsets, D ECAF-SEARCH outperforms Boltz-1x to a statistically significant degree (table 9). We curate representative poses in fig. 8. 
+
+Parametrization . We ablate D ECAF’s denoiser-aligned parametrization (eq. (10)) against a velocity-predictor student [Geng et al., 2025b] that directly regresses vρ(xρ) under the same JVP schedule and data budget. We also experimented with consistency distillation parametrization [Song et al., 2023]. Table 3 confirms that only our chosen x0-aligned parametrization can sample valid poses. The denoiser parametrization reuses EDM preconditioning and enables Kabsch alignment on ˆx0—which we find critical for stable training. 9DeCAF -Boltz (FK): 0.37 ˚ A · PB-valid Boltz-1x (FK): 2.89 ˚ A · PB-invalid 
+
+> DeCAF-Boltz vs Boltz-1x
+
+7SSM B7L (18 NFEs)     
+
+> DeCAF -Boltz (FK): 1.80 ˚ A·PB-valid Boltz-1x (FK): 12.48 ˚ A·PB-invalid
+
+7PRM 81I (30 NFEs)     
+
+> DeCAF -Boltz (MC-GRAD): 1.03 ˚ A·PB-valid Boltz-1x (MC-GRAD): 1.67 ˚ A·PB-valid
+
+8DW5 FQ7 (150 NFEs)     
+
+> DeCAF -Boltz (MCTS): 0.58 ˚ A·PB-valid Boltz-1x (MCTS): 1.03 ˚ A·PB-valid
+
+7RWS 4UR (489 NFEs)     
+
+> DeCAF -Pearl: 0.98 ˚ A·PB-valid Pearl: 8.15 ˚ A·PB-valid
+> DeCAF-Pearl vs Pearl
+
+8Y33 V8U (40 NFEs)     
+
+> DeCAF -Pearl: 1.58 ˚ A·PB-valid Pearl: 5.00 ˚ A·PB-valid
+
+8PPG 46I (40 NFEs)     
+
+> DeCAF -Pearl: 5.85 ˚ A·PB-valid Pearl: 0.80 ˚ A·PB-valid
+
+8COV VBR (40 NFEs)     
+
+> DeCAF -Pearl: 0.68 ˚ A·PB-valid Pearl: 0.54 ˚ A·PB-valid
+
+8IZC S93 (40 NFEs) Reference DeCAF Boltz-1x / Pearl Clash Pocket (6 ˚ A) Figure 5: Each panel overlays the ground-truth crystal ligand against DECAF-SEARCH and Boltz-1x 
+
+(first row) and Pearl (second row) samples at the specified NFE. Row 1 compares D ECAF-SEARCH-Boltz against Boltz-1x and Row 2 compares D ECAF-SEARCH-Pearl against Pearl. The protein pocket is shown as a light-gray cartoon, and predicted ligand atoms that clash with the protein in red. At the bottom of each panel, we report the RMSD and posebusters’ validity of each pose. 
+
+5 Related Work 
+
+Protein generation . Early generative models focused on backbone design [Yim et al., 2023, Watson et al., 2023, Bose et al., 2023, Huguet et al., 2024, Geffner et al., 2025b,a]. Since AlphaFold 3 [Abram-son et al., 2024] established EDM-style denoising [Karras et al., 2022] over all-atom coordinates as the dominant paradigm for cofolding, several open and closed-source systems have followed, including Boltz-1(x) [Wohlwend et al., 2025], ProteniX [Team et al., 2026], Chai-1 [Boitreaud et al., 2024], Pearl [Genesis Research, 2025], Complexa [Didi et al., 2026], and DISCO [Rector-Brooks et al., 2026]. These all share a costly inference-time bottleneck of O(200) NFEs per sample. 
+
+Few-step generative models . Several methods compress full generative trajectories, including consistency models [Song et al., 2023, Song and Dhariwal, 2024], Consistency Trajectory Mod-els [Kim et al., 2024], shortcut models [Frans et al., 2025], and the MeanFlow [Geng et al., 2025a, Boffi et al., 2025a]. Despite this flourishing literature, the distillation of all-atom cofolding models remains underexplored, with only DCFold as closed-source concurrent work [Zhang et al., 2026]. 
+
+Inference-time steering . Inference-time techniques for diffusion include classifier guidance [Ho and Salimans, 2021], Universal Guidance [Bansal et al., 2024], and particle-based methods derived from SMC [Del Moral et al., 2006], including Feynman–Kac methods [Singhal et al., 2025, Skreta et al., 2025] and diffusion MCTS [Jain et al., 2025]. In the protein setting, AF3-family models routinely employ physics-informed potentials such as the Boltz-1x stereochemical potentials [Wohlwend et al., 2025] whose cost grows linearly in both denoising steps and particle count. 
+
+6 Conclusion 
+
+We introduced D ECAF, a flow map that distills a pretrained all-atom cofolding diffusion model into a few-step generator. The construction rests on two technical choices: a reparameterization in σ-space that matches the EDM-style adopted by standard cofolding models, and a denoiser parametrization that preserves the SE(3) rigid alignment. On top of D ECAF, we built D ECAF-SEARCH, an inference-time search framework that leverages flow map lookahead to achieve higher-fidelity reward alignment. Empirically, D ECAF-SEARCH matches the 600 -NFE Boltz-1 teacher with a 20 ×
+
+reduction in function evaluations on PoseBusters and improves over Boltz-1x on Runs N’ Poses at every low-NFE setting we considered. Furthermore, we distilled the state-of-the-art cofolding model Pearl-2026.1.dev into D ECAF-Pearl. We found that D ECAF-Pearl achieved state-of-the-art performance, outperforming diffusion-based models and baselines, and matching the success rate of its teacher with 5× fewer diffusion NFEs. 10 Limitations . Several limitations point to the next steps. Our reward signal is inherited from Boltz-1x ,so failure modes such as non-planar sp 2 bonds reflect this choice rather than the search procedure. The σ-space denoiser formulation is not specific to cofolding and may extend to nucleic acids, larger assemblies, and multi-chain systems. Finally, the non-monotone relationship between NFE budget and per-target success suggests that adaptive search and joint training of the flow map with task-specific rewards are natural avenues for further gains. 
+
+Acknowledgments 
+
+The authors would like to thank Matthew Wicker, Zhengrui Xiang, and Ken Leidal for helpful feedback on early drafts of this work. In addition, we would like to thank Hannes St ¨ark for helpful advice about the Boltz code base. J.N. acknowledges support from the Mathworks Fellowship. R.S. and P.H. acknowledge support from the Machine Learning for Pharmaceutical Discovery and Synthesis (MLPDS) consortium, DSO Singapore grant on next generation techniques for protein ligand binding, and a grant from Siemens Corp on inverse design. GS, PM, and MA would also like to thank the entire Genesis Research team for the valuable support. 11 References 
+
+J. Abramson, J. Adler, J. Dunger, R. Evans, T. Green, A. Pritzel, O. Ronneberger, L. Willmore, A. J. Ballard, J. Bambrick, et al. Accurate structure prediction of biomolecular interactions with alphafold 3. Nature , 630(8016):493–500, 2024. A. Bansal, H.-M. Chu, A. Schwarzschild, S. Sengupta, M. Goldblum, J. Geiping, and T. Goldstein. Universal guidance for diffusion models. In ICLR , 2024. G. R. Bickerton, G. V. Paolini, J. Besnard, S. Muresan, and A. L. Hopkins. Quantifying the chemical beauty of drugs. Nature Chemistry , 4(2):90–98, Jan. 2012. ISSN 1755-4349. doi: 10.1038/nchem.1243. URL http://dx.doi.org/10.1038/nchem.1243 .N. M. Boffi, M. S. Albergo, and E. Vanden-Eijnden. Flow map matching with stochastic interpolants: A mathematical framework for consistency models. Transactions on Machine Learning Research ,2025a. ISSN 2835-8856. N. M. Boffi, M. S. Albergo, and E. Vanden-Eijnden. How to build a consistency model: Learning flow maps via self-distillation. In Advances in Neural Information Processing Systems (NeurIPS) ,2025b. J. Boitreaud, J. Dent, M. McPartlon, J. Meier, V. Reis, A. Rogozhnikov, and K. Wu. Chai-1: Decoding the molecular interactions of life. bioRxiv , 2024. doi: 10.1101/2024.10.10.615955. URL 
+
+https://www.biorxiv.org/content/10.1101/2024.10.10.615955v1 .A. J. Bose, T. Akhound-Sadegh, G. Huguet, K. Fatras, J. Rector-Brooks, C.-H. Liu, A. C. Nica, M. Korablyov, M. Bronstein, and A. Tong. Se (3)-stochastic flow matching for protein backbone generation. arXiv preprint arXiv:2310.02391 , 2023. M. Buttenschoen, G. M. Morris, and C. M. Deane. PoseBusters: Ai-based docking methods fail to generate physically valid poses or generalise to novel sequences. Chemical Science , 15(9): 3130–3139, 2024. doi: 10.1039/D3SC04185A. L. Cao, I. Goreshnik, B. Coventry, J. B. Case, L. Miller, L. Kozodoy, R. E. Chen, L. Carter, A. C. Walls, Y.-J. Park, E.-M. Strauch, L. Stewart, M. S. Diamond, D. Veesler, and D. Baker. De novo design of picomolar sars-cov-2 miniprotein inhibitors. Science , 370(6515):426–431, 2020. A. Chevalier, D.-A. Silva, G. J. Rocklin, D. R. Hicks, R. Vergara, P. Murapa, S. M. Bernard, L. Zhang, K.-H. Lam, G. Yao, et al. Massively parallel de novo protein design for targeted therapeutics. 
+
+Nature , 550(7674):74–79, 2017. P. Del Moral, A. Doucet, and A. Jasra. Sequential Monte Carlo samplers. Journal of the Royal Statistical Society: Series B , 68(3):411–436, 2006. K. Didi, Z. Zhang, G. Zhou, D. Reidenbach, Z. Cao, S. Cha, T. Geffner, C. Dallago, J. Tang, M. M. Bronstein, et al. Scaling atomistic protein binder design with generative pretraining and test-time compute. arXiv preprint arXiv:2603.27950 , 2026. S. B. Ebrahimi and D. Samanta. Engineering protein-based therapeutics through structural and chemical design. Nature Communications , 14(1):2411, 2023. K. Frans, D. Hafner, S. Levine, and P. Abbeel. One step diffusion via shortcut models. In The Thirteenth International Conference on Learning Representations (ICLR) , 2025. P. Gainza, F. Sverrisson, F. Monti, E. Rodola, D. Boscaini, M. M. Bronstein, and B. E. Correia. Deciphering interaction fingerprints from protein molecular surfaces using geometric deep learning. 
+
+Nature Methods , 17(2):184–192, 2020. T. Geffner, K. Didi, Z. Cao, D. Reidenbach, Z. Zhang, C. Dallago, E. Kucukbenli, K. Kreis, and A. Vahdat. La-proteina: Atomistic protein generation via partially latent flow matching. arXiv preprint arXiv:2507.09466 , 2025a. T. Geffner, K. Didi, Z. Zhang, D. Reidenbach, Z. Cao, J. Yim, M. Geiger, C. Dallago, E. Kucukbenli, A. Vahdat, et al. Proteina: Scaling flow-based protein structure generative models. arXiv preprint arXiv:2503.00710 , 2025b. 12 T. Genesis Research. Pearl: A foundation model for placing every atom in the right location. arXiv preprint arXiv:2510.24670 , 2025. Z. Geng, M. Deng, X. Bai, J. Z. Kolter, and K. He. Mean flows for one-step generative modeling. In 
+
+Advances in Neural Information Processing Systems (NeurIPS) , 2025a. Z. Geng, Y. Lu, Z. Wu, E. Shechtman, J. Z. Kolter, and K. He. Improved mean flows: On the challenges of fastforward generative models. arXiv preprint arXiv:2512.02012 , 2025b. J. Ho and T. Salimans. Classifier-free diffusion guidance. In NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications , 2021. P. Holderrieth, D. Chen, L. Eyring, I. Shah, G. Anantharaman, Y. He, Z. Akata, T. Jaakkola, N. M. Boffi, and M. Simchowitz. Diamond maps: Efficient reward alignment via stochastic flow maps. 
+
+arXiv preprint arXiv:2602.05993 , 2026a. P. Holderrieth, U. Singer, T. Jaakkola, R. T. Q. Chen, Y. Lipman, and B. Karrer. GLASS flows: Effi-cient inference for reward alignment of flow and diffusion models. In The Fourteenth International Conference on Learning Representations (ICLR) , 2026b. J. Y. Huang, J. Lin, S. Shah, K. Nair, and N. M. Boffi. How to guide your flow: Few-step alignment via flow map reward guidance. arXiv preprint arXiv:2604.27147 , 2026. G. Huguet, J. Vuckovic, K. Fatras, E. Thibodeau-Laufer, P. Lemos, R. Islam, C.-H. Liu, J. Rector-Brooks, T. Akhound-Sadegh, M. Bronstein, et al. Sequence-augmented se (3)-flow matching for conditional protein generation. Advances in neural information processing systems , 37:33007– 33036, 2024. V. Jain, K. Sareen, M. Pedramfar, and S. Ravanbakhsh. Diffusion tree sampling: Scalable inference-time alignment of diffusion models. arXiv preprint arXiv:2506.20701 , 2025. T. Karras, M. Aittala, T. Aila, and S. Laine. Elucidating the design space of diffusion-based generative models. In Advances in Neural Information Processing Systems , 2022. D. Kim, C.-H. Lai, W.-H. Liao, N. Murata, Y. Takida, T. Uesaka, Y. He, Y. Mitsufuji, and S. Ermon. Consistency trajectory models: Learning probability flow ode trajectory of diffusion. arXiv preprint arXiv:2310.02279 , 2023. D. Kim, C.-H. Lai, W.-H. Liao, N. Murata, Y. Takida, T. Uesaka, Y. He, Y. Mitsufuji, and S. Er-mon. Consistency trajectory models: Learning probability flow ODE trajectory of diffusion. In 
+
+International Conference on Learning Representations (ICLR) , 2024. C. Lee, J. Yoo, M. Agarwal, S. Shah, J. Huang, A. Raghunathan, S. Hong, N. M. Boffi, and J. Kim. Flow map language models: One-step language modeling via continuous denoising. arXiv preprint arXiv:2602.16813 , 2026. Y. Lu, S. Lu, Q. Sun, H. Zhao, Z. Jiang, X. Wang, T. Li, Z. Geng, and K. He. One-step latent-free image generation with pixel mean flows. arXiv preprint arXiv:2601.22158 , 2026. V. Mariani, M. Biasini, A. Barbato, and T. Schwede. lddt: a local superposition-free score for comparing protein structures and models using distance difference tests. Bioinformatics , 29(21): 2722–2728, 2013. K. A. Murray, C. J. Hu, S. L. Griner, H. Pan, J. T. Bowler, R. Abskharon, G. M. Rosenberg, X. Cheng, P. M. Seidler, and D. S. Eisenberg. De novo designed protein inhibitors of amyloid aggregation and seeding. Proceedings of the National Academy of Sciences , 119(34):e2206240119, 2022. W. Nie, J. Berner, C. Liu, and A. Vahdat. Nvidia fastgen: Fast generation from diffusion models, 2026. URL https://github.com/NVlabs/FastGen .S. Passaro, G. Corso, J. Wohlwend, M. Reveiz, S. Thaler, V. R. Somnath, N. Getz, T. Portnoi, J. Roy, H. Stark, et al. Boltz-2: Towards accurate and efficient binding affinity prediction. BioRxiv , 2025. P. Potaptchik, A. Saravanan, A. Mammadov, A. Prat, M. S. Albergo, and Y. W. Teh. Meta flow maps enable scalable reward alignment. arXiv preprint arXiv:2601.14430 , 2026a. 13 P. Potaptchik, J. Yim, A. Saravanan, P. Holderrieth, E. Vanden-Eijnden, and M. S. Albergo. Discrete flow maps. arXiv preprint arXiv:2604.09784 , 2026b. J. Rector-Brooks, T. Lambert, M. Skreta, D. Roth, Y. Long, Z.-Q. Li, X. Zhang, M. Cretu, F.-Z. Li, T. Ganapathy, et al. General multimodal protein design enables dna-encoding of chemistry. arXiv preprint arXiv:2604.05181 , 2026. D. Roos, O. Davis, F. Eijkelboom, M. Bronstein, M. Welling, ˙ I. ˙ I. Ceylan, L. Ambrogioni, and J.-W. van de Meent. Categorical flow maps. arXiv preprint arXiv:2602.12233 , 2026. A. Sabour, M. S. Albergo, C. Domingo-Enrich, N. M. Boffi, S. Fidler, K. Kreis, and E. Vanden-Eijnden. Test-time scaling of diffusions with flow maps. arXiv preprint arXiv:2511.22688 ,2025a. A. Sabour, S. Fidler, and K. Kreis. Align your flow: Scaling continuous-time flow map distillation, 2025b. URL https://arxiv.org/abs/2506.14603 .D.-A. Silva, S. Yu, U. Y. Ulge, J. B. Spangler, K. M. Jude, C. Labão-Almeida, L. R. Ali, A. Quijano-Rubio, M. Ruterbusch, I. Leung, et al. De novo design of potent and selective mimics of il-2 and il-15. Nature , 565(7738):186–191, 2019. R. Singhal, Z. Horvitz, R. Teehan, M. Ren, Z. Yu, K. McKeown, and R. Ranganath. A general frame-work for inference-time scaling and steering of diffusion models. arXiv preprint arXiv:2501.06848 ,2025. M. Skreta, T. Akhound-Sadegh, V. Ohanesian, R. Bondesan, A. Aspuru-Guzik, A. Doucet, R. Brekel-mans, A. Tong, and K. Neklyudov. Feynman–Kac correctors in diffusion: Annealing, guidance, and product of experts. In International Conference on Machine Learning , 2025. P. Škrinjar, J. Eberhardt, J. Durairaj, and T. Schwede. Have protein-ligand co-folding methods moved beyond memorisation? BioRxiv , pages 2025–02, 2025. Y. Song and P. Dhariwal. Improved techniques for training consistency models. In International Conference on Learning Representations (ICLR) , 2024. Y. Song, P. Dhariwal, M. Chen, and I. Sutskever. Consistency models. In Proceedings of the 40th International Conference on Machine Learning , ICML’23. JMLR.org, 2023. E.-M. Strauch, S. M. Bernard, D. La, A. J. Bohn, P. S. Lee, C. E. Anderson, T. Nieusma, C. A. Holstein, N. K. Garcia, K. A. Hooper, et al. Computational design of trimeric influenza-neutralizing proteins targeting the hemagglutinin receptor binding site. Nature biotechnology , 35(7):667–671, 2017. P. Team, Y. Zhang, C. Gong, H. Zhang, W. Ma, Z. Liu, X. Chen, J. Guan, L. Wang, Y. Yang, et al. Protenix-v1: Toward high-accuracy open-source biomolecular structure prediction. bioRxiv , pages 2026–02, 2026. M. C. Tweedie. Statistical properties of inverse gaussian distributions. ii. The Annals of Mathematical Statistics , pages 696–705, 1957. M. Uehara, Y. Zhao, C. Wang, X. Li, A. Regev, S. Levine, and T. Biancalani. Inference-time alignment in diffusion models with reward-guided generation: Tutorial and review. arXiv preprint arXiv:2501.09685 , 2025. J. L. Watson, D. Juergens, N. R. Bennett, B. L. Trippe, J. Yim, H. E. Eisenach, W. Ahern, A. J. Borst, R. J. Ragotte, L. F. Milles, et al. De novo design of protein structure and function with rfdiffusion. 
+
+Nature , 620(7976):1089–1100, 2023. J. Wohlwend, G. Corso, S. Passaro, N. Getz, M. Reveiz, K. Leidal, W. Swiderski, L. Atkinson, T. Portnoi, I. Chinn, et al. Boltz-1 democratizing biomolecular interaction modeling. BioRxiv ,pages 2024–11, 2025. J. Yim, A. Campbell, A. Y. Foong, M. Gastegger, J. Jiménez-Luna, S. Lewis, V. G. Satorras, B. S. Veeling, R. Barzilay, T. Jaakkola, et al. Fast protein backbone generation with se (3) flow matching. 
+
+arXiv preprint arXiv:2310.05297 , 2023. 14 Z. Zhang, Y. Feng, Y. Song, K. Qiu, H. Zhou, and W.-Y. Ma. DCFold: Efficient protein structure generation with single forward pass. In International Conference on Learning Representations (ICLR) , 2026. 15 Appendix A DECAF-SEARCH 
+
+Algorithm 2 Inference-time search with D ECAF-SEARCH 
+
+Require: FlowMap X; noise schedule σN > σ N −1 > · · · > σ 0 = 0 ; particles P ; resampling interval L; steering weight λ; number of search iterations S; potential R; γ ∈ [0 , 1] ;rollout horizon K (with K = 1 for FK). 
+
+Ensure: Sample ˆx0. 
+
+> 1:
+
+Draw {x(p) 
+
+> σN
+
+}Pp=1 ∼ N (0 , σ 2 
+
+> N
+
+I) ▷ initialize P particles  
+
+> 2:
+
+X ← { x(p) 
+
+> σN
+
+}Pp=1 , n ← 0 ▷ global search tree, current noise index  
+
+> 3:
+
+for s = 0 , 1, . . . , S − 1 do  
+
+> 4:
+
+T ← ∅ ▷ rollout trajectories  
+
+> 5:
+
+nend ← min( N, n + K) 
+
+> 6:
+
+for m = n, . . . , n end − 1 do ▷ denoise rollout (all particles in parallel)  
+
+> 7:
+
+ˆx(p)0 ← X(x(p) 
+
+> σm
+
+, σ m, 0) , ∀p 
+
+> 8:
+
+Optional: gradient steps on ˆx(p)0 w.r.t. R ▷ see eq. (13)  
+
+> 9:
+
+˜σm+1 ← p1 − γ2 σm+1 ▷ γ renoise  
+
+> 10:
+
+˜x(p) ← ˆx(p)0 + ˜ σm+1 
+
+x(p) 
+
+> σm
+
+− ˆx(p)0
+
+σm
+
+, ∀p 
+
+> 11:
+
+ϵ(p) ∼ N (0 , I ), ∀p 
+
+> 12:
+
+x(p) 
+
+> σm+1
+
+← ˜x(p) + γ σ m+1 ϵ(p), ∀p 
+
+> 13:
+
+T ← T ∪ (x(p) 
+
+> σm+1
+
+, m + 1) Pp=1  
+
+> 14:
+
+Compute particle scores R(p) ˆx(p)0
+
+, ∀p 
+
+> 15:
+
+if SEARCH = MCTS then  
+
+> 16:
+
+X ← X ∪ T  
+
+> 17:
+
+Update weights of all (x, m ) ∈ T ▷ backup  
+
+> 18:
+
+Draw (x(p) 
+
+> σi
+
+, i ) ∼ X according to UCT, ∀p 
+
+> 19:
+
+else if SEARCH = FK then ▷ K = 1 , so T holds one entry per particle  
+
+> 20:
+
+(x(p) 
+
+> σi
+
+, i ) ← the entry of T for particle p, ∀p 
+
+> 21:
+
+if s mod L = 0 then  
+
+> 22:
+
+Resample {x(p) 
+
+> σi
+
+}Pp=1 with weights ∝ R(p) 
+
+> 23:
+
+n ← i + 1 ▷ advance to next noise level  
+
+> 24:
+
+return x(p⋆)0 with p⋆ = arg max p
+
+R(x(p)0 ) : ( x(p)0 , 0) ∈ X 
+
+DECAF-SEARCH (MC-Grad) . As a slight extension of algorithm 2, we realized that the gradient estimate in ∇xσ0 R(xσ0 ) can be a noisy estimate of the optimal guidance direction. We hypothesize that a Monte Carlo average of several gradients might be more favorable, as observed previously [Holderrieth et al., 2026a]. In order to do so, we set 
+
+x0 ← x0 + βL
+
+> L
+
+X
+
+> l=1
+
+wl∇xl 
+
+> 0
+
+R(xl
+
+> 0
+
+) (14) where weights wl are the softmax of importance logits derived from the local reward and the renoise prior, β = ( σ/σ 2
+
+> data
+
+), and xl 
+
+> 0
+
+is obtained by renoising xσ back to x˜σ and then performing the rollouts step in line 7 (i.e. this induces one extra loop that we omit here for readability). 
+
+B Experimental Setup 
+
+B.1 Architecture and Training 
+
+We adopt Boltz-1 original architecture and codebase [Wohlwend et al., 2025] except for the imple-mentation of dual-time conditioning. The denoiser parametrization u(xρ, ρ, σ ) requires fusing two 16 Table 4: Shared inference-parameter settings (constant across NFE budgets and methods). Parameter Value EDM noise schedule Karras et al. ( ρ=7 )
+
+σmin , σmax , σdata 0.0004 , 160 , 16 
+
+Stochastic-step noise scale ( noise_scale ) 0.901 
+
+Per-step gradient updates 20 
+
+MCTS selection rule UCT UCT exploration constant ( c) 1.0
+
+Progressive widening ( k, α) 2.0, 0.5
+
+Table 5: Per-method settings on Runs N’ Poses and PoseBusters. Steps : number of sampling steps. Params :per-method hyperparameters that scale the per-pose NFE. All other sampler hyperparameters are fixed across NFE budgets. Method Steps Params NFE per pose 
+
+Runs N’ Poses (4 FK particles) 
+
+Boltz-1x / D ECAF (FK) 2 4 particles 8
+
+Boltz-1x / D ECAF (FK) 5 4 particles 20 
+
+Boltz-1x / D ECAF (FK) 6 4 particles 24 
+
+Boltz-1x / D ECAF (FK) 10 4 particles 40 
+
+Boltz-1x / D ECAF (FK) 12 4 particles 48 
+
+DECAF-SEARCH (MC-GRAD) 15 10 samples 150 
+
+Boltz-1x 40 4 particles 160 
+
+Boltz-1x (ref.) 200 4 particles 800 
+
+DECAF-SEARCH (MCTS) 10 4 children, 50 simulations 800 
+
+PoseBusters (3 FK particles) 
+
+Boltz-1x [6 , . . . , 200] 3 particles [18 , . . . , 600] 
+
+Boltz-1x (ref.) 200 3 particles 600 
+
+DECAF (FK) 6 3 particles 18 
+
+DECAF (FK) 8 3 particles 24 
+
+DECAF (FK) 10 3 particles 30 
+
+DECAF (MC-GRAD) 10 10 samples 100 
+
+DECAF (MCTS) 10 5 sims, 4 children 142 
+
+DECAF (MC-GRAD) 15 10 samples 150 
+
+DECAF (MC-GRAD) 20 10 samples 200 
+
+DECAF (MC-GRAD) 25 10 samples 250 
+
+DECAF (MCTS) 10 15 sims, 4 children 489 
+
+noise levels into the score network’s conditioning stream. We adopt a dual-time conditioning module from FastGen [Nie et al., 2026] that departs from the single-time conditioning of the EDM teacher. We train D ECAF as a distillation head with our x0-aligned loss (eq. (11)), while the trunk and EDM modules are frozen and initialized from the Boltz-1 open-source checkpoint. Training uses RCSB PDB structures released before 2021-09-30, filtered to resolution ≤ 9.0 Å. We train for 100 epochs with 51,200 samples per epoch on 64 H200 GPUs, using a per-GPU batch size of 2 (effective batch size 128) and diffusion multiplicity 16. The optimizer is Muon with momentum 0.95 and Nesterov updates, with an AdamW fallback ( β1 = 0 .9, β2 = 0 .95 ) for 1D parameters at learning rate ratio 0.1; weight decay is 0.01 throughout. The learning rate follows an AlphaFold 3-style schedule with linear warmup over 1,000 steps to a peak of 1.8e−3. The σ-weighting follows the Karras EDM schedule (σmin = 4 e−4, σmax = 160 , ρ = 7 , σdata = 16 ), with 10% diagonal samples ( σr = σt) and 90% off-diagonal. We further re-scale loss L in eq. (11) by 1√(L+1 e−6)
+
+B.2 Hyperparameters 
+
+We report the inference hyperparameters in tables 4 and 5. Values in table 4 are constant across all NFE budgets and across both methods unless otherwise noted. Values in table 5 are the only knobs that change with the compute budget. 17 Table 6: Sweep of γ for Alg. 2 on PoseBusters. 10 sampling steps, D ECAF-SEARCH (FK), P = 3 .
+
+γ RMSD < 2 ↑ PB Valid ↑ Success Rate ↑
+
+0.3 75.3 89.2 65.2 
+
+0.5 75.6 90.3 65.9 
+
+0.7 72.8 90.3 63.8 
+
+1.0 70.3 90.7 61.3 5 10 20     
+
+> Sampling steps
+> 60
+> 65
+> 70
+> 75
+> 80
+> Success Rate (%)
+> 74.4 75.2 76.2
+> 72.2
+> 74.8 75.2
+> Boltz-1 @ 200 steps (76.2%)
+> DeCAF (Ours)
+> Boltz-1
+
+Figure 6: RMSD < 2 Å best@5 on PoseBusters. DECAF (FlowMap sampler Alg. 1, γ=0 ) vs Boltz-1 (ODE) at matched sampling steps; dashed line marks Boltz-1 at 200 steps. Table 7: Success rate breakdown for D ECAF-SEARCH as NFEs grow. We report the fraction of Runs N’ Poses that succeed along the D ECAF-SEARCH Pareto front, highlighting that while increasing NFEs does improve accuracy, the low-NFE variants do offer complementary successes to the most expensive MCTS-based sampling method. Outcome count %All three succeed 479 68.23% Only D ECAF FK (NFE=40) + D ECAF MCTS (NFE=800) succeed 24 3.42% Only D ECAF FK (NFE=20) + D ECAF MCTS (NFE=800) succeed 7 1.00% Only D ECAF FK (NFE=20) + D ECAF FK (NFE=40) succeed 7 1.00% Only D ECAF MCTS (NFE=800) succeeds 25 3.56% Only D ECAF FK (NFE=40) succeeds 7 1.00% Only D ECAF FK (NFE=20) succeeds 7 1.00% None succeeds 146 20.80% Total 702 100.00% 
+
+The key sampler tuning we apply to Boltz-1x in the few-step regime is setting the step scale σscale =1.0 (vs. the default 1.638 used at 200 steps). With the default 1.638 , the SDE diverges under aggressive step-size schedules, producing 0.0% on every metric at 2 steps (table 1, “ Boltz-1x (default)”). Setting noise scale η = 1 .0 recovers stable sampling and is what we report as “ Boltz-1x (tuned)” throughout. 
+
+C Additional Ablations 
+
+C.1 Sampler ablations Stochasticity γ sweep. Table 6 sweeps the CTM stochasticity parameter γ ∈ { 0.3, 0.5, 0.7, 1.0}
+
+for algorithm 2 on PoseBusters, holding the rest of the sampler fixed (10 denoising steps, D ECAF-SEARCH (FK), P = 3 FK particles). We adopt γ = 0 .5, which we hypothesize balances the determinism of γ → 0 against the variance of sampling at γ=1 . Empirically, Success Rate peaks at 
+
+γ=0 .5 (65.9%), with a 4.7-pt spread between the best ( γ=0 .5) and worst ( γ=1 .0) settings, while PB-validity is essentially saturated across all γ (∆ ≤ 1.5 pp). 
+
+DECAF vs Boltz-1 without inference scaling. Figure 6 isolates the sampler axis: both methods run unguided ODE-style integration so the comparison reflects the underlying sampler quality in isolation rather than any inference-time augmentation. D ECAF’s FlowMap sampler (taking velocity predictions directly from the trained flow map at each step) outperforms Boltz-1 ’s standard ODE solver at every sampling-step count — at 5 / 10 / 20 steps respectively by +2 .2, +0 .4, and +1 .0 pp on RMSD < 2 Å. Most notably, D ECAF at 20 steps (76.2%) matches Boltz-1 at 200 steps (76.2%, dashed reference), a 10 × reduction in inference compute. 
+
+C.2 Qualitative analysis PoseBusters quality checks. Table 8 collates statistics of the different PoseBusters sub-check failures for D ECAF-SEARCH and Boltz-1x . As noted in the main text section 4.3, we see high failure rates due to lack of sp2-hybridized bond flatness across all models, likely due to suboptimal 18 Table 8: Per-complex failure rates by PoseBusters sub-check (best@5 over PoseBusters metrics). D ECAF-SEARCH exceeds Boltz-1x at 600 NFE across all NFE levels, and we see generally increasing pose quality with increasing NFE. Lower is better for all entries in this table. 
+
+Sub-check DECAF-SEARCH Boltz-1x 
+
+NFE = 20 NFE = 40 NFE = 75 NFE = 489 NFE = 600 double bond flatness 6.34% 8.10% 7.27% 7.29% 7.83% volume overlap with protein 2.82% 2.11% 0.69% 2.43% 3.20% bond angles 3.87% 2.11% 0.35% 0.00% 0.00% bond lengths 1.76% 1.41% 0.00% 0.00% 0.00% volume overlap with organic cofactors 1.06% 1.76% 0.00% 1.07% 1.07% minimum distance to protein 0.35% 0.00% 0.35% 0.00% 0.36% minimum distance to organic cofactors 0.00% 0.00% 0.35% 0.00% 0.36% minimum distance to waters 0.00% 0.00% 0.35% 0.00% 0.36% internal steric clash 0.70% 0.00% 0.00% 0.00% 0.00% 
+
+PB-valid pass rate 89.79% 90.14% 92.04% 90.62% 88.97% Table 9: Method performance on challenging and chemically-relevant targets. We measure best@5 joint RMSD < 2 Å and PB-valid performance on the following slices of the Runs N’ Poses set (higher is better). Drug-likeness is determined using a Quantitative Estimate of Drug-likeness (QED) score threshold of 0.65, as is typical for a drug-like small molecule [Bickerton et al., 2012]. Methods marked with an asterisk have a statistically-significant improvement relative to the best Boltz-1x version as measured by a two-sided paired Wilcoxon signed-rank test with p < 0.01 .                     
+
+> Slice NDECAF-SEARCH Boltz-1x
+> NFE = 40 NFE = 800 NFE = 40 NFE = 800 Drug-like ligands 283 ** 0.809 0.806 0.787 0.783 Ion/cofactor coordination 134 0.754 ** 0.761 0.749 0.760 Ligand at PPI 292 0.777 ** 0.784 0.779 0.780
+
+reward design. Other checks are failed much less frequently and generally improve with increasing NFE (consider e.g. the bond angles failure mode). In fig. 7 we highlight some notable PoseBusters failures, including examples of the pervasive sp2 planarity issue (middle row). We also flag some false positives of the PoseBusters checks, where accurate poses which capture ionic coordination are flagged as having incorrect distance and volume overlap. 
+
+Practically-relevant slices of Runs N’ Poses. As we note in section 4.3, it is critical to validate the performance of D ECAF on systems that are relevant for users of cofolding models. To emulate this setting, we slice Runs N’ Poses to a subset of structures that highlight common settings in small-molecule drug discovery and report results in table 9. We note that D ECAF-SEARCH has strong performance at both low and high NFE, and matches or outperforms Boltz-1x at similar NFEs. We also highlight select structures from each category in fig. 8. 19 7TM6 GPJ  | mixed PB outcomes 
+
+0.85 ˚ A · PB-valid 
+
+DeCAF FK (NFE = 18) 
+
+0.94 ˚ A · PB-valid 
+
+DeCAF FK (NFE = 30) 
+
+0.83 ˚ A · PB-fail (vol-prot) 
+
+DeCAF MC-GRAD (NFE = 150) 
+
+0.91 ˚ A · PB-valid 
+
+DeCAF MCTS (NFE = 489) 
+
+0.71 ˚ A · PB-fail (vol-prot) 
+
+Boltz-1x (NFE = 30) 
+
+0.66 ˚ A · PB-valid 
+
+Boltz-1x (NFE = 600) 
+
+> 7UTW NAI  | sp 2 flatness FP
+
+0.18 ˚ A · PB-fail (sp2-flat) 0.22 ˚ A · PB-fail (sp2-flat) 0.25 ˚ A · PB-fail (sp2-flat) 0.16 ˚ A · PB-fail (sp2-flat) 0.13 ˚ A · PB-fail (sp2-flat) 0.12 ˚ A · PB-fail (sp2-flat) 
+
+> 7MGT ZD4  | ion-clash FP
+
+1.12 ˚ A · PB-fail (dist-ion) 1.27 ˚ A · PB-fail (angle) 1.29 ˚ A · PB-valid 0.54 ˚ A · PB-fail (dist-ion) 1.19 ˚ A · PB-fail (dist-ion) 0.39 ˚ A · PB-valid 
+
+Ground truth 
+
+DeCAF-SEARCH 
+
+Boltz-1x Pocket (6 ˚ A) Metal ion / cofactor Figure 7: Example failure modes due to PoseBusters checks DECAF predictions blue, Boltz-1 gray. Pocket cartoon (gray) is the residues within 6 Å of the crystal ligand (green). 7FZS  | drug-like 
+
+0.45 ˚ A · PB-valid 
+
+DeCAF FK (NFE = 20) 
+
+0.34 ˚ A · PB-valid 
+
+DeCAF FK (NFE = 40) 
+
+0.38 ˚ A · PB-valid 
+
+DeCAF MCTS (NFE = 800) 
+
+0.56 ˚ A · PB-valid 
+
+Boltz-1x (NFE = 40) 
+
+0.47 ˚ A · PB-valid 
+
+Boltz-1x (NFE = 800) 
+
+> 8CNO  | ligand-at-PPI
+
+1.69 ˚ A · PB-valid 2.23 ˚ A · PB-invalid 2.14 ˚ A · PB-valid 2.13 ˚ A · PB-valid 2.11 ˚ A · PB-valid 
+
+> 8JDX  | coordinator
+
+0.44 ˚ A · PB-valid 0.44 ˚ A · PB-valid 0.37 ˚ A · PB-valid 0.32 ˚ A · PB-valid 0.38 ˚ A · PB-valid 
+
+Ground truth DeCAF-SEARCH Boltz-1x Pocket (6 ˚ A) 
+
+Figure 8: Qualitative grid for chemically-relevant subsets of Runs N’ Poses. DECAF predictions blue, Boltz-1 gray. Pocket cartoon (gray) is the residues within 6 Å of the crystal ligand (green). 
+
+20 8DHG T78 
+
+0.54 ˚ A · PB-valid 
+
+DeCAF FK (NFE = 18) 
+
+0.61 ˚ A · PB-valid 
+
+DeCAF FK (NFE = 30) 
+
+0.69 ˚ A · PB-valid 
+
+DeCAF MC-GRAD (NFE = 150) 
+
+0.54 ˚ A · PB-valid 
+
+DeCAF MCTS (NFE = 489) 
+
+0.57 ˚ A · PB-valid 
+
+Boltz-1x (NFE = 30) 
+
+0.49 ˚ A · PB-valid 
+
+Boltz-1x (NFE = 600) 
+
+> 7OLI 8HG
+
+0.96 ˚ A · PB-valid 0.64 ˚ A · PB-valid 0.98 ˚ A · PB-valid 0.71 ˚ A · PB-valid 0.75 ˚ A · PB-valid 0.75 ˚ A · PB-valid 
+
+> 7YZU DO7
+
+2.85 ˚ A · PB-valid 2.96 ˚ A · PB-valid 0.72 ˚ A · PB-valid 0.65 ˚ A · PB-valid 0.74 ˚ A · PB-valid 0.57 ˚ A · PB-valid 
+
+> 7BLA WCS
+
+2.03 ˚ A · PB-invalid 1.89 ˚ A · PB-valid 1.13 ˚ A · PB-valid 1.91 ˚ A · PB-valid 2.30 ˚ A · PB-valid 2.13 ˚ A · PB-valid 
+
+> 8EYE X4I
+
+3.24 ˚ A · PB-valid 2.81 ˚ A · PB-valid 2.89 ˚ A · PB-valid 2.59 ˚ A · PB-valid 3.06 ˚ A · PB-valid 2.98 ˚ A · PB-valid 
+
+> 7T2I E9F
+
+5.28 ˚ A · PB-invalid 5.43 ˚ A · PB-valid 5.35 ˚ A · PB-invalid 1.53 ˚ A · PB-valid 5.24 ˚ A · PB-valid 5.29 ˚ A · PB-valid 
+
+Ground truth DeCAF-SEARCH Boltz-1x Pocket (6 ˚ A) Figure 9: Multi-method qualitative grid for PoseBusters complexes. DECAF predictions blue, Boltz-1 gray. Pocket cartoon (gray) is the residues within 6 Å of the crystal ligand (green). 
+
+21
