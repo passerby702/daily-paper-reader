@@ -1,0 +1,849 @@
+Title: My Chemical Harness: Evolutionary Molecular Design over Synthetic Pathways with Large Language Model Agents
+
+URL Source: https://arxiv.org/pdf/2606.11256v1
+
+Published Time: Thu, 11 Jun 2026 00:04:43 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# My Chemical Harness: Evolutionary Molecular Design over Synthetic Pathways with Large Language Model Agents 
+
+# César Ojeda ∗1, Darius A. Faroughy 2, Maryam Karimi 3, Payam Zarrintaj 4,Mir Mehdi Seyedebrahimi 3, and Martín Carballo-Pacheco 31Institute of Mathematics, Faculty of Science, University of Potsdam, Campus Golm, Building 9, Karl-Liebknecht-Str. 24–25, 14476 Potsdam-Golm, Germany 
+
+> 2
+
+NHETC, Department of Physics and Astronomy, Rutgers University, Piscataway, NJ 08854, USA 
+
+> 3
+
+Potsdam Transfer, University of Potsdam, Karl-Liebknecht-Str. 24-25, 14476 Potsdam. 
+
+> 4
+
+Independent Researcher, E3 LLC, Louisville, KY, USA 
+
+Designing molecules with target properties is most useful when candidate structures are accompanied by feasible synthetic routes. We introduce My Chemical Harness ,a route-native evolutionary framework for goal-directed molecular design in which the search population consists of executable synthetic pathways rather than isolated molecular graphs. Each route is built from purchasable building blocks and reaction templates, executed by deterministic chemistry tools, and scored through task-specific molecular oracles. Large language models (LLMs) are used only as strategy controllers that select high-level preferences over route length, move type, reaction families, motifs, and exploration pressure, while local code performs route construction, validation, deduplication, scoring, selection, and memory updates. This separation lets the LLM guide exploration without allowing it to introduce hallucinated products or unsupported reaction steps. On a soluble epoxide hydrolase proxy task, our LLM agent improves over single pass LLM and deterministic controllers, reaching state-of-the-art performance across the sEH score, synthetic accessibility score, and AiZynthFinder success rate metrics. These results suggest that constrained LLM agents can play a significant role in molecular discovery without requiring training, fine-tuning, or dedicated generative models. 
+
+# 1. Introduction 
+
+A central challenge in drug and materials discovery is the identification and design of molecules with targeted chemical properties. In light of recent advances in machine learning and generative modeling, whose applications have shown dramatic success in text, 1 code, 2,3 image, 4 and video generation, increasing efforts have sought to tackle the scientific discovery of new drugs and materials. To accomplish this task, and following standard practice, transformer based models as well as diffusion or transportbased methods have been directly applied to chemical data, yielding models that are able to sample new molecules in a de novo manner. Despite promising successes, 
+
+> ∗Corresponding author: ojedamarin@uni-potsdam.de
+
+1
+
+> arXiv:2606.11256v1 [physics.chem-ph] 8 Jun 2026
+
+it has become clear that the direct application of these methodologies often yields candidates with a significant practical drawback: they may be synthetically inaccessible, meaning that no feasible synthesis route is known or readily available. Early attempts trained generative models directly on molecular representations such as SMILES strings 5–7 or 3D molecular geometries, 8–11 
+
+which contain no explicit information about the synthesizable routes required to obtain the molecule. Moreover, because these models learn primarily from observed molecular distributions, their ability to systematically explore beyond the support of the training data remains limited. Recent work has sought to incorporate synthetic pathways into molecular generation, 6,12,13 
+
+most commonly by projecting generated molecules onto synthesizable chemical space. In these approaches, synthesizability is typically enforced a posteriori, as an auxiliary correction step applied on top of otherwise structurecentric generative methodologies. It is worth observing that, once one focuses on available synthesizable routes, that is, on the set of reactions that can be reliably executed in the laboratory, one is confronted with a combinatorial search problem over reactions and purchasable building blocks. From this perspective, the chemist has access to a repository of meta programs, namely synthesizable route templates, which define reusable units of chemical computation available for constructing candidate molecules. It is from this perspective that recent advances in large language models (LLMs) and agentic systems may offer substantial improvements for drug and material design. LLMs provide a powerful set of capabilities: their training on large scientific corpora enables them to generalize across chemical concepts, propose hypotheses for new routes, and operate at scale in repetitive and time consuming design loops. However, realizing this potential requires an inference time computational framework that allows LLMs to search chemical space under explicit constraints on budget, synthesizability, and target properties. Our task is therefore to design methodologies that equip LLMs with constraints, tasks, tools, and evaluation capabilities, collectively referred to as a harness, so that the resulting LLM based system can reliably attain the desired design goals. In the present work, we propose a chemical harness that enables LLM agents to search synthesizable chemical space by combining synthetic route templates with purchasable building blocks. Inspired by recent successes in program search for coding and mathematics under the AlphaEvolve paradigm, 14,15 we instantiate a genetic algorithm in which tool augmented LLM agents form the basis of the mutation operators. These operators evolve synthetic routes toward candidate molecules with desirable properties. We expect our contribution to facilitate the rational design of synthesizable drugs and molecularly imprinted polymers with high specificity for selected molecular targets. Early attempts to use LLMs for materials design positioned the model primarily as a natural language interface or autonomous design assistant. ChatMOF 16 used LLMs to extract key information from user provided text and connect natural language queries to MOF prediction, retrieval, and generation workflows. LLMatDesign 17 extended this direction by using LLM agents to translate human instructions, modify candidate materials, evaluate the outcomes using external tools, and refine subsequent decisions through self reflection. To improve such systems, emphasis has been placed on prompt engineering, 18 on agent roles that mimic a research group, 19 with a human-in-the-loop decision making processes involving hypothesis suggestion and evaluation. LLMs have also been exploited in large scale smart literature searches, 20 leveraging knowledge already available in the scientific literature. The evolutionary algorithm approach taken in this study differs from the above mentioned approaches in that it introduces an explicit population of candidate solutions that is manipulated and evaluated through agents and tools. Thus, we do not design a single agent, but rather a set of meta rules that instantiate and control agentic operations within a genetic algorithm. In essence, the LLM is treated as one component of an optimization algorithm. Similar in philosophy, Caldas et al. 21 exploits in-context learning to use the LLM as a surrogate function. Evolutionary search 22 has been successfully applied to materials discovery in the context of wide bandgap semiconductors, solid state electrolytes, and insulating dielectrics, where materials 2Figure 1: Example of an executable synthetic reaction route used as the search object in route native molecular optimization. 
+
+are described through crystallographic representations. In the present work, we bring these capabilities to the search for synthesizable molecules and represent candidates through synthetic routes. Our approach differs from synthesis aware generative models and posthoc projection meth-ods 6,13 in the object that is searched. Rather than first proposing molecular structures and subsequently attempting to map them onto feasible chemistry, we formulate molecular design as a genetic algorithm over executable synthetic routes. As illustrated in Figure 1, each candidate is not merely a molecule, but a concrete synthesis program: a sequence or tree of reaction steps that combines purchasable building blocks through reaction templates to produce a final product. The population of the genetic algorithm is therefore a population of synthetic routes. Each route acts as the genotype, while the molecule obtained by executing the route acts as the phenotype on which molecular properties are evaluated. In this representation, synthesizability is not introduced as an external penalty or correction, but is imposed by the search space itself. Within this framework, the role of the LLM is deliberately restricted. It does not act as an unconstrained molecule generator; instead, it serves as a chemistry aware mutation operator acting on route genomes. Given parent routes sampled from the current population, the LLM proposes local or structural edits, such as building block substitutions, reaction template changes, route extensions, or recombinations of useful route fragments from previous candidates. These proposed offspring are then parsed into executable route objects, validated against the reaction library, executed with deterministic chemistry tools, and scored by downstream molecular oracles. The evolutionary loop therefore maintains explicit control over population update, selection, and fitness evaluation, while the LLM contributes chemical priors that guide exploration of the synthesizable route space. 32. Results 
+
+2.1. Overall Workflow 
+
+The overall workflow of My Chemical Harness is schematically illustrated in Fig. 2. A detailed description of the methodology and algorithmic components is provided in Section 4. In brief, we formulate synthesizable molecular design as an evolutionary search problem over synthetic routes. Each individual in the population corresponds to a candidate synthetic pathway, and the product molecule obtained by executing that route is evaluated by one or more objective functions subject to task specific constraints. The population is then iteratively refined using genetic algorithm principles, including selection, variation, and fitness based survival. 23,24 
+
+To instantiate the search, the system requires a library of purchasable or otherwise accessible building blocks, a set of reaction templates, and a compatibility matrix specifying which building blocks can occupy each reaction slot. The search is organized into population islands. Each island stores its own successful routes, failed or low scoring routes, parent candidates, and island local sampling preferences. Before the first LLM guided iteration, islands are seeded with executable bootstrap routes, so that the initial prompt contains evaluated chemical examples rather than only a global search space description. In the sEH experiments, bootstrap routes are generated locally through forward execution. The sampler incrementally grows routes with lengths between one and five, retaining only partial routes that can be executed. The resulting products are then scored, and valid seeds are added to both the island memory and the population state. The workflow can be viewed as four coupled components: 
+
+• Task, search space, and island memory. The task defines the optimization objective and constraints, while each island maintains a compact history of successful, failed, and parent routes within the accessible synthetic action space. 
+
+• LLM strategy controller. The LLM acts as a search policy controller rather than a molecule generator, using the task, island context, and bounded chemistry space tools to assign soft preferences over route length, move type, reaction families, reaction slots, motifs, and exploration pressure. Unless stated otherwise, all LLM-guided experiments were run using deep-seek-v4-flash as the underlying LLM provider. 
+
+• Local chemistry tools. Deterministic chemistry code converts the strategy into exe-cutable candidate routes, enforces reaction slot compatibility, removes duplicates, and scores the resulting product molecules. 
+
+• Reflection, selection, and memory update. Scored candidates are summarized, ranked, and used to update the island population and memory; in reflective runs, these summaries also guide a mid iteration strategy revision and the learning context for the next iteration. 
+
+One reflective optimization iteration. In the reflective configuration considered here, each optimization iteration is a fixed loop in which the LLM plans and revises the search strategy, while local chemistry code generates and evaluates the molecules. The LLM facing part of one iteration proceeds as follows: 1. Local context assembly. First, the system gathers the information that the LLM will be allowed to see from the active island. Local code selects the island, retrieves parent routes and memory, and summarizes the current reaction and building block action window. 2. LLM query planning. Next, the LLM asks for a few extra resource lookups before deciding how to steer the search. It returns a small set of permitted chemistry space tool queries, which local code executes and summarizes for the next prompt. 4Figure 2: System architecture for My Chemical Harness , showing the interaction between LLM guided strategy generation, route sampling, deterministic execution, scoring, and memory conditioned evolutionary search. 
+
+3. LLM draft strategy. The LLM then proposes an initial plan for where the search should spend its effort. Using the task, memory, parent routes, query results, and previous learning report, it produces a structured search policy rather than explicit molecules. 4. Local first pass execution. The chemistry engine tests the LLM’s first plan by turning it into real route proposals. It enforces synthetic validity, removes duplicate routes, scores the resulting products, and summarizes the first pass outcomes. 5. LLM reflective revision. The LLM is shown what happened and is asked to improve its plan before the iteration finishes. It uses the first pass outcome summary to revise the strategy for the remaining candidate budget. 6. Local second pass execution and selection. The revised plan is tested in the same chemistry pipeline, and the best candidates from both passes are kept. The pooled candidates are ranked by the task score, then committed to the island population, archive, and memory. 7. LLM learning report. Finally, the LLM writes down the lesson from the iteration so that the next iteration does not start from scratch. A compact report of useful strategies, reaction patterns, motifs, and failure modes is carried forward to guide the next iteration. Thus, the LLM remains a planner and reviewer, while route construction, validation, scoring, deduplication, and population updates remain deterministic local operations. 52.2. sEH as a model system for reflective route optimization 
+
+We first used soluble epoxide hydrolase (sEH) as a controlled molecular design testbed to study how the reflective route evolution algorithm behaves when the optimization target is a single protein binding proxy embedded in a synthesizable chemical space. sEH is a pharmacologically relevant enzyme that hydrolyzes endogenous epoxy fatty acid mediators, and it has become a common benchmark for goal directed molecular generation because a pretrained proxy model for predicted binding is available from the GFlowNet molecular synthesis setting of Bengio et al. 25 
+
+Following related synthesis constrained studies from Gao et al., Cretu et al., and the NVIDIA ReaSyn work, 6,13,26 we evaluate not only the sEH binding score but also practical molecular quality and synthesis metrics. Synthetic accessibility (SA) measures how difficult a molecule is expected to be to synthesize, with lower raw SA values indicating easier synthesis. QED measures drug likeness on a normalized scale and AiZynthFinder reports whether a retrosynthesis planner can identify a feasible route from purchasable building blocks. For the sEH case study, we treated LLM control as an ablation variable and used three controller labels. In the deterministic setting, no LLM calls are made. Instead, local code samples routes from fixed or hand-specified search preferences, executes and scores them, and updates the population using the same deterministic chemistry and selection rules applied across all runs. In the non-reflective LLM setting, the LLM is called once per iteration to choose a strategy for local route sampling, but the reflective part of the workflow is omitted. As a result, the LLM does not observe same-iteration outcomes, revise its strategy, or write a learning report before the population update. In the reflective LLM setting, the full agentic workflow is used. After an initial local sampling pass, the LLM receives a summary of the successes, failures, and motifs observed in that pass, revises its strategy, and the local sampler uses the remaining candidate budget under the revised strategy. To isolate the effect of reflective LLM agent from the underlying local chemistry engine, we compared it to the non-reflective LLM control, and the deterministic strategy controller with the same route execution, scoring, deduplication, and population update machinery. The reflective agent evaluated 1000 locally sampled candidates before reflection and 1000 after reflection in each iteration. The deterministic control therefore evaluated a total of 2000 candidates per iteration to match the local candidate budget. Table 1 compares the final reflective LLM population with synthesis constrained baselines from the ReaSyn study. The reflective LLM run achieves the highest cumulative top-1000 mean sEH score ( 0.984 ± 0.005 ), the lowest raw SA score (1.996 ± 0.027 ), and the highest AiZynthFinder success rate ( 0.994 ± 0.004 ), while its QED (0.692 ± 0.015 ) remains below the ReaSyn value. Thus, in this setting the reflective controller improved the binding and synthesis facing metrics most directly targeted by the executable search, without asking the LLM to design the molecules directly. Figure 3 summarizes how this policy level control changes the search over time. Across 120 iterations, the final cumulative top-1000 scalar objective was 0.955 ± 0.002 for reflective LLM agent, 0.945 ± 0.002 for non-reflective LLM control, and 0.930 for the deterministic control.                                                    
+
+> Table 1: Synthesizable goal directed molecular optimization results on the sEH proxy, with baseline results taken from the NVIDIA Reasyn study. Baseline values are reproduced from Lee et al. 13 and reported as the means and standard deviations of 3 runs. Our result reports the final cumulative top-1000 mean across the three reflective LLM guided runs analyzed in this work. The best results are highlighted in bold.
+> Method sEH SA ↓QED AiZynth. SyntheMol 0.64 ±0.01 3.08 ±0.01 0.63 ±0.01 0.82 SynFlowNet 0.92 ±0.01 2.92 ±0.01 0.59 ±0.02 0.65 Reasyn 0.96 ±0.00 2.05 ±0.01 0.75 ±0.01 0.97 ±0.01
+> Reflective LLM (ours) 0.984 ±0.005 1.996 ±0.027 0.692 ±0.015 0.994 ±0.004
+
+6Figure 3: sEH case study for reflective route optimization. (a) Cumulative top-1000 mean normalized sEH score over 120 iterations for the reflective LLM agent, the non-reflective LLM, and the deterministic controller. Shaded regions show the standard deviation across three independent LLM runs; the deterministic control is a single run. (b,c) The same cumulative top-1000 products summarized by raw SA score (lower is easier) and QED. (d,e) Shared t-SNE projection of Morgan fingerprints using Tanimoto distances for the selected reflective and deterministic runs at the first and final iterations, with 1000 sampled Enamine/Synformer building blocks in gray. (f) Three highest scoring final products from the reflective LLM runs. 
+
+Panels a–c show that the reflective agent gives the strongest sEH trajectory while preserving easier synthesis and comparable drug likeness in the same cumulative top-1000 molecule pool. In particular, the final cumulative top-1000 component means were sEH 0.984 ± 0.005 , SA 
+
+1.996 ± 0.027 , and QED 0.692 ± 0.015 for the reflective agent, compared to sEH 0.946 , SA 2.343 ,and QED 0.668 for the deterministic control. Panels d and e show the associated change in chemical space coverage. At the first iteration, the reflective and deterministic products largely overlap near the sampled Enamine/Synformer building block reference set; by the final iteration, the two searches occupy more separated regions of the shared t-SNE projection. This indicates that the optimization is not merely selecting the same local products more strongly, but is opening distinct productive regions of synthesizable chemical space. The route records provide a simple audit of which search strategy was most productive. Among the final cumulative top-1000 reflective products across the three runs, 60.1% were one step routes and 34.5% were two step routes, with only 5.4% requiring three or more reaction steps. The most common successful strategy was therefore not a long route elaboration policy, but repeated generation and refinement of short executable routes, with the LLM steering which 7Table 2: Synthesizable goal directed molecular optimization results on the TDC oracles, with baseline results taken from the NVIDIA Reasyn study. All results are AUC top-10. The Reasyn, SynthesisNet, and SynNet values are taken from Lee et al. 13 The best value among the displayed methods is highlighted in bold. 
+
+Method Reasyn SynthesisNet SynNet Reflective LLM (ours) amlodipine_mpo 0.620 0.608 0.567 0.6436 
+
+celecoxib_rediscovery 0.810 0.582 0.443 0.5362 drd2 0.977 0.960 0.969 0.9752 fexofenadine_mpo 0.788 0.791 0.764 0.7934 
+
+gsk3b 0.889 0.848 0.790 0.8074 jnk3 0.695 0.639 0.631 0.5228 median1 0.274 0.305 0.219 0.2415 median2 0.259 0.257 0.237 0.2415 osimertinib_mpo 0.823 0.810 0.797 0.8076 perindopril_mpo 0.561 0.524 0.559 0.5585 ranolazine_mpo 0.752 0.741 0.743 0.7660 
+
+sitagliptin_mpo 0.314 0.313 0.026 0.4522 
+
+zaleplon_mpo 0.460 0.528 0.341 0.5076 Average score 0.633 0.608 0.545 0.6041 
+
+reaction and building block regions the local sampler should emphasize. The chemical products in panel f are consistent with this interpretation. The three highest scoring reflective products are compact aromatic amides or ureas, and among the final top-10 reflective products all contained aromatic rings, five contained amide motifs, and four contained urea motifs. This behavior is chemically plausible: crystallographic and medicinal chemistry studies of sEH inhibitors show that urea like hydrogen bonding motifs and hydrophobic or aryl substituents are common ways to engage the catalytic pocket and enzyme tunnel. 27–31 The reflective policy therefore enriched interpretable sEH relevant chemistry while preserving the auditability of an executable, locally validated route generator. 
+
+2.3. TDC oracle benchmarks 
+
+We next asked whether the same reflective, synthesis constrained search procedure could be applied beyond the sEH proxy to the 13 molecular design oracles commonly used in the Therapeutics Data Commons (TDC) goal directed generation benchmark. 32 This oracle suite, evaluated with area under the top-10 curve in the practical molecular optimization benchmark of Gao et al., 33 has also been used in recent synthesis constrained molecular generation studies from Lee et al. 13 and Sun et al. 34 These objectives include single target activity oracles and multiparameter optimization tasks, so each oracle defines a separate optimization problem with a different notion of molecular quality. We therefore ran each TDC objective independently, using the same route execution and reflective strategy control machinery as in the sEH experiments. Table 2 compares our results with the synthesis based methods reported in the NVIDIA Reasyn study. 
+
+# 3. Discussion and Conclusions 
+
+This work sits within a rapidly growing set of approaches for designing synthesizable molecules with machine learning and language models. SyntheMol and related work from Gao et al. 6
+
+8showed that generative models can be constrained toward synthetically accessible chemical space; ReaSyn from Lee et al. 13 and procedural synthesis from Sun et al. 34 further emphasized that molecular generation should be coupled to explicit synthetic pathways rather than treated as structure generation followed by a synthesis check. SynLlama 35 and MolReAct 36 move closer to language-model-driven molecular design by using LLMs to generate synthesizable analogues or to guide action spaces for reinforcement learning over validated reaction templates. Our contribution is complementary. We use the LLM neither as an unconstrained SMILES generator nor as the component that validates chemistry. Instead, the LLM acts as a strategy controller inside a route-native evolutionary search, while local deterministic code constructs, executes, validates, deduplicates, and scores the candidate routes. A central lesson from our experiments is that the interface to the LLM is itself part of the algorithm. The relevant chemical space is too large to expose directly to the model. In our setting, hundreds of thousands of building blocks and many reaction templates cannot simply be pasted into a prompt. The useful question is therefore not whether an LLM can understand the entire search space at once, but how that space should be partitioned, summarized, and refreshed so that the model can make productive high-level decisions. Most of the mechanical work should remain local, including the sampling of compatible reactants, the validation of reaction slots, the execution of RDKit reactions, the rejection of invalid pathways, and the evaluation of objective functions. The LLM is most useful when it receives compact evidence about what has worked and failed, and then uses that evidence to bias the next local search toward promising reaction families, motifs, move types, or route lengths. This separation also gives the method an important form of auditability and trust. Because accepted molecules are produced by RDKit execution and validated by local deterministic code, the algorithm does not depend on the LLM discovering chemically valid products. In the worst case, an unhelpful LLM strategy may fail to improve over deterministic search, but it cannot by itself introduce a hallucinated molecule or unsupported synthetic step into the accepted population. Every retained candidate is tied to an executable route under the available template library, and every score is computed by the configured local oracle. For chemists, this assigns language models a more reliable role, allowing them to guide where the search should go while leaving the chemistry engine to determine which molecules and synthetic steps are actually valid. The sEH experiments illustrate both the promise and the limitation of this division of labor. Reflection did not transform the optimization problem, and a strong deterministic sampler remained a competitive baseline. However, the reflective controller did change the allocation of search effort and enriched chemically interpretable motifs, including urea- and amide-containing products consistent with known sEH inhibitor chemistry. Thus, the main value of the LLM was adaptive prioritization over a constrained synthetic action space. The TDC experiments reinforce the same point by showing that different oracles reward different molecular features, so future versions will likely require task-specific memory, prompt summaries, and action-window construction rather than a single universal prompting recipe. More broadly, My Chemical Harness belongs to a larger movement toward AI systems that assist scientific discovery by coupling language, tools, search, and experimental feedback. Recent multi-agent systems such as Co-Scientist and Robin show how LLM agents can gen-erate hypotheses, critique them, and connect them to experimental validation in biomedical settings. 37,38 In chemistry, Co-Scientist demonstrated that language-model agents can plan and execute parts of experimental workflows when connected to appropriate tools and automation. 39 
+
+Our work addresses an upstream piece of the same future pipeline: generating synthesizable molecular hypotheses and their routes before committing resources to synthesis and assay. The next challenge is to connect route-native algorithms such as this one to real closed-loop medicinal chemistry, including reagent availability, reaction condition selection, purification, characterization, biological testing, and feedback from failed experiments. In conclusion, LLMs can accelerate molecular discovery when their role is carefully constrained. 9The goal is not to ask the model to replace chemistry, but to place it within a harness in which local tools enforce chemical reality. In this setting, the LLM acts as a high-level search partner, improving exploration when useful, remaining harmless when it is not, and staying bounded at every step by executable synthetic chemistry. 
+
+# 4. Methods 
+
+We formulate My Chemical Harness as an LLM guided evolutionary search procedure over executable synthetic routes. It combines a task specification, a bounded route defined search space, an LLM strategy controller, deterministic route execution, oracle scoring, and island local memory. This organization is related to AlphaEvolve 15 LLM guided evolutionary search, but differs in the object manipulated by the LLM. Rather than proposing program hypotheses directly, the LLM controls a set of variation operators that act as tools for modifying a population of synthetic routes. The population therefore consists of executable synthesis routes, and the fitness of a route is obtained only after local route execution produces a final molecule. 
+
+4.1. Route and pathway representation 
+
+The search space is defined by a set of building blocks B, a set of reaction templates R, and a compatibility matrix M. Each building block in B is represented chemically by a SMILES string, where SMILES denotes the Simplified Molecular Input Line Entry System. SMILES strings describe concrete molecular graphs, for example NS(=O)(=O)NCC(=O)O . A reaction template in 
+
+R is represented by SMARTS, where SMARTS denotes SMILES Arbitrary Target Specification. SMARTS is a pattern language for SMILES reactants and products; for example, an amide forming template matches an amine and a carboxyl like reactant pattern and rewrites them as an amide product pattern, as in [C:1](=[O:2])[OH].[N:3]»[C:1](=[O:2])[N:3] . The functional chemistry is the molecular graph encoded by SMILES and the reaction pattern encoded by SMARTS. We distinguish reaction templates from actual reaction steps. A template R ∈ R is an abstract SMARTS rule. An instantiated reaction step s ∈ S is obtained only after concrete reactant SMILES are supplied to that rule and RDKit applies the SMARTS transform to produce product SMILES. Thus, S is the set of executable reaction steps induced by applying templates in R
+
+to compatible reactants from B or from earlier intermediates, subject to M. The template describes what kind of transformation is possible, while the instantiated step records that the transformation was applied to specific molecules. A route is the machine executable candidate object. In the implementation, it is a list of reaction steps: 
+
+r = ( s1, . . . , s L), si ∈ S . (1) Each step si is formed by choosing a template from R and supplying reactants from B or from products of earlier steps. Local execution resolves these references to reactant SMILES, applies the corresponding SMARTS transform, and stores the product SMILES. A pathway is the chemical synthesis tree induced by the same route object: building blocks are leaves, reaction steps are internal transformations, and the final executed step is the root product. Thus, route 
+
+refers to the executable data structure, while pathway refers to the chemical interpretation of that structure. The compatibility matrix M specifies which building blocks can occupy each reactant slot of each reaction template. It therefore acts as a discrete filter on the route search space: the sampler proposes only template reactant combinations that are allowed by this matrix before RDKit verifies the full SMARTS match during execution. This representation makes synthesizability structural rather than post hoc. A candidate is accepted for scoring only if each selected template resolves to a stored SMARTS rule, every 10 reactant reference resolves to a building block SMILES or a previous intermediate product, the reactants match the required SMARTS patterns, and RDKit execution yields a valid product at each step. Route signatures are stored for reproducibility and deduplication, but they are not chemical representations. Product level duplicates are tracked separately, because two different routes can lead to the same canonical product SMILES. 
+
+4.2. Problem formulation 
+
+Let Xsyn (B, R, M) denote the route defined synthesizable search space induced by the building blocks, reaction templates, and compatibility matrix. Each candidate r ∈ X syn is an executable synthetic route, and we write m(r) for the product molecule obtained by executing route r. If execution fails, m(r) = ⊥. If the discovery task had only one molecular property of interest, the route optimization problem would be 
+
+r⋆ = arg max 
+
+> r∈X syn
+
+f (m(r)) , (2) where f is a black box property oracle evaluated on the executed product. In practice, molecular design rarely reduces to a single property. A candidate must satisfy route level and molecular constraints 
+
+C = {c1, c 2, . . . , c k} (3) while jointly optimizing several objectives f1, . . . , f n. Each constraint cj corresponds to a property or validity function gj and takes one of the canonical forms 
+
+cj : gj (m(r)) ∈ [lj , u j ] or cj : gj (m(r)) ≥ lj or cj : gj (m(r)) ≤ uj , (4) where lj , u j ∈ R are task specific thresholds. Route validity is also a hard constraint: if m(r) = ⊥,the candidate is treated as an invalid genotype rather than as a low scoring molecule. The constrained multi objective task is therefore to identify executable routes whose products satisfy all constraints while achieving favorable trade offs across objective functions. A scalarized version of this task is 
+
+r⋆ = arg max 
+
+> r∈X syn , r |=Cn∑
+> i=1
+
+wifi(m(r)) , (5) where wi is the weight of objective i and r |= C denotes that the route executes and satisfies all hard constraints. This is the score used for scalar selection runs and for logging. For the sEH experiments, T asks the system to discover routes of one to fivesteps whose products have strong soluble epoxide hydrolase binding while maintaining practical synthetic accessibility and drug like molecular quality. The main objectives are sEH binding, synthetic accessibility, and QED. These objective values are not produced by the LLM. They are computed by the local scoring pipeline after the final product SMILES has been generated by route execution. The detailed normalization used to convert raw objective values into scalar rewards is provided in Appendix A. 
+
+4.3. LLM guided evolutionary algorithm 
+
+The algorithm is a genetic algorithm in the standard sense that it maintains a population, selects parents, applies variation operators, evaluates fitness, and updates the population across generations. 24 In this work, the genotype is a synthetic route and the phenotype is the molecule obtained by executing that route. The search is organized over a set of islands Z; each island 
+
+z ∈ Z maintains its own population Pt,z and memory Mt,z (too be explained in detail below). Selection, survival and mutation are handled by local code, while the LLM supplies chemistry aware search guidance, by selecting how to use the tools in charge of the mutations. 11 At iteration t, the system selects an island zt and builds a prompt 
+
+pt = St(T, C, R, A t, P t,z t , M t,z t , H t). (6) The LLM samples a strategy object 
+
+σt ∼ πθ(· | pt), (7) rather than a molecule or a full route. The strategy object is a compact JSON card specifying how the local sampler should allocate search effort. It can include route length preferences, move type preferences, preferred or avoided reaction templates, preferred reaction slots, preferred building blocks, exploration temperature, strategy arms, and requests for future action window coverage. Strategy arms are budgeted sub strategies within σt: each arm can emphasize a different local search mode, such as exploitation of successful parents or exploration of underused reaction families. Their concrete interpretation as operator controllers is described in Section 4.4. The local sampler then defines the actual offspring proposal: 
+
+Qt ∼ Kσt (· | At, P t,z t , M t,z t , H t). (8) This separation is central to the harness. The LLM chooses search pressure; the local sampler creates concrete routes, validates reaction compatibility, executes each route, deduplicates candidates, and calls the scorer. The terms in pt define the prompt contract for the route native strategy controller. We now proceed to specify all the elements of the promt Eq. 6. 
+
+• T is the task specification: objectives, score directions, route limits, and constraints. In the reflective sEH runs, this appears near the top of the prompt as a compact objective block. It tells the model that optimization is multiobjective, but that objective values will be computed after local route execution. 
+
+> Task: - task_name: synthesizable_seh - description: Discover executable, synthesizable molecules with strong soluble epoxide hydrolase binding while preserving practical synthesis and drug-like molecular quality. - objectives: { "seh_binding_score": {"direction": "maximize", "lower": 0.0, "upper": 1.0}, "synthetic_accessibility": {"direction": "maximize", "lower": 0.0, "upper": 1.0}, "qed_drug_likeness": {"direction": "maximize", "lower": 0.0, "upper": 1.0} }Route step range: 1 to 5
+
+• C is the set of hard constraints enforced by local chemistry tools. These constraints are not left for the LLM to decide. A proposed preference or sampled route must refer to known reaction templates, known building blocks, valid intermediate references, reaction slots allowed by M, and an RDKit executable transformation. A route level constraint is therefore a chemistry constraint over resolved SMARTS and SMILES, with handles used only to retrieve the corresponding records: 
+
+> local validation example: template: synformer_template_009 SMARTS: [NX3;!$(N[C]=[S,O,N]);$(N[#6,S]);!$(N[#7]);H1,H2:1]. [#6:4][C:5](=[O:6])[OH,O-]>>[N:1][C:5](=[O:6])[#6:4] reactants: - step_3 - enamine_0059419 [SMILES: NS(=O)(=O)NCC(=O)O] checks:
+
+12 template resolves to SMARTS; building block resolves to SMILES; valid step_3 intermediate; slot-compatible reactants; RDKit execution yields a product; route signature has not already been accepted. 
+
+• R is the rule set shown to the LLM, including JSON output rules and the restriction that only listed chemistry may be selected. The prompt gives the LLM SMARTS and SMILES for reasoning, but the output contract remains a compact JSON strategy over listed fields, because local code must resolve the requested reaction templates and building blocks. 
+
+Strategy rules: 1. You do not write concrete synthesis routes. 2. Local code samples compatible building blocks and executes RDKit reactions. 3. Choose only reaction-template labels shown in the available SMARTS families. 4. preferred_reaction_slots and request_more_slots must use available templates and valid integer slot indices. 5. Do not invent templates, building blocks, SMILES, SMARTS, or JSON fields. Return only JSON. No markdown. No prose outside JSON. 
+
+• At is the current action window: sampled reaction templates, compatible building blocks, slot summaries, and optional chemistry space query results. It is the finite menu of chemistry that the local sampler may draw from during iteration t. Quantities such as route length weights, move type weights, and route position weights are not elements of 
+
+At; they are controls in the strategy object σt that bias how the sampler uses this menu. In the referenced reflective configuration, the prompt window is built from 60 reaction templates and 20000 slot balanced building blocks, with each template label followed by its SMARTS and slot level compatibility counts: 
+
+Available reaction-slot families this iteration: - synformer_template_009 SMARTS: [NX3;!$(N[C]=[S,O,N]);$(N[#6,S]);!$(N[#7]);H1,H2:1]. [#6:4][C:5](=[O:6])[OH,O-]>>[N:1][C:5](=[O:6])[#6:4] name: amide-forming C-N acylation template class: amide formation / C-N acylation features: carbonyl, C-N bond formation, sulfur chemistry reactants: 2 slot 0 role: acyl donor or carboxyl-like reactant; compatible_options=7341 slot 1 role: amine-like nucleophile; compatible_options=3001 
+
+Optional chemistry space queries further expand At with concrete compatible examples, still tied to the same finite local catalog: 
+
+compatible examples for synformer_template_009 slot 1: - enamine_0059419 [SMILES: NS(=O)(=O)NCC(=O)O] motifs: carboxylic acid, sulfonamide, amine - enamine_0028930 [SMILES: Nc1cccc2c1C(=O)NC2=O] motifs: amide, aniline-like amine 
+
+• Pt,z t is the active island population from which parent routes are selected. Parents are shown as route trees or compact local chemistry summaries. They include the SMARTS of each reaction step, the reactant SMILES when the reactant is a catalog building block, and step_i references when the reactant is an intermediate: 
+
+Parent routes (compact local chemistry summary): - parent_1: candidate_id=bootstrap_forward_executable_routes_0_0004 route_length: 3 step_1: synformer_template_057 SMARTS: [#6;!$(C=[O,S,N]):1][OH,SH:2]. 
+
+13 [Cl,Br,I][#6;!$(C=[N,O,S]):3]>>[#6:1][O,S:2][#6:3] reactants: enamine_0050400 [SMILES: CC(C#N)C(O)c1ccc(Cl)cc1] enamine_0202221 [SMILES: FC(F)(Br)n1cnc(I)c1] step_2: synformer_template_038 SMARTS: [#6;!$(C=[S,O,N]):1][Cl,$(OS(=O)(=O)[#6;!R])]. [#6;!$(C=[S,O,N]):2][SH:3]>>[#6:1][S:3](=O)(=O)[#6:2] reactants: step_1; enamine_0022922 [SMILES: CC1CCN(c2nnc(S)n2CC2CCCO2)CC1] step_3: synformer_template_084 SMARTS: [#6:1][C:2]#[N:3]>>[#6:1][c:2]1[n:3][nH][n][n]1 reactants: step_2 
+
+• Mt,z t is the island memory, containing successes, failures, and low scoring but valid examples. During iteration t, newly accepted candidates are collected in Vt as route product score triples (r, x, y), and failed or invalid routes are collected in Ft. These temporary sets are folded into memory after local execution. Memory carries outcome evidence: final product SMILES, score components, motifs, scaffold SMILES, route length, and route steps with decoded SMARTS/SMILES. This lets the LLM connect a strategy choice to molecular outcomes rather than to bookkeeping labels: 
+
+Success memory: - success_10: candidate_id=bootstrap_forward_executable_routes_0_0005 score: 0.297 score_components: seh=0.152, sa_norm=0.495, qed_norm=0.243, logp=3.326, mw=890.039, tpsa=244.260 final_smiles: COc1ncc(C=C(C2CCCCC2)C2(CN(Cc3cnc4c(c3)CCN4) S(=O)(=O)c3c(C)sc(C)c3C=O)N3C(=O)c4cccc(c4C3=O) N2C(=O)CNS(N)(=O)=O)cn1 motifs: amide, sulfonamide, amine, aniline-like amine, pyridine route_steps: step_4=synformer_template_009 SMARTS: [NX3;!$(N[C]=[S,O,N]);$(N[#6,S]);!$(N[#7]);H1,H2:1]. [#6:4][C:5](=[O:6])[OH,O-]>>[N:1][C:5](=[O:6])[#6:4] reactants: step_3; enamine_0059419 [SMILES: NS(=O)(=O)NCC(=O)O] local_lesson_hint: explore nearby chemistry around amide, sulfonamide, amine. 
+
+• Ht is the historical state used for cross iteration bookkeeping and control feedback. It is distinct from the island memory Mt,z t : Mt,z t is the prompt facing evidence buffer for the currently selected island, containing route and molecule examples that help the LLM reason about chemistry within that island. By contrast, Ht records run level history such as previous strategies, route signatures, rejected routes from Ft, accepted route summaries from Vt, strategy arm outcomes, reaction outcomes, and learning reports. This state is partly shown to the LLM in reflection and learning report prompts and partly consumed by local code for deduplication, slot boosts, island selection, and arm accounting. A reflective prompt may show which arms produced valid candidates, which final SMILES scored well, and which failure classes should change the next strategy: 
+
+Draft outcome summary: - strategy_arm: exploit_successful_candidates valid_count: 8 top_scored_candidate: final_smiles: CCC(CC)CCCOc1cc2c(cc1C)nc(-c1cccnc1N1CCCC1)n2C reaction_templates: [synformer_template_021, synformer_template_057] move_type: delete_route_step property_values: seh_binding_score: 0.539 synthetic_accessibility: 0.819 qed_drug_likeness: 0.780 scaffold_smiles: c1cnc(N2CCCC2)c(-c2nc3ccccc3[nH]2)c1 
+
+14 - near_miss: failure_class: too_heavy final_smiles: CC1CCN(c2nnc(S(=O)(=O)c3ccc(...))n2CC2CCCO2)CC1 lesson: reduce high-molecular-weight route extensions. 
+
+Algorithm 1 LLM guided route native evolutionary search 
+
+Require: T, C, R, R, B, M, f, π θ, N, b, Z
+
+Ensure: Best valid routes and products, or final Pareto set 
+
+▷ Initialize  
+
+> 1:
+
+for all z ∈ Z do  
+
+> 2:
+
+Initialize P0,z ← InitPop( R, B, M, C ). 
+
+> 3:
+
+Initialize M0,z ← InitMem() with empty success, failure, and low score memory.  
+
+> 4:
+
+end for  
+
+> 5:
+
+Set the historical state to H0 ← ∅ . 
+
+> 6:
+
+for t = 1 to N do 
+
+▷ Prompt and strategy  
+
+> 7:
+
+Select the active island zt ← SelectIsland( Z, H t). 
+
+> 8:
+
+Build At ← BuildWindow( R, B, M, H t). 
+
+> 9:
+
+Build prompt pt ← St(T, C, R, A t, P t,z t , M t,z t , H t). 
+
+> 10:
+
+Initialize the valid candidate set and failed route set, Vt ← ∅ and Ft ← ∅ .
+
+▷ Local route generation  
+
+> 11:
+
+if reflective mode then  
+
+> 12:
+
+Run Algorithm 2 to obtain the evaluated batch Bt. 
+
+> 13:
+
+Split Bt into valid candidates Vt and failed routes Ft. 
+
+> 14:
+
+else  
+
+> 15:
+
+Sample strategy σt ∼ πθ(· | pt) from the LLM.  
+
+> 16:
+
+for j = 1 to b do  
+
+> 17:
+
+Sample route rt,j ∼ Kσt (· | At, P t,z t , M t,z t , H t). 
+
+> 18:
+
+Execute the route locally, xt,j ← m(rt,j ), with ⊥ denoting failure.  
+
+> 19:
+
+if xt,j ̸ = ⊥ and rt,j |= C then  
+
+> 20:
+
+Score the product, yt,j ← f (xt,j ). 
+
+> 21:
+
+Store the valid candidate, Vt ← Vt ∪ { (rt,j , x t,j , yt,j )}. 
+
+> 22:
+
+else  
+
+> 23:
+
+Store the failed route evidence, Ft ← Ft ∪ { rt,j }. 
+
+> 24:
+
+end if  
+
+> 25:
+
+end for  
+
+> 26:
+
+end if 
+
+▷ Selection and memory  
+
+> 27:
+
+Select survivors, Pt+1 ,z t ← Survive( Pt,z t ∪ Vt). 
+
+> 28:
+
+Update island memory, Mt+1 ,z t ← UpdateMem( Mt,z t , V t, F t). 
+
+> 29:
+
+Update history, Ht+1 ← UpdateHist( Ht, V t, F t). 
+
+> 30:
+
+Carry inactive islands forward, Pt+1 ,z , M t+1 ,z ← Pt,z , M t,z for z̸ = zt. 
+
+> 31:
+
+end for  
+
+> 32:
+
+return Best( {PN,z , M N,z }z∈Z ).
+
+4.4. Variation operators 
+
+The strategy object σt does not directly edit atoms or write a final molecule. Instead, it gives soft preferences that the local sampler converts into one of the route level variation operators illustrated in Figs. 4 – 10. The LLM therefore selects the kind of route modification to 15 emphasize, while local code instantiates the concrete reaction templates, compatible reactants, and executable reaction steps. The action window At provides the allowable chemistry for the current iteration, while σt
+
+provides weights over how that chemistry should be used. These weights include route length, move type, route position, reaction family, reaction slot, and building block preferences. The sampler interprets them as a local policy over At: it first chooses which control to apply, then fills that control with compatible templates and reactants from the action window. 
+
+Operator selection. For each proposed candidate, the sampler uses the operator weights contained in σt to choose one of the enabled route edit operations. This choice selects the route edit operation, not the final molecule. Once a branch is chosen, all newly introduced steps are sampled locally from S by selecting a reaction template from R, supplying compatible reactants from B or earlier intermediates, and executing the SMARTS transform. We now describe each possible route level variation operator. 1. Create New Route. This is the fully generative route move. No parent route is used; the sampler chooses a route length Lt allowed by the task and builds 
+
+r′ = ( s′
+
+> 1
+
+, . . . , s ′ 
+
+> Lt
+
+), s′ 
+
+> i
+
+∈ S . (9) Every step is newly instantiated from available reaction templates and compatible building block SMILES, so this operator provides the strongest exploration of the current action window.  
+
+> Figure 4: Create New Route. This control ignores the parent population and builds a fresh executable route from newly instantiated reaction steps.
+
+2. Extend Parent. This is an exploitative growth move. Given a parent route r =(s1, . . . , s L), the full parent is copied exactly and the sampler appends one or more new executable steps: 
+
+(s1, . . . , s L) −→ (s1, . . . , s L, s ′
+
+> L+1
+
+, . . . , s ′ 
+
+> L′
+
+), s′ 
+
+> j
+
+∈ S . (10) This preserves the chemical pathway already found and searches for useful downstream chemistry, subject to the maximum route length. 16 Figure 5: Extend Parent. This control preserves the full parent route and appends at least one new executable reaction step. 
+
+3. Mutate Parent Prefix. This is a local route repair or route variation move. A route position choice ht determines the preserved prefix length k: an early mutation keeps little or none of the parent, a middle mutation keeps an intermediate prefix, and a final step mutation keeps most of the parent. The remaining suffix is discarded and regrown locally: 
+
+(s1, . . . , s L) −→ (s1, . . . , s k, s ′
+
+> k+1
+
+, . . . , s ′ 
+
+> L′
+
+), s′ 
+
+> j
+
+∈ S . (11) The discarded suffix is not edited in place. Each replacement step must again pass SMARTS matching, reactant compatibility, RDKit execution, and route level validation.  
+
+> Figure 6: Mutate Parent Prefix. This control preserves a prefix of the parent route, discards the suffix, and regrows the remainder using locally compatible SMARTS/SMILES choices.
+
+4. Insert Route Step. This is a route depth expansion move. Given a parent route, the sampler chooses an insertion position, keeps the unaffected part of the route, and inserts a new executable reaction layer. Because the inserted intermediate changes the product side connection, the adjacent step may also be resampled so the full route remains executable: 
+
+(s1, . . . , s i, s i+1 , . . . , s L) −→ (s1, . . . , s i, s ′
+
+> i+1
+
+, s ′
+
+> i+2
+
+, . . . , s ′
+
+> L+1
+
+), s′ 
+
+> j
+
+∈ S . (12) 17 This operator is useful when the search needs an extra synthetic handle rather than a completely new route.  
+
+> Figure 7: Insert Route Step. This control inserts a new reaction layer inside a parent route and repairs the affected product side connection before validation.
+
+5. Delete Route Step. This is a route shortening move. The sampler removes one selected route step and keeps the remaining executable subtree: 
+
+(s1, . . . , s i, s i+1 , . . . , s L) −→ (s1, . . . , s i, . . . , s L−1). (13) No new reaction is added by this operator. It tests whether a simpler route can still give a valid product after the removed layer is discarded.  
+
+> Figure 8: Delete Route Step. This control removes a route step, retains the remaining executable subtree, and validates the shorter route.
+
+6. Substitute Building Block. This is the most local reactant level move. The reaction context is preserved, but one building block leaf is replaced by a new compatible building block sampled from B:
+
+si = ( Ri, b 1, . . . , b m) −→ s′ 
+
+> i
+
+= ( Ri, b 1, . . . , b ′
+
+> q
+
+, . . . , b m), b′ 
+
+> q
+
+∈ B . (14) 18 The reaction template stays fixed, but the product may change because one reactant changed. The substituted building block must still satisfy the required reaction slot.  
+
+> Figure 9: Substitute Building Block. This control keeps the reaction context and replaces one building block input with a newly sampled compatible building block.
+
+7. Substitute Route Step. This is a step level replacement move. The sampler selects one step, preserves the unaffected prefix, and replaces the selected reaction with a newly sampled compatible step. If the replaced step changes an intermediate needed downstream, the affected suffix is repaired or regrown: 
+
+(s1, . . . , s i, s i+1 , . . . , s L) −→ (s1, . . . , s i−1, s ′
+
+> i
+
+, s ′
+
+> i+1
+
+, . . . , s ′ 
+
+> L′
+
+), s′ 
+
+> j
+
+∈ S . (15) This operator changes a larger part of the route than a building block substitution, but still reuses any valid prefix chemistry from the parent.  
+
+> Figure 10: Substitute Route Step. This control preserves the unaffected prefix, replaces one route step, and repairs or regrows the affected downstream connection.
+
+Route length reconciliation. The prefix preserving control applies an additional route length reconciliation. If k steps are kept, the final route must contain at least one newly sampled step after that prefix: 
+
+Lactual = min ( Lmax , max ( Lt, k + 1)) . (16) 19 Thus, a sampled short route length cannot delete a preserved prefix, and a parent based move remains bounded by the task maximum route length. Additional enabled operators follow the same principle. They may replace a terminal reaction, insert or delete a route step, mutate product side chemistry, or substitute building blocks, but they still return only a proposed route. The proposal is accepted only after the deterministic executor verifies every step and the scorer evaluates the final product molecule. 
+
+Strategy arms as operator controllers. The controls above are applied through named strategy arms. A strategy object may contain a set of arms At = {a1, . . . , a m}, where each arm has a budget fraction βa and a local control profile. The implementation normalizes these fractions into candidate quotas and samples each arm separately: 
+
+ba =
+
+> ⌊
+
+b max( βa, 0)  
+
+> ∑
+> a′∈A t
+
+max( βa′ , 0) 
+
+> ⌉
+
+. (17) Each arm inherits the global strategy fields but may override controls in σt: route length weights, move type weights, route position weights, preferred or avoided reaction templates, preferred reaction slots, and preferred building blocks. These controls are interpreted only relative to the action window At; for example, a preferred reaction must be one of the templates shown in At. For a candidate assigned to arm a, the sampler uses the arm specific strategy controls, denoted here by σat , and dispatches to the corresponding variation operator described above. In this sense, arms control how the fixed operator set is used; they do not create new chemistry operators. The generated candidate stores the arm name, arm role, budget fraction, and selected move type, which lets the reflection step report which arms and operators produced valid, high scoring, duplicate, or failed routes. 
+
+4.5. Fitness and memory 
+
+After route execution, each valid product molecule is evaluated by the configured oracle. The scorer returns raw property values, normalized objective rewards, and a scalar score 
+
+Fscalar (r) =  
+
+> ∑
+> i
+
+wiΦi(fi(m(r)))  
+
+> ∑
+> i
+
+wi
+
+, (18) where m(r) is the product obtained by executing route r, fi is a property oracle, Φi maps the raw property to a bounded reward, and wi is the objective weight. Multiobjective runs also retain the unaggregated objective vector for Pareto selection. For the sEH task, the property vector contains the sEH binding proxy, synthetic accessibility reward, and QED. Routes that fail execution are marked invalid and stored as failures. Routes that execute but fail hard molecular constraints or lack required objective values receive zero scalar reward but can still be retained as informative examples. To preserve population diversity and mitigate premature convergence, we split the population into islands, following the memory based evolutionary guidance strategy used in , 14 but with synthetic routes as the stored objects. Each island z maintains two related state variables. The survivor population Pt,z stores routes that can be selected as parents in future generations. The memory Mt,z stores a broader evidence buffer used for prompting: top successes, randomly sampled successes, informative failures, and recent low scoring valid routes. This separation lets survival remain fitness driven while still exposing the LLM to negative and near miss evidence. At iteration t, the active island is selected by a Boltzmann protocol over island scores. Let 20 P + 
+
+> t,z
+
+⊆ Pt,z denote the successful survivor routes on island z, and define 
+
+st,z =
+
+
+
+|P + 
+
+> t,z
+
+|−1 ∑ 
+
+> r∈P+
+> t,z
+
+Fscalar (r), |P + 
+
+> t,z
+
+| > 0,
+
+0, otherwise 1, (19) The probability of selecting island z is 
+
+Pr( zt = z) = exp( st,z /τ z )
+
+∑ 
+
+> z′∈Z
+
+exp( st,z ′ /τ z′ ) , (20) with temperature τz set by the island selection configuration. Larger temperatures flatten the distribution and encourage exploration across islands; smaller temperatures concentrate computation on islands whose recent successful routes have higher mean fitness. With a single island, the same protocol reduces to deterministic selection of that island. Once an island is selected, parent routes are sampled from its successful survivors by a score softmax rule. The prompt memory for the selected island is then assembled from the island local buffer rather than from the full archive. Accepted offspring are registered back into the same island, inactive islands carry their populations and memories forward, and the global archive is used for logging, deduplication, and final analysis. 
+
+4.6. Reflection and learning 
+
+In reflective runs, each iteration has two local sampling phases. First, the LLM emits a draft strategy and the local sampler evaluates a draft batch. The system then summarizes the draft outcomes, including top candidates, failed routes, low scoring routes, objective components, reaction outcomes, strategy arm outcomes, and motif evidence. The LLM receives this summary and emits a revised strategy for the remaining budget. The draft and revised batches are pooled for archive logging, survivor selection, and memory update. A final learning report summarizes which strategy arms, reaction families, motifs, and failure classes should influence the next iteration. Using the same proposal notation as above, the first pass samples a draft strategy 
+
+σ0 
+
+> t
+
+∼ πθ(· | pt), (21) which induces a draft route proposal distribution 
+
+Q0 
+
+> t
+
+∼ Kσ0 
+
+> t
+
+(· | At, P t,z t , M t,z t , H t). (22) Local execution and scoring convert the sampled draft batch B0 
+
+> t
+
+= {r0 
+
+> t,j
+
+}b0 
+
+> j=1
+
+into an evidence summary 
+
+E0 
+
+> t
+
+= Sref 
+
+(
+
+B0 
+
+> t
+
+, m(B0 
+
+> t
+
+), f (m(B0 
+
+> t
+
+)) 
+
+)
+
+. (23) The reflection step conditions the next strategy on this observed evidence, 
+
+σ1 
+
+> t
+
+∼ πθ(· | pt, σ 0 
+
+> t
+
+, E 0 
+
+> t
+
+), (24) and the remaining budget is sampled from 
+
+Q1 
+
+> t
+
+∼ Kσ1 
+
+> t
+
+(· | At, P t,z t , M t,z t , H t, E 0 
+
+> t
+
+). (25)   
+
+> 1In early iterations, an island may contain evaluated routes but no successful route yet. In that case, the score falls back to the mean scalar score over all members of Pt,z ; empty islands receive score zero.
+
+21 The evaluated iteration batch is then 
+
+Bt = B0 
+
+> t
+
+∪ B1 
+
+> t
+
+, (26) which is the set passed to archive logging, survivor selection, memory update, and learning report generation. The reflection prompt explicitly tells the LLM that the observed evidence comes from deter-ministic local execution and that the next response must be a revised strategy, not a route or molecule. The operational prompt contains instructions of the following form: 
+
+Within iteration first pass outcomes: You already committed the initial strategy below in this same iteration. Local code sampled, executed, scored, and deduplicated a draft batch. Use this new evidence to correct or refine the strategy for the remaining candidate budget. Initial strategy JSON: { ... } Observed first-pass summary JSON: {"valid_count": 18, "invalid_count": 7, "best_score": 0.72, "top_scored_candidates": [...], "low_or_failed_candidates": [...], "reaction_outcomes": [...], "strategy_arm_outcomes": [...], "motif_scaffold_outcomes": [...] }Revision instructions: 1. Keep useful reaction families, slots, reactants, route lengths, or move types that produced higher scores. 2. Downweight or avoid patterns associated with invalid routes, duplicates, low scores, or poor objective tradeoffs. 3. Use failure_class, component scores, and strategy_arm outcomes to decide which arms deserve more or less budget. 4. Return one revised strategy JSON object. Do not output concrete routes, reactant lists, invented molecules, markdown, or prose. 
+
+After the pooled draft and revised batches have been scored and committed, the system can ask for a compact learning report that will be included in the next iteration’s strategy prompt. This report is generated from the same deterministic iteration summary, but its purpose is longitudinal memory rather than immediate budget reallocation: 
+
+Role: You are writing a concise chemistry learning report for one molecule-search iteration. The report will be included in the next iteration’s strategy prompt. Write Markdown only. Be concrete, compact, and evidence-based. Strategy JSON used this iteration: { ... } Scored iteration summary: { ... } Report requirements: 1. Summarize what chemical/reaction patterns seemed useful. 2. Summarize what looked harmful or low-scoring. 3. Summarize which motifs/scaffolds looked enriched, harmful, plateaued, or repairable using only observed deterministic annotations. 
+
+22 4. Recommend which persistent strategy arms to keep, retire, split, merge, or re-budget. 5. Suggest next-iteration strategy adjustments using exact reaction IDs or slots when supported. 6. State uncertainty; do not overclaim from weak evidence. 
+
+Algorithm 2 Reflective within iteration strategy refinement 
+
+Require: pt, A t, P t,z t , M t,z t , H t, b 0, b 1, f, π θ
+
+Ensure: Pooled evaluated batch Bt and learning evidence Et 
+
+> 1:
+
+Sample draft strategy σ0 
+
+> t
+
+∼ πθ(· | pt). 
+
+> 2:
+
+Sample draft routes B0 
+
+> t
+
+∼ Kσ0 
+
+> t
+
+(· | At, P t,z t , M t,z t , H t). 
+
+> 3:
+
+Execute and score B0 
+
+> t
+
+locally.  
+
+> 4:
+
+Build evidence E0 
+
+> t
+
+← Sref (B0 
+
+> t
+
+, m(B0 
+
+> t
+
+), f (m(B0 
+
+> t
+
+))) . 
+
+> 5:
+
+Sample revised strategy σ1 
+
+> t
+
+∼ πθ(· | pt, σ 0 
+
+> t
+
+, E 0 
+
+> t
+
+). 
+
+> 6:
+
+Sample revised routes B1 
+
+> t
+
+∼ Kσ1 
+
+> t
+
+(· | At, P t,z t , M t,z t , H t, E 0 
+
+> t
+
+). 
+
+> 7:
+
+Execute and score B1 
+
+> t
+
+locally.  
+
+> 8:
+
+Pool batches, Bt ← B0 
+
+> t
+
+∪ B1 
+
+> t
+
+. 
+
+> 9:
+
+Build iteration evidence Et ← Sref (Bt, m(Bt), f (m(Bt))) . 
+
+> 10:
+
+Generate the learning report from Et for inclusion in future prompts. The resulting loop keeps the roles explicit. The LLM plans the search and reflects on evidence; local chemistry tools generate, validate, execute, score, deduplicate, and store routes. The objective values and losses used for selection are therefore grounded in deterministic route execution and quantitative oracles, not in LLM self assessment. 
+
+# Acknowledgements 
+
+We thank Nikhil Abhyankar for helpful discussions and guidance related to his work on evo-lutionary materials design workflows. We also acknowledge the High Performance Computing department at the University of Potsdam for computational support. D.A.F supported by the DOE under Award Number DOE-SC0010008. 
+
+# References 
+
+[1] Kojima, T.; Gu, S. S.; Reid, M.; Matsuo, Y.; Iwasawa, Y. Adv. Neural Inf. Process. Syst. 
+
+2022 , 35 , 22199–22213. [2] Austin, J.; Odena, A.; Nye, M.; Bosma, M.; Michalewski, H.; Dohan, D.; Jiang, E.; Cai, C.; Terry, M.; Le, Q.; Sutton, C. Program Synthesis with Large Language Models. arXiv, Version 1, August 16, 2021; DOI: 10.48550/arXiv.2108.07732. [3] Chen, M. et al. Evaluating Large Language Models Trained on Code. arXiv, Version 2, July 14, 2021; DOI: 10.48550/arXiv.2107.03374. [4] Song, Y.; Sohl-Dickstein, J.; Kingma, D. P.; Kumar, A.; Ermon, S.; Poole, B. Score-Based Generative Modeling through Stochastic Differential Equations. arXiv, Version 1, February 10, 2020; DOI: 10.48550/arXiv.2011.13456. [5] Qiu, H.; Sun, Z.-Y. npj Comput. Mater. 2024 , 10 , 273, DOI: 10.1038/s41524-024-01466-5. [6] Gao, W.; Luo, S.; Coley, C. W. Proc. Natl. Acad. Sci. U.S.A. 2025 , 122 , e2415665122, DOI: 10.1073/pnas.2415665122. 23 [7] Edwards, C.; Lai, T. M.; Ros, K.; Honke, G.; Cho, K.; Ji, H. Translation between Molecules and Natural Language. In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing ; Goldberg, Y.; Kozareva, Z.; Zhang, Y., Eds.; Association for Computational Linguistics: Abu Dhabi, United Arab Emirates, 2022; pp 375–413. DOI: 10.18653/v1/2022.emnlp-main.26. [8] Hoogeboom, E.; Satorras, V. G.; Vignac, C.; Welling, M. Equivariant Diffusion for Molecule Generation in 3D. In Proceedings of the 39th International Conference on Machine Learning ;Chaudhuri, K.; Jegelka, S.; Song, L.; Szepesvari, C.; Niu, G.; Sabato, S., Eds.; PMLR, 2022; Proceedings of Machine Learning Research, Vol. 162, pp 8867–8887. URL: https: //proceedings.mlr.press/v162/hoogeboom22a.html .[9] Dunn, I.; Koes, D. R. Digit. Discov. 2026 , 5, 2052–2066, DOI: 10.1039/D5DD00363F. [10] Song, Y.; Gong, J.; Xu, M.; Cao, Z.; Lan, Y.; Ermon, S.; Zhou, H.; Ma, W.-Y. Equivariant Flow Matching with Hybrid Probability Transport for 3D Molecule Generation. In Advances in Neural Information Processing Systems 36 ; Oh, A.; Naumann, T.; Globerson, A.; Saenko, K.; Hardt, M.; Levine, S., Eds.; Curran Associates, Inc., 2023; pp 549–568. URL: 
+
+https://proceedings.neurips.cc/paper_files/paper/2023/hash/01d64478381c33e 29ed611f1719f5a37-Abstract-Conference.html .[11] Vignac, C.; Krawczuk, I.; Siraudin, A.; Wang, B.; Cevher, V.; Frossard, P. DiGress: Discrete Denoising Diffusion for Graph Generation. The Eleventh International Conference on Learning Representations, 2023; URL: https://openreview.net/forum?id=UaAD-Nu86WX .[12] Swanson, K.; Liu, G.; Catacutan, D. B.; Arnold, A.; Zou, J.; Stokes, J. M. Nat. Mach. Intell. 2024 , 6, 338–353, DOI: 10.1038/s42256-024-00809-7. [13] Lee, S.; Kreis, K.; Veccham, S. P.; Liu, M.; Reidenbach, D.; Paliwal, S. G.; Nie, W.; Vahdat, A. Exploring Synthesizable Chemical Space with Iterative Pathway Refinements. The Fourteenth International Conference on Learning Representations, 2026; URL: https: //openreview.net/forum?id=aQKVfKOkR5 .[14] Romera-Paredes, B.; Barekatain, M.; Novikov, A.; Balog, M.; Kumar, M. P.; Dupont, E.; Ruiz, F. J. R.; Ellenberg, J. S.; Wang, P.; Fawzi, O.; Kohli, P.; Fawzi, A. Nature 2024 , 625 ,468–475, DOI: 10.1038/s41586-023-06924-6. [15] Novikov, A. et al. AlphaEvolve: A Coding Agent for Scientific and Algorithmic Discovery. arXiv, Version 1, June 16, 2025; DOI: 10.48550/arXiv.2506.13131. [16] Kang, Y.; Kim, J. Nat. Commun. 2024 , 15 , 4705, DOI: 10.1038/s41467-024-48998-4. [17] Jia, S.; Zhang, C.; Fung, V. LLMatDesign: Autonomous Materials Discovery with Large Language Models. arXiv, Version 1, June 19, 2024; DOI: 10.48550/arXiv.2406.13163. [18] Luo, F.; Zhang, J.; Wang, Q.; Yang, C. ACS Cent. Sci. 2025 , 11 , 511–519, DOI: 10.1021/ac-scentsci.4c01935. [19] Zheng, Z.; Zhang, O.; Nguyen, H. L.; Rampal, N.; Alawadhi, A. H.; Rong, Z.; Head-Gordon, T.; Borgs, C.; Chayes, J. T.; Yaghi, O. M. ACS Cent. Sci. 2023 , 9, 2161–2170, DOI: 10.1021/acscentsci.3c01087. [20] Lee, J.; Woo, J.; Kim, Y.; Kim, S.; Paulina, C.; Park, H.; Kim, H.-T.; Park, S.; Kim, J. 
+
+ACS Cent. Sci. 2026 , 12 , 484–496, DOI: 10.1021/acscentsci.5c02433. [21] Caldas Ramos, M.; Michtavy, S. S.; White, A. D.; Porosoff, M. D. ACS Cent. Sci. 2026 ,DOI: 10.1021/acscentsci.5c02418. 24 [22] Abhyankar, N.; Kabra, S.; Desai, S.; Reddy, C. K. LLEMA: Evolutionary Search with LLMs for Multi-Objective Materials Discovery. The Fourteenth International Conference on Learning Representations, 2026; URL: https://openreview.net/forum?id=TIqzhBvCNB .[23] Lange, R. T.; Tian, Y.; Tang, Y. Large Language Models as Evolution Strategies. In 
+
+Proceedings of the Genetic and Evolutionary Computation Conference Companion ; Li, X.; Handl, J., Eds.; ACM, 2024; pp 579–582. DOI: 10.1145/3638530.3654238. [24] Holland, J. H. Sci. Am. 1992 , 267 , 66–72, DOI: 10.1038/scientificamerican0792-66. [25] Bengio, E.; Jain, M.; Korablyov, M.; Precup, D.; Bengio, Y. Adv. Neural Inf. Process. Syst. 
+
+2021 , 34 , 27381–27394, URL: https://papers.nips.cc/paper/2021/hash/e614f646836 aaed9f89ce58e837e2310-Abstract.html .[26] Cretu, M.; Harris, C.; Igashov, I.; Schneuing, A.; Segler, M.; Correia, B.; Roy, J.; Bengio, E.; Liò, P. SynFlowNet: Design of Diverse and Novel Molecules with Synthesis Constraints. The Thirteenth International Conference on Learning Representations, 2025; URL: https: //openreview.net/forum?id=uvHmnahyp1 .[27] Argiriadi, M. A.; Morisseau, C.; Goodrow, M. H.; Dowdy, D. L.; Hammock, B. D.; Chris-tianson, D. W. J. Biol. Chem. 2000 , 275 , 15265–15270, DOI: 10.1074/jbc.M000278200. [28] Gomez, G. A.; Morisseau, C.; Hammock, B. D.; Christianson, D. W. Protein Sci. 2006 , 15 ,58–64, DOI: 10.1110/ps.051720206. [29] Kim, I.-H.; Tsai, H.-J.; Nishi, K.; Kasagami, T.; Morisseau, C.; Hammock, B. D. J. Med. Chem. 2007 , 50 , 5217–5226, DOI: 10.1021/jm070705c. [30] Huang, S.-X.; Li, H.-Y.; Liu, J.-Y.; Morisseau, C.; Hammock, B. D.; Long, Y.-Q. J. Med. Chem. 2010 , 53 , 8376–8386, DOI: 10.1021/jm101087u. [31] Lee, K. S. S. et al. J. Med. Chem. 2014 , 57 , 7016–7030, DOI: 10.1021/jm500694p. [32] Huang, K.; Fu, T.; Gao, W.; Zhao, Y.; Roohani, Y.; Leskovec, J.; Coley, C. W.; Xiao, C.; Sun, J.; Zitnik, M. Therapeutics Data Commons: Machine Learning Datasets and Tasks for Drug Discovery and Development. In Proceedings of the Neural Information Processing Systems Track on Datasets and Benchmarks , 2021; URL: https://openreview.net/for um?id=8nvgnORnoWr .[33] Gao, W.; Fu, T.; Sun, J.; Coley, C. W. Adv. Neural Inf. Process. Syst. 2022 , 35 , 21342– 21357, URL: https://proceedings.neurips.cc/paper_files/paper/2022/hash/86443 53f7d307baaf29bc1e56fe8e0ec-Abstract-Datasets_and_Benchmarks.html .[34] Sun, M.; Lo, A.; Guo, M.; Chen, J.; Coley, C. W.; Matusik, W. Procedural Synthesis of Syn-thesizable Molecules. The Thirteenth International Conference on Learning Representations, 2025; URL: https://openreview.net/forum?id=OGfyzExd69 .[35] Sun, K.; Bagni, D.; Cavanagh, J. M.; Wang, Y.; Sawyer, J. M.; Zhou, B.; Gritsevskiy, A.; Zhang, O.; Head-Gordon, T. ACS Cent. Sci. 2025 , 11 , 2108–2120, DOI: 10.1021/acs-centsci.5c01285. [36] Li, T.; Hou, K.; Vinh, T.; Raj, M.; Guo, Z.; Yang, C. Reinforcement Learning with LLM-Guided Action Spaces for Synthesizable Lead Optimization. arXiv, Version 2, May 1, 2026; DOI: 10.48550/arXiv.2604.07669. [37] Gottweis, J.; Weng, W.-H.; Daryin, A.; Tu, T.; Sirkovic, P.; Myaskovsky, A.; Glowaty, G.; Weissenberger, F.; Orlandi, A.; Natarajan, V. Nature 2026 , DOI: 10.1038/s41586-026-10644-y. 25 [38] Ghareeb, A. E.; Chang, B.; Mitchener, L.; Yiu, A.; Szostkiewicz, C. J.; Shved, D.; Gy-imesi, G. J.; Laurent, J. M.; Wright, S. M.; Razzak, M. T.; White, A. D.; Finnemann, S. C.; Hinks, M. M.; Rodriques, S. G. Nature 2026 , DOI: 10.1038/s41586-026-10652-y. [39] Boiko, D. A.; MacKnight, R.; Kline, B.; Gomes, G. Nature 2023 , 624 , 570–578, DOI: 10.1038/s41586-023-06792-0. 
+
+# A. Objective and Scoring Details 
+
+This appendix gives the implementation level scoring details that are omitted from the main Methods. The main text treats the objective as a blackbox fitness function; here we specify the normalization and scalar aggregation used by the implementation. 
+
+A.1. Scalar objective rewards 
+
+For a valid executed route r, the scorer computes raw objective values fi(m(r)) . Each objective is converted to a bounded reward Φi using its configured direction and bounds. For a maximize objective with bounds (li, u i),
+
+Φi(fi(m(r))) = clip  
+
+> (
+
+fi(m(r)) − li
+
+ui − li
+
+, 0, 1
+
+> )
+
+. (27) For a minimize objective, 
+
+Φi(fi(m(r))) = clip  
+
+> (
+
+ui − fi(m(r)) 
+
+ui − li
+
+, 0, 1
+
+> )
+
+. (28) For a target objective with target μi and scale si,
+
+Φi(fi(m(r))) = 11 + |fi(m(r)) − μi|/s i
+
+. (29) The scalar score is the weighted mean 
+
+Fscalar (r) =  
+
+> ∑
+> i
+
+wiΦi(fi(m(r)))  
+
+> ∑
+> i
+
+wi
+
+. (30) 
+
+A.2. sEH objective components 
+
+The sEH configuration optimizes three objectives with equal weights: 
+
+> (
+
+sEH( m(r)) , SA norm (m(r)) , QED( m(r)) ). (31) The sEH term is returned by the pretrained binding proxy and normalized to [0 , 1] . The synthetic accessibility reward is derived from the RDKit SA score as 
+
+SA norm (m(r)) = clip  
+
+> (
+
+10 − SA raw (m(r)) 9 , 0, 1
+
+> )
+
+, (32) so larger values indicate easier synthesis. QED is the raw RDKit drug likeness score in [0 , 1] for the NSGA-II sEH configuration. The scalar logging score for equal weights is 
+
+Fscalar (r) = sEH( m(r)) + SA norm (m(r)) + QED( m(r)) 3 . (33) 26 A.3. Search losses 
+
+The evolutionary loop does not train the LLM with gradients. For analysis, the blackbox loss associated with a route can be written as 
+
+Lsearch (r) = −Fscalar (r), (34) or componentwise as 
+
+ℓi(r) = 1 − Φi(fi(m(r))) . (35) These quantities are derived from oracle evaluations and are used for ranking, reflection summaries, and failure analysis. 27

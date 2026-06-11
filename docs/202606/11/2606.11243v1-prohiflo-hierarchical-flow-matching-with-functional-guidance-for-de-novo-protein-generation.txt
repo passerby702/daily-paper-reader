@@ -1,0 +1,797 @@
+Title: ProHiFlo: Hierarchical Flow Matching with Functional Guidance for De Novo Protein Generation
+
+URL Source: https://arxiv.org/pdf/2606.11243v1
+
+Published Time: Thu, 11 Jun 2026 00:03:50 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# ProHiFlo: Hierarchical Flow Matching with Functional Guidance for De Novo Protein Generation 
+
+## Chuanzhen Wang 3, Meade Cleti 1,* , Pete Jano 2,
+
+> 1
+
+## Arizona State University 
+
+> 2
+
+## University of Wisconsin-Madison 
+
+> 3
+
+## Tongji University 
+
+## Abstract 
+
+De novo protein generation has transformative potential in therapeutic design, enzyme engineering, and synthetic biology. While diffusion-based and flow matching approaches have achieved progress, they typically operate at single resolution and lack mechanisms for incorporating functional constraints. We introduce ProHiFlo, a hierarchical flow matching framework with three innovations: (1) coarse-to-fine generation that models backbone geometry before refining to all-atom coordinates, reducing computational cost while maintaining accuracy; (2) functional guidance leveraging pretrained pre-dictors to steer generation toward desired properties without retraining; (3) adaptive SE(3)-equivariant architecture for efficient multi-scale processing. Experiments on unconditional generation, motif scaffolding, and functional design demonstrate state-of-the-art performance while requiring 4 × fewer sampling steps. On enzyme active site scaffolding, ProHiFlo achieves 58.9% success rate compared to 41.2% for RFDiffusion. 
+
+## 1 Introduction 
+
+The ability to design novel proteins with desired structures and functions represents a long-standing goal in computational biology [ 1 ; 2 ]. Recent advances in deep learning have revolutionized this field, with structure prediction methods like AlphaFold2 [ 3; 4] achieving near-experimental accuracy, and generative models enabling the creation of entirely new protein structures [5; 6; 7]. Among generative approaches, diffusion models have emerged as particularly powerful tools for protein structure generation [ 8; 9]. RFDiffusion [ 5 ; 10 ] and Chroma [ 6] have demonstrated the ability to generate diverse, designable protein structures by adapting denoising diffusion probabilistic mod-els [ 11 ] to the SE(3) manifold of protein backbone conformations. Concurrently, flow matching [ 12 ]has emerged as an efficient alternative that enables simulation-free training and faster sampling through learning continuous normalizing flows. Despite these advances, current methods face several limitations. First, most approaches operate at a single structural resolution, either generating only backbone atoms or attempting to jointly model all atoms, leading to suboptimal trade-offs between computational efficiency and structural fidelity. Second, incorporating functional constraints typically requires expensive retraining or fine-tuning on task-specific datasets. Third, the sampling process remains computationally intensive, limiting practical applications in high-throughput design scenarios. We address these challenges with ProHiFlo (Protein Hierarchical Flow), a novel framework that introduces three key innovations. First, we propose a hierarchical generation strategy that decomposes protein structure generation into a coarse backbone phase followed by an all-atom refinement phase, enabling efficient capture of both global topology and local geometric details. Second, we develop a functional guidance mechanism that leverages gradients from pretrained protein function predictors 1
+
+> arXiv:2606.11243v1 [cs.LG] 3 Jun 2026
+
+Figure 1: Motivation for ProHiFlo. Current methods (A) suffer from computational trade-offs in resolution and require expensive retraining for new functions. ProHiFlo (B) addresses these by decoupling generation into efficient hierarchical stages and enabling training-free steering via arbitrary differentiable function predictors. to steer generation toward desired properties without model retraining. Third, we design an adaptive SE(3)-equivariant neural network architecture that efficiently processes multi-resolution structural representations with dynamic computational allocation based on generation difficulty. Our contributions can be summarized as follows. We introduce hierarchical flow matching for protein generation that operates across multiple structural resolutions. We propose a training-free functional guidance mechanism compatible with arbitrary differentiable property predictors. We develop an adaptive SE(3)-equivariant architecture with improved efficiency for multi-scale protein representations. Extensive experiments demonstrate state-of-the-art performance on unconditional generation, motif scaffolding, and functional protein design benchmarks. 
+
+## 2 Related Work 
+
+Protein Structure Prediction and Representation Learning. The protein structure prediction problem has been largely addressed by AlphaFold2 [ 3 ] and ESMFold [ 13 ], which achieve near-experimental accuracy by leveraging evolutionary information and attention-based architectures [ 14 ]. These advances have catalyzed progress in protein representation learning, with models like ESM-2 [ 13 ] and ProtTrans [ 15 ] learning rich sequence embeddings from large-scale protein databases. Structure-based representations have also been explored through graph neural networks [ 16 ; 17 ], which naturally capture the relational nature of protein structures. 
+
+Generative Models for Protein Structure. Early generative approaches employed variational autoencoders [ 18 ; 19 ] and autoregressive models [ 20 ] for protein generation. More recently, diffusion-based methods have achieved remarkable success. FrameDiff [ 21 ; 22 ] introduced SE(3) diffusion for protein backbone generation, while RFDiffusion [ 5; 23 ; 24 ] leveraged the pretrained RoseTTAFold architecture to achieve state-of-the-art designability. Chroma [ 6] proposed a programmable generative model with diverse conditioning capabilities. Genie [ 25 ] and Genie 2 [ 26 ] developed oriented residue cloud representations for efficient diffusion. Flow matching approaches have also been explored, with FoldFlow [ 27 ] and FrameFlow [ 28 ] demonstrating improved sampling efficiency. Our work extends these approaches through hierarchical generation and functional guidance. 2Conditional Protein Generation. Conditional generation enables the design of proteins with spe-cific properties or structural constraints. Motif scaffolding, which designs proteins around functional motifs, has been addressed by RFDiffusion [ 5 ] through fine-tuning and by Chroma [ 6] through cus-tom energy functions. ProteinGenerator [ 29 ] jointly generates sequence and structure for improved designability. Recent work has explored language-guided generation [30] and property-conditioned design [ 31 ]. Our functional guidance approach differs by enabling training-free conditioning through gradient-based steering. 
+
+SE(3)-Equivariant Neural Networks. Equivariant neural networks that respect the symmetries of 3D space have become fundamental for molecular modeling. EGNN [ 32 ] proposed an efficient E(n)-equivariant architecture, while SE(3)-Transformers [ 33 ] and Equiformer [ 34 ] developed attention-based equivariant layers. For proteins specifically, IPA (Invariant Point Attention) [ 3] has been widely adopted. GVP (Geometric Vector Perceptron) [ 17 ] provides an alternative that efficiently processes vector features. Our adaptive architecture builds upon these foundations with dynamic computation allocation. 
+
+## 3 Preliminaries 
+
+3.1 Protein Structure Representation 
+
+A protein structure can be represented at multiple resolutions. At the coarsest level, the backbone is described by a sequence of residue frames {Ti}Ni=1 , where each frame Ti = ( Ri, ti) ∈ SE (3) 
+
+consists of a rotation matrix Ri ∈ SO (3) and translation vector ti ∈ R3. The frame orientation is typically defined by the local coordinate system formed by backbone atoms (N, C α, C). At the all-atom level, the structure includes all heavy atoms with coordinates {xj }Mj=1 where M is the total number of atoms. 
+
+3.2 Flow Matching 
+
+Flow matching [ 12 ] provides a simulation-free approach for training continuous normalizing flows. Given a data distribution p1(x) and a simple prior p0(x) (typically Gaussian), flow matching learns a time-dependent vector field vt(x) that generates a probability path pt interpolating between p0 and 
+
+p1. The training objective is: 
+
+LFM = Et,p t(x)
+
+∥vθ (x, t ) − ut(x)∥2 (1) where ut(x) is a target vector field that generates the probability path. In practice, conditional flow matching [12] is used, where paths are conditioned on data samples x1:
+
+LCFM = Et,p (x1),p t(x|x1)
+
+∥vθ (x, t ) − ut(x|x1)∥2 (2) For optimal transport paths, the conditional vector field simplifies to ut(x|x1) = x1 − x0, enabling straight-line interpolation with constant velocity. 
+
+3.3 SE(3) Flow Matching for Proteins 
+
+Extending flow matching to protein structures requires handling the SE(3) manifold of rigid body transformations. Following [ 27 ; 28 ], we parameterize rotations using the exponential map and define flows on the tangent space. For a frame T = ( R, t), the interpolation is: 
+
+Rt = R0 exp( t · log( RT 
+
+> 0
+
+R1)) (3) 
+
+tt = (1 − t)t0 + tt1 (4) The vector field vt(T ) consists of a rotational component in the Lie algebra so (3) and a translational component in R3.3Figure 2: Overview of the ProHiFlo architecture. Stage 1 performs coarse backbone generation using SE(3) flow matching on residue frames. Stage 2 refines to all-atom coordinates conditioned on the generated backbone. The functional guidance module enables training-free property optimization through gradient-based steering from pretrained function predictors. 
+
+## 4 Method 
+
+4.1 Overview 
+
+ProHiFlo generates protein structures through a two-stage hierarchical process, as illustrated in Figure 2. In the first stage, we generate the coarse backbone structure represented as residue frames. In the second stage, we refine this to all-atom coordinates conditioned on the generated backbone. Both stages employ SE(3) flow matching with our proposed adaptive equivariant architecture. During sampling, functional guidance can be applied to steer generation toward desired properties. 
+
+4.2 Hierarchical Flow Matching Stage 1: Backbone Generation. The first stage generates residue frames {Ti}Ni=1 from a prior distribution. We initialize frames from a centered Gaussian distribution on SE(3): 
+
+p0(T ) = N (t; 0, σ 2 
+
+> t
+
+I) · U SO (3) (R) (5) where USO (3) denotes the uniform distribution on SO(3). The vector field network v(1)  
+
+> θ
+
+predicts frame updates: 
+
+v(1)  
+
+> θ
+
+({Ti}Ni=1 , t ) = {(ωi, vi)}Ni=1 (6) where ωi ∈ so (3) is the angular velocity and vi ∈ R3 is the linear velocity for frame i.
+
+Stage 2: All-Atom Refinement. Given the generated backbone frames { ˆTi}, the second stage generates all-atom coordinates conditioned on the backbone structure. We parameterize atoms relative to their residue frames, decomposing atomic positions as: 
+
+xj = Rixlocal  
+
+> j
+
++ ti (7) where xlocal  
+
+> j
+
+is the position in the local frame of residue i.4Conditioning Mechanism. The backbone information is injected into Stage 2 through three complementary mechanisms: (1) Frame embedding : Each residue’s frame (Ri, ti) is encoded into a 128-dimensional embedding via invariant features (inter-frame distances and relative orientations), concatenated with atom features; (2) Cross-attention : Atomic features attend to a sequence of backbone frame representations through multi-head cross-attention layers, enabling long-range backbone-atom communication; (3) Local geometric features : For each atom, we compute distances to the three backbone atoms (N, C α, C) of its residue and neighboring residues, providing fine-grained positional context. The refinement network v(2)  
+
+> θ
+
+predicts displacements in local coordinates, ensuring SE(3) equivariance of the overall generation. 
+
+Hierarchical Training. Both stages are trained independently with conditional flow matching objectives: 
+
+Lbackbone = Et, {T (1)  
+
+> i}
+
+" NX
+
+> i=1
+
+∥v(1)  
+
+> θ
+
+(Ti, t ) − ut(Ti)∥2
+
+#
+
+(8) 
+
+Lallatom = Et, {x(1)  
+
+> j},{Ti}
+
+
+
+> M
+
+X
+
+> j=1
+
+∥v(2)  
+
+> θ
+
+(xj , t |{ Ti}) − ut(xj )∥2
+
+ (9) The hierarchical decomposition reduces the effective dimensionality at each stage, enabling more efficient learning and sampling. 
+
+4.3 Functional Guidance 
+
+A key advantage of our framework is the ability to incorporate functional constraints during sampling without retraining. Given a differentiable function predictor fϕ : X → R that scores structures based on desired properties, we modify the sampling dynamics through gradient-based guidance. 
+
+Guidance Mechanism. At each sampling step, we compute the gradient of the property score with respect to the current structure and add it to the flow velocity: 
+
+˜vt(x) = vθ (x, t ) + λ · ∇ xfϕ(x) (10) where λ controls the guidance strength. For SE(3)-valued structures, we project gradients onto the tangent space to maintain geometric consistency. 
+
+Multi-Property Guidance. Multiple property predictors can be combined through weighted sum-mation: 
+
+˜vt(x) = vθ (x, t ) + 
+
+> K
+
+X
+
+> k=1
+
+λk · ∇ xfϕk (x) (11) This enables simultaneous optimization of multiple objectives such as stability, binding affinity, and solubility. 
+
+Practical Considerations. To ensure stable guidance, we employ gradient clipping and annealing the guidance strength over the sampling trajectory. Specifically, we use λ(t) = λ0 · (1 − t)γ where γ
+
+controls the annealing rate, applying stronger guidance early in sampling when the structure is more malleable. 
+
+4.4 Adaptive SE(3)-Equivariant Architecture 
+
+We develop an adaptive neural network architecture that efficiently processes multi-scale protein representations with dynamic computational allocation. 5Multi-Scale Graph Construction. We construct a hierarchical graph G = ( V, E) with nodes representing atoms at different resolutions. Edges connect nodes based on spatial proximity with resolution-dependent cutoffs: 
+
+E = {(i, j ) : ∥xi − xj ∥ < r (l) 
+
+> cut
+
+} (12) where l ∈ { 1, 2, 3} denotes the resolution level. We use cutoff distances r(1)  
+
+> cut
+
+= 10 Å for coarse backbone interactions, r(2)  
+
+> cut
+
+= 6 Å for residue-level contacts, and r(3)  
+
+> cut
+
+= 4 Å for fine-grained atomic interactions. This multi-scale design captures both long-range structural motifs and local geometric details efficiently. 
+
+Adaptive Message Passing. Our message passing layers adapt their computation based on local structural complexity. We define a complexity score ci for each node based on local density and geometric features: 
+
+ci = σ (MLP ([ ni, ρ i, κ i])) (13) where ni is the neighbor count, ρi is local density, and κi captures geometric curvature. The number of message passing iterations for each node is then Ki = Kmin + ⌊ci · (Kmax − Kmin )⌋, with 
+
+Kmin = 2 and Kmax = 6 in our experiments. 
+
+Implementation Details. To efficiently handle variable iteration counts within batches, we imple-ment adaptive message passing through masked operations: all nodes undergo Kmax iterations, but updates are masked out for nodes that have reached their allocated iteration count. This approach maintains computational efficiency through parallelization while enabling node-specific computation depth. The overhead compared to fixed-iteration message passing is approximately 15%. 
+
+SE(3)-Equivariant Updates. Node features are updated through equivariant message passing: 
+
+mij = ϕm(hi, hj , ∥xi − xj ∥, e ij ) (14) 
+
+h′ 
+
+> i
+
+= ϕh
+
+hi, X 
+
+> j∈N (i)
+
+mij 
+
+ (15) 
+
+x′ 
+
+> i
+
+= xi + X 
+
+> j∈N (i)
+
+(xj − xi)ϕx(mij ) (16) where ϕm, ϕh, and ϕx are learnable functions. This formulation ensures equivariance to SE(3) transformations while enabling efficient message passing. 
+
+Vector Feature Channels. Following GVP [ 17 ], we maintain both scalar features s ∈ Rds and vector features V ∈ Rdv ×3 at each node. The vector features transform equivariantly under rotations, enabling the network to reason about directional information such as bond orientations and surface normals. 
+
+4.5 Training Details Dataset. We train on a filtered subset of the Protein Data Bank (PDB) [ 35 ] containing 73,582 high-resolution structures (resolution < 2.5Å, R-free < 0.25 ) with sequence identity clustered at 40% using MMseqs2 [ 36 ]. We exclude structures with missing residues > 5% or chain breaks. We further augment the training set with 127,418 high-confidence AlphaFold2 predictions (pLDDT > 90 ) from the Swiss-Prot database [ 37 ]. To mitigate potential bias from using predicted structures, we also report results on a model trained exclusively on PDB structures in Appendix F. 60 25 50 75 100 125 150 175 200         
+
+> Epoch
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> Loss
+> Stage 1: Backbone Generation
+> 025 50 75 100 125 150 175 200
+> Epoch
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> Loss
+> Stage 2: All-Atom Refinement
+
+Figure 3: Training convergence for both stages. The backbone stage (left) converges faster due to the lower-dimensional representation, while the all-atom stage (right) requires more iterations to capture fine-grained atomic details. 
+
+Optimization. Both stages are trained using AdamW optimizer with learning rate 3 × 10 −4 and weight decay 0.01 . We use a cosine annealing schedule with 10,000 warmup steps. Training is performed on a cluster with 8 NVIDIA H100 (80GB) GPUs, dual AMD EPYC 9654 processors (192 cores total), and 4TB RAM for efficient data loading and preprocessing. Stage 1 training requires approximately 4 days for 500K steps; Stage 2 training requires approximately 3 days for 300K steps. Total training time is approximately 7 days on this configuration, corresponding to roughly 1,344 H100 GPU-hours. 
+
+Sampling. We use the Euler method for ODE integration with 50 steps for backbone generation and 20 steps for all-atom refinement. Adaptive step size control based on estimated local error is applied to maintain numerical stability. 
+
+Numerical Stability. The rotation interpolation Rt = R0 exp( t · log( RT 
+
+> 0
+
+R1)) can be numerically unstable when R0 and R1 represent nearly opposite rotations (rotation angle ≈ π). We address this through: (1) quaternion-based interpolation with proper handling of the double-cover of SO(3); (2) clamping the rotation angle to [ϵ, π −ϵ] with ϵ = 0 .01 ; (3) regularization during training that penalizes very large rotation differences. In practice, such near-π rotations are rare in protein structures due to physical constraints. 
+
+## 5 Experiments 
+
+We evaluate ProHiFlo on three protein generation tasks: unconditional backbone generation, motif scaffolding, and functional protein design. We compare against state-of-the-art methods including RFDiffusion [5], Chroma [6], FrameDiff [21], FoldFlow-2 [27], and Genie 2 [26]. 
+
+5.1 Evaluation Metrics 
+
+Following standard protocols, we evaluate generated structures using several metrics: 
+
+Designability : The fraction of generated backbones for which ProteinMPNN [ 38 ] designed sequences fold back to the generated structure (scTM > 0.5), as predicted by ESMFold [13]. 
+
+Novelty : The maximum TM-score between generated structures and the training set, with lower values indicating higher novelty. 
+
+Diversity : The average pairwise TM-score within generated samples, with lower values indicating higher diversity. 7Table 1: Unconditional backbone generation results (mean ± std over 5 runs, 1000 samples each). Best results are shown in bold , second best underlined . ProHiFlo achieves the best overall performance while requiring fewer sampling steps. 
+
+Method Designability ↑ Novelty ↑ Diversity ↑ Validity ↑ Steps ↓
+
+FrameDiff 0.612 ±.031 0.724 ±.035 0.681 ±.033 0.943 ±.012 500 Genie 2 0.734 ±.028 0.698 ±.029 0.712 ±.026 0.967 ±.009 500 RFDiffusion 0.823 ±.019 0.631 ±.023 0.658 ±.028 0.982 ±.006 200 Chroma 0.796 ±.024 0.687 ±.027 0.723 ±.024 0.971 ±.008 500 FoldFlow-2 0.851 ±.021 0.703 ±.025 0.695 ±.027 0.978 ±.007 100 EvoDiff 0.789 ±.026 0.712 ±.024 0.698 ±.029 0.963 ±.011 200 
+
+ProHiFlo (Ours) 0.924 ±.012 0.758 ±.018 0.769 ±.015 0.994 ±.003 50 
+
+Table 2: Motif scaffolding success rates across different motif types (mean ± std over 3 runs). Success is defined as scTM > 0.5 with motif RMSD < 1.0Å. We evaluate on 24 enzyme active sites, 18 binding interfaces, and 32 structural motifs from [ 5]. For each motif, we generate 100 scaffolds and report the success rate. 
+
+Method Active Sites (n=24) Binding (n=18) Structural (n=32) Average 
+
+RFDiffusion 0.412 ±.045 0.523 ±.038 0.687 ±.032 0.541 Chroma 0.378 ±.052 0.489 ±.044 0.654 ±.039 0.507 Genie 2 0.445 ±.041 0.534 ±.036 0.712 ±.028 0.564 EvoDiff 0.398 ±.048 0.512 ±.041 0.678 ±.034 0.529 FoldFlow-2 0.467 ±.038 0.556 ±.033 0.698 ±.031 0.574 
+
+ProHiFlo 0.589 ±.028 0.672 ±.024 0.812 ±.021 0.691 
+
+Validity : The fraction of generated structures with reasonable bond lengths, angles, and no steric clashes. 
+
+Self-consistency TM-score (scTM) : The TM-score between the generated backbone and the structure predicted by ESMFold from the ProteinMPNN-designed sequence. 
+
+5.2 Unconditional Backbone Generation 
+
+We generate 1,000 protein backbones of varying lengths (100-300 residues) and evaluate their quality. As shown in Table 1, ProHiFlo achieves the highest designability (92.4%) while maintaining superior novelty and diversity. The hierarchical generation strategy enables 2 × faster sampling compared to FoldFlow-2, the previous fastest method, while improving designability by 7.3%. Figure 4 provides a multi-dimensional view of method performance. ProHiFlo achieves the best overall balance across metrics, with particularly strong performance in designability and computa-tional speed. Notably, while RFDiffusion shows competitive designability, it lags significantly in speed, whereas Chroma excels in diversity but at the cost of designability. 
+
+5.3 Motif Scaffolding 
+
+We evaluate on the motif scaffolding benchmark from [ 5], which requires generating protein structures that incorporate specific functional motifs. We test on three categories: enzyme active sites, binding interfaces, and structural motifs. ProHiFlo demonstrates substantial improvements on all motif types (Table 2), with particularly strong gains on enzyme active site scaffolding (+17.7% over RFDiffusion). The functional guidance mechanism enables better preservation of catalytic geometry while generating stable scaffolds. 8Designability   
+
+> Novelty Diversity
+> Speed
+> Stability Binding
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Multi-Dimensional Performance ProHiFlo
+> RFDiffusion
+> Chroma
+> FoldFlow-2
+> Genie 2
+
+Figure 4: Multi-dimensional performance comparison across six key metrics. ProHiFlo (blue) demonstrates strong performance in designability and speed while maintaining competitive novelty and diversity. Note that different methods excel in different dimensions, reflecting inherent trade-offs in generative protein design. Table 3: Functional protein design results (mean ± std over 3 runs, 500 samples each). Properties are normalized scores where higher is better. We use ESM-2 stability predictor, GVP-based binding predictor [17], and DeepSol [41] for solubility. 
+
+Method Stability Binding Solubility Designability 
+
+RFDiffusion 0.623 ±.034 0.534 ±.041 0.587 ±.038 0.812 ±.022 
+
+Chroma 0.645 ±.031 0.567 ±.037 0.612 ±.035 0.789 ±.025 
+
+EvoDiff 0.634 ±.033 0.545 ±.039 0.598 ±.036 0.798 ±.024 
+
+ProHiFlo (no guidance) 0.698 ±.028 0.612 ±.032 0.654 ±.029 0.924 ±.012 
+
+ProHiFlo + Guidance 0.867 ±.019 0.784 ±.023 0.823 ±.021 0.897 ±.014 
+
+5.4 Functional Protein Design 
+
+We evaluate the functional guidance mechanism on three design tasks: stability optimization, binding affinity enhancement, and solubility improvement. 
+
+Experimental Setup. For each task, we use pretrained predictors as guidance functions: a stability predictor based on ESM-2 embeddings, a binding affinity predictor adapted from [ 39 ], and a solubility predictor from [ 40 ]. We generate 500 structures per task and evaluate using the respective property predictors and downstream validation. Functional guidance substantially improves all property scores while maintaining high designabil-ity (Table 3). The stability score improves by 24.2% and binding affinity by 28.1% compared to unguided generation. Figure 5 shows the trade-off between guidance strength and generation quality. We observe that moderate guidance ( λ = 0 .5) achieves the best balance, improving stability by 19.8% while only slightly reducing designability. Excessive guidance ( λ > 2.0) degrades both metrics, suggesting that overly aggressive steering distorts the learned distribution. 90 1 2 3 4 5
+
+> Guidance Strength ( )
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> Stability Score
+> Optimal
+
+Guidance Strength Trade-off 
+
+> Stability
+> Designability
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> Designability
+
+Figure 5: Effect of guidance strength λ on stability and designability. There exists an optimal guidance strength ( λ ≈ 0.5) that maximizes stability while maintaining high designability. Stronger guidance can degrade structure quality. Table 4: Ablation study on key components (mean ± std over 3 runs). Metrics are averaged over unconditional generation. 
+
+Variant Designability Novelty Steps Time (s) 
+
+Full model 0.924 ±.012 0.758 ±.018 50 2.1 w/o Hierarchical 0.867 ±.024 0.723 ±.027 120 8.7 w/o Adaptive arch. 0.892 ±.019 0.741 ±.022 50 4.2 w/o Multi-scale 0.878 ±.021 0.719 ±.024 50 2.8 Single-stage all-atom 0.821 ±.028 0.697 ±.031 150 12.3 
+
+5.5 Ablation Studies 
+
+We conduct ablation studies to analyze the contribution of each component. 
+
+Hyperparameter Sensitivity. We conduct additional ablations on key hyperparameters in Ap-pendix E, including (1) the number of sampling steps for each stage, (2) the guidance annealing parameter γ, and (3) the adaptive message passing bounds Kmin and Kmax . Results show that the model is robust to hyperparameter choices within reasonable ranges, with performance degrading gracefully outside optimal settings. The hierarchical generation strategy provides the largest contribution, improving designability by 5.7% while reducing sampling time by 76% (Table 4). The adaptive architecture contributes primarily to computational efficiency with 2 × speedup, while multi-scale processing improves both designability and novelty. 
+
+5.6 Computational Efficiency 
+
+We compare the inference speed of different methods for generating structures of varying lengths. ProHiFlo demonstrates favorable scaling properties (Figure 6), with inference time growing 10 0 100 200 300 400 500 
+
+> Protein Length (residues)
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> Inference Time (seconds)
+
+Inference Efficiency Comparison 
+
+> ProHiFlo
+> RFDiffusion
+> Chroma
+> FoldFlow-2
+> Genie 2
+
+Figure 6: Inference time comparison across different protein lengths. ProHiFlo maintains near-linear scaling while achieving 6.8 × speedup over RFDiffusion on average. near-linearly with protein length compared to the quadratic scaling of attention-heavy baselines. For a 300-residue protein, ProHiFlo requires only 3.3 seconds compared to 22.4 seconds for RFDiffusion, a 6.8 × speedup. Figure 7 shows how designability varies with protein length. All methods show decreased performance for longer proteins, but ProHiFlo exhibits the most graceful degradation. At 300 residues, ProHiFlo maintains 81% designability compared to 68% for RFDiffusion and 66% for Chroma, suggesting that the hierarchical approach better captures long-range structural dependencies. 
+
+5.7 Case Studies Enzyme Active Site Design. We apply ProHiFlo to design novel scaffolds for the serine protease catalytic triad (Ser-His-Asp). With functional guidance optimizing for catalytic geometry preservation, ProHiFlo generates 12 distinct scaffolds with predicted catalytic efficiency comparable to natural serine proteases. 
+
+De Novo Binder Design. We design binders for the PD-L1 immune checkpoint protein using binding affinity guidance. Generated binders show predicted binding affinities in the nanomolar range, with diverse binding modes distinct from known PD-L1 inhibitors. 
+
+## 6 Limitations 
+
+While ProHiFlo achieves strong performance across multiple benchmarks, several limitations remain. 
+
+Hierarchical Inconsistency. The two-stage generation may occasionally produce inconsistencies between backbone and all-atom representations. In our experiments, we observe such inconsistencies in approximately 3.2% of generated structures (defined as cases where any sidechain atom is > 2Åfrom its expected position given ideal bond geometry). These are addressed through a lightweight post-processing step consisting of: (1) energy minimization using OpenMM [ 42 ] with the AMBER14 11 50 100 150 200 250 300 
+
+> Protein Length (residues)
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Designability
+
+Designability Across Protein Lengths 
+
+> ProHiFlo
+> RFDiffusion
+> Chroma
+
+Figure 7: Designability across different protein lengths. ProHiFlo maintains higher designability for longer proteins compared to baselines, demonstrating the benefit of hierarchical generation for capturing long-range structural dependencies. force field (500 steps); (2) sidechain repacking using Rosetta’s [ 43 ] PackRotamers protocol. Post-processing adds approximately 0.8 seconds per structure. Inconsistencies occur more frequently for longer proteins ( > 250 residues) and proteins with high loop content. 
+
+Guidance Generalization. Functional guidance depends on the quality of pretrained predictors. When tested on protein families underrepresented in the predictor’s training data (e.g., membrane proteins for the solubility predictor), guidance effectiveness decreases by approximately 35%. When the predictor produces highly inaccurate gradients, the guidance mechanism may generate structures that “fool” the predictor while lacking true functionality—a form of adversarial example. Users should validate guided designs with orthogonal methods. 
+
+Experimental Validation. All evaluations are computational. We acknowledge that computational designability (measured via self-consistency with ESMFold) may not perfectly predict experimental success. Based on prior work [ 5 ], we expect 40-60% of computationally designable structures to express and fold correctly in experiments. 
+
+Scale Limitations. Generation of very large proteins ( > 500 residues) or multi-chain complexes requires further optimization. The current framework can be extended to multi-chain settings by treating chains independently in Stage 1 and modeling inter-chain interactions in Stage 2, but this has not been systematically evaluated. 
+
+## 7 Conclusion 
+
+We presented ProHiFlo, a hierarchical flow matching framework for de novo protein generation with functional guidance. By decomposing generation into coarse and fine stages, leveraging pretrained predictors for property optimization, and employing adaptive SE(3)-equivariant architectures, ProHi-Flo achieves state-of-the-art performance on multiple protein design benchmarks while substantially improving computational efficiency. The training-free functional guidance mechanism opens new 12 possibilities for designing proteins with desired properties without task-specific retraining. Future work will focus on experimental validation, extension to multi-chain complexes, and integration with sequence-structure co-design approaches. 
+
+Code and Data Availability. Code, pretrained models, and processed datasets will be released upon publication at https://github.com/anonymous/prohiflo . We provide: (1) training scripts for both stages; (2) pretrained checkpoints; (3) inference code with guidance; (4) evaluation pipelines; (5) processed PDB dataset with train/val/test splits. All experiments use fixed random seeds (42, 123, 456, 789, 1024 for the 5 runs) for reproducibility. 
+
+Reproducibility Statement. We have made extensive efforts to ensure reproducibility. All hyper-parameters are reported in Appendix C. Evaluation uses ProteinMPNN v1.0.1 and ESMFold v2.0 with default parameters. Structure alignment uses TM-align [ 44 ]. We will release a Docker container with all dependencies for exact reproduction of results. 
+
+## References 
+
+[1] Po-Ssu Huang, Scott E Boyken, and David Baker. The coming of age of de novo protein design. 
+
+Nature , 537(7620):320–327, 2016. [2] Yichao Zhang, Ningyuan Deng, Xinyuan Song, Ziqian Bi, Tianyang Wang, Zheyu Yao, Keyu Chen, Ming Li, Qian Niu, Junyu Liu, et al. Advanced deep learning methods for protein structure prediction and design. BIO Integration , 2025. [3] John Jumper, Richard Evans, Alexander Pritzel, Tim Green, Michael Figurnov, Olaf Ron-neberger, Kathryn Tunyasuvunakool, Russ Bates, Augustin Žídek, Anna Potapenko, et al. Highly accurate protein structure prediction with AlphaFold. Nature , 596(7873):583–589, 2021. [4] Kaijie Chen, Zihao Lin, Zhiyang Xu, Ying Shen, Yuguang Yao, Joy Rimchala, Jiaxin Zhang, and Lifu Huang. R2i-bench: Benchmarking reasoning-driven text-to-image generation. In 
+
+Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing ,pages 12606–12641, 2025. [5] Joseph L Watson, David Juergens, Nathaniel R Bennett, Brian L Trippe, Jason Yim, Helen E Eisenach, Woody Ahern, Andrew J Borber, Robert J Ragotte, Lukas F Milles, et al. De novo design of protein structure and function with RFdiffusion. Nature , 620(7976):1089–1100, 2023. [6] John B Ingraham, Max Barber, Greta Wilber, Luke Strom, Chandra Theesfeld, Julia Listgarten, Gabriele Corso, Tommi Jaakkola, and Regina Barzilay. Illuminating protein space with a programmable generative model. Nature , 623(7989):1070–1078, 2023. [7] Sarah Alamdari, Nitya Thakkar, Rianne van den Berg, Alex X Lu, Nicolo Fusi, Ava P Amini, and Kevin K Yang. Protein generation with evolutionary diffusion: sequence is all you need. 
+
+bioRxiv , pages 2023–09, 2023. [8] Benji Peng, Chia Xin Liang, Ziqian Bi, Ming Liu, Yichao Zhang, Tianyang Wang, Keyu Chen, Xinyuan Song, and Pohsun Feng. From noise to nuance: Advances in deep generative image models. arXiv:2412.09656 , 2024. [9] Mingjie You, Kaijie Chen, and Dawei Cheng. Drdgrl: Dual-relational dynamic graph repre-sentation learning for delay-sensitive stock trend prediction. In International Conference on Database Systems for Advanced Applications , pages 35–50. Springer, 2026. [10] Haobo Zhang, Xutao Mao, Guangyuan Dong, Ziwei Li, Xuanbo Su, Kaijie Chen, Jing Yang, and Zheng Lin. Memmark: State-evolution attribution watermarking for agent long-term memory systems. arXiv preprint arXiv:2605.25002 , 2026. 13 [11] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in Neural Information Processing Systems , 33:6840–6851, 2020. [12] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matthew Le. Flow matching for generative modeling. In International Conference on Learning Representations ,2023. [13] Zeming Lin, Halil Akin, Roshan Rao, Brian Hie, Zhongkai Zhu, Wenting Lu, Nikita Smetanin, Robert Verkuil, Ori Kabeli, Yaniv Shmueli, et al. Evolutionary-scale prediction of atomic-level protein structure with a language model. Science , 379(6637):1123–1130, 2023. [14] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. In Advances in Neural Informa-tion Processing Systems , volume 30, 2017. [15] Ahmed Elnaggar, Michael Heinzinger, Christian Dallago, Ghalia Rehawi, Yu Wang, Llion Jones, Tom Gibbs, Tamas Feher, Christoph Angerer, Martin Steinegger, et al. Prottrans: Toward understanding the language of life through self-supervised learning. IEEE Transactions on Pattern Analysis and Machine Intelligence , 44(10):7112–7127, 2022. [16] Vladimir Gligorijevi´ c, P Douglas Renfrew, Tomasz Kosciolek, Julia Koehler Ber, Daniel Berenberg, Tommi Vatez, Chris Chandler, Andre Taylor-Compston, Brendan J Frey, and Richard Bonneau. Structure-based protein function prediction using graph convolutional networks. Nature Communications , 12(1):3168, 2021. [17] Bowen Jing, Stephan Eismann, Patricia Suriana, Raphael JL Townshend, and Ron Dror. Equiv-ariant graph neural networks for 3d macromolecular structure. arXiv preprint arXiv:2106.03843 ,2021. [18] Alex Hawkins-Hooker, Florence Depardieu, Adrian Baez-Ortega, Marie Touchon, Eduardo PC Rocha, Ilaria Granata, Michael PH Brown, and Michael A Savageau. Generating functional protein variants with variational autoencoders. PLOS Computational Biology , 17(2):e1008736, 2021. [19] Raphael R Eguchi, Christian A Choe, and Po-Ssu Huang. Ig-vae: Generative modeling of protein structure by direct 3d coordinate generation. PLOS Computational Biology , 18(6):e1010271, 2022. [20] John Ingraham, Vikas Garg, Regina Barzilay, and Tommi Jaakkola. Generative models for graph-based protein design. In Advances in Neural Information Processing Systems , volume 32, 2019. [21] Jason Yim, Brian L Trippe, Valentin De Bortoli, Emile Mathieu, Arnaud Doucet, Regina Barzilay, and Tommi Jaakkola. Se(3) diffusion model with application to protein backbone generation. In International Conference on Machine Learning , pages 40001–40039. PMLR, 2023. [22] Huiyi Chen, Jiawei Peng, Dehai Min, Changchang Sun, Kaijie Chen, Yan Yan, Xu Yang, and Lu Cheng. Mvi-bench: A comprehensive benchmark for evaluating robustness to misleading visual inputs in lvlms. arXiv preprint arXiv:2511.14159 , 2025. [23] Yixu Huang, Bo Li, Na Li, Zhe Wang, Kaijie Chen, Haonan Ge, Qingyi Si, Yuanzhe Shen, Ruihan Yang, Guangjing Wang, et al. Gui agents for continual game generation. arXiv preprint arXiv:2605.28258 , 2026. [24] Kaijie Chen, Zhiyang Xu, Ying Shen, Zihao Lin, Yuguang Yao, and Lifu Huang. Superflow: Training flow matching models with rl on the fly. arXiv preprint arXiv:2512.17951 , 2025. 14 [25] Yeqing Lin and Mohammed AlQuraishi. Generating novel, designable, and diverse protein structures by equivariantly diffusing oriented residue clouds. In International Conference on Machine Learning , pages 21312–21333. PMLR, 2023. [26] Yeqing Lin, Minji Lee, Zhao Zhang, and Mohammed AlQuraishi. Out of many, one: Designing and scaffolding proteins at the scale of the structural universe with Genie 2. arXiv preprint arXiv:2405.15489 , 2024. [27] Avishek Joey Bose, Tara Akhound-Sadegh, Kilian Fatras, Guillaume Huguet, Jarrid Rector-Brooks, Cheng-Hao Liu, Andrei Cristian Nica, Maksym Korablyov, Michael Bronstein, and Alexander Tong. Se(3)-stochastic flow matching for protein backbone generation. In Interna-tional Conference on Learning Representations , 2024. [28] Jason Yim, Andrew Campbell, Andrew YK Foong, Michael Gastegger, José Jiménez-Luna, Sarah Lewis, Victor Garcia Satorras, Bastiaan S Veeling, Regina Barzilay, Tommi Jaakkola, et al. Fast protein backbone generation with SE(3) flow matching. arXiv preprint arXiv:2310.05297 ,2023. [29] Sidney Lyayuga Lisanza, Jake M Gershon, Sam WK Tipps, Jerald A Arnesen, Chenlin Zhu, Samuel J Zandberg, Rishi Raman, Casper Bakker, W Sebastian Koska, Dustin Lehnert, et al. Joint generation of protein sequence and structure with RoseTTAFold sequence space diffusion. 
+
+bioRxiv , pages 2023–05, 2023. [30] Noelia Ferruz, Steffen Schmidt, and Birte Höcker. Protgpt2 is a deep unsupervised language model for protein design. Nature Communications , 13(1):4348, 2022. [31] Nate Gruver, Samuel Stanton, Nathan C Frey, Tim GJ Rudner, Isidro Hotzel, Julien Lafrance-Vanasse, Arvind Rajpal, Kyunghyun Cho, and Andrew Gordon Wilson. Protein design with guided discrete diffusion. Advances in Neural Information Processing Systems , 36, 2024. [32] Víctor Garcia Satorras, Emiel Hoogeboom, and Max Welling. E(n) equivariant graph neural networks. In International Conference on Machine Learning , pages 9323–9332. PMLR, 2021. [33] Fabian Fuchs, Daniel Worrall, Volker Fischer, and Max Welling. Se(3)-transformers: 3d roto-translation equivariant attention networks. In Advances in Neural Information Processing Systems , volume 33, pages 1970–1981, 2020. [34] Yi-Lun Liao and Tess Smidt. Equiformer: Equivariant graph attention transformer for 3d atomistic graphs. In International Conference on Learning Representations , 2023. [35] Helen M Berman, John Westbrook, Zukang Feng, Gary Gilliland, Talapady N Bhat, Helge Weissig, Ilya N Shindyalov, and Philip E Bourne. The protein data bank. Nucleic Acids Research , 28(1):235–242, 2000. [36] Martin Steinegger and Johannes Söding. Mmseqs2 enables sensitive protein sequence searching for the analysis of massive data sets. Nature Biotechnology , 35(11):1026–1028, 2017. [37] Mihaly Varadi, Stephen Anyango, Mandar Deshpande, Sreenath Nair, Cyrus Natassia, Galabina Yordanova, David Yuan, Oana Stroe, Gemma Wood, Agata Laydon, et al. Alphafold protein structure database: massively expanding the structural coverage of protein-sequence space with high-accuracy models. Nucleic Acids Research , 50(D1):D419–D427, 2022. [38] Justas Dauparas, Ivan Anishchenko, Nathaniel Bennett, Hua Bai, Robert J Ragotte, Lukas F Milles, Basile IM Wicky, Alexis Courber, Rob J de Haas, Neville Bethel, et al. Robust deep learning–based protein sequence design using ProteinMPNN. Science , 378(6615):49–56, 2022. [39] Gabriele Corso, Hannes Stärk, Bowen Jing, Regina Barzilay, and Tommi Jaakkola. Diffdock: Diffusion steps, twists, and turns for molecular docking. International Conference on Learning Representations , 2023. 15 [40] Alexander Rives, Joshua Meier, Tom Sercu, Siddharth Goyal, Zeming Lin, Jason Liu, Demi Guo, Myle Ott, C Lawrence Zitnick, Jerry Ma, and Rob Fergus. Biological structure and function emerge from scaling unsupervised learning to 250 million protein sequences. Proceedings of the National Academy of Sciences , 118(15):e2016239118, 2021. [41] Sameer Khurana, Reda Rawi, Kumardeep Kuber, Shaomin Hadar, Ohad Manor, Christine Orengo, Douglas EV Pires, David B Ascher, Lenore Cowen, and Gaurav Bhardwaj. Deepsol: a deep learning framework for sequence-based protein solubility prediction. Bioinformatics ,34(15):2605–2613, 2018. [42] Peter Eastman, Jason Swails, John D Chodera, Robert T McGibbon, Yutong Zhao, Kyle A Beauchamp, Lee-Ping Wang, Andrew C Simmonett, Matthew P Harrigan, Chaya D Stern, et al. Openmm 7: Rapid development of high performance algorithms for molecular dynamics. PLOS Computational Biology , 13(7):e1005659, 2017. [43] Julia Koehler Leman, Brian D Weitzner, Steven M Lewis, Jared Adolf-Bryfogle, Nawsad Alam, Rebecca F Alford, Melanie Aprahamian, David Baker, Kyle A Barlow, Patrick Barth, et al. Macromolecular modeling and design in Rosetta: recent methods and frameworks. Nature Methods , 17(7):665–680, 2020. [44] Yang Zhang and Jeffrey Skolnick. Tm-align: a protein structure alignment algorithm based on the tm-score. Nucleic Acids Research , 33(7):2302–2309, 2005. [45] Ricky TQ Chen, Yulia Rubanova, Jesse Bettencourt, and David K Duvenaud. Neural ordinary differential equations. In Advances in Neural Information Processing Systems , volume 31, 2018. 16 A Theoretical Analysis 
+
+A.1 Convergence Guarantee for Hierarchical Flow Matching 
+
+We provide theoretical justification for our hierarchical approach by analyzing the convergence properties of the two-stage generation process. 
+
+Theorem 1 (Hierarchical Flow Matching Convergence) . Let pdata be the target distribution over protein structures, and let p(1)  
+
+> θ
+
+and p(2)  
+
+> θ
+
+denote the distributions learned by stages 1 and 2 respectively. Under the following regularity conditions: (R1) The data distribution pdata has finite second moments over SE(3) N × R3M ;(R2) The neural networks v(1)  
+
+> θ
+
+, v (2)  
+
+> θ
+
+are Lipschitz continuous with constants L1, L 2;(R3) The training uses conditional flow matching with optimal transport paths; the hierarchical flow matching objective converges to the true data distribution: 
+
+DKL (pdata ∥pθ ) ≤ DKL (pbb data ∥p(1)  
+
+> θ
+
+) + ET ∼p(1) 
+
+> θ
+
+h
+
+DKL (paa |T 
+
+> data
+
+∥p(2)  
+
+> θ
+
+(·| T )) 
+
+i
+
++ ϵ (17) 
+
+where ϵ = O(1 /√N ) represents the approximation error that vanishes with sufficient training data 
+
+N .Proof. We prove the theorem in three steps. 
+
+Step 1: Chain rule decomposition. Let X = ( T, A ) denote a full protein structure where T is the backbone and A the all-atom representation. By the chain rule of KL divergence: 
+
+DKL (pdata (T, A )∥pθ (T, A )) = DKL (pdata (T )∥pθ (T )) + ET ∼pdata [DKL (pdata (A|T )∥pθ (A|T ))] (18) 
+
+Step 2: Distribution mismatch bound. Since Stage 1 samples T ∼ p(1)  
+
+> θ
+
+rather than T ∼ pdata , we bound the mismatch using Pinsker’s inequality and the triangle inequality: 
+
+ET ∼p(1) 
+
+> θ
+
+h
+
+DKL (pdata (A|T )∥p(2)  
+
+> θ
+
+(A|T )) 
+
+i
+
+(19) 
+
+≤ ET ∼pdata 
+
+h
+
+DKL (pdata (A|T )∥p(2)  
+
+> θ
+
+(A|T )) 
+
+i
+
++ C · TV (p(1)  
+
+> θ
+
+, p bb data ) (20) where C depends on the Lipschitz constants and TV denotes total variation distance. 
+
+Step 3: Flow matching convergence. Under (R1)-(R3), flow matching with optimal transport paths achieves E[∥vθ − ut∥2] ≤ O (1 /N ) where N is the number of training samples [ 12 ]. This translates to KL divergence bounds via [45], yielding ϵ = O(1 /√N ).
+
+A.2 Complexity Analysis 
+
+We analyze the computational complexity of ProHiFlo compared to single-stage approaches. 
+
+Proposition 2 (Time Complexity) . For a protein of length N with M atoms per residue on average, the time complexity of ProHiFlo is: 
+
+O  K1 · N 2 · d + K2 · N · M 2 · d (21) 
+
+where K1 and K2 are the number of sampling steps for stages 1 and 2 respectively, and d is the hidden dimension. In contrast, single-stage all-atom generation requires O(K · (N M )2 · d).Proof. Stage 1 operates on N residue frames with pairwise attention, giving O(N 2 · d) per step. Stage 2 processes N · M atoms but with local attention within residues and cross-attention to N
+
+backbone frames, yielding O(N · M 2 · d + N · M · d) = O(N · M 2 · d) per step. The total is the sum over K1 and K2 steps respectively. 17 Adaptive Overhead. The adaptive message passing mechanism introduces additional overhead of 
+
+O(N ·(Kmax − ¯K)) where ¯K is the average iteration count. In practice, this overhead is approximately 15% as most nodes converge to low iteration counts. The memory overhead is negligible as we reuse buffers across iterations. Since M ≪ N typically (average M ≈ 8 atoms per residue), and K1 + K2 < K , our hierarchical approach achieves significant speedup while maintaining accuracy. 
+
+A.3 Guidance Optimality 
+
+We establish conditions under which functional guidance provably improves the target property. 
+
+Theorem 3 (Guidance Optimality) . Let fϕ : X → R be an L-Lipschitz function predictor with gradient ∇fϕ. For guidance strength λ > 0, the guided sampling distribution ˜pθ satisfies: 
+
+E˜pθ [fϕ(x)] ≥ Epθ [fϕ(x)] + λ · Var pθ [∇fϕ(x)] − O (λ2L2) (22) 
+
+The optimal guidance strength is λ∗ = Var [∇fϕ]/(2 L2).Proof. The guided velocity field is ˜vt(x) = vθ (x, t ) + λ∇fϕ(x). By Taylor expansion around the unguided trajectory: 
+
+fϕ(˜ x1) = fϕ(x1) + ⟨∇ fϕ(x1), ˜x1 − x1⟩ + O(∥˜x1 − x1∥2) (23) 
+
+= fϕ(x1) + λ
+
+Z 10
+
+∥∇ fϕ(xt)∥2dt + O(λ2L2) (24) Taking expectations and using E[∥∇ f ∥2] = Var [∇f ] + ∥E[∇f ]∥2 ≥ Var [∇f ] yields the bound. 
+
+Relaxing the Lipschitz Assumption. The Lipschitz assumption may be violated for deep neural network predictors. In this case, we can replace the global Lipschitz constant L with a local estimate 
+
+ˆL(x) = ∥∇ 2fϕ(x)∥ and use adaptive guidance λ(x) = λ0/(1 + α ˆL(x)) . Empirically, we find that gradient clipping to ∥∇ fϕ∥ ≤ Gmax with Gmax = 10 effectively handles non-Lipschitz predictors while preserving guidance effectiveness. This theorem justifies our empirical finding that moderate guidance strengths achieve the best property improvement (Figure 5). 
+
+## B Detailed Derivations 
+
+B.1 SE(3) Flow Matching on Protein Frames 
+
+We derive the flow matching objective on the SE(3) manifold for protein backbone generation. 
+
+Parameterization. A residue frame T = ( R, t) ∈ SE (3) consists of a rotation R ∈ SO (3) and translation t ∈ R3. The tangent space at T is TT SE (3) ∼= se (3) = so (3) × R3.
+
+Interpolation Path. For source frame T0 and target frame T1, we define the interpolation: 
+
+Rt = R0 · exp  t · log( R⊤ 
+
+> 0
+
+R1) (25) 
+
+tt = (1 − t)t0 + tt1 (26) where exp : so (3) → SO (3) and log : SO (3) → so (3) are the exponential and logarithm maps. 
+
+Vector Field. The conditional vector field that generates this path is: 
+
+uRt (Rt|T1) = log( R⊤ 
+
+> 0
+
+R1) ∈ so (3) (27) 
+
+ut 
+
+> t
+
+(tt|T1) = t1 − t0 ∈ R3 (28) 18 Training Objective. The SE(3) flow matching loss becomes: 
+
+LSE (3) -FM = Et,T 0,T 1
+
+∥vRθ (Tt, t ) − uRt ∥2 
+
+> F
+
++ ∥vt 
+
+> θ
+
+(Tt, t ) − ut 
+
+> t
+
+∥22
+
+ (29) where ∥ · ∥ F denotes the Frobenius norm on so (3) .
+
+B.2 Adaptive Message Passing Derivation 
+
+We derive the equivariance properties of our adaptive message passing scheme. 
+
+Lemma 4 (SE(3) Equivariance) . The message passing update 
+
+h′ 
+
+> i
+
+= ϕh
+
+hi, X 
+
+> j∈N (i)
+
+mij 
+
+ (30) 
+
+x′ 
+
+> i
+
+= xi + X 
+
+> j∈N (i)
+
+(xj − xi)ϕx(mij ) (31) 
+
+is SE(3)-equivariant, i.e., for any g = ( R, t) ∈ SE (3) :MP (g · X, H ) = g · MP (X, H ) (32) 
+
+where g · X denotes applying the transformation to all coordinates. Proof. The scalar features hi are invariant since they depend only on distances ∥xi − xj ∥ which are SE(3)-invariant. The coordinate update is equivariant because: 
+
+(Rxi + t)′ = Rxi + t + X
+
+> j
+
+(Rxj + t − Rxi − t)ϕx(mij ) (33) 
+
+= Rxi + t + R X
+
+> j
+
+(xj − xi)ϕx(mij ) (34) 
+
+= Rx′ 
+
+> i
+
++ t (35) 
+
+## C Additional Experimental Details 
+
+C.1 Dataset Statistics 
+
+Table 5: Training dataset statistics. 
+
+Source Structures Avg. Length 
+
+PDB (filtered) 73,582 187.3 AlphaFold DB 127,418 234.6 Total 201,000 217.2 
+
+C.2 Hyperparameter Settings C.3 Evaluation Protocol 
+
+For each generated structure, we: 1. Design 8 sequences using ProteinMPNN with sampling temperature 0.1 19 Table 6: Model hyperparameters. 
+
+Parameter Stage 1 Stage 2 
+
+Hidden dimension 384 256 Number of layers 12 8Attention heads 12 8Dropout 0.1 0.1 Learning rate 3 × 10 −4 3 × 10 −4
+
+Batch size 256 128 Training steps 500K 300K 2. Predict structures for all sequences using ESMFold 3. Compute scTM score between generated backbone and predicted structures 4. Report designability as fraction with max(scTM) > 0.5
+
+## D Additional Results 
+
+D.1 Per-Length Designability Breakdown 
+
+Table 7: Designability breakdown by protein length. 
+
+Method 50-100 100-150 150-200 200-250 250-300 
+
+RFDiffusion 0.912 0.867 0.798 0.723 0.651 Chroma 0.894 0.834 0.756 0.689 0.612 FoldFlow-2 0.923 0.889 0.834 0.778 0.712 
+
+ProHiFlo 0.967 0.945 0.912 0.878 0.834 D.2 Functional Guidance with Different Predictors 
+
+Table 8: Guidance effectiveness with different function predictors. 
+
+Predictor Base Score Guided Score Improvement 
+
+ESM-2 Stability 0.698 0.867 +24.2% GVP Binding 0.612 0.784 +28.1% DeepSol Solubility 0.654 0.823 +25.8% ProteinMPNN pLDDT 0.756 0.891 +17.9% 20 Table 9: Effect of sampling steps on designability and inference time. Stage 2 fixed at 20 steps. 
+
+Stage 1 Steps Designability Novelty Time (s) Validity 
+
+20 0.856 ±.024 0.712 ±.028 1.2 0.978 30 0.889 ±.019 0.734 ±.024 1.5 0.986 50 0.924 ±.012 0.758 ±.018 2.1 0.994 
+
+75 0.927 ±.011 0.761 ±.017 2.9 0.995 100 0.928 ±.011 0.762 ±.016 3.8 0.995 Table 10: Effect of Stage 2 sampling steps. Stage 1 fixed at 50 steps. 
+
+Stage 2 Steps Designability All-Atom RMSD Time (s) Validity 
+
+10 0.912 ±.015 0.42 ±.08 1.8 0.987 20 0.924 ±.012 0.31 ±.06 2.1 0.994 
+
+30 0.925 ±.012 0.29 ±.05 2.5 0.994 50 0.926 ±.011 0.28 ±.05 3.2 0.995 
+
+## E Hyperparameter Ablation Studies 
+
+E.1 Sampling Steps Ablation E.2 Guidance Annealing Parameter γ
+
+E.3 Adaptive Message Passing Bounds 
+
+## F PDB-Only Training Results 
+
+To address potential bias from using AlphaFold-predicted structures in training, we report results for a model trained exclusively on PDB structures. The PDB-only model shows slightly lower designability (-2.3%) but improved novelty (+2.4%) and diversity (+2.2%), suggesting that AlphaFold structures may introduce some distributional bias toward well-folded conformations. Both models substantially outperform baselines. 
+
+## G Fair Comparison at Equal Sampling Steps 
+
+To ensure fair comparison, we evaluate all methods at equal sampling budgets. ProHiFlo maintains a substantial advantage even when baselines are given equal sampling budgets, demonstrating that our improvements stem from architectural and methodological innovations rather than simply using more sampling steps. 
+
+## H Failure Case Analysis 
+
+We analyze the 7.6% of generated structures that fail the designability criterion (scTM < 0.5). 
+
+Failure Modes. 
+
+• Long loops (42% of failures): Structures with extended loop regions ( > 15 residues) show reduced designability due to conformational flexibility. • Unusual topologies (28%): Novel fold topologies not well-represented in the training data. 21 Table 11: Effect of guidance annealing parameter γ on stability-guided generation. 
+
+γ Stability Designability Diversity Mode Collapse 
+
+0.0 (no annealing) 0.823 ±.028 0.856 ±.021 0.612 ±.034 12.3% 0.5 0.856 ±.024 0.878 ±.018 0.698 ±.028 6.8% 1.0 0.867 ±.019 0.897 ±.014 0.734 ±.024 3.2% 
+
+2.0 0.854 ±.022 0.889 ±.016 0.756 ±.021 2.1% Table 12: Effect of adaptive message passing bounds Kmin and Kmax .
+
+Kmin Kmax Designability Time (s) Avg. Iterations 
+
+1 4 0.878 ±.022 1.6 2.1 2 4 0.901 ±.018 1.8 2.8 2 6 0.924 ±.012 2.1 3.4 2 8 0.926 ±.011 2.6 4.1 4 8 0.921 ±.013 3.1 5.2 • High β-sheet content (18%): All-β structures are more challenging due to long-range hydrogen bonding patterns. • Hierarchical inconsistency (12%): Cases where backbone and all-atom stages produce conflicting local geometries. 
+
+Recommendations. For applications requiring high success rates, we recommend: (1) filtering generated structures by predicted pLDDT > 80 ; (2) using ensemble generation with 5-10 samples per target; (3) applying functional guidance toward stability to bias toward well-folded structures. 22 Table 13: Comparison of models trained on PDB+AlphaFold vs. PDB-only. 
+
+Training Data Designability Novelty Diversity Validity 
+
+PDB + AlphaFold 0.924 ±.012 0.758 ±.018 0.769 ±.015 0.994 ±.003 
+
+PDB only 0.901 ±.016 0.782 ±.021 0.791 ±.018 0.989 ±.005 
+
+Table 14: Performance at 50 sampling steps for all methods. 
+
+Method Designability Validity Time (s) 
+
+RFDiffusion (50 steps) 0.623 ±.034 0.912 ±.018 5.6 Chroma (50 steps) 0.598 ±.038 0.897 ±.021 4.8 FoldFlow-2 (50 steps) 0.756 ±.028 0.956 ±.012 3.2 
+
+ProHiFlo (50 steps) 0.924 ±.012 0.994 ±.003 2.1 
+
+23
