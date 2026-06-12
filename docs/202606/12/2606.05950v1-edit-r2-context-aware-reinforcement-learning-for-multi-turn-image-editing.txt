@@ -1,0 +1,1698 @@
+Title: Edit-R2: Context-Aware Reinforcement Learning for Multi-Turn Image Editing
+
+URL Source: https://arxiv.org/pdf/2606.05950v1
+
+Published Time: Fri, 05 Jun 2026 01:10:41 GMT
+
+Number of Pages: 34
+
+Markdown Content:
+# Edit-R2: Context-Aware Reinforcement Learning for Multi-Turn Image Editing 
+
+Yuxiao Ye 1,2 Haoran He 1 Fangyuan Kong 2 Xintao Wang 2 Pengfei Wan 2
+
+Kun Gai 2 Ling Pan 11Hong Kong University of Science and Technology 2Kuaishou Technology 
+
+## Abstract 
+
+Text-guided image editing has advanced rapidly with diffusion models and unified multimodal foundation models. However, most existing methods remain confined to single-turn settings, overlooking the more realistic scenario of multi-turn in-context editing, where users iteratively refine an image through a sequence of instructions. In this setting, a model must follow each new instruction while preserving accumulated session-level constraints, challenged by two coupled failure modes: long-context dilution, where sparse textual constraints become difficult to recover from growing interleaved image-text histories, and state contamination, where earlier editing mistakes degrade subsequent generations. We introduce Edit-R2, a novel reinforcement learning post-training framework for unified multimodal models. Edit-R2 reconstructs the operative session intent, which effectively consolidates scattered historical constraints into an explicit reasoning trace before each editing turn. It further enables multi-turn RL over both reasoning and generation through a unified objective that jointly optimizes intent reconstruction generation in discrete text space and flow-matching image generation in continuous latent space, while a trajectory filtering mechanism suppresses corrupted rollouts to stabilize training under state contamination. To support systematic evaluation, we introduce MICE-Bench, a large-scale benchmark for multi-turn in-context editing with automated metrics for instruction following (IF), content consistency (CC), and global awareness (GA) over accumulated session constraints. Experiments show that Edit-R2 substantially improves multi-turn in-context editing and achieves competitive performance compared against strong baselines. 
+
+## 1 Introduction 
+
+Text-guided image editing has advanced rapidly with diffusion and unified multi-modal foundation models (Wu et al., 2026), which enables diverse natural-language edits such as object insertion, attribute manipulation, and semantic replacement. Despite its progress, the dominant formulation remains largely single-turn : given input image(s) and one instruction, the model is expected to produce one edited image (Wu et al., 2025b, Yu et al., 2025, Zhang et al., 2025, Zhao et al., 2024). This isolated editing formulation does not reflect realistic editing workflows and leaves a key aspect of interactive editing underexplored. In practice, editing is often an iterative session: a user may first change an object, then adjust the background, and finally revise a previous preference, while expecting the system to preserve some of the earlier requirements and interpret new instructions without context misunderstanding. Therefore, a capable editing system should operate not only on the current image and instruction, but also on the accumulated session context for supporting session-level behavior and optimization. 1                                                                           
+
+> arXiv:2606.05950v1 [cs.AI] 4 Jun 2026 Change its color to blue.
+> All subsequent edits
+> should be purple color .
+> Add umbrella on the right of
+> salamander.
+> Replace salamander
+> with ribbon.
+> IF = 1.0 GA = 0.0
+> (a) BAGEL
+> IF = 1.0 GA = 1.0
+> Content Memory Task
+> Add a book on the
+> below of ribbon.
+> IF = 1.0 GA = 0.0
+> IF = 1.0 GA = 0.0
+> Session-level Constraint
+> Failed to preserve global editing
+> rule across turns
+> All subsequent edits
+> should be purple color .
+> Add umbrella on the right of
+> salamander.
+> Replace salamander
+> with ribbon.
+> Add a book on the
+> below of ribbon.
+> Session-level Constraint
+> Succeed to preserve global
+> editing rule across turns
+> IF = 1.0 GA = 1.0
+> IF = 1.0 GA = 1.0
+> (b) Edit-R2 (Ours)
+> IF = 1.0 GA = 1.0
+> IF = 0.0 GA = 0.0
+> IF = 0.0 GA = 0.0
+> Add podium on the left of
+> metal black microphone.
+> Remove it .
+> Pronoun
+> reference
+> Change its color to blue.
+> Add podium on the left of
+> metal black microphone.
+> Remove it .
+> Pronoun
+> reference
+> IF = 1.0 GA = 1.0
+> IF = 1.0 GA = 1.0
+> IF = 1.0 GA = 1.0
+> Content Understanding Task
+> (c) BAGEL (d) Edit-R2 (Ours)
+> Failed to resolve
+> coreference across turns
+> Succeed to resolve
+> coreference across turns
+
+Figure 1: Overview of in-context editing. (a)-(b): Content memory task. A session-level constraint requires all added or modified elements to be purple. BAGEL violates this constraint throughout the session, while Edit-R2 faithfully adheres to it, achieving GA = 1.0 at every turn. (c)-(d): Content understanding task. The user intends to use “its” to refer to the podium added in the preceding turn 1. BAGEL fails to resolve the coreference, whereas Edit-R2 correctly edits the intended object at every turn. Instruction is simplified for demonstration. We term this paradigm multi-turn in-context image editing (or in-context editing for brevity 1): at each turn, the model receives an interleaved history of previous instructions and generated images, and must produce an edited image that follows the new instruction while maintaining consistency with constraints introduced in prior turns (see Figure 1). In multi-turn sessions, the current instruction may contain pronouns, ellipses, reversions, or preferences whose meaning depends on earlier turns. Meanwhile, some historical requirements should persist, whereas others may be overridden by later instructions. The current image alone may not reveal which previous constraints should remain active. Thus, the model must infer the operative session intent from a sparse, implicit, and dynamically updated image-text history. Despite its practical importance, this in-context capability remains underexplored in current image editing models, datasets, and training paradigms. Most benchmarks evaluate isolated input-instruction-output triples (Hui et al., 2024, Liu et al., 2025b), and existing multi-turn benchmarks (Ge et al., 2024, Qian et al., 2025, Ye et al., 2025a, Zhang et al., 2023) remain history-agnostic : each turn can be solved from the immediately preceding image and the current instruction, without requiring explicit retention of earlier constraints. Given the sequential nature of in-context editing, we formulate this as a session-level reinforce-ment learning (RL) problem and develop Edit-R2 , a new RL paradigm that optimizes editing beyond traditional isolated local edits. Under this crucial scenario, each generated image becomes part of the state for future turns, and the value of an edit depends not only on its compliance with the current instruction, but also on its ability to preserve the context needed in later turns. This long-horizon dependency makes RL a natural fit. Although recent advances in RL have exhibited strong gains, they are largely limited to single-turn visual generation (Liu et al., 2025a, Xue et al., 2025, Zheng et al., 2025), where the policy is optimized against a static conditioning context (Li et al., 2025, Luo et al., 2025, Ye et al., 2025b). Transitioning to this multi-turn paradigm poses a significant challenge, where image editing models easily get lost in the long interleaved history, leading to severe long-context intent dilution (see Figure 2). As the session progresses, the interleaved image-text context grows rapidly, which poses critical challenges for the policy to recover the active session intent. In unified 
+
+> 1
+
+Prior works (He et al., 2026, Wu et al., 2025b) use “in-context” to refer to single-turn editing conditioned on multiple reference images, which differs from our usage. 
+
+2Image 0         
+
+> Prompt 1
+> Image 1
+> Prompt 0 Prompt 0
+> Image 0
+> Unified
+> Model
+> Prompt 1
+> Image 1
+> Prompt 2 Prompt 0
+> Image 0 Image 2
+> Turn2 Turn3 Turn1
+> ··· ··· ··· ··· ··· ···
+> (b) (a)
+
+Figure 2: (a): Long-context issue for in-context editing. (b): Attention magnitude of the flow-matching generator across prompts: As editing progresses, attention to prompts from earlier turns weakens significantly, leading to context loss. models, this imbalance is further amplified by the heavy visual-token budget required to encode generated images (Tschannen et al., 2025), making critical textual constraints increasingly sparse and distant in the context across history. Furthermore, even when an edit appears acceptable for the current instruction, any missed or incorrect detail is carried into the next turn, where it can mislead subsequent edits and make the rollout unreliable for training. Edit-R2 is a novel RL framework that addresses these critical bottlenecks with explicit session-intent recovery and trajectory-level stabilization. Built upon the unified model BAGEL (Deng et al., 2025), Edit-R2 first reconstructs the operative intent for the current turn via in-context chain-of-thought (IC-CoT), which reasons over the dialogue history and consolidates scattered historical constraints into a compact reasoning trace, mitigating the dilution of early textual constraints and providing the generator with a stable state representation. Crucially, IC-CoT cannot be optimized in isolation, as an apparently reasonable intent reconstruction is useful only if it leads to successful downstream image editing. To achieve the synergy, we jointly optimize IC-CoT generation and visual generation with unified multi-turn RL, which couples the discrete text space of session-intent reconstruction with the continuous latent space of the flow-matching image generator. To prevent corrupted rollouts from dominating training and contaminating later training steps, Edit-R2 further introduces a trajectory filtering mechanism for stable optimization. Finally, to provide the both the training environment and evaluation protocol required for multi-turn RL and resolve the evaluation bottleneck, we construct MICE-Bench, a large-scale benchmark for in-context editing covering content memory and content understanding tasks with a fully automated evaluation pipeline built on comprehensive metrics: instruction following (IF), content consistency (CC) (Chen et al., 2025), and newly introduced global awareness (GA) measuring compliance with accumulated session-level constraints. Experiments on MICE-Bench demonstrate that Edit-R2 substantially outperforms existing open-source models and achieves competitive performance against closed-source counterparts. Our contributions are summarized as follows: (i) We formulate multi-turn in-context image editing as a session-level RL problem and introduce MICE-Bench, the first large-scale automated benchmark for this setting, accompanied by a new GA metric that explicitly quantifies session-level constraint compliance. (ii) We propose Edit-R2, a novel RL post-training framework that reconstructs the active session intent with IC-CoT and jointly optimizes intent reconstruction and 3visual generation across discrete text and continuous latent spaces, with trajectory filtering for stable multi-turn training. (iii) Extensive experiments show that Edit-R2 substantially improves BAGEL (+18% IF, +18% GA) and (+8% IF, +15% GA) , achieving competitive performance over strong models. 
+
+## 2 Related Work 
+
+Instruction-based Image Editing Models. InstructPix2Pix (Brooks et al., 2023) pioneered the learning-based image editing, subsequent models Liu et al. (2025b), Sheynin et al. (2024) such as Qwen-Image-Edit (Wu et al., 2025a) and FLUX.1 Kontext (Labs et al., 2025) extend with stronger architectures and larger-scale training. Recently, image editing has evolved rapidly from single-turn Wu et al. (2025b), Zhang et al. (2025) to multi-turn paradigms. Several training-free methods aim to mitigate quality degradation across successive turns (Liao et al., 2025, Sheynin et al., 2024). Auto-regressive models including Nano-Banana-2 Comanici et al. (2025), GPT-Image-1 (OpenAI, 2025), OmniGen (Xiao et al., 2025), and BAGEL (Deng et al., 2025) enable in-context editing. Despite these advances, existing models struggle to resolve the long-horizon challenges inherent to in-context editing. 
+
+Image Editing Benchmarks. Existing benchmarks can be categorized by the degree of temporal dependency they encode (summarized in Table 4). (i) Single-turn. Most early benchmarks target isolated editing instructions (Hui et al., 2024, Liu et al., 2025b, Ye et al., 2025a). (ii) Multi-turn. 
+
+MagicBrush (Zhang et al., 2023), Seed-Data-Edit (Ge et al., 2024) provide multi-turn corpora (Qian et al., 2025), while MSE-Bench (Qu et al., 2025) and EdiVal-Bench (Chen et al., 2025) offer evaluations. However, all of them treat each turn as independent task and requires no retention of session-level context. (iii) Multi-turn in-context. The need for in-context image-editing evaluation has recently been recognized. (Ye et al., 2025a, Zhang et al., 2026) establish the long-range dependencies across turns with several human-crafted examples. However, neither work provides a systematic and scalable evaluation protocol. 
+
+Reinforcement Learning for Generative Models. Flow-GRPO (Liu et al., 2025a) and Dance-GRPO (Xue et al., 2025) adopt group relative policy optimization by reformulating the sampling of diffusion and rectified flows via Stochastic Differential Equations (SDEs), and Diffusion-NFT (Zheng et al., 2025) applies direct preference optimization. In image editing, EditScore (Luo et al., 2025), Edit-R1 (Li et al., 2025) employ RL in single-turn settings (Ye et al., 2025b). Works such as (Kou et al., 2026, Liu et al., 2026) jointly optimize reasoning module and image generator through RL, but remain restricted to single-turn tasks. All of the methods are history-agnostic. In contrast, Edit-R2 is one of the first RL post-training framework for in-context editing. 
+
+## 3 MICE-Bench: Multi-Turn In-Context Editing Benchmark 
+
+We introduce MICE-Bench (Multi-turn In-Context Editing Benchmark), comprising 720 multi-turn in-context editing instances, each featuring a three-turn editing session. MICE-Bench is specif-ically designed to evaluate model’s capabilities to resolve long-horizon dependencies featuring 
+
+Content Understanding and Content Memory tasks (demonstrated in Figure 3). 
+
+Base pipeline. We build upon EdiVal-Agent (Chen et al., 2025), which generates multi-turn editing instructions from unlabeled images in three stages: (1) object inventory extraction via VLM, (2) hallucination filtering with GroundingDINO (Liu et al., 2024), and (3) object-pool-aware instruction generation that maintains inter-turn coherence (see Appendix E.1). We enhance the pipeline with two in-context tasks. 4( subject_remove ,            
+
+> color_alter,
+> color_alter,
+> [1,2,3]
+> )
+> ( ma terial_alter ,
+> color_alter,
+> subject_remove,
+> [1,2,3]
+> )
+> Chain Template s
+> ( color_alter,
+> color_alter,
+> subject_remove,
+> [1,2,3]
+> )
+> Sample Change [license plate] to black
+> Turn [license plate] to white
+> Remove [li cense plate]
+> Turn 1
+> Turn 2
+> Turn 3
+> Pronoun Rewriting
+> Change license plate to black
+> Turn it to white
+> Remove it
+> Turn 1
+> Turn 2
+> Turn 3
+> Source Image
+> Session-level
+> Constraint
+> non-triviality
+> clause
+> Generate Editing
+> Instruction
+> Available
+> Objects Pool
+> Select
+> Reference
+> Replace black and yellow
+> salamander with ribbon .
+> Generate
+> Object inventory
+> extraction
+> Hallucination
+> filtering
+> Source Image Update
+> Json{
+> “black and yellow salamande r”: {
+> “object ”:“salamander ”,“color ”:“black and yellow ”}, ... }
+> K turns
+> Stage 1 & 2
+> Stage 3 augmented
+> by
+> content memory
+> Object inventory
+> extraction
+> Hallucination
+> filtering
+> Stage 1 & 2 Stage 3 augmented by
+> content understanding
+
+(a) 
+
+(b)           
+
+> VLM
+> Grounding
+> DINO
+> Set a persistent rule for all following edits:
+> purple color must be applied exclusively to the
+> specific object being directly added or modified.
+> There is a global constraint —all edited/added elements must be purple in
+> color. Your suggestion must be an object that CAN plausibly be purple ,
+> but is NOT inherently or naturally purple . The goal is to pick something
+> where applying the color purple represents a meaningful change.
+> LLM
+
+(c) Figure 3: Overview of MICE-Bench. (a)-(b): Data construction pipeline. (c): Task category distribution. Detailed statistics are shown in Table 8. 
+
+Content memory task. It tests whether a model can adhere to session-level constraints applied uniformly across the editing session (e.g., “all added objects must be red ”). We inject such constraints into the Stage 3 instruction generator via a constrained LLM prompt, with a non-triviality clause to prevent degenerate object proposals that trivially satisfy the constraint. See Appendix E.2 for details. 
+
+Content understanding task. It tests whether a model can resolve pronominal coreferences across turns (e.g., “change its color”). We apply instruction chain templates to ensure consecutive turns share a common anchor object, then perform post-hoc pronoun rewriting via an LLM. This design ensures pronoun references are both well-grounded and naturalistic. See Appendix E.3 for details. 
+
+Evaluation metrics. Beyond standard instruction-following (IF) and content-consistency (CC) (Chen et al., 2025), we introduce Global-Awareness (GA) , a new measure specifically de-signed to quantify the capabilities of resolving in-context challenges. GA evaluates the model’s ability to respect session-level constraints and resolve cross-turn coreferences across the editing session, with dedicated evaluation criteria. Full definitions are provided in Appendix E.5. 
+
+## 4 Method 
+
+4.1 Formulation: In-context Image Editing as an MDP 
+
+We formulate in-context image editing as a finite-horizon Markov Decision Process (MDP) 
+
+M = ( S, A, R, K ), where K denotes the number of editing turns. At each turn t ∈ { 0, 1, . . . , K −1},the state st = ( Y0, T 0, Y 1, T 1, . . . , Y t, T t) ∈ S denotes the full interleaved editing history, where Y0
+
+is the reference image, {Yi}ti=1 are previously generated images, and {Ti}ti=0 are corresponding instructions. Crucially, st collects the entire session history, enabling the policy to reason about long-horizon dependencies. The action at ∈ A at turn t is the edited image at ≜ Yt+1 = πθ(st).At the turn level, we treat the image generation process as a single macro-action, with intra-turn optimization detailed in Section 4.2. The transition function is deterministic: st+1 = st ⊕ (Yt+1 , T t+1 ),concatenating the current state with the new image and the next instruction. A scalar reward 
+
+rt = R(st, a t) is received after each turn, reflecting the quality of Yt+1 . We define a compound 5··· ··· 
+
+···   
+
+> �0
+> �0
+> �1
+> �1
+> �1
+> (�)�2
+> (�)
+> �1
+> (1)�2
+> (1)
+
+···        
+
+> ��−1
+> ��
+> (1)
+> �1
+> (1)�2
+> (1)��
+> (1)
+> �1
+> (�)Unified
+> Model
+> Input Sample
+> (�0,�0, . . . , ��−1)
+> � turns  ×️
+> � rollouts
+> �2
+> (�)<�
+> ···
+> �1
+> (1)
+> �1
+> (�)···
+> �0
+
+Und.      
+
+> �0�1�1
+> �0�0�1�2
+> �1
+> Unified Policy Optimization
+
+Gen. 
+
+> Prefix-valid
+> Adv. refinement
+> �2
+> (1)
+> �2
+> (�)
+> ��
+> (1)
+> ···
+> ···
+> Rollout
+> Group Relative
+> Adv. Estimation
+> ···
+> �1
+> (1)
+> �1
+> (�)
+> ···
+> �2
+> (1)
+> �2
+> (�)
+> ��
+> (1)
+> Session-state
+> reconstruction
+> with IC-CoT
+> ···
+> ···
+> Reward Model
+
+Figure 4: Overview of Edit-R2. reward as follows: 
+
+rt = wIF · IF (Yt, T t, Y t+1 ) + wCC · CC (Y0, Y t+1 ) + wGA · GA (st, Y t+1 ), (1) where IF ∈ { 0, 1}, CC ∈ [0 , 1] , and GA ∈ { 0, 1} denote instruction-following, content-consistency, and global-awareness metrics, which we directly adopt as reward components for RL training. The objective is to find θ maximizing the expected cumulative reward max θ Eπθ [PK−1 
+
+> t=0
+
+rt].
+
+4.2 Edit-R2 
+
+Building on the aforementioned MDP formulation, Edit-R2 targets the key challenge of context loss in multi-turn image editing: the policy must act from a long interleaved history, while the decision-relevant information is a compact but latent set of active session constraints. Edit-R2 therefore learns to reconstruct a compact session state before generation and optimizes both the reconstruction and the visual edit with a unified trajectory-level RL objective. The overview of Edit-R2 is in Figure 4. 
+
+Session-state reconstruction with IC-CoT. Long-context attention dilution makes it progressively harder for the image generator to resolve long-horizon dependencies in the session history. Passing the full st directly to the generator is a naive approach, but the growing token imbalance and RoPE distance decay cause attention to earlier turns to diminish, rendering significant unfaithful editing at later turns. BAGEL’s native reasoning mechanism can strengthen single-turn editing, but is fundamentally inadequate for session-aware reasoning across a historical context. Prior works of advanced CoT reasoning for visual generation (Lyu et al., 2025, Qin et al., 2025) similarly restrict to single-turn scenarios, where the reasoning scope is limited to a fixed prompt rather than an evolving session. We therefore introduce IC-CoT (In-Context Chain-of-Thought), a session-aware reasoning module that explicitly reasons over the full interleaved history st and produces an enhanced instruction ˜Tt before each generation step. By distilling the relevant session context 6Algorithm 1 Edit-R2  
+
+> 1:
+
+Input: Reference image Y0, edit instructions {Tt}K−1 
+
+> t=0
+
+, unified model πθ, reward function R. 
+
+> 2:
+
+Initialize: D ← ∅ ; s0 ← (Y0, T 0) 
+
+> 3:
+
+for t ∈ { 0, 1, . . . , K − 1} do  
+
+> 4:
+
+Model performs IC-CoT ( ˜Tt, wt, log πθ(wt)) = πund  
+
+> θ
+
+(st, Q CoT ) 
+
+> 5:
+
+Model performs image editing (Yt+1 , zt, log πθ(zt)) = πgen  
+
+> θ
+
+(˜ st) 
+
+> 6:
+
+State transition st+1 = ˜ st ⊕  Yt+1 , T t+1 
+
+ 
+
+> 7:
+
+Compute reward rt = R(st, a t) (Eqn. 1)  
+
+> 8:
+
+if rt < δ then  
+
+> 9:
+
+break  
+
+> 10:
+
+Collect samples τt = (˜ st, wt, log πθ(wt), zt, log πθ(zt), r t) 
+
+> 11:
+
+D ← D ∪ { τt} 
+
+> 12:
+
+Repeat the for-loop above to collect G rollouts  
+
+> 13:
+
+Compute group normalized advantages {At} from rewards in D (Eqn. 5)  
+
+> 14:
+
+for each τt ∈ D do  
+
+> 15:
+
+Optimize πθ with Lunified (θ) (Eqn. 6).  
+
+> 16:
+
+Return: Updated πθ
+
+directly into the current instruction, IC-CoT compresses critical historical signals and effectively shortens the distance between the generation module and the information it needs. At each turn 
+
+t, the understanding expert πund  
+
+> θ
+
+receives the full interleaved context st together with a structured question QCoT (see Appendix F), and produces a CoT trace followed by an enhanced instruction ˜Tt:
+
+( ˜Tt, wt, log πθ(wt)) = πund  
+
+> θ
+
+(st, Q CoT ), (2) where wt is the CoT token sequence and their log-probabilities log πθ(wt) is retained for the subsequent policy update. The enhanced ˜Tt replaces the raw Tt, yielding the refined state 
+
+˜st = st−1 ⊕ (Yt, ˜Tt), which is then passed to the flow-matching generation expert: 
+
+(Yt+1 , zt, log πθ(zt)) = πgen  
+
+> θ
+
+(˜ st), (3) where zt denotes the latent trajectory of the flow-matching process. 
+
+Prefix-valid advantage refinement. During early training, the IC-CoT module may produce incorrect rewrites that misinterpret user intent or hallucinate non-existent content, causing the downstream generation to deviate severely from the intended edit. Continuing a rollout beyond such a failure is harmful: the resulting images carry no meaningful training signal, yet VLM-based reward models are prone to assigning false-positive scores to degenerate outputs, thereby producing noisy gradients in optimization. We therefore terminate rollout i at the first turn where the reward falls below a threshold δ, discarding all subsequent turns. Formally, we define the active set at turn t
+
+as the collection of rollouts that have not been terminated up to and including turn t:
+
+Ωt = { i ∈ { 1, . . . , G } | r(i) 
+
+> t′
+
+≥ δ, ∀ t′ ≤ t }. (4) The advantage estimate is then refined to normalize exclusively over active rollouts: 
+
+A(i) 
+
+> t
+
+= r(i) 
+
+> t
+
+− mean j∈Ωt
+
+ r(j)
+
+> t
+
+
+
+std j∈Ωt
+
+ r(j)
+
+> t
+
+ , i ∈ Ωt. (5) 7This prevents low-quality trajectories from distorting the normalization baseline, and reduces unnecessary computation by avoiding generation for rollouts that have already diverged. 
+
+Unified multi-turn policy optimization. IC-CoT and the flow-matching generator are tightly coupled, as the IC-CoT trace determines a reconstructed session state, and the generator subsequently realizes a visual edit conditioned on that state. However, the training signal is only observed after image generation: the quality of a CoT rewrite is only observable through the downstream image it produces, yet the generator can only benefit from IC-CoT if the rewrites are well-calibrated to its generation capabilities. Training them in isolation with separate objectives would break this feedback loop. We therefore treat each turn as a joint decision of the IC-CoT token sequence and the flow trajectory for effective edits to reinforce not only the visual trajectory that produced the image, but also the preceding session reconstruction that made the edit possible. Given this factorization, we instantiate the policy updated with Unified-GRPO (Liu et al., 2026) and extends it to the multi-turn scenario by tackling the core challenge of context loss. The pseudo-code for Edit-R2 is in Algorithm 1. Refer to Appendix F for detailed training loss. 
+
+## 5 Experiments 
+
+5.1 Setup 
+
+Evaluation benchmarks and metrics. We primarily evaluate on MICE-Bench , which measures models’ ability to resolve long-horizon challenges in in-context editing, with IF, CC, and GA as evaluation metrics. We report marginal task success rate for IF and GA: For a given turn, the proportion of previously successful prompts that continue to succeed at current turn. Results are reported in the average over 4 runs. We also report results on EdiVal-Bench Chen et al. (2025) and GEdit-Bench Liu et al. (2025b) for generalization capability (see Appendix C). 
+
+Baselines and training details. We compare against closed-source models include Nano-Banana-2 Comanici et al. (2025) and GPT-Image-1 [high] OpenAI (2025). For open-source models, we consider those with native in-context editing support, including OmniGen Xiao et al. (2025), VINCIE Qu et al. (2025), BAGEL Deng et al. (2025) and its variants. We also evaluate editing-specific models Qwen-Image-Edit Wu et al. (2025a) and Flux.1 Kontext Labs et al. (2025). Since they do not inherently support in-context editing, we construct their input for each turn t by concatenating (Y0, T 0, . . . , T t)
+
+to approximate the in-context setting for fair comparison. We build Edit-R2 upon BAGEL Deng et al. (2025) and fine-tune with LoRA. We use a training set comprising 10K in-context editing instances, generated via the same pipeline as MICE-Bench. The prefix-valid advantage refinement threshold δ
+
+is set to 0.5. Full details including hyperparameters are provided in Appendix A. 
+
+5.2 Main Results 
+
+We summarize key observations for results on MICE-Bench (see Table 1). Edit-R2 achieves the best average performance across all turns among open-source models. On Turn 1, Edit-R2 performs competitively among models with native in-context editing support. We note that Qwen-Image-Edit demonstrates strong single-turn instruction following capabilities, reflecting its specialization in this setting. On the more challenging Turn 2 and Turn 3, Edit-R2 outperforms all models on average. Qwen-Image-Edit and Flux.1-Kontext suffer severe performance degradation due to their inability to leverage the full session history. In contrast, Edit-R2 improves substantially over BAGEL, with IF and GA gains of approximately (+18%, +18%) at Turn 2 and (+8%,+15%) at Turn 3. These results demonstrate Edit-R2’s strong performance retention on long-horizon editing tasks. Notably, 8Table 1: Results on MICE-Bench. Avg = (IF + CC + GA) / 3. Best and second-best results among open-source models are in bold and underlined , respectively. Closed-source model scores that fall below Edit-R2 are marked in red. †Models not originally support in-context editing.                                                                                                                                         
+
+> Turn 1 Turn 2 Turn 3 Method IF CC GA Avg IF CC GA Avg IF CC GA Avg
+> Closed-source models
+> GPT-Image-1 [high] (OpenAI, 2025) 66.31 75.22 61.29 67.61 60.42 68.10 59.93 62.82 62.06 60.55 52.76 58.46 Nano-Banana-2 (Comanici et al., 2025) 62.65 87.38 59.97 70.00 49.53 82.55 46.31 59.46 57.98 76.37 52.43 62.26
+> Open-source models
+> Qwen-Image-Edit [2511] †Wu et al. (2025a) 58.62 81.20 52.84 64.22 46.47 77.58 46.50 56.85 25.04 72.46 20.76 39.42 Flux.1-Kontext [dev] †Labs et al. (2025) 43.21 73.25 38.28 51.58 32.56 71.51 32.63 45.57 33.90 68.53 31.87 44.77 OmniGen Xiao et al. (2025) 44.44 56.84 38.11 46.46 37.51 50.44 32.69 40.21 40.97 47.41 36.76 41.71 VINCIE Qu et al. (2025) 34.77 71.51 31.67 45.98 34.68 63.37 31.92 43.32 43.78 58.02 26.90 42.90 BAGEL Deng et al. (2025) 51.38 89.12 44.72 61.74 42.12 85.34 39.56 55.67 50.18 79.90 43.59 57.89 BAGEL (w/ think) 45.90 88.39 42.37 58.89 43.66 83.58 40.03 55.76 47.80 77.88 48.14 57.94 BAGEL (w/ IC-CoT) 51.88 87.80 46.30 62.00 46.84 83.82 46.07 58.91 50.82 78.21 46.79 58.61
+> Edit-R2 54.82 88.62 50.73 64.72 60.77 84.33 58.17 67.76 58.63 78.51 58.96 65.37
+
+Table 2: Ablation study of Edit-R2 on MICE-Bench. Best results are in bold . TG = Text-GRPO; PV = Prefix-valid advantage refinement. 
+
+Turn 1 Turn 2 Turn 3 Method IF CC GA Avg IF CC GA Avg IF CC GA Avg Edit-R2 (w/o IC-CoT, TG, PV) 53.99 88.29 50.06 64.11 49.32 82.45 46.28 59.35 55.20 72.26 52.01 59.82 Edit-R2 (w/o TG, PV) 52.65 88.86 47.05 62.85 51.53 84.72 51.37 62.54 56.50 78.99 55.76 63.75 Edit-R2 (w/o PV) 54.49 88.77 50.56 64.61 55.31 84.36 53.42 64.36 58.08 77.95 57.09 64.71 Edit-R2 54.82 88.62 50.73 64.72 60.77 84.33 58.17 67.76 58.63 78.51 58.96 65.37 
+
+GPT-Image-1 exhibits a pronounced CC decline across turns. As qualitative analysis reveals in Section 5.5, this reflects a tendency toward free-form generation with limited pixel fidelity. 
+
+5.3 Ablation Study 
+
+Table 2 reports the incremental contribution of each component in Edit-R2. The base variant without IC-CoT, TG, and PV establishes a strong foundation via Flow-GRPO alone, yet its gains are primarily concentrated at Turn 1 and diminish at later turns where the long-context challenge becomes severe. Incorporating IC-CoT yields consistent improvements at Turn 2 and Turn 3, as session-aware instruction reconstruction reduces the reasoning burden on the flow-matching module and mitigates context dilution across turns. Further incorporating Text-GRPO—which jointly optimizes the IC-CoT module under the same reward signal—delivers additional gains at later turns, confirming that explicitly optimizing the rewriting policy amplifies its effectiveness (see Section 5.4 for analysis). Finally, PV prevents erroneous intermediate edits from corrupting the normalization baseline and propagating noise into later turns, achieving the best overall performance. 
+
+5.4 In-depth Analysis 
+
+Emergent instruction rewriting via Edit-R2 training. Following Edit-R2 training, IC-CoT exhibits emergent behavior (Figure 5(a)): it accurately identifies the target object and enriches its spatial description (e.g., “in the circular planter”), enabling more precise editing. In contrast, the untrained IC-CoT generates excessive redundant reasoning, leading to output truncation and failure to com-9Turn 1: Add tree on the left   
+
+> of metal purple bicycle.
+> Turn 2: Change its color to
+> teal.
+> Turn 3: Remove it.
+> Turn 2 after IC-CoT:
+> Change the color of the
+> tree to teal.
+> Turn 3 after IC-CoT:
+> Remove it.
+> Turn 2 after IC-CoT:
+> Change the tree in the
+> circular planter to teal.
+> Turn 3 after IC-CoT:
+> Remove the tree in the
+> circular planter.
+
+BAGEL 
+
+(w/ IC-CoT) 
+
+Edit-R2 
+
+> Source Image
+
+(a) 
+
+(b) 
+
+(c) Figure 5: (a) Example of emergent IC-CoT behavior. After Edit-R2 training, IC-CoT produces more precise session-aware instruction rewrites (e.g., enriching “the tree” with spatial context “in the circular planter”). (b)-(c): Both the IC-CoT truncated ratio and rollout termination ratio decline steadily across training steps, indicating that Edit-R2 progressively stabilizes IC-CoT and reduces error propagation across turns. plete the instruction rewriting task, resulting in poor visual quality. As training evolves, both the IC-CoT truncated ratio and rollout-termination ratio decline steadily (Figure 5(b)(c)), confirming that Edit-R2 effectively stabilizes IC-CoT generation and validates the role of prefix-valid advantage refinement in preventing corrupted trajectories from distorting policy optimization. Input 
+
+(a) BAGEL (b) Edit-R2              
+
+> Turn 1: Add bench on the
+> below of metal white awning
+> Turn 2: Change its material
+> to straw
+> Turn 3: Change its color to
+> green
+> Turn 1: Add bench on the
+> below of metal white awning
+> Turn 2 after IC-CoT: Change
+> the bench ’smaterial to staw
+> Turn 3 after IC-CoT: Change
+> the color of the bench to green
+
+↑5x ↑10x  
+
+> Diluted Diluted
+> Sharply focused Diffuse
+
+Figure 6: Attention visualization comparing BAGEL and Edit-R2. BAGEL gets lost in the long inter-leaved history: attention to critical tokens from earlier turns is weakened, resulting in misdirected and diffuse visual attention that leads to erroneous edits. In contrast, Edit-R2 accurately captures the operative session intent (attending 5× and 10 × more strongly to the key object token “bench” at turns 2 and 3 respectively) and produces spatially focused, faithful edits. 10 Turn 1               
+
+> Turn 2
+> Turn 3
+> Input Turn 1: Set a persistent rule for all following edits: red color must be applied exclusively to the specific object
+> being directly added or modified —do not colorize surrounding elements, or any untouched area. With this
+> rule active, Change the background to curtain, remain the wool grey scarf, plastic black glasses unchanged.
+> Turn 2: Remove wool grey scarf. Turn 3: Change the material of plastic black glasses to metal.
+> Edit-R2 (Ours) Nano-Banana-2 OmniGen VINCIE BAGEL GPT-Image-1 Qwen-Image-Edit Flux.1-Kontext
+
+Figure 7: Qualitative comparison on Content Memory task. Erroneous areas are in red boxes. 
+
+Attention analysis: Edit-R2 recovers session intent lost by BAGEL. As shown in Figure 6, we visualize text attention at the middle layer (where object-level semantic grounding is observed) and visual attention (over VAE tokens) at the last transformer layer during the velocity-prediction forward pass. BAGEL often fails to localize the intended editing region, with misdirected and diffuse visual attention, consistent with its weak text attention on key object tokens from earlier turns where RoPE distance decay substantially weakens the signal. In contrast, Edit-R2 exhibits sharply focused visual attention on target regions, empowered by IC-CoT which distills critical session context into the enhanced instruction. These observations align with a text-to-visual grounding mechanism: intermediate-layer textual anchoring enriches the query with object-level semantics, which in turn guides precise spatial localization in later visual attention layers. 
+
+5.5 Qualitative Results 
+
+Figure 7 presents qualitative results on the content memory task. All other models completely ignore the session-level constraint “red color must be applied” at turn 3. In contrast, Edit-R2 successfully adheres to the constraint and changes the color of glasses to red, demonstrating improved long-horizon constraint awareness. Figure 8 demonstrates the content understanding task. All other models fail to correctly recolor the flower added in the previous edit to the user-specified color at turn 2, instead altering the color of unrelated regions. They also fail to correctly remove it at turn 3. Please refer to Appendix D for more qualitative results. 
+
+## 6 Conclusion 
+
+We investigate multi-turn in-context image editing, a practical yet underexplored paradigm where the model must maintain session-level consistency across an evolving dialogue history. We 11 Turn1: Add flower on        
+
+> the left of plastic black
+> handle
+> Turn2: Change its
+> color to orange
+> Turn3: Remove it
+> Input Edit-R2 (Ours) Nano-Banana-2 OmniGen VINCIE BAGEL GPT-Image-1
+> Turn 1
+> Turn 2
+> Turn 3
+> Qwen-Image-Edit Flux.1-Kontext
+
+Figure 8: Qualitative comparison on Content Understanding task. Erroneous areas are in red boxes. propose Edit-R2 , comprising IC-CoT for session intent reconstruction and unified multi-turn RL that jointly optimizes reasoning and image generation, alongside MICE-Bench for systematic evaluation. Edit-R2 yields substantial gains and achieves competitive performance against strong models. 
+
+Limitations. MICE-Bench covers two representative in-context editing scenarios. It is interesting for future directions to further capture the breadth of user intent in real-world interactive editing based on MICE-Bench, scale Edit-R2 to explore a broader taxonomy of in-context editing task categories. 12 References 
+
+Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, et al. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 ,2025. Tim Brooks, Aleksander Holynski, and Alexei A Efros. Instructpix2pix: Learning to follow image editing instructions. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 18392–18402, 2023. Tianyu Chen, Yasi Zhang, Zhi Zhang, Peiyu Yu, Shu Wang, Zhendong Wang, Kevin Lin, Xiaofei Wang, Zhengyuan Yang, Linjie Li, et al. Edival-agent: An object-centric framework for automated, fine-grained evaluation of multi-turn editing. arXiv preprint arXiv:2509.13399 , 2025. Gheorghe Comanici, Eric Bieber, Mike Schaekermann, Ice Pasupat, Noveen Sachdeva, Inderjit Dhillon, Marcel Blistein, Ori Ram, Dan Zhang, Evan Rosen, et al. Gemini 2.5: Pushing the frontier with advanced reasoning, multimodality, long context, and next generation agentic capabilities. 
+
+arXiv preprint arXiv:2507.06261 , 2025. Chaorui Deng, Deyao Zhu, Kunchang Li, Chenhui Gou, Feng Li, Zeyu Wang, Shu Zhong, Weihao Yu, Xiaonan Nie, Ziang Song, et al. Emerging properties in unified multimodal pretraining. arXiv preprint arXiv:2505.14683 , 2025. Yuying Ge, Sijie Zhao, Chen Li, Yixiao Ge, and Ying Shan. Seed-data-edit technical report: A hybrid dataset for instructional image editing. arXiv preprint arXiv:2405.04007 , 2024. Runze He, Yiji Cheng, Tiankai Hang, Zhimin Li, Yu Xu, Zijin Yin, Shiyi Zhang, Wenxun Dai, Penghui Du, Ao Ma, et al. Re-align: Structured reasoning-guided alignment for in-context image generation and editing. arXiv preprint arXiv:2601.05124 , 2026. Mude Hui, Siwei Yang, Bingchen Zhao, Yichun Shi, Heng Wang, Peng Wang, Yuyin Zhou, and Cihang Xie. Hq-edit: A high-quality dataset for instruction-based image editing. arXiv preprint arXiv:2404.09990 , 2024. Siqi Kou, Jiachun Jin, Zetong Zhou, Ye Ma, Yugang Wang, Quan Chen, Peng Jiang, Xiao Yang, Jun Zhu, Kai Yu, et al. Think-then-generate: Reasoning-aware text-to-image diffusion with llm encoders. arXiv preprint arXiv:2601.10332 , 2026. Black Forest Labs, Stephen Batifol, Andreas Blattmann, Frederic Boesel, Saksham Consul, Cyril Diagne, Tim Dockhorn, Jack English, Zion English, Patrick Esser, et al. Flux. 1 kontext: Flow match-ing for in-context image generation and editing in latent space. arXiv preprint arXiv:2506.15742 ,2025. Zongjian Li, Zheyuan Liu, Qihui Zhang, Bin Lin, Feize Wu, Shenghai Yuan, Zhiyuan Yan, Yang Ye, Wangbo Yu, Yuwei Niu, et al. Uniworld-v2: Reinforce image editing with diffusion negative-aware finetuning and mllm implicit feedback. arXiv preprint arXiv:2510.16888 , 2025. Yucheng Liao, Jiajun Liang, Kaiqian Cui, Baoquan Zhao, Haoran Xie, Wei Liu, Qing Li, and Xudong Mao. Freqedit: Preserving high-frequency features for robust multi-turn image editing. arXiv preprint arXiv:2512.01755 , 2025. Jie Liu, Gongye Liu, Jiajun Liang, Yangguang Li, Jiaheng Liu, Xintao Wang, Pengfei Wan, Di Zhang, and Wanli Ouyang. Flow-grpo: Training flow matching models via online rl. arXiv preprint arXiv:2505.05470 , 2025a. 13 Jie Liu, Zilyu Ye, Linxiao Yuan, Shenhan Zhu, Yu Gao, Jie Wu, Kunchang Li, Xionghui Wang, Xiaonan Nie, Weilin Huang, et al. Unigrpo: Unified policy optimization for reasoning-driven visual generation. arXiv preprint arXiv:2603.23500 , 2026. Shilong Liu, Zhaoyang Zeng, Tianhe Ren, Feng Li, Hao Zhang, Jie Yang, Qing Jiang, Chunyuan Li, Jianwei Yang, Hang Su, et al. Grounding dino: Marrying dino with grounded pre-training for open-set object detection. In European conference on computer vision , pages 38–55. Springer, 2024. Shiyu Liu, Yucheng Han, Peng Xing, Fukun Yin, Rui Wang, Wei Cheng, Jiaqi Liao, Yingming Wang, Honghao Fu, Chunrui Han, et al. Step1x-edit: A practical framework for general image editing. 
+
+arXiv preprint arXiv:2504.17761 , 2025b. Xin Luo, Jiahao Wang, Chenyuan Wu, Shitao Xiao, Xiyan Jiang, Defu Lian, Jiajun Zhang, Dong Liu, et al. Editscore: Unlocking online rl for image editing via high-fidelity reward modeling. arXiv preprint arXiv:2509.23909 , 2025. Yuanhuiyi Lyu, Chi Kit Wong, Chenfei Liao, Lutao Jiang, Xu Zheng, Zexin Lu, Linfeng Zhang, and Xuming Hu. Understanding-in-generation: Reinforcing generative capability of unified model via infusing understanding into generation. arXiv preprint arXiv:2509.18639 , 2025. OpenAI. Introducing 4o image generation. https://openai.com/index/ introducing-4o-image-generation/ , 2025. Accessed: 2025-06-22. Yusu Qian, Eli Bocek-Rivele, Liangchen Song, Jialing Tong, Yinfei Yang, Jiasen Lu, Wenze Hu, and Zhe Gan. Pico-banana-400k: A large-scale dataset for text-guided image editing. arXiv preprint arXiv:2510.19808 , 2025. Luozheng Qin, Jia Gong, Yuqing Sun, Tianjiao Li, Mengping Yang, Xiaomeng Yang, Chao Qu, Zhiyu Tan, and Hao Li. Uni-cot: Towards unified chain-of-thought reasoning across text and vision. 
+
+arXiv preprint arXiv:2508.05606 , 2025. Leigang Qu, Feng Cheng, Ziyan Yang, Qi Zhao, Shanchuan Lin, Yichun Shi, Yicong Li, Wenjie Wang, Tat-Seng Chua, and Lu Jiang. Vincie: Unlocking in-context image editing from video. In The Fourteenth International Conference on Learning Representations , 2025. Shelly Sheynin, Adam Polyak, Uriel Singer, Yuval Kirstain, Amit Zohar, Oron Ashual, Devi Parikh, and Yaniv Taigman. Emu edit: Precise image editing via recognition and generation tasks. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 8871–8879, 2024. Oriane Siméoni, Huy V Vo, Maximilian Seitzer, Federico Baldassarre, Maxime Oquab, Cijo Jose, Vasil Khalidov, Marc Szafraniec, Seungeun Yi, Michaël Ramamonjisoa, et al. Dinov3. arXiv preprint arXiv:2508.10104 , 2025. Michael Tschannen, Alexey Gritsenko, Xiao Wang, Muhammad Ferjad Naeem, Ibrahim Alabdul-mohsin, Nikhil Parthasarathy, Talfan Evans, Lucas Beyer, Ye Xia, Basil Mustafa, Olivier Hénaff, Jeremiah Harmsen, Andreas Steiner, and Xiaohua Zhai. Siglip 2: Multilingual vision-language encoders with improved semantic understanding, localization, and dense features, 2025. URL 
+
+https://arxiv.org/abs/2502.14786 .Chenfei Wu, Jiahao Li, Jingren Zhou, Junyang Lin, Kaiyuan Gao, Kun Yan, Sheng-ming Yin, Shuai Bai, Xiao Xu, Yilei Chen, et al. Qwen-image technical report. arXiv preprint arXiv:2508.02324 , 2025a. 14 Chenyuan Wu, Pengfei Zheng, Ruiran Yan, Shitao Xiao, Xin Luo, Yueze Wang, Wanli Li, Xiyan Jiang, Yexin Liu, Junjie Zhou, et al. Omnigen2: Exploration to advanced multimodal generation. arXiv preprint arXiv:2506.18871 , 2025b. Keming Wu, Zuhao Yang, Kaichen Zhang, Shizun Wang, Haowei Zhu, Sicong Leng, Zhongyu Yang, Qijie Wang, Sudong Wang, Ziting Wang, Zili Wang, Hui Zhang, Haonan Wang, Hang Zhou, Yifan Pu, Xingxuan Li, Fangneng Zhan, Bo Li, Lidong Bing, Yuxin Song, Ziwei Liu, Wenhu Chen, Jingdong Wang, Xinchao Wang, Xiaojuan Qi, Shijian Lu, and Bin Wang. Visual generation in the new era: An evolution from atomic mapping to agentic world modeling, 2026. URL 
+
+https://arxiv.org/abs/2604.28185 .Shitao Xiao, Yueze Wang, Junjie Zhou, Huaying Yuan, Xingrun Xing, Ruiran Yan, Chaofan Li, Shuting Wang, Tiejun Huang, and Zheng Liu. Omnigen: Unified image generation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 13294–13304, 2025. Zeyue Xue, Jie Wu, Yu Gao, Fangyuan Kong, Lingting Zhu, Mengzhao Chen, Zhiheng Liu, Wei Liu, Qiushan Guo, Weilin Huang, et al. Dancegrpo: Unleashing grpo on visual generation. arXiv preprint arXiv:2505.07818 , 2025. Yang Ye, Xianyi He, Zongjian Li, Bin Lin, Shenghai Yuan, Zhiyuan Yan, Bohan Hou, and Li Yuan. Imgedit: A unified image editing dataset and benchmark. arXiv preprint arXiv:2505.20275 , 2025a. Zixuan Ye, Quande Liu, Cong Wei, Yuanxing Zhang, Xintao Wang, Pengfei Wan, Kun Gai, and Wenhan Luo. Visual-aware cot: Achieving high-fidelity visual consistency in unified models. 
+
+arXiv preprint arXiv:2512.19686 , 2025b. Qifan Yu, Wei Chow, Zhongqi Yue, Kaihang Pan, Yang Wu, Xiaoyang Wan, Juncheng Li, Siliang Tang, Hanwang Zhang, and Yueting Zhuang. Anyedit: Mastering unified high-quality image editing for any idea. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 26125–26135, 2025. Haochen Zhang, Animesh Sinha, Felix Juefei-Xu, Haoyu Ma, Kunpeng Li, Zhipeng Fan, Meng Dong, Xiaoliang Dai, Tingbo Hou, Peizhao Zhang, et al. Non-markov multi-round conversational image generation with history-conditioned mllms. arXiv preprint arXiv:2601.20911 , 2026. Kai Zhang, Lingbo Mo, Wenhu Chen, Huan Sun, and Yu Su. Magicbrush: A manually annotated dataset for instruction-guided image editing. Advances in Neural Information Processing Systems , 36: 31428–31449, 2023. Zechuan Zhang, Ji Xie, Yu Lu, Zongxin Yang, and Yi Yang. Enabling instructional image editing with in-context generation in large scale diffusion transformer. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. Haozhe Zhao, Xiaojian Ma, Liang Chen, Shuzheng Si, Rujie Wu, Kaikai An, Peiyu Yu, Minjia Zhang, Qing Li, and Baobao Chang. Ultraedit: Instruction-based fine-grained image editing at scale. 
+
+Advances in Neural Information Processing Systems , 37:3058–3093, 2024. Kaiwen Zheng, Huayu Chen, Haotian Ye, Haoxiang Wang, Qinsheng Zhang, Kai Jiang, Hang Su, Stefano Ermon, Jun Zhu, and Ming-Yu Liu. Diffusionnft: Online diffusion reinforcement with forward process. arXiv preprint arXiv:2509.16117 , 2025. 15 A Implementation Details 
+
+Details for experimental setup. During evaluation, both IF and GA employ Qwen3-VL-235B-A22B-Instruct for more aligned evaluation. Refer to Appendix E.5 for human agreement study of judgers. During training, we adopt a lightweight Qwen3-VL-32B-Instruct for IF and GA to accelerate online RL training. We further employ a self-ensemble strategy over the reward model to stabilize the reward signal, and apply KL regularization to prevent reward hacking. Refer to Appendix C for detailed analysis. 
+
+Hyper-parameters. We fine-tune BAGEL using LoRA with rank 64 and scaling factor 128 .LoRA adapters are applied to all attention projections and MLP layers in both the generation expert and the understanding expert, as the unified training objective (Section 4.2) requires gradient flow through both experts. We optimize with AdamW at a learning rate of 10 −4. For GRPO, we sample a group of G=6 images per prompt from a shared initial noise. Training is distributed across 4 × 6 NVIDIA H200 GPUs with a total batch size of 48. On each node, 2 GPUs are reserved for deploying the reward models. We apply policy ratio clipping with threshold ϵ=10 −5 and KL regularization with coefficient β=0 .01 against the frozen reference policy. The composite reward combines instruction following ( wIF =0 .33 ), content consistency ( wCC =0 .33 ), and global awareness (wGA =0 .33 ). Each training episode spans K = 3 editing turns. During rollout, we use 15 denoising steps with classifier-free guidance scales of 4.0 (text) and 2.0 (image). Table 3 summarizes the key hyperparameters. 
+
+Incremental KV-Cache Update. BAGEL naturally supports text-image interleaved history reuse via KV-Cache. During sequential editing rollout, the contextual history of preceding turns is restored from the KV-Cache at each turn. Upon completion of the current editing step, the result is incrementally updated into the KV-Cache, i.e., st+1 = ˜ st ⊕ Yt+1 , T t+1 
+
+. This native reuse mechanism eliminates the need to reconstruct the full context from scratch at every turn, which constitutes a key motivation for adopting BAGEL as the base model of Edit-R2. Table 3: Summary of training hyperparameters. 
+
+Hyperparameter Value 
+
+Training 
+
+LoRA rank / alpha 64 / 128 Optimizer AdamW Learning rate 1 × 10 −4
+
+Group size 6Total train batch size 48 Policy clip threshold ( ϵ) 1 × 10 −5
+
+KL coefficient ( β) 0.01 
+
+Reward 
+
+wIF / wCC / wGA 0.33 / 0.33 / 0.33 Prefix-valid advantage threshold ( δ) 0.5 
+
+Sampling & Generation 
+
+Editing turns per episode ( K) 3Denoising steps (train / eval) 15 / 50 CFG scale (text / image) 4.0 / 2.0 16 Table 4: Comparison of benchmarks for image editing evaluation. 
+
+Benchmark #Size #Sub-Tasks Automated Multi-Turn In-Context 
+
+GEdit-Bench (Liu et al., 2025b) 606 11 ✗ ✗ ✗
+
+ImgEdit-Bench (Ye et al., 2025a) 811 14 ✓ ✗ ✗
+
+MagicBrush (Zhang et al., 2023) 1053 5 ✗ ✓ ✗
+
+MSE-Bench (Qu et al., 2025) 100 13 ✗ ✓ ✗
+
+EdiVal-Bench (Chen et al., 2025) 572 9 ✓ ✓ ✗
+
+MICE-Bench (ours) 720 9 ✓ ✓ ✓
+
+Table 5: Results on the EdiVal-Bench. IF = EdiVal-IF, CC = EdiVal-CC. Avg = per-turn average of (IF + CC) / 2.                              
+
+> Turn 1 Turn 2 Turn 3 Method IF CC Avg IF CC Avg IF CC Avg BAGEL Deng et al. (2025) 56.47 88.38 72.43 33.39 79.29 56.34 16.43 72.95 44.69
+> Edit-R2 57.99 88.10 73.05 35.14 78.53 56.84 18.53 72.04 45.29
+
+## B Additional Related Work 
+
+Comparison of MICE-Bench and existing benchmarks for image editing are summarized in Table 4. “In-Context” denotes whether the benchmark requires retention of session-level constraints across turns, beyond the immediately preceding image and instruction. 
+
+## C Additional Experimental Results 
+
+Results on the EdiVal-Bench. To verify the generality of our approach beyond the in-context editing setting, we further evaluate all models on the EdiVal-Bench Chen et al. (2025) that targets history-agnostic multi-turn editing. Results are reported in Table 5. 
+
+Results on GEdit-Bench. Table 6 reports evaluation results on the GEdit-Bench Liu et al. (2025b) benchmark. Notably, Edit-R2 also improves on EdiVal-Bench and GEdit-Bench, indicating that the learned capabilities generalize beyond the training distribution. 
+
+Training Dynamics. Learning curves of Edit-R2 are demonstrated in Figure 9. Edit-R2 enables a steady training at each turn. 
+
+Ablations on reward weights. Since we focus on a multiple-reward objective, determining the weight of each reward is crucial. As CC measures the similarity between the input image and the edited image, we observe that incorporating CC in the overall reward can implicitly regularize the model and prevent quality degradation. Specifically, we compare the output images generated under r = 0 .33 ∗ IF + 0 .33 ∗ CC + 0 .33 ∗ GA , and r = 0 .5 ∗ IF + 0 .5 ∗ GA . As shown in Figure 10, CC helps prevent the generation of blurry and noise images, effectively mitigating the degradation of image quality. 
+
+Ablations on self-ensembled reward model. In our initial experimental attempts, we observed that since IF and GA both rely on a VLM for scoring, the resulting reward signals inevitably carry 17 Table 6: Results on GEdit-Bench-EN (Full set). G_SC = Semantic Consistency, G_PQ = Perceptual Quality, G_O = Overall Score. 
+
+Method G_SC G_PQ G_O BAGEL Deng et al. (2025) 7.36 6.83 6.52 
+
+Edit-R2 7.55 6.99 6.75 0 50 100 150 200 250 300                               
+
+> Step
+> 0.58
+> 0.59
+> 0.60
+> 0.61
+> 0.62
+> 0.63
+> 0.64
+> 0.65
+> Train Reward (Turn 1)
+> Edit-R2
+> Edit-R2 (w/o IC-CoT, TG, PV)
+> 050 100 150 200 250 300
+> Step
+> 0.52
+> 0.54
+> 0.56
+> 0.58
+> 0.60
+> Train Reward (Turn 2)
+> Edit-R2
+> Edit-R2 (w/o IC-CoT, TG, PV)
+> 050 100 150 200 250 300
+> Step
+> 0.58
+> 0.60
+> 0.62
+> 0.64
+> 0.66
+> 0.68
+> Train Reward (Turn 3)
+> Edit-R2
+> Edit-R2 (w/o IC-CoT, TG, PV)
+> 050 100 150 200 250 300
+> Step
+> 0.74
+> 0.75
+> 0.76
+> 0.77
+> 0.78
+> Eval Reward (Turn 1)
+> Edit-R2
+> Edit-R2 (w/o IC-CoT, TG, PV)
+> 050 100 150 200 250 300
+> Step
+> 0.64
+> 0.66
+> 0.68
+> 0.70
+> 0.72
+> Eval Reward (Turn 2)
+> Edit-R2
+> Edit-R2 (w/o IC-CoT, TG, PV)
+> 050 100 150 200 250 300
+> Step
+> 0.64
+> 0.66
+> 0.68
+> 0.70
+> 0.72
+> 0.74
+> Eval Reward (Turn 3)
+> Edit-R2
+> Edit-R2 (w/o IC-CoT, TG, PV)
+
+Figure 9: Training dynamics. Average rewards of IF, GA and CC are reported at each turn. Compared to the variant trained with Flow-GRPO alone, full Edit-R2 achieves more pronounced gains at turns 2 and 3, driven by IC-CoT and prefix-valid advantage refinement. non-trivial noise and cause training to be highly unstable, consistent with observations in prior work Luo et al. (2025). To address this, we adopt a self-ensemble strategy: the VLM reward model replaces greedy decoding by stochastic sampling with temperature 0.6, and averages the scores from four independent forward passes to obtain the final reward signal. Figure 11 presents training curves in the single-reward setting ( r = IF ). Even in this comparatively simple configuration, a greedy-sampling VLM used as IF fails to achieve effective training at turn 1: performance degrades monotonically throughout training. In contrast, the model trained with the Avg@4 self-ensemble reward achieves steady and consistent improvement. Consequently, all experiments in this paper adopt the Avg@4 self-ensemble strategy as the default configuration for both IF and GA. 
+
+## D Additional Qualitative Results 
+
+Additional qualitative results are demonstrated in Figure 12 and Figure 13. 18 Turn 1 Turn 2                                
+
+> Input
+> �=0.5IF +0.5GA
+> �=0.33 IF +0.33 CC +0.33 GA
+> Turn 1 Turn 2
+> Input
+> �=0.5IF +0.5GA
+> �=0.33 IF +0.33 CC +0.33 GA
+> Turn 1: Change the background
+> to market, remain the red
+> strawberries, green broccoli, ...,
+> green lettuce unchanged
+> Turn 2: Add strawberry on the
+> above of red plum"
+> Turn 1: Change the background
+> to forest, remain the fabric gray
+> cloak, wooden scroll unchanged
+> Turn 2: Add lantern on the
+> above of fabric gray cloak
+
+Figure 10: Ablations on reward weights. Incorporating CC in reward significantly mitigating the degradation of image quality. 
+
+## E Details for MICE-Bench 
+
+E.1 Base Pipeline Details 
+
+E.1.1 Stage 1: Object Inventory Extraction 
+
+Given an unlabeled input image, we prompt a VLM to enumerate all clearly visible objects. For each object, the VLM describes its semantic type, dominant color, material, visible text, instance count, and foreground/background status. The output format is a structured JSON record: • Keys follow the template "{material} {color} {object}" (e.g., "wooden brown table" ). • Values encode the attribute fields listed above. • A dedicated "All Objects" field aggregates the full inventory into a single string for down-stream consumption. This structured representation constitutes the initial object pool P0 that grounds all subsequent instruction generation. 19 0 200 400 600 800     
+
+> Step
+> 0.10
+> 0.20
+> 0.30
+> 0.40
+> 0.50
+> 0.60
+> Train Reward (Turn 1)
+> r = IF (T=0.6, Avg@4)
+> r = IF (T=0.0, Avg@1)
+> 0200 400 600 800
+> Step
+> 0.25
+> 0.30
+> 0.35
+> 0.40
+> 0.45
+> 0.50
+> Eval Reward (Turn 1)
+> r = IF (T=0.6, Avg@4)
+> r = IF (T=0.0, Avg@1)
+
+Figure 11: Ablations on self-ensembled reward model IF. T denotes VLM decoding temperature; Avg@4 denotes the average score over 4 forward passes. 
+
+E.1.2 Stage 2: Hallucination Filtering 
+
+VLMs are known to hallucinate objects absent from the image Chen et al. (2025). We pass each candidate object name through GroundingDINO Liu et al. (2024), an open-set object detector, using the object description as the text query. An object is retained only if at least one bounding box exceeds a confidence threshold. We additionally filter out detections whose bounding-box area exceeds 90% of the image (normalized coordinates) to suppress spurious full-image matches. Each retained object is augmented with the number of detected instances and bounding-box coordinates for subsequent evaluation. 
+
+E.1.3 Stage 3: Object-Pool-Aware Instruction Generation 
+
+Given the verified object pool P0, an LLM generates a sequence of editing instructions over 
+
+K = 3 turns. At each turn, the LLM samples from a predefined taxonomy of edit types shown in Table 8. The key mechanism is the dynamically maintained object pool Pt, updated after each turn to reflect the expected scene state: • Removal / Replacement. The target object is deleted from Pt; for replacements, the new object is inserted with specified attributes. • Addition. The new object is inserted with default attributes. • Attribute modification. The object entry is updated (e.g., color or material), and the object key is renamed accordingly so that subsequent instructions reference the modified entity. By enforcing that every instruction at turn t+1 only references objects in Pt, the pipeline guarantees that no instruction can, for example, alter the color of an object removed in a prior turn. This eliminates contradictory sequences and ensures logical coherence. 20 E.2 Details for Content Memory Task 
+
+E.2.1 Session-Level Constraint Hints 
+
+Below we reproduce the full prompt templates used by the instruction-generation LLM when a session-level global constraint is active. Each template is injected into the corresponding edit-type prompt (e.g., subject addition , subject replacement , background change ). The placeholder {value} is instantiated with the sampled constraint value at runtime (e.g., “brown” for color, “fluffy” for material). 
+
+Color constraint hint. 
+
+IMPORTANT: There is a global constraint -- all edited/added elements must be “{value}” in color. Your suggestion must be an object that CAN plausibly be {value}, but is NOT inherently or naturally {value}. For example, if the constraint color is “brown”, do NOT suggest objects like “wood”, “log”, “dirt”, or “chocolate” that are naturally brown -- instead suggest objects like “vase”, “hat”, “chair”, or “umbrella” that can be {value} but are not typically associated with that color. The goal is to pick something where applying the color “{value}” represents a meaningful change. 
+
+Material constraint hint. 
+
+IMPORTANT: There is a global constraint -- all edited/added elements must use “{value}” material. Your suggestion must be an object that CAN plausibly be made of {value}, but is NOT inherently or naturally made of {value}. For example, if the constraint material is “fluffy”, do NOT suggest objects like “teddy bear”, “pillow”, or “cotton candy” that are naturally fluffy -- instead suggest objects like “chair”, “lamp”, or “vase” that can be made fluffy but are not typically associated with that material. The goal is to pick something where applying “{value}” material represents a meaningful transformation. 
+
+Example: subject addition prompt with constraint hint. The following shows the complete prompt sent to the LLM for a subject addition task when a color constraint ( v = brown) is active: 
+
+Suggest an object to add {position} of {reference_object}. IMPORTANT: There is a global constraint -- all edited/added elements must be “brown” in color. Your suggestion must be an object that CAN plausibly be brown, but is NOT inherently or naturally brown. For example, if the constraint color is “brown”, do NOT suggest objects like “wood”, “log”, “dirt”, or “chocolate” that are naturally brown -- instead suggest objects like “vase”, “hat”, “chair”, or “umbrella” that can be brown but are not typically associated with that color. The goal is to pick something where applying the color “brown” represents a meaningful change. Respond with ONLY the object name. 
+
+E.2.2 Non-Triviality Design Rationale 
+
+A naïve constraint prompt (e.g., simply stating “all objects must be brown”) causes the LLM to propose objects whose inherent nature already matches the target attribute—“log,” “wood,” or “beaver” when brown is specified—rendering the constraint vacuous as a test of editing ability. The non-triviality clause explicitly instructs the LLM to avoid such trivial associations, ensuring the constraint genuinely challenges the editing model rather than being satisfied by the original scene content. 21 E.2.3 Constraint-Aware Operation Suppression 
+
+When a session-level constraint specifies a particular color or material, the corresponding 
+
+color alter or material alter operations are suppressed in subsequent turns to prevent contradictory instructions (e.g., a global “red” constraint followed by “change the cup to blue”). 
+
+E.3 Details for Content Understanding Task 
+
+E.3.1 Instruction Chain Templates 
+
+We curate a set of templates, each specifying a fixed sequence of three edit types and a same-object constraint indicating which turns share a common anchor object. Representative templates include: • (color alter , color alter , subject remove , [1 , 2, 3]) : all three turns target the same entity. • (subject add , color alter , subject replace , [1 , 2]) : only the first two turns share an anchor. • (material alter , position change , color alter , [2 , 3]) : turns 2 and 3 share an anchor. Templates with partial overlap increase sample diversity while still guaranteeing a clear referent for pronoun substitution. 
+
+E.3.2 Pronoun Rewriting Examples 
+
+Given a three-turn sequence with explicit object references, an LLM rewrites turns 2 and 3 (turn 1 is unchanged, lacking preceding context). The rewriting prompt includes the original image, all three instructions, and anchor-object hints identifying the primary operand per turn. The LLM applies the following substitution rules: • it / them : used when the referent coincides with a prior turn’s target object. • there : used when referring to the spatial location of a removed entity. • its : used for possessive attribute references. Table 7 provides representative examples for each pronoun type. 
+
+E.4 Category Statistics 
+
+Detailed task description of MICE-Bench is shown in Table 8. 
+
+E.5 Details for Evaluation Metrics 
+
+IF: Instruction Following. IF ∈ { 0, 1} assesses whether each edit instruction Tt is successfully executed by comparing the previous-turn image Yt with the current edited image Yt+1 . Depending on the instruction type, it dispatches different verification tools. For symbolically verifiable instructions (e.g., adding, removing, or repositioning objects), GroundingDINO Liu et al. (2024) is used to check the editing outcome against deterministic criteria. For instance, verifying a count change instruction “Change the number of dogs to 5” by counting exactly five detected bounding boxes for “dog” in 
+
+Yt+1 . For semantically verifiable instructions (e.g., changing color or background), a VLM Bai et al. (2025) is instead used to judge whether the intended change has been applied. 22 Table 7: Representative pronoun rewriting examples. 
+
+Turn Before Rewriting After Rewriting 
+
+Example 1: “it” for object coreference 
+
+1 Change the red cup to blue. Change the red cup to blue. 2 Move the blue cup to the ta-ble. Move it to the table. 3 Remove the blue cup. Remove it .
+
+Example 2: “there” for spatial reference 
+
+1 Remove the green chair in the corner. Remove the green chair in the corner. 2 Add a lamp to the corner. Add a lamp there .3 Change the lamp to gold. Change its color to gold. 
+
+Example 3: “its” for possessive reference 
+
+1 Change the material of the door to iron. Change the material of the door to iron. 2 Change the iron door to black. Change its color to black. 3 Remove the iron door. Remove it .
+
+CC: Content Consistency. CC ∈ [0 , 1] measures the preservation of non-target content between the base image Y0 and the current image Yt+1 . It consists of two components: background consistency ,which compares the background regions (excluding all object bounding boxes) across the two images, and per-object consistency , which compares the appearance of each unchanged object individually. Both are computed using DINO-based feature similarity Siméoni et al. (2025). The final CC score is the average of these two components. 
+
+GA: Global Awareness. While IF and CC are sufficient for evaluating history-agnostic multi-turn editing, where each instruction depends only on the immediately preceding image, they fall short for our proposed in-context editing setting. In in-context editing, a model must maintain a session-level understanding of the user’s global intent across the entire editing history, rather than treating each turn in isolation. To capture this capability, we introduce GA, it takes the full editing history st and the output image of current turn Yt+1 as input. Employing a VLM, GA ∈ { 0, 1} evaluates whether the content memory and content understanding challenges are correctly resolved. Specifically, when evaluating a multi-turn session, GA conducts a strict, turn-by-turn sequential verification. For each turn t, it evaluates whether the current instruction is correctly executed when transforming Image Yt to Image Yt+1 , while also ensuring compliance with any session-level global constraints established in earlier turns. If any single turn fails either the local instruction or the global constraint, the evaluation terminates immediately, and the overall GA score for the session is recorded as zero. This strict sequential criterion guarantees that the metric captures not only the correctness of each isolated edit, but also the model’s ability to maintain global constraint awareness throughout the entire editing session. Prompt template that used for GA on Content Memory and 
+
+Content Understanding task are shown in Figure 15 and Figure 16, respectively. 23 In-Context Task Editing Instruction Type Count 
+
+Content Memory Subject Add 157 Subject Remove 140 Count Change 138 Text Change 131 Background Change 130 Subject Replace 127 Position Change 125 Color Alter 75 Material Alter 57 Content Understanding Color Alter 397 Subject Remove 202 Material Alter 146 Subject Add 94 Count Change 88 Subject Replace 64 Background Change 35 Text Change 28 Position Change 26 Table 8: Task distribution of MICE-Bench. Each category (Content Memory and Content Under-standing) contains 1,080 editing instructions across 360 three-turn instances, distributed among nine instruction types. Table 9: Agreement analysis of different GA evaluators with human annotations. 
+
+Evaluator Agreement (%) 
+
+CLIP_dir 58.9 GA (Qwen3-VL-32B-Instruct) 68.3 GA (Qwen3-VL-235B-A22B-Instruct) 81.5 
+
+Human agreement study of VLM-Based GA metric. To validate the reliability of our VLM-based GA metric, we conduct a human agreement study on 400 editing results sampled from four representative models (Nano-Banana-2, GPT-Image-1, BAGEL, and Edit-R2) covering all three turns of MICE-Bench. Human annotators were asked to judge whether each edited image satisfies the specified global constraint, without exposure to any automatic scores. As shown in Table 9, GA evaluated with Qwen3-VL-235B achieves 81.5% agreement with human judgments, substantially outperforming the 32B variant (68.3%). The gap is most pronounced on the Content Memory subset, where the 32B judger exhibits systematic false positives—assigning GA = 1.0 to edits that humans reject. These results confirm that the 235B judger provides a reliable proxy for human preference in evaluating global constraint compliance. Figures 17, 18, 19, and 20 present examples of the VLM-based GA judger’s outputs on both tasks, covering both successful and failed editing results. These examples demonstrate that the GA metric aligns well with human judgments. 24 F Details for Edit-R2 
+
+Details for QCoT . QCoT guides the thinking expert to conduct two types of operations: 1. Coreference resolution : replace vague pronouns (“it,” “them,” “its,” etc.) with the specific object names visible in the current image Yt.2. Global constraint injection : if any earlier turn specifies a persistent constraint (e.g., a color or material requirement for all subsequent edits), explicitly incorporate that constraint into the current instruction. Examples of QCoT are shown in Figure 14. Note that these questions are tailored to MICE-Bench, which differ from BAGEL’s original thinking system prompt (used in“BAGEL w/ think” in Table 1). 
+
+Unified optimization objective in Edit-R2. The policy is updated by minimizing a unified objective (Liu et al., 2026) that combines Flow-GRPO and Text-GRPO losses with a shared advantage: 
+
+Lunified = LFlow-GRPO (θ; zt, A t) + λ LText-GRPO (θ; wt, A t), (6) where 
+
+LFlow-GRPO (θ) = − 1
+
+G
+
+> G
+
+X
+
+> i=1
+
+1
+
+K
+
+> K−1
+
+X
+
+> t=0
+
+min 
+
+
+
+ρ(i) 
+
+> t
+
+(θ) A(i) 
+
+> t
+
+, clip  ρ(i) 
+
+> t
+
+(θ), 1−ϵ, 1+ ϵ A(i)
+
+> t
+
+
+
+, (7) and 
+
+LText-GRPO (θ) = − 1
+
+G
+
+> G
+
+X
+
+> i=1
+
+1
+
+K
+
+> K−1
+
+X
+
+> t=0
+
+1
+
+|w(i) 
+
+> t
+
+| 
+
+> |w(i)
+> t|
+
+X
+
+> j=1
+
+min 
+
+
+
+ˆρ(i) 
+
+> t,j
+
+(θ) A(i) 
+
+> t
+
+,
+
+clip  ˆρ(i) 
+
+> t,j
+
+(θ), 1−ϵ, 1+ ϵ A(i)
+
+> t
+
+
+
+.
+
+(8) Here ρ(i) 
+
+> t
+
+(θ) = πθ(a(i) 
+
+> t
+
+| ˜s(i) 
+
+> t
+
+)/π θold (a(i) 
+
+> t
+
+| ˜s(i) 
+
+> t
+
+) and ˆρ(i) 
+
+> t,j
+
+(θ) = πθ(w(i) 
+
+> t,j
+
+| w(i) 
+
+> t,<j
+
+, s (i) 
+
+> t
+
+)/π θold (w(i) 
+
+> t,j
+
+| w(i) 
+
+> t,<j
+
+, s (i) 
+
+> t
+
+)
+
+are the per-step and per-token importance sampling ratios, ϵ is the clipping threshold, and λ controls the balance between the two losses. A KL divergence penalty β D KL (πθ∥πref ) can be optionally added to prevent excessive deviation from the reference policy. 
+
+## G Broader Impacts 
+
+Edit-R2 advances multi-turn in-context image editing by enabling models to follow evolving user instructions while maintaining session-level consistency. On the positive side, this technology can substantially lower the barrier to expressive visual content creation, benefiting designers, educators, and artists who rely on iterative, natural-language-driven workflows. At the same time, improvements in controllable image generation carry inherent risks. More capable editing models can be misused to produce manipulated imagery for disinformation cam-paigns, non-consensual image alteration, or other forms of visual deception. We acknowledge these risks and intend to release model weights and benchmark data alongside usage guidelines and, where appropriate, content filters consistent with those of the base model BAGEL. We also encourage the community to develop robust detection tools and regulatory frameworks that keep pace with advances in generative image editing. 25 Edit-R2 (Ours) 
+
+Turn 1 Turn 2 Turn 3 
+
+Nano-Banana-2 
+
+OmniGen 
+
+VINCIE 
+
+BAGEL 
+
+GPT-Image-1 
+
+Input Turn1: Apply a standing constraint to all subsequent edits: 
+
+only the object directly involved in each edit should be 
+
+given cheese material — the surrounding objects, and 
+
+any area not explicitly edited must keep their original 
+
+material. With this rule active, Add text 'St' on the image. 
+
+Turn2: Replace wood brown tree with sculpture. 
+
+Turn3: Remove glass multicolored stained glass window. Figure 12: Additional qualitative comparison on the Content Memory task. GPT-Image-1 and BAGEL fail to add sculpture with cheese material at turn 2; Nano-Banana-2 ignore instructions at turn 2 and turn 3. 26 Input      
+
+> Edit-R2 (Ours)
+> Turn1: Remove metal black microphone
+> Turn2: Add bucket on the left of it
+> Turn3: Remove it
+> Turn 1 Turn 2 Turn 3
+> Nano-Banana-2
+> OmniGen
+> VINCIE
+> BAGEL
+> GPT-Image-1
+
+Figure 13: Additional qualitative comparison on the Content Understanding task. All models except Nano-Banana-2 and Edit-R2 fail in this case. The two successful models correctly identify the position of the microphone removed at turn 1, place the bucket to its left at turn 2, and successfully remove it at turn 3. However, Nano-Banana-2 unintentionally removes an unrelated object at turn 1, which degrades the CC. 27 Editing history: {history_text} 
+
+Current instruction to enhance: {current_prompt} 
+
+Please enhance the current instruction by doing both of the following if necessary: 
+
+1. Replace any vague pronouns (it, them, they, its, the one, etc.) 
+
+with the specific object names visible in the image. 
+
+2. If any earlier round specifies a persistent global constraint 
+
+(e.g., 'Ensure all subsequent edits are yellow', 'Use leather material for all edits'), 
+
+explicitly incorporate that constraint into the current instruction. 
+
+Think briefly, under 100 words. 
+
+Output ONLY the enhanced instruction. No explanation, no extra text. Figure 14: Illustration of QCoT .28 You are an expert evaluator specializing in multi-turn image editing tasks. You will be provided with a sequence of N images and N-1 
+
+editing instructions. 
+
+Task Definition: 
+
+The task consists of N-1 consecutive editing turns. 
+
+- Turn i (i ranges from 1 to N-1): 
+
+- Input: Image i 
+
+- Instruction: Instruction i 
+
+- Output: Image i+1 
+
+Your objective is to evaluate each editing turn sequentially, beginning from Turn 1. 
+
+Evaluation Criteria Per Turn: 
+
+For each Turn i, compare Image i (input) with Image i+1 (output) with respect to Instruction i. A turn is considered successful ("yes") only 
+
+when all of the following criteria are simultaneously satisfied: 
+
+1. Instruction Adherence: Image i+1 successfully reflects the modifications specified by Instruction i. 
+
+2. Global Constraint Compliance: If the first instruction establishes a global constraint that governs the entire editing session (e.g., 
+
+"objects added or modified in subsequent edits must be yellow"), then Image i+1 must adhere to this constraint. The specific rules are as 
+
+follows: 
+
+- Scope of Application: Global constraint compliance is required only with respect to the objects directly involved in the current editing 
+
+turn. For example, if the instruction is "add a cup on the table" and the global constraint specifies "all subsequent edits should use glass 
+
+material", then in a successful Image i+1, only the newly added cup should be rendered in glass — the table and other pre-existing objects 
+
+must not be altered to glass. 
+
+- Removal Instruction Exemption: If the current turn's instruction involves removing or deleting an object (e.g., "remove the cup", 
+
+"delete the tree in the background"), global constraint compliance is waived for that turn — the edit is considered compliant with the global 
+
+constraint regardless of outcome. Since removal operations do not involve adding or modifying objects, the global constraint is inherently 
+
+inapplicable. 
+
+- Prohibition of Global Tonal Substitution: The global constraint requires that the specified attribute be applied to the specific objects 
+
+involved in the edit, not as a wholesale tonal transformation of the entire image. If the post-edit image merely applies a color filter over the 
+
+entire image to approximate the globally constrained color (e.g., the global constraint specifies "yellow", but the entire image is overlaid 
+
+with a yellow tint), without the targeted objects genuinely reflecting the constraint, the turn must be judged as non-compliant. 
+
+Execution and Output Logic: 
+
+Evaluate each turn sequentially (Turn 1, Turn 2, ...). 
+
+- If Turn i succeeds ("yes"): 
+
+Output: 
+
+<answer_turn_i> yes </answer_turn_i> 
+
+<reason_turn_i> Briefly explain why the turn is considered successful. </reason_turn_i> 
+
+Then proceed to evaluate Turn i+1 (if applicable). 
+
+- If Turn i fails ("no"): 
+
+Output: 
+
+<answer_turn_i> no </answer_turn_i> 
+
+<reason_turn_i> Explain the reason for failure (e.g., "failed to add the specified object", or "object B was successfully added, but object A 
+
+was inadvertently removed"). </reason_turn_i> 
+
+Halt immediately. Do not evaluate any subsequent turns. 
+
+Output: <answer_final> no </answer_final> 
+
+- If all turns (1 through N-1) succeed: 
+
+After evaluating the final turn, output: <answer_final> yes </answer_final> 
+
+Input Data: 
+
+Image Sequence: 
+
+- Image 1: The initial image 
+
+- Image 2: The result of Turn 1 
+
+- ... 
+
+- Image N: The result of Turn N-1 
+
+Instructions: 
+
+{instructions_formatted} 
+
+Response Format: 
+
+Provide your evaluation strictly using the XML-style tags described above. Do not include any conversational text outside of the tags. 
+
+Replace the placeholder 'i' in the tags with the actual turn index (e.g., <answer_turn_1>, <answer_turn_2>). Figure 15: Prompt template used for VLM-Based GA metric on Content Memory task. 29 You are an expert evaluator specializing in assessing Content Understanding capabilities in multi-turn image editing tasks. You will be provided with a sequence of N images and N-1 editing 
+
+instructions. 
+
+Task Background: 
+
+In real-world multi-turn image editing scenarios, users naturally transition from using full object names to pronouns (e.g., "it", "them", "there", "its") when referring to objects that were 
+
+manipulated in previous turns, once the object context has been established. This requires the editing model to perform accurate pronoun resolution — i.e., correctly identifying the specific 
+
+object a pronoun refers to and executing the intended editing operation on that object. 
+
+Task Definition: 
+
+The task consists of N-1 consecutive editing turns. 
+
+- Turn i (i ranges from 1 to N-1): 
+
+- Input: Image i 
+
+- Instruction received by the model: Instruction i (may contain pronouns such as "it", "them", "there", "its") 
+
+- Explicit Reference Instruction: Formatted Instruction i (the specific object referred to by each pronoun is annotated in square brackets, serving as the objective reference for evaluation) 
+
+- Output: Image i+1 
+
+Your objective is to evaluate each editing turn sequentially, beginning from Turn 1. 
+
+Evaluation Criteria Per Turn: 
+
+For each Turn i, compare Image i (input) with Image i+1 (output) with respect to Instruction i. A turn is considered successful ("yes") only when all of the following criteria are simultaneously 
+
+satisfied: 
+
+1. Pronoun Resolution (Content Understanding): If Instruction i contains pronouns (e.g., "it", "them", "there", "its"), the object edited in Image i+1 must correspond to the object annotated in 
+
+square brackets in Formatted Instruction i. That is, the model must correctly identify which specific object the pronoun refers to and perform the edit on that object — not on any other. The 
+
+specific rules are as follows: 
+
+- "it" / "them" reference: The pronoun refers to the same object manipulated in the preceding turn. For example, if the instruction is "Remove it" and the formatted instruction is "Remove 
+
+[red car]" , then the object removed in Image i+1 must be the red car, not any other object. 
+
+- "its" reference: The possessive pronoun refers to an attribute of the object manipulated in the preceding turn. For example, if the instruction is "Change its color to blue" and the formatted 
+
+instruction is "Change the color of [wooden brown door] to [blue]" , then it is the wooden brown door whose color should become blue in Image i+1. 
+
+- "there" reference: The spatial pronoun refers to the location previously occupied by an object that was removed in an earlier turn. For example, if the instruction is "Add a bench there" and 
+
+the formatted instruction is "Add [bench] on the [left] of [flower bed]" , then Image i+1 should contain a bench placed at the location where the flower bed previously was. 
+
+- Turn 1 typically contains no pronouns (as there is no prior context), in which case only the Instruction Following criterion below is evaluated. 
+
+2. Instruction Following: Image i+1 successfully reflects the modifications specified by Instruction i — including the correct edit type (add / remove / replace / recolor, etc.) and the correct 
+
+attribute value (e.g., the color is indeed changed to the specified color). 
+
+Execution and Output Logic: 
+
+Evaluate each turn sequentially (Turn 1, Turn 2, ...). 
+
+- If Turn i succeeds ("yes"): 
+
+Output: 
+
+<answer_turn_i> yes </answer_turn_i> 
+
+<reason_turn_i> Briefly explain why the turn is considered successful. </reason_turn_i> 
+
+Then proceed to evaluate Turn i+1 (if applicable). 
+
+- If Turn i fails ("no"): 
+
+Output: 
+
+<answer_turn_i> no </answer_turn_i> 
+
+<reason_turn_i> Provide a detailed explanation of the failure. Clearly indicate whether the failure is due to a pronoun resolution error, an instruction following error, or both. For example: 
+
+- Pronoun resolution error: "The pronoun 'it' should refer to [red car], but the model incorrectly removed the blue truck." 
+
+- Instruction following error: "The target object [wooden door] was correctly identified, but its color was not successfully changed to blue." 
+
+- Both errors: "The pronoun 'its' should refer to an attribute of [silver helmet], but the model modified the color of a different object, and the resulting color is also incorrect." </reason_turn_i> 
+
+Halt immediately. Do not evaluate any subsequent turns. 
+
+Output: <answer_final> no </answer_final> 
+
+- If all turns (1 through N-1) succeed: 
+
+After evaluating the final turn, output: <answer_final> yes </answer_final> 
+
+Input Data: 
+
+Image Sequence: 
+
+- Image 1: The initial image 
+
+- Image 2: The result of Turn 1 
+
+- ... 
+
+- Image N: The result of Turn N-1 
+
+Instructions: 
+
+{instructions_formatted} 
+
+Response Format: 
+
+Provide your evaluation strictly using the XML-style tags described above. Do not include any conversational text outside of the tags. Replace the placeholder 'i' in the tags with the actual turn 
+
+index (e.g., <answer_turn_1>, <answer_turn_2>). Figure 16: Prompt template used for VLM-Based GA metric on Content Understanding task. 30 Input 
+
+Turn 1: Set a persistent rule for all following edits: red color must be applied 
+
+exclusively to the specific object being directly added or modified — do not colorize 
+
+surrounding elements, or any untouched area. With this rule active, Change the 
+
+background to curtain, remain the wool grey scarf, plastic black glasses unchanged. 
+
+Turn 2: Remove wool grey scarf. 
+
+Turn 3: Change the material of plastic black glasses to metal. 
+
+BAGEL 
+
+### Evaluation Process: 
+
+#### Turn 1: 
+
+- **Input Image: ** Image 1 
+
+- Description: A person wearing a black jacket, a wool grey scarf, and plastic black glasses, with a light-colored wall background. 
+
+- **Instructions: **
+
+- Set global constraint: In all subsequent edits, red color can only be applied to the specific objects being directly added or modified, without coloring surrounding elements or untouched areas. 
+
+- Change the background to a red curtain, keep the wool grey scarf and plastic black glasses unchanged. 
+
+- **Output Image: ** Image 2 
+
+- Description: Background changed to a red curtain; the person still wears a black jacket, a wool grey scarf, and plastic black glasses. 
+
+**Evaluation: **
+
+1. **Instruction Following: **
+
+- Background successfully changed to a red curtain, meeting the instruction. 
+
+- Wool grey scarf and plastic black glasses remain unchanged, meeting the instruction. 
+
+2. **Global Constraint Following: **
+
+- The global constraint specifies that red color can only be applied to directly added or modified objects. Here, the background was modified to a red curtain, which complies with the constraint. 
+
+**Conclusion: **
+
+<answer_turn_1> yes </answer_turn_1> 
+
+<reason_turn_1> Background successfully changed to a red curtain, wool grey scarf and plastic black glasses unchanged, meeting the instruction; red color applied only to the background, 
+
+complying with the global constraint. </reason_turn_1> 
+
+#### Turn 2: 
+
+- **Input Image: ** Image 2 
+
+- Description: Red curtain background; person wearing a black jacket, a wool grey scarf, and plastic black glasses. 
+
+- **Instruction: **
+
+- Remove the wool grey scarf. 
+
+- **Output Image: ** Image 3 
+
+- Description: Red curtain background; person wearing a black jacket, no scarf, and plastic black glasses. 
+
+**Evaluation: **
+
+1. **Instruction Following: **
+
+- The wool grey scarf has been successfully removed, meeting the instruction. 
+
+2. **Global Constraint Following: **
+
+- The instruction is to remove an object, which does not involve adding or modifying objects; thus, the global constraint is irrelevant. 
+
+**Conclusion: **
+
+<answer_turn_2> yes </answer_turn_2> 
+
+<reason_turn_2> Wool grey scarf successfully removed, meeting the instruction; removal operation does not require considering the global constraint. </reason_turn_2> 
+
+#### Turn 3: 
+
+- **Input Image: ** Image 3 
+
+- Description: Red curtain background; person wearing a black jacket, no scarf, and plastic black glasses. 
+
+- **Instruction: **
+
+- Change the material of the plastic black glasses to metal. 
+
+- **Output Image: ** Image 4 
+
+- Description: Red curtain background; person wearing a black jacket, no scarf, and black metal glasses (material changed to metal, but color remains black instead of red). 
+
+**Evaluation: **
+
+1. **Instruction Following: **
+
+- The material of the glasses has been successfully changed from plastic to metal, meeting the instruction requirement of "change the material to metal." 
+
+2. **Global Constraint Following: **
+
+- The global constraint states that in all subsequent edits, red color can only be applied to directly added or modified objects. The object modified in this round is the glasses, whose material was 
+
+changed to metal, making it a "directly modified object." According to the global constraint, this modified object should be red. However, the glasses remain black in the output image, violating 
+
+the global constraint. 
+
+**Conclusion: **
+
+<answer_turn_3> no </answer_turn_3> 
+
+<reason_turn_3> Material successfully changed to metal, meeting the instruction; however, the directly modified object (the glasses) violated the global constraint — it should have been 
+
+red but remained black. Therefore, this round fails. </reason_turn_3> 
+
+### Final Conclusion: 
+
+<answer_final> no </answer_final> 
+
+Turn 1 Turn 2 Turn 3 Figure 17: Example of GA output for failed editing results on content memory task. 31 Input 
+
+Turn 1: Set a persistent rule for all following edits: red color must be applied 
+
+exclusively to the specific object being directly added or modified — do not colorize 
+
+surrounding elements, or any untouched area. With this rule active, Change the 
+
+background to curtain, remain the wool grey scarf, plastic black glasses unchanged. 
+
+Turn 2: Remove wool grey scarf. 
+
+Turn 3: Change the material of plastic black glasses to metal. 
+
+Edit-R2 
+
+(Ours) 
+
+#### Turn 3: 
+
+- **Input Image: ** Image 3 
+
+- Description: Red curtain background; person wearing a black jacket, no scarf, and plastic black glasses. 
+
+- **Instruction: **
+
+- Change the material of the plastic black glasses to metal. 
+
+- **Output Image: ** Image 4 
+
+- Description: Red curtain background; person wearing a black jacket, no scarf, and red metal glasses. 
+
+**Evaluation: **
+
+1. **Instruction Following: **
+
+- The material of the plastic black glasses has been successfully changed to red metal, meeting the instruction. 
+
+2. **Global Constraint Following: **
+
+- The global constraint states that red color can only be applied to directly added or modified objects. Here, the glasses' material was changed to metal, and red color is applied only to the glasses 
+
+themselves, complying with the constraint. 
+
+**Conclusion: **
+
+<answer_turn_3> yes </answer_turn_3> 
+
+<reason_turn_3> The material of the plastic black glasses was successfully changed to red metal, meeting the instruction; red color applied only to the glasses themselves, complying with 
+
+the global constraint. </reason_turn_3> 
+
+### Final Conclusion: 
+
+<answer_final> yes </answer_final> 
+
+Turn 1 Turn 2 Turn 3 
+
+An example of VLM-based GA 
+
+Judger ’s output for Edit-R2. output 
+
+of turn1 and turn 2 are ignored due 
+
+to its similarity with Fig~\ref{xxx.} Figure 18: Example of GA output for successful editing results on content memory task. The outputs of turn 1 and turn 2 are omitted due to its similarity with Figure 17. 32 ### Evaluation Process: 
+
+#### Turn 1: 
+
+- **Input Image: ** Image 1 
+
+- Description: A dark purple flower with a black plastic handle in the background. 
+
+- **Instruction Received by Model: ** Add flower on the left of plastic black handle 
+
+- Explicit Reference Instruction: Add [flower] on the [left] of [plastic black handle] 
+
+- **Output Image: ** Image 2 
+
+- Description: An orange flower added to the left of the black plastic handle. 
+
+**Evaluation: **
+
+1. **Pronoun Resolution (Content Understanding): **
+
+- The instruction in this turn contains no pronouns, so pronoun resolution is not required. 
+
+2. **Instruction Following: **
+
+- The instruction requires adding a flower to the left of the black plastic handle. In Image 2, an orange flower has indeed been added to the left of the black plastic 
+
+handle, meeting the instruction. 
+
+**Conclusion: **
+
+<answer_turn_1> yes </answer_turn_1> 
+
+<reason_turn_1> The instruction requires adding a flower to the left of the black plastic handle. Image 2 successfully achieves this change, with both the position 
+
+and the added object being correct. </reason_turn_1> 
+
+#### Turn 2: 
+
+- **Input Image: ** Image 2 
+
+- Description: An orange flower added to the left of the black plastic handle. 
+
+- **Instruction Received by Model: ** Change its color to orange 
+
+- Explicit Reference Instruction: Change the color of [flower] to [orange] 
+
+- **Output Image: ** Image 3 
+
+- Description: The flower has been changed to yellow. 
+
+**Evaluation: **
+
+1. **Pronoun Resolution (Content Understanding): **
+
+- The pronoun "its" in the instruction refers to the object added in the previous round, i.e., the flower. According to the explicit reference instruction, the model 
+
+needs to change the color of the flower. However, the model did not correctly understand that "its" refers to the newly added flower in the first round; instead, it 
+
+mistakenly changed the original flower in the image to orange. 
+
+2. **Instruction Following: **
+
+- Although the model changed a flower to orange, it operated on the wrong object (the original flower rather than the newly added one). Therefore, the instruction 
+
+is not correctly followed. 
+
+**Conclusion: **
+
+<answer_turn_2> no </answer_turn_2> 
+
+<reason_turn_2> The model failed to correctly understand that "its" refers to the flower newly added in the first round; instead, it mistakenly changed the 
+
+original flower in the image to orange. This is a pronoun resolution error. </reason_turn_2> 
+
+### Final Conclusion: 
+
+Since Turn 2 fails to complete the edit successfully, no subsequent rounds are evaluated. 
+
+<answer_final> no </answer_final> 
+
+BAGEL 
+
+Turn1: Add flower on the left of plastic black handle 
+
+Turn2: Change its color to orange 
+
+Turn3: Remove it 
+
+Input 
+
+Turn 1 Turn 2 Turn 3 Figure 19: Example of GA output for failed editing results on content understanding task. 33 Turn1: Add flower on the left of plastic black handle 
+
+Turn2: Change its color to orange 
+
+Turn3: Remove it 
+
+Input 
+
+Turn 1 Turn 2 Turn 3 
+
+Edit-R2 
+
+(Ours) 
+
+### Evaluation Process: 
+
+#### Turn 1: 
+
+- **Input Image: ** Image 1 
+
+- Description: A dark purple flower with a black plastic handle in the background. 
+
+- **Instruction Received by Model: ** Add flower on the left of plastic black handle 
+
+- Explicit Reference Instruction: Add [flower] on the [left] of [plastic black handle] 
+
+- **Output Image: ** Image 2 
+
+- Description: A yellow flower added to the left of the black plastic handle. 
+
+**Evaluation: **
+
+1. **Pronoun Resolution (Content Understanding): **
+
+- The instruction in this turn contains no pronouns, so pronoun resolution is not required. 
+
+2. **Instruction Following: **
+
+- The instruction requires adding a flower to the left of the plastic black handle. Observing Image 2, a yellow flower has indeed been added to the left of the plastic black handle. 
+
+**Conclusion: **
+
+<answer_turn_1> yes </answer_turn_1> 
+
+<reason_turn_1> The instruction requires adding a flower to the left of the plastic black handle. Image 2 successfully adds a yellow flower, meeting the instruction. </reason_turn_1> 
+
+#### Turn 2: 
+
+- **Input Image: ** Image 2 
+
+- Description: A yellow flower added to the left of the black plastic handle. 
+
+- **Instruction Received by Model: ** Change its color to orange 
+
+- Explicit Reference Instruction: Change the color of [flower] to [orange] 
+
+- **Output Image: ** Image 3 
+
+- Description: The flower's color has been changed to orange. 
+
+**Evaluation: **
+
+1. **Pronoun Resolution (Content Understanding): **
+
+- The pronoun "its" in this turn refers to the flower added in the previous round. The explicit reference instruction clearly refers to "[flower]", i.e., the yellow flower added in the previous round. The model indeed 
+
+changes the color of the flower to orange in Image 3, so pronoun resolution is correct. 
+
+2. **Instruction Following: **
+
+- The instruction requires changing the color of the flower to orange. Observing Image 3, the flower's color has been successfully changed to orange. 
+
+**Conclusion: **
+
+<answer_turn_2> yes </answer_turn_2> 
+
+<reason_turn_2> The instruction requires changing the color of the flower to orange. Image 3 successfully changes the flower's color to orange, meeting the instruction. </reason_turn_2> 
+
+#### Turn 3: 
+
+- **Input Image: ** Image 3 
+
+- Description: An orange flower added to the left of the black plastic handle. 
+
+- **Instruction Received by Model: ** Remove it 
+
+- Explicit Reference Instruction: Remove [orange flower] 
+
+- **Output Image: ** Image 4 
+
+- Description: The orange flower has been removed. 
+
+**Evaluation: **
+
+1. **Pronoun Resolution (Content Understanding): **
+
+- The pronoun "it" in this turn refers to the orange flower edited in the previous round. The explicit reference instruction clearly refers to "[orange flower]", i.e., the flower whose color was changed to orange in the 
+
+previous round. The model indeed removes the orange flower in Image 4, so pronoun resolution is correct. 
+
+2. **Instruction Following: **
+
+- The instruction requires removing the orange flower. Observing Image 4, the orange flower has been removed, meeting the instruction. 
+
+**Conclusion: **
+
+<answer_turn_3> yes </answer_turn_3> 
+
+<reason_turn_3> The instruction requires removing the orange flower. Image 4 successfully removes the orange flower, meeting the instruction. </reason_turn_3> 
+
+### Final Conclusion: 
+
+All rounds successfully complete the editing task. 
+
+<answer_final> yes </answer_final> Figure 20: Example of GA output for successful editing results on content understanding task. 34
