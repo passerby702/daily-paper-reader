@@ -6,52 +6,56 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-12
-- 运行时间：2026-06-12 19:59:21 UTC
+- 最新运行日期：2026-06-13
+- 运行时间：2026-06-13 19:13:00 UTC
 - 运行状态：成功
-- 本次总论文数：10
-- 精读区：1
+- 本次总论文数：12
+- 精读区：3
 - 速读区：9
 
 ### 今日简报（AI）
-1) 今日精选10篇论文，精读聚焦多轮图像编辑强化学习方法，速读覆盖扩散模型小波视角与生物分子结构预测。  
-2) 最值得关注《Edit-R2》的上下文感知强化学习在多轮编辑中的稳定性，以及两篇扩散模型论文分别从频域和自监督视角提升生成理解。  
-3) 建议优先精读《Edit-R2》，再结合扩散模型新视角拓展对生成模型可控性的认知。
-- 详情：[/202606/12/README](/202606/12/README)
+今日共读12篇论文，精读2篇高分研究聚焦生成路径一致性与流形感知扩散。最值得关注的是自洽生成路径及周期性终端定律的扩散模型，可提升生成质量与流形适应性。建议后续关注扩散模型与变分自编码器在分子设计中的融合应用。
+- 详情：[/202606/13/README](/202606/13/README)
 
 ### 精读区论文标签
-1. [Edit-R2: Context-Aware Reinforcement Learning for Multi-Turn Image Editing](/202606/12/2606.05950v1-edit-r2-context-aware-reinforcement-learning-for-multi-turn-image-editing)  
+1. [Self-Consistent Generative Paths via Admissible Random Variational Transport](/202606/13/2606.08953v1-self-consistent-generative-paths-via-admissible-random-variational-transport)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：使用扩散模型和多模态基础模型进行多轮图像编辑
+   evidence：生成路径自洽性的理论框架，涵盖扩散模型
+2. [PTL-Diffusion: Manifold-Aware Diffusion with Periodic Terminal Laws](/202606/13/2606.09816v1-ptl-diffusion-manifold-aware-diffusion-with-periodic-terminal-laws)  
+   标签：评分：8.0/10、query:diff-gen
+   evidence：具有周期终端律的流形感知扩散模型
+3. [AlphaFold3 for Structure-guided Ligand Discovery](/202606/13/biorxiv-10-64898-2025-12-04-692352-v2-alphafold3-for-structure-guided-ligand-discovery)  
+   标签：评分：8.0/10、query:pocket-lig
+   evidence：蛋白质-配体复合物预测AlphaFold3虚拟筛选
 
 ### 速读区论文标签
-1. [Where the Score Lives: A Wavelet View of Diffusion](/202606/12/2606.08309v1-where-the-score-lives-a-wavelet-view-of-diffusion)  
+1. [Closing the Prior-Posterior Loop: Self-Reflective Molecular Design with Analysis-Driven LLM Iteration](/202606/13/2606.09520v1-closing-the-prior-posterior-loop-self-reflective-molecular-design-with-analysis-driven-llm-iteration)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：扩散模型分数函数的小波分析，提供理论洞察
-2. [Evaluating the Representation Space of Diffusion Models via Self-Supervised Principles](/202606/12/2606.09718v1-evaluating-the-representation-space-of-diffusion-models-via-self-supervised-principles)  
+   evidence：基于LLM的分子设计结合第一性原理反馈
+2. [Evaluating the Representation Space of Diffusion Models via Self-Supervised Principles](/202606/13/2606.09718v1-evaluating-the-representation-space-of-diffusion-models-via-self-supervised-principles)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：评估扩散模型的表示空间
-3. [Promera: a unified model for biomolecular structure prediction, filtering, and design](/202606/12/biorxiv-10-64898-2026-06-07-729267-v1-promera-a-unified-model-for-biomolecular-structure-prediction-filtering-and-design)  
+   evidence：联合评估扩散模型表示与生成的框架
+3. [DeepRHP: A Hybrid Variational Autoencoder for Designing Random Heteropolymers as Protein Mimics](/202606/13/2606.11651v1-deeprhp-a-hybrid-variational-autoencoder-for-designing-random-heteropolymers-as-protein-mimics)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：变分自编码器用于设计随机杂聚物作为蛋白质模拟物
+4. [pLM-Guided Inverse Folding for Antibody Sequence Design](/202606/13/biorxiv-10-64898-2026-06-04-730089-v1-plm-guided-inverse-folding-for-antibody-sequence-design)  
    标签：评分：7.0/10、query:pocket-lig
-   evidence：生物分子结构设计与过滤，与蛋白-配体相关但非小分子
-4. [FontFusion: Enhancing Generative Text in Diffusion Models with Typographic Conditioning](/202606/12/2606.06066v1-fontfusion-enhancing-generative-text-in-diffusion-models-with-typographic-conditioning)  
+   evidence：基于结构的抗体序列逆折叠，与条件于蛋白质口袋结构的分子生成相关
+5. [GeroQubit: a lightweight, honesty-first de-novo design platform for geroscience-native small molecules with calibrated uncertainty](/202606/13/biorxiv-10-64898-2026-06-07-730687-v1-geroqubit-a-lightweight-honesty-first-de-novo-design-platform-for-geroscience-native-small-molecules-with-calibrated-uncertainty)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：从头小分子生成平台，具有校准的不确定性
+6. [LiteVSR: Lightweight Adaptation of Frozen Diffusion Transformers for Video Super-Resolution](/202606/13/2606.09250v1-litevsr-lightweight-adaptation-of-frozen-diffusion-transformers-for-video-super-resolution)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：用于多模态图文生成的字体条件扩散变换器
-5. [Where Should Knowledge Enter? A Layered Framework for Knowledge Infusion in Multimodal Iterative Generative Mo](/202606/12/2606.06356v1-where-should-knowledge-enter-a-layered-framework-for-knowledge-infusion-in-multimodal-iterative-generative-mo)  
+   evidence：使用扩散变换器进行视频超分辨率，与视频帧插值方法相关
+7. [BSTabDiff: Block-Subunit Diffusion Priors for High-Dimensional Tabular Data Generation](/202606/13/2606.09257v1-bstabdiff-block-subunit-diffusion-priors-for-high-dimensional-tabular-data-generation)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：多模态迭代生成模型的知识注入框架
-6. [AsyncPatch Diffusion: spatially-flexible image generation](/202606/12/2606.07079v1-asyncpatch-diffusion-spatially-flexible-image-generation)  
+   evidence：用于表格数据生成的扩散模型
+8. [VFUSE: Virulent Feature Understanding with Sparse autoEncoders](/202606/13/2606.10080v1-vfuse-virulent-feature-understanding-with-sparse-autoencoders)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：空间灵活图像生成的扩散模型
-7. [Deep Slice Interpolation for Reducing Through-Plane Anisotropy and Noise in Head CT](/202606/12/2606.09953v1-deep-slice-interpolation-for-reducing-through-plane-anisotropy-and-noise-in-head-ct)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：CT切片深度学习插值，类似视频帧插值
-8. [MolDeBERTa: Foundational Model for Physicochemical and Substructure-Informed Molecular Representation Learning](/202606/12/biorxiv-10-64898-2026-02-15-706011-v2-moldeberta-foundational-model-for-physicochemical-and-substructure-informed-molecular-representation-learning)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：基于深度学习的分子生成
-9. [HalluDesign-NA: Extending HalluDesign for De Novo Nucleic Acid Design](/202606/12/biorxiv-10-64898-2026-06-10-730767-v1-halludesign-na-extending-halludesign-for-de-novo-nucleic-acid-design)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：深度学习从头核酸设计
+   evidence：在扩散变换器激活上应用稀疏自编码器进行蛋白质模型审计
+9. [Multi-level, multi-body atomic interaction graphs for machine learning-based prediction of protein-ligand binding energies](/202606/13/biorxiv-10-64898-2026-06-05-730001-v2-multi-level-multi-body-atomic-interaction-graphs-for-machine-learning-based-prediction-of-protein-ligand-binding-energies)  
+   标签：评分：6.0/10、query:pocket-lig
+   evidence：多层级原子相互作用图用于蛋白质-配体结合预测
 
 
 <div class="dpr-home-promo-card">
