@@ -1,0 +1,1644 @@
+Title: CryoDiff: An uncertainty-aware diffusion model for Cryo-EM map enhancement
+
+URL Source: https://www.biorxiv.org/content/10.64898/2026.06.04.730282v1.full.pdf
+
+Number of Pages: 28
+
+Markdown Content:
+# CryoDi ff : An uncertainty-aware di ff usion model for Cryo-EM map 1
+
+# enhancement 2
+
+## Bocheng Wen 1,2,†, Bintao He 1,†, Yiran Cheng 1,†, Shaozhen Zhou 3, Fa Zhang 4,∗, Renmin Han 1,2,∗
+
+> 3
+> 1
+
+Research Center for Mathematics and Interdisciplinary Sciences (Ministry of Education Frontiers Science Center for Nonlinear 4
+
+Expectations), Shandong University, Qingdao 266237, China; 5
+
+> 2
+
+Ningxia Medical University, Yinchuan 750004, China; 6
+
+> 3
+
+School of Computer Science and Technology, Shandong University, Qingdao 266237, China; 7
+
+> 4
+
+School of Medical Technology, Beijing Institute of Technology, Beijing 100081, China. 8
+
+Abstract 9
+
+Cryogenic electron microscopy (cryo-EM) enables high-resolution structural determination of large macromolec-10 
+
+ular complexes. However, the interpretability of cryo-EM maps is often hindered by substantial background noise 11 
+
+and signal attenuation, which obscure structural details. Although existing post-processing methods can partially 12 
+
+mitigate these artifacts, they typically su ff er from over-smoothing and lack reliable confidence estimation. Here, we 13 
+
+present CryoDi ff , an uncertainty-aware di ff usion model for cryo-EM map enhancement. CryoDi ff employs a multi-14 
+
+step di ff usion process to progressively denoise and restore high-resolution structural features. Importantly, CryoDi ff 15 
+
+incorporates a voxel-wise confidence metric derived from Monte Carlo sampling. It unifies map enhancement and 16 
+
+voxel-level uncertainty estimation within a di ff usion-based generative framework, representing the first approach to 17 
+
+achieve such joint modeling for cryo-EM map enhancement. In comprehensive experiments, CryoDi ff markedly out-18 
+
+performs existing methods in both map–model correlation and map interpretability, improving the average FS C 0.519 
+
+metric by 0.356 Å over state-of-the-art approaches. When applied to de novo model building with ModelAngelo, 20 
+
+CryoDi ff further increases model completeness by 5 .5%, exceeding the gains achieved by competing method. 21 
+
+> †
+
+These authors should be regarded as Joint First Authors; ∗All correspondence should be addressed to: Fa Zhang ( zhangfa@bit.edu.cn ), Renmin Han ( hanrenmin@gmail.com )
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint 1 Introduction 22 
+
+Cryogenic electron microscopy (cryo-EM) has emerged as a powerful technique for determining the structures of 23 
+
+macromolecular complexes in their native states. In the single-particle cryo-EM workflow, three-dimensional density 24 
+
+maps are reconstructed from tens of thousands of particle images (Nogales and Scheres, 2015) to serve as a reference 25 
+
+for atomic model building. However, raw experimental maps frequently su ff er from contrast loss and high-frequency 26 
+
+signal attenuation (Rosenthal and Henderson, 2003) due to factors such as intrinsic structural flexibility, radiation dam-27 
+
+age (Glaeser and Taylor, 1978), and cumulative errors during the 3D reconstruction process. Such signal degradation 28 
+
+obscures critical structural features, introducing significant ambiguity into backbone tracing and side-chain assign-29 
+
+ment. Consequently, various post-processing approaches have been developed to recover these missing details and 30 
+
+maximize map interpretability. 31 
+
+Traditional map sharpening methods aim to compensate for the contrast loss in cryo-EM maps by amplifying high-32 
+
+frequency Fourier components, which is typically achieved either by applying a global B-factor (Kimanius et al. , 2016; 33 
+
+Zivanov et al. , 2018; Terwilliger et al. , 2018) or employing local sharpening techniques that leverage prior informa-34 
+
+tion (Ram´ ırez-Aportela et al. , 2020; Jakobi et al. , 2017). In addition, density modification methods improve cryo-EM 35 
+
+maps by incorporating prior knowledge, such as solvent characteristics or local noise distributions (Terwilliger et al. ,36 
+
+2020a,b). These approaches employ physically or statistically grounded algorithms to enhance cryo-EM maps, provid-37 
+
+ing consistent and reliable processed densities. Consequently, these methods have been widely adopted by the cryo-38 
+
+EM community as standard procedures in the post-processing of cryo-EM maps, serving as important steps for both 39 
+
+map deposition and downstream structural analysis. Despite their widespread adoption, these conventional approaches 40 
+
+su ff er from notable limitations. Global B-factor-based sharpening cannot account for spatially varying signal-to-noise 41 
+
+ratios, often leading to over-sharpening in flexible regions and under-sharpening in stable cores. Meanwhile, the ef-42 
+
+ficacy of many local sharpening methods is restricted by their reliance on additional inputs, such as segmentation 43 
+
+masks or pre-existing atomic models, limiting their applicability to novel structures where such priors are unavailable 44 
+
+or unreliable. 45 
+
+Deep-learning-based methods have been proposed for automatic cryo-EM map enhancement. Early attempts like 46 
+
+DeepEMhancer (Sanchez-Garcia et al. , 2021) employs 3D U-Nets to replicate enhanced map sharpened by traditional 47 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+model LocScale (Jakobi et al. , 2017). To overcome such dependency, some works (Subramaniya et al. , 2021; He 48 
+
+et al. , 2023; Cao et al. , 2025; Zhang et al. , 2025; Selvaraj et al. , 2024) were trained on paired data consisting of 49 
+
+noisy experimental maps and noiseless maps simulated from high-quality atomic models. Among these approaches, 50 
+
+EMReady2 (Cao et al. , 2025) stands out as the leading post-process tool, which using heterogeneity-aware deep learn-51 
+
+ing to improve Cryo-EM maps. However, EMReady and similar deterministic deep-learning-based approaches exhibit 52 
+
+critical limitations. First, these deep-learning approaches operate as ”black boxes” that directly modify real-space den-53 
+
+sities without providing explicit explanations or quantitative confidence measures for the enhanced features. Second, 54 
+
+cryo-EM reconstructions inherently represent an ensemble of conformations due to molecular flexibility (Herzik et al. ,55 
+
+2019). By relying on single-pass feedforward networks that regress to a single deterministic output, these methods 56 
+
+tend to produce overly smoothed densities, often blurring high-frequency details. 57 
+
+Here we propose CryoDi ff , an uncertainty-aware di ff usion model for cryo-EM map enhancement that employs 58 
+
+a conditional denoising di ff usion probabilistic model (Ho et al. , 2020). Instead of regressing to a single solution, 59 
+
+CryoDi ff learns the distribution of high-quality structures and iteratively refines details from random Gaussian noise. 60 
+
+This gradual denoising framework provides two crucial advantages over deterministic methods. First, it naturally 61 
+
+mitigates over-smoothing by avoiding direct regression to a single, averaged solution. Second, by modeling the full 62 
+
+conditional distribution, CryoDi ff can generate a diverse ensemble of plausible reconstructions, thereby capturing 63 
+
+the inherent uncertainty of the enhancement process. To quantify this uncertainty, CryoDi ff further introduces a 64 
+
+novel voxel-wise reliability metric, which measures confidence in the recovered features by performing Monte Carlo 65 
+
+sampling and evaluating density variations across the ensemble. 66 
+
+To evaluate the performance of CryoDi ff , we conducted comprehensive experiments on a large-scale benchmark 67 
+
+comprising 143 primary maps and 80 pairs of half maps with resolution ranging from 2 to 5 Å. The case results 68 
+
+show that CryoDi ff produces maps with substantially enhanced interpretability, characterized by improved structural 69 
+
+continuity and the recovery of intricate side-chain densities often obscured in experimental maps. We quantitatively 70 
+
+assessed its performance using map-model correlation metrics, including map-model FS C 0.5, Q-score(P), Q-score(N), 71 
+
+CC box , CC mask and CC peaks . Specifically, CryoDi ff boosts the average FS C 0.5 resolution to 3.045 Å (primary) and 72 
+
+2.946 Å (half-maps), outperforming the state-of-the-art method by 0.356 Å and 0.337 Å, respectively. Furthermore, 73 
+
+this superior map quality enables downstream tools, like phenix.map to model and ModelAngelo, to generate more 74 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+accurate and complete de novo atomic models. Notably, the atomic model built by ModelAngelo from the CryoDi ff -75 
+
+processed maps achieved an average completeness of 79 .3%, representing an improvement of 5 .5% compared with 76 
+
+the deposited maps. 77 
+
+## 2 Results 78 
+
+2.1 Overview of CryoDi ff 79 
+
+The complete workflow of CryoDi ff , illustrated in Figure 1, consists of four main stages: data generation, model 80 
+
+training, reverse inference, and uncertainty estimation. In the data generation stage, we first collected 980 experimen-81 
+
+tal cryo-EM maps from the Electron Microscopy Data Bank (EMDB) and split them into training (737), validation 82 
+
+(100), and test (143) sets. Subsequently, for the training set, simulated maps were generated from corresponding PDB 83 
+
+(Berman et al. , 2000) models to serve as the ground-truth for model training. All maps were finally uniformly pro-84 
+
+cessed by resampling to the voxel size of 1 Å, normalizing intensity values to the range [0, 1], and partitioning into 85 
+
+boxes of size 48 3. In the model training stage, CryoDi ff , a di ff usion-based 3D U-Net (detailed in 3.3 and Supplemen-86 
+
+tary Figure S4) (Rombach et al. , 2022a), is trained to predict the Gaussian noise added to simulated map boxes x0 at 87 
+
+the random di ff usion timestep t, with the corresponding conditional experimental map box xc, as detailed in Section 88 
+
+3.4. This model is optimized via a hybrid Smooth L1 loss and SSIM loss. In the reverse inference stage, the input 89 
+
+map is first partitioned into overlapping boxes of size 48 3 with a stride of 16. The denoising di ff usion implicit model 90 
+
+(DDIM) sampler then iteratively generates the enhanced boxes ˆ x0 over S steps through a reverse di ff usion process, 91 
+
+which starts from random Gaussian noise and is conditioned on the corresponding input experimental boxes. 92 
+
+These enhanced boxes are then assembled to form the complete, high-quality enhanced map. In the uncertainty 93 
+
+estimation stage, CryoDi ff introduces a voxel-wise confidence metric, pMDD, to quantify the structural reliability of 94 
+
+the enhanced map, as detailed in Section 3.6. 95 
+
+2.2 Local enhanced confidence estimation 96 
+
+Except for the enhancement of cryo-EM densities, the post-processing of cryo-EM reconstructions also involves the 97 
+
+validation of the maps. Validation of cryo-EM maps aids the subsequent model-building process by providing quan-98 
+
+titative metrics that indicate how likely a feature within the density map represents specific molecular components. 99 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+𝑥 1
+
+𝑥 2
+
+𝑥 𝑀 
+
+⋮
+
+𝜖 1
+
+𝜖 2
+
+𝜖 𝑀 
+
+⋮
+
+Compute 
+
+voxel -wise MAE 
+
+Uncertainty 
+
+calibration 
+
+Uncertainty estimation 
+
+Reversed 
+
+diffusion 
+
+process 
+
+serve as condition 
+
+Unify voxel size to 1Å 
+
+Normalize the map to 
+
+range 0 -1
+
+Split the map into boxes 
+
+of  size  48 3
+
+Experimental map 
+
+model2map 
+
+Split the simulated map 
+
+into boxes 
+
+Atomic structure 
+
+in 
+
+𝑥 𝑡  𝑥 0𝑥 𝑡 −1⋯ ⋯
+
+Reversed diffusion process 
+
+𝜖 
+
+Inference 
+
+Density 
+
+assemble 
+
+Enhanced map with 
+
+confidence  pMDD 
+
+Uncertainty 
+
+estimation 
+
+out 
+
+low 
+
+high 
+
+random 
+
+noise  predicted 
+
+noise 
+
+noisy 
+
+box 
+
+# 𝑥 0 𝑥 𝑡 
+
+Loss 
+
+Forward diffusion process 
+
+optimize 
+
+# 𝜖  𝑡 
+
+random 
+
+noise 
+
+random 
+
+time 
+
+denoising 3D U -Net 
+
+Training of conditional diffusion model 
+
+add noise 
+
+# Ƹ
+
+# 𝜖 𝜖 
+
+a b
+
+Data collection and processing Figure 1: Data processing of maps in CryoDi ff . a Data preprocessing workflow for training and inference data. b Overview of CryoDi ff . Super-vised training of the conditional di ff usion model, CryoDi ff , is illustrated in the upper section. For each iteration of training, random Gaussian noise is added to the boxes extracted from the simulated ground-truth map, and the network is trained to denoise them conditioned on the corresponding boxes from the experimental map. The inference of CryoDi ff is demonstrated in the lower right section. Reverse di ff usion is initiated from random Gaussian noise, conditioned on experimental boxes. The generated boxes are subsequently resampled and assembled into an enhanced map. The lower left section shows the uncertainty estimation process to assess the local quality of the enhanced map. The reverse di ff usion process is repeated 
+
+M times to generate an ensemble of predictions. Local uncertainty is quantified as the mean absolute error (MAE) between the ensembles and the enhanced map, which are further calibrated to form a confidence map. 
+
+To assess the local reliability of CryoDi ff ’s enhanced results, we propose a metric termed predicted Multi-Di ff usion 100 
+
+Di ff erence (pMDD) based on the inherent uncertainty of the di ff usion process. The e ff ectiveness of this confidence 101 
+
+metric is directly attributed to CryoDi ff ’s paired training strategy, wherein high-quality map regions correlate with 102 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint accurate atomic models to provide consistent signals and minimize uncertainty. Conversely, in regions of low quality 103 
+
+or structural flexibility, it is inconsistencies between the deposited map and the model-derived map that introduce 104 
+
+ambiguity, thus elevating the sampling uncertainty. 105 
+
+The proposed pMDD is initially derived from voxel-wise mean absolute error (MAE) over multiple di ff usion sam-106 
+
+ples, leveraging the intrinsic uncertainty of the di ff usion process. However, we find that the pMDD–resolvability 107 
+
+relationship inferred from raw MAE is influenced by the global resolution of the map, limiting its interpretability 108 
+
+across datasets. To address this issue, we introduce an uncertainty calibration strategy that aligns pMDD with estab-109 
+
+lished measures of map resolvability. After calibration, pMDD provides a normalized and comparable metric across 110 
+
+maps, while preserving the relative ordering of voxel-wise errors. As a result, the calibrated pMDD serves as a reliable 111 
+
+proxy for local resolvability and further captures structural variability arising from flexibility, noise, and potential arti-112 
+
+facts. Note that, after calibration, higher pMDD values correspond to better local resolvability and higher confidence, 113 
+
+aligning its interpretation with Q-score. 114 
+
+To evaluate the reliability of proposed pMDD reliability, we introduced the cryo-EM map of Dnf1 from Saccha-115 
+
+romyces cerevisiae (EMD-31487, 3.81 Å) (Xu et al. , 2022) as a case study (Figure 2). Figure 2a demonstrated the 116 
+
+deposited and CryoDi ff -processed map colored with pMDD values. In the deposited map, the A and N domains ex-117 
+
+hibit poor resolution, attributed to their intrinsic flexibility and residual conformational heterogeneity. This underlying 118 
+
+instability is also evidenced by their reduced local pMDD values, which are significantly lower than those of the stable 119 
+
+transmembrane (TM) domain. Figure 2b illustrates two α-helical segments in the TM domain of Dnf1 at di ff erent 120 
+
+contour level. Unlike EMReady2, which lacks a local quality metric, CryoDi ff provides a pMDD-colored confidence 121 
+
+map that explicitly highlights regions of structural uncertainty. This crucial feature allows researchers to readily dis-122 
+
+tinguish between well-resolved region and potential artifacts or ambiguous densities. A detailed comparison at the low 123 
+
+contour level (black arrows) reveals three key advantages of CryoDi ff ’s pMDD metric. First, an ASN side chain ap-124 
+
+pears erroneously extended in the EMReady2-processed map, representing a feature that can be easily misinterpreted. 125 
+
+In contrast, CryoDi ff assigns moderate uncertainty to this region, suggesting that the feature may be misleading while 126 
+
+interpretation. Second, the ARG side chain remains ambiguous in both maps, while CryoDi ff provides crucial local 127 
+
+information by highlighting lower pMDD near the base of the side chain. Third, the pMDD metric e ff ectively identifies 128 
+
+residual noise densities which persist in both enhanced maps as highly uncertain regions. 129 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+EMReady2  CryoDiff 
+
+N domain 
+
+A domain 
+
+TM domain 
+
+a
+
+Extracellular 
+
+b
+
+ground truth 
+
+0.6 
+
+0.4 
+
+0.2 
+
+high contour level 
+
+low contour level 
+
+> ASN
+> ARG
+
+noise  noise 
+
+> ASN
+> ARG
+
+deposited 
+
+SCC =  0.802 
+
+Q-score 
+
+> pMDD
+> incorrect
+> correct
+> pMDD
+
+Residue number 
+
+dc e
+
+register shift Figure 2: Enhanced result of Dnf1 from Saccharomyces cerevisiae (EMD-31487, 3.81 Å, PDB:7F7F). a The deposited map (left), and the CryoDi ff -processed map (right) which is colored by pMDD values. b Densities of an α-helical segment in the TM domain from the deposited map, simulated map, EMReady2-processed map, and CryoDi ff -processed map, with contour levels set to enclose an equal volume. Black arrows highlight regions in the CryoDi ff map exhibiting high uncertainty. c Correlation between residue-wise Q-score and pMDD values. d Plot of pMDD over residue number. Residues where the sequence of the deposited model di ff ers from that of the ModelAngelo model are highlighted in red, while residues with matching amino acid types between the two models are shown in blue. e Enlarged view of a register-shift region in the deposited PDB model. The CryoDi ff -processed map with pMDD is shown on the left. On the right, the deposited PDB structure is displayed with residues involved in the register shift highlighted in red and the remaining residues in green, while the ModelAngelo-predicted model is shown in purple. 
+
+To further verify pMDD’s capability to reliably reflect the local resolvability of the enhanced map, we quantified 130 
+
+its correlation with the established Q-score values (see Methods 3.9). This analysis yielded a Spearman Correlation 131 
+
+Coe ffi cient (SCC) of 0.802 (Figure 2c), confirming that the calibrated pMDD reliably reflects local resolvability mea-132 
+
+sured by Q-score. Moreover, because pMDD reflects local map quality, regions with high pMDD frequently coincide 133 
+
+with segments susceptible to modeling errors. As shown in Figure 2d, we plotted pMDD values along the residue 134 
+
+index and compared regions where the deposited model and the ModelAngelo model agree or di ff er in amino acid 135 
+
+identity. Residues with matching amino acid types between the two models generally exhibit higher pMDD values. 136 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint In the enlarged segment shown in Figure 2e, the mismatch originates from a modeling error in the deposited PDB 137 
+
+structure, where the residue register is shifted relative to the density. In this region, pMDD are reduced. Although 138 
+
+pMDD is derived purely from the density map and is not intended as a dedicated map–model validation (Terashi et al. ,139 
+
+2022), its ability to highlight locally unreliable map regions can still provide useful cues for identifying segments that 140 
+
+warrant closer inspection during model building process. Importantly, because it does not require an input model, 141 
+
+pMDD is available at an earlier stage of structure interpretation. 142 
+
+Building on the above case study, we further examine the relationship between pMDD and Q-score at both the per-143 
+
+map and global levels (see Supplementary Figure S6 for complementary analysis based on local resolution). As shown 144 
+
+in Figure 3a, the distribution of per-map SCC between pMDD and Q-score shows a consistent trend across individual 145 
+
+maps, with an average SCC of 0.611. We further compare the relationship between uncertainty and Q-score before 146 
+
+and after calibration using 230,752 residues from 143 test maps (Figure 3b). While the uncalibrated MAE exhibits 147 
+
+a weak association with Q-score, the calibrated pMDD shows a markedly clearer and more monotonic relationship. 148 
+
+This result indicates that the proposed calibration e ff ectively removes systematic biases and enables pMDD to serve 149 
+
+as a consistent and interpretable indicator of local quality of enhanced-maps across maps. 150 
+
+To further illustrate the practical relevance of pMDD, we present representative examples linking pMDD to local 151 
+
+reconstruction artifacts and unreliable density features. Although the authors of EMReady have shown that their 152 
+
+enhancement method is generally robust and does not introduce large-scale misleading structures, we observe that both 153 
+
+EMReady2 and CryoDi ff can occasionally introduce spurious side-chain densities at the local level, often appearing 154 
+
+as side chains extending beyond the length supported by the deposited structure. These artifacts are likely associated 155 
+
+with local over-sharpening of the input map or the misinterpretation of noise and reconstruction artifacts. In Figure 3c, 156 
+
+cases from EMD-29012 (3.2 Å, PDB:8FDT) (Ton et al. , 2023) and EMD-9660 (3.37 Å, PDB:6GI0) (You et al. , 2019) 157 
+
+are shown, where pMDD highlights side-chain features (black arrows) that likely correspond to such artifacts in the 158 
+
+enhanced maps produced by EMReady2 and CryoDi ff . In these regions, reduced pMDD values coincide with the 159 
+
+anomalous density features, indicating that pMDD e ff ectively identifies areas where side-chain interpretation may be 160 
+
+unreliable. In Figure 3d, residues from EMD-21375 (3.46 Å, PDB:6VSB) (Wrapp et al. , 2020) are arranged from left 161 
+
+to right according to decreasing pMDD. The ordering is manually curated based on the map appearance at the chosen 162 
+
+contour level for visualization purposes. The corresponding deposited maps exhibit a gradual decline in density clarity, 163 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+EMD -29012 (3.2 Å)  /A:997 -1019  EMD -9660  (3.37  Å)  /D:63 -67 
+
+deposited  ground truth  EMReady2  CryoDiff  deposited  ground truth  EMReady2  CryoDiff 
+
+CryoDiff 
+
++ pMDD 
+
+Contour level 
+
+0.38 
+
+Contour level 
+
+0.19 
+
+(recommended) 
+
+/A:1019 /A:1039  /B:319 /C:920  /C:774  /A:992  /C:1002 
+
+GLN  ARG 
+
+c
+
+a
+
+Mean: 0.611 
+
+Median: 0.643 
+
+spearman correlation coefficient 
+
+> amount
+
+SCC =  -0.240  SCC = 0.809 
+
+Uncalibrated  Calibrated 
+
+Q-score 
+
+> Uncertainty
+> (before/after calibration)
+
+b
+
+d
+
+Per -map correlation 
+
+between  pMDD  and Q -score 
+
+Residue index Figure 3: Extended evaluations on pMDD a Distribution of per-map Spearman correlation coe ffi cients (SCC) between Q-score and pMDD, show-ing the consistency of their association across individual maps. b Two-dimensional density plots comparing the relationship between uncertainty and Q-score before and after calibration across 230,752 residues. c Examples EMD-29012 (3.2 Å, PDB:8FDT) and EMD-9660 (3.37 Å, PDB:6IG0) that pMDD highlight artifact side chains generated by EMReady2 and CryoDi ff . d Examples of side-chain density in EMD-21375 (3.46 Å, PDB:6VSB) with pMDD. The first row shows CryoDi ff -processed maps colored by pMDD. The second and third rows display the deposited maps at di ff erent contour levels. 
+
+transitioning from well-defined side-chain features to weaker or partially missing densities. Notably, an Arginine 164 
+
+residue exhibiting density consistent with alternative conformations (rotameric variability) corresponds to a reduced 165 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint pMDD value. These examples suggest that lower pMDD values are associated with reduced side-chain resolvability or 166 
+
+increased conformational heterogeneity. During model building, atomic structures must balance chemical plausibility 167 
+
+with agreement to the density map. In this context, pMDD provides a useful guide for this trade-o ff : regions with 168 
+
+high pMDD typically correspond to well-resolved density and support confident modeling, whereas regions with low 169 
+
+pMDD often reflect ambiguity in the density and may require further consideration. 170 
+
+2.3 Example results of the CryoDi ff -processed maps 171 
+
+To quantify the performance of CryoDi ff , we measured the map-model compatibility for five representative structures, 172 
+
+with their corresponding PDB models as reference. As shown in Figure 4 and 5, we demonstrate that CryoDi ff -173 
+
+processed maps consistently achieve superior compared to the deposited maps and EMReady2-processed maps. 174 
+
+Figure 4a presents four CryoDi ff -processed maps colored by pMDD valuse with the corresponding deposited maps 175 
+
+on the left, including apolipoprotein N-acyltransferase Lnt from E.coli in complex with FP3 (Smithers et al. , 2023) 176 
+
+(EMD-15790, 3.02 Å, PDB:8B0O), truncated HIV-1 Vif /CBFbeta /A3F complex (Hu et al. , 2019)(EMD-9380, 3.90 177 
+
+Å, 6NIL), Tb ADAT2 /3 deaminase in complex with tRNA (Dolce et al. , 2022)(EMD-15690, 3.60 Å, PDB:8AW3), 178 
+
+and CDTb Pre-Insertion form Modeled (Anderson et al. , 2020)(EMD-20102, 4.20 Å, PDB:6OKR). To quantify this 179 
+
+comparison, the map-model FSC curves are presented in Figure 4c with their respective FS C 0.5 values listed in Figure 180 
+
+4a. 181 
+
+Figure 4b demonstrates that pMDD values faithfully correlate with local map quality, using the deposited PDB 182 
+
+model (PDB: 6NIL) as a reference. The upper panel highlights a β-sheet with poor initial resolution where the strands 183 
+
+remain ambiguous even after CryoDi ff processing. Our method correctly assigns low pMDD values to this area, 184 
+
+signifying high uncertainty. In contrast, the lower panel showcases an adjacent, well-resolved β-sheet. Here, CryoDi ff 185 
+
+further enhances well-defined side-chain features, and the region is consistently assigned high pMDD values overall. 186 
+
+Figure 4d and e show a coil region in EMD-20102 and a nucleic acids region in EMD-15690, respectively. These 187 
+
+examples validate that CryoDi ff significantly enhances the density within these regions, leading to better-connected 188 
+
+main chains and more distinguishable nucleic acid backbones and bases. 189 
+
+We also demonstrate the superiority of CryoDi ff over existing methods through a comprehensive case study of 190 
+
+the prefusion 2019-nCoV spike glycoprotein (EMD-21375, 3.46 Å) (Wrapp et al. , 2020) in Figure 5. Figure 5a 191 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+𝐹𝑆 𝐶 0.5 = 3.48 𝐹𝑆 𝐶 0.5 = 3.97 
+
+EMD -9380 
+
+3.90 Å 
+
+𝐹𝑆 𝐶 0.5 = 3.71 𝐹𝑆 𝐶 0.5 = 4.23 
+
+EMD -15690 
+
+3.60 Å 
+
+𝐹𝑆 𝐶 0.5 = 4.45  𝐹𝑆 𝐶 0.5 = 3.19 
+
+EMD -20102 
+
+4.20 Å 
+
+𝐹𝑆 𝐶 0.5 = 1.76 𝐹𝑆 𝐶 0.5 = 3.79 
+
+EMD -15790 
+
+3.02 Å 
+
+a b
+
+d
+
+deposited  CryoDiff 
+
+EMD -15790 
+
+> map -model  FSC
+
+EMD -9380 
+
+> map -model  FSC
+
+EMD -20102 
+
+> map -model  FS
+
+c
+
+EMD -15690 
+
+> map -model  FSC
+
+eFigure 4: Four examples of CryoDi ff -processed maps. a The deposited maps (left), and the CryoDi ff -processed maps (right) which are colored by pMDD values. b Comparison between the deposited map and the CryoDi ff -processed map over two β-sheet regions in truncated HIV-1 complex (EMD-9380, 3.90 Å), with the reference PDB model (PDB:6NIL) shown in green. c Map-model FSC curves for the deposited and CryoDi ff -processed maps shown in a. d Comparison between the deposited map and the CryoDi ff -processed map over a coil region in EMD-20102. e
+
+Comparison between the deposited map and the CryoDi ff -processed map over a nucleic acids region in EMD-15690. 
+
+presents the deposited map (left), and the CryoDi ff -processed map (right) colored in pMDD value for EMD-21375. 192 
+
+As presented in Figure 5c, the map-model FSC curves show that the CryoDi ff -processed map achieves a resolution of 193 
+
+2.69 Å at FS C 0.5, outperforming both the deposited map (4.47 Å) and EMReady2-processed map (3.18 Å). Figure 5b 194 
+
+compares the density for N-acetyl-D-glucosamine (NAG) in maps processed by EMReady2 and CryoDi ff at various 195 
+
+contour levels. NAG is a critical component for stabilizing the spike protein and forming the glycan shield that 196 
+
+modulates immune recognition (Huang et al. , 2022). CryoDi ff (gray) provides clearer density for the NAG residue 197 
+
+than EMReady2 (red) across multiple contour levels, improving the visibility of glycan features that are essential for 198 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint CryoDiff 
+
+EMReady2 
+
+contour level 
+
+ba
+
+d
+
+c
+
+> CryoDiff EMReady2
+
+EMD -21375 
+
+> map -model FSC
+
+Figure 5: Improvement analysis for Prefusion 2019-nCoV spike glycoprotein (EMD-21375, 3.46 Å, PDB:6VSB). a The deposited map (left), and the CryoDi ff -processed map (right) which is colored in pMDD values. b Comparison of local maps enhanced by EMReady2 (red) and CryoDi ff 
+
+(gray), displayed at various contour levels. c Map-model FSC curves for EMD-21375. d Comparison of the S1 subunit density from EMD-21375 enhanced by EMReady2 and CryoDi ff . The reference PDB model is shown in green, and the de novo modeling result by ModelAngelo is shown in pink. 
+
+structural interpretation. Figure 5d demonstrates CryoDi ff ’s superior performance in improving backbone trace quality 199 
+
+compared to EMReady2 within three regions of the S1 subunit domains. Specifically, in the EMReady2-processed 200 
+
+map, the backbone density displays multiple incorrect connections and breaks (black arrows), leading to a fragmented 201 
+
+de novo model (pink). In contrast, the CryoDi ff -processed map yields a continuous and correctly connected backbone 202 
+
+density that closely aligns with the reference PDB model (green), thereby enabling the generation of a more complete 203 
+
+and accurate de novo model by ModelAngelo (build no seq). 204 
+
+2.4 Quantitative evaluation against other methods 205 
+
+To quantitatively validate the capability of CryoDi ff in cryo-EM map enhancement, we calculated various model-map 206 
+
+correlation metrics for both primary and half-map sets. Here, primary maps refer to the final post-processed maps 207 
+
+deposited in the EMDB, while half-maps represent independent reconstructions from separate halves of the particle 208 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint dataset and the average maps were used as input. We benchmarked CryoDi ff against two state-of-the-art enhancement 209 
+
+methods, CryoTEN and EMReady2, on two separate datasets comprising 143 primary maps and 80 half-map pairs. 210 
+
+As presented in Table 1 and 2, CryoDi ff consistently outperforms competing approaches across all evaluation metrics, 211 
+
+including map-model FS C 0.5, Q-score(P), Q-score(N), CC box , CC mask , and CC peaks .212 
+
+> Table 1: Map–model correlation of the deposited and processed maps on 143 primary maps
+
+Method FS C 0.5 Q-score(P) Q-score(N) CC box CC mask CC peaks 
+
+deposited 4.981 ±3.14 0.531 ±0.15 0.466 ±0.15 0.719 ±0.10 0.774 ±0.09 0.626 ±0.11 CryoTEN 3.921 ±1.71 0.531 ±0.17 0.457 ±0.16 0.847 ±0.10 0.780 ±0.11 0.731 ±0.16 EMReady2 3.401 ±1.83 0.589 ±0.17 0.507 ±0.17 0.854 ±0.07 0.791 ±0.10 0.745 ±0.14 
+
+CryoDi ff 3.045 ±1.75 0.608 ±0.17 0.523 ±0.17 0.868 ±0.07 0.816 ±0.07 0.778 ±0.11   
+
+> All values are reported as mean ±standard deviation across the test dataset.
+
+In terms of map-model FS C 0.5 shown in Table 1 and 2, CryoDi ff achieved an average value of 3.044 Å across the 213 
+
+primary map set, representing a significant improvement over the deposited maps (by 1.937 Å), CryoTEN (by 0.877 214 
+
+Å), and EMReady2 (by 0.356 Å). Furthermore, CryoDi ff attained a median FS C 0.5 of 2.42 Å, surpassing CryoTEN 215 
+
+and EMReady2 by 1.07 Å and 0.63 Å, respectively. For the half-map set, CryoDi ff yielded an average FS C 0.5 value 216 
+
+of 2.932 Å, showing consistent improvement over all baselines. Specifically, CryoDi ff surpassed the deposited maps 217 
+
+by 2.931 Å, CryoTEN by 0.985 Å, and EMReady2 by 0.337 Å. Additionally, CryoDi ff achieved a median map-model 218 
+
+FS C 0.5 of 2.26 Å, surpassing CryoTEN and EMReady2 by 1.28 Å and 0.70 Å, respectively. These improvements 219 
+
+in map–model FS C 0.5 values indicate that CryoDi ff recovers richer high-frequency details and yields better-resolved 220 
+
+structural features, demonstrating its robustness across di ff erent datasets. 221 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint Table 2: Map-model correlation of the deposited and processed maps on 80 pairs of half maps
+
+Method FS C 0.5 Q-score(P) Q-score(N) CC box CC mask CC peaks 
+
+deposited 4.940 ±2.47 0.504 ±0.14 0.417 ±0.15 0.708 ±0.12 0.735 ±0.10 0.597 ±0.15 CryoTEN 3.917 ±1.67 0.524 ±0.16 0.430 ±0.16 0.822 ±0.10 0.748 ±0.12 0.705 ±0.16 EMReady2 3.269 ±1.57 0.590 ±0.16 0.476 ±0.17 0.842 ±0.08 0.785 ±0.09 0.739 ±0.14 
+
+CryoDi ff 2.932 ±1.62 0.610 ±0.16 0.494 ±0.17 0.857 ±0.08 0.809 ±0.08 0.7760.12   
+
+> All values are reported as mean ±standard deviation across the test dataset.
+
+We then employed the Q-score metric to measure atom resolvability in Cryo-EM maps (Pintilie et al. , 2020). As 222 
+
+shown in Table 1 and 2, CryoDi ff successfully improves the Q-score for both proteins and nucleic acids. Specifically, 223 
+
+on the primary map set, the average Q-score improved significantly from 0.531 to 0.608 for proteins (Q-score(P)) and 224 
+
+from 0.466 to 0.523 for nucleic acids (Q-score(N)). Similarly, for the half-map set, the average Q-score(P) increased 225 
+
+from 0.504 to 0.610, while the average Q-score(N) rose from 0.417 to 0.494. These enhancements suggest that 226 
+
+CryoDi ff eff ectively recovers density features, leading to more interpretable maps for both proteins and nucleic acids. 227 
+
+We also report the real-space correlation values between model-derived maps and enhanced maps (Afonine et al. ,228 
+
+2018) in Table 1 and 2. Three distinct correlation coe ffi cient metrics were used to evaluate CryoDi ff ’s performance, 229 
+
+including CC box , CC mask , and CC peaks . CryoDi ff demonstrated substantial improvements across all these metrics. On 230 
+
+the primary map set, the mean CC box , CC mask and CC peaks of the CryoDi ff processed maps reached 0.868, 0.816 231 
+
+and 0.778 respectively, representing significant improvements over the deposited maps of 0.719, 0.774, and 0.626. 232 
+
+Similarly, on the half-map set, CryoDi ff achieves 0.857, 0.809 and 0.776 for CC box , CC mask and CC peaks , respectively. 233 
+
+These results also reflect a substantial improvement over the deposited maps of 0.708, 0.735, and 0.597, respectively. 234 
+
+These results demonstrate that CryoDi ff improves the quality of both primary and half maps across all metrics, 235 
+
+with slightly greater gains observed for primary maps (see Supplementary Figure S1). 236 
+
+2.5 Improvement in map interpretability 237 
+
+The ultimate goal of density modification is to facilitate the construction of atomic models. To quantify how map 238 
+
+enhancement improves the accuracy of downstream de novo atomic modeling, we evaluated models built from maps 239 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+processed by CryoDi ff and other methods based on residue coverage and sequence matching results. 240 
+
+Specifically, we performed chain-wise model building using the traditional automated tool phenix.map to model. 241 
+
+And there are 651 protein chains that were first extracted from 143 primary density maps using phenix.map box. 242 
+
+phenix.map to model was then employed to automatically build atomic structures for these extracted chains. Finally, 243 
+
+the built chains were compared with their corresponding deposited structures from the PDB using phenix.chain comparison 244 
+
+to obtain the evaluation metrics. 245 
+
+As illustrated in Table 3, CryoDi ff -processed maps consistently yielded superior atomic models. CryoDi ff achieved 246 
+
+an average residue coverage of 77.0% and sequence matching of 48.6%. This is significantly higher than the 59.9% 247 
+
+residue coverage and 31.7% sequence matching obtained from the deposited maps. Furthermore, CryoDi ff consis-248 
+
+tently outperformed other benchmark methods, including CryoTEN (64.3% residue coverage, 35.1% sequence match-249 
+
+ing) and EMReady2 (74.7% residue coverage, 45.2% sequence matching). This superior performance demonstrates 250 
+
+CryoDi ff ’s e ff ectiveness in improving the interpretability of cryo-EM density maps for better automated model build-251 
+
+ing. 252 
+
+> Table 3: Comparison of map interpretability by phenix.map to model
+
+Residue coverage(%) Sequence matching(%) deposited 59.943 ±24.77 31.705 ±26.92 CryoTEN 64.311 ±24.3 35.149 ±29.15 EMReady2 74.712 ±20.6 45.203 ±30.7 
+
+CryoDi ff 77.017 ±18.99 48.562 ±31.59   
+
+> All values are reported as mean ±standard deviation across the test dataset.
+
+We further demonstrate that CryoDi ff -processed maps substantially improve the completeness and accuracy of 253 
+
+atomic models generated by deep-learning-based methods (Figure 6). Specifically, we employed ModelAngelo, a 254 
+
+state-of-the-art de novo modeling method. To adapt ModelAngelo to the density characteristics of CryoDi ff -processed 255 
+
+maps, we first fine-tuned its amino-acid type prediction module. We then applied this fine-tuned model to a test set of 256 
+
+127 cryo-EM maps. As shown in Figure 6a, models built from CryoDi ff -processed maps exhibit higher residue cov-257 
+
+erage while maintaining comparable precision relative to those built from deposited maps and EMReady2-processed 258 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+ca
+
+> deposited
+> CryoDiff
+
+Residue coverage  Residu e precision    
+
+> 76.0 81.6 98.4 98.2
+> Percentage(%)  77.4
+> 98.4
+> EMReady2
+
+b
+
+> processed map
+
+Completeness (%) 
+
+deposited 
+
+> CryoDiff
+> EMReady2
+> processed map
+
+Amino acid accuracy (%) 
+
+deposited 
+
+> CryoDiff
+> EMReady2
+
+EMD -36607 
+
+comp.: 75.1%  comp.:76.5%  comp.: 83.0% 
+
+comp.: 64.5%  comp.:56.7%  comp.: 71.2% 
+
+EMD -32347 
+
+deposited  EMReady2  CryoDiff 
+
+d
+
+deposited  EMReady2  CryoDiff Figure 6: Improved ModelAngelo-built models via CryoDi ff . a Violin plot comparing the backbone recall and precision ModelAngelo-built models using deposited, EMReady2-processed and CryoDi ff -processed maps. b Scatter plots comparing the completeness of ModelAngelo-built models using deposited EMReady2-processed and CryoDi ff -processed maps. c Scatter plots comparing the amino acid accuracy of ModelAngelo-built models using deposited EMReady2-proceesed and CryoDi ff -processed maps. d Examples of de novo models built from the deposited (blue, left), EMReady2-processed (pink, middle), and CryoDi ff -processed maps (purple, right). PDB models are shown as silhouettes. Enlarged regions for both examples are shown on the far right. 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint maps. On average, residue coverage increased from 76.0% for deposited maps to 77.4% for EMReady2-processed 259 
+
+maps and further to 81.6% for CryoDi ff -processed maps, while backbone precision remained largely unchanged 260 
+
+(98.4%, 98.4%, and 98.2%, respectively). We also assessed model completeness, a metric integrating both back-261 
+
+bone recall and amino acid accuracy. As shown in Figure 6b,CryoDi ff consistently improved performance across most 262 
+
+test cases, increasing the mean completeness from 73.8% for deposited maps to 75.5% for EMReady2-processed maps 263 
+
+and further to 79.3% for CryoDi ff -processed maps. In terms of sequence identification presented in Figure 6c, models 264 
+
+derived from CryoDi ff -processed maps achieved a mean amino acid accuracy of 96.7%, comparable to the 96.8% 265 
+
+obtained with EMReady2-processed maps and slightly higher than the 95.9% obtained with deposited maps. Fur-266 
+
+thermore, models built from processed maps also exhibited improved geometric accuracy. The C α RMSD decreased 267 
+
+from 0.632 Å for deposited maps to 0.612 Å for EMReady2-processed maps and remained comparable at 0.616 Å for 268 
+
+CryoDi ff -processed maps, while backbone RMSD was reduced from 0.710 Å to 0.695 Å and 0.705 Å , respectively. 269 
+
+Beyond the high-confidence pruned structures, we also analyzed the raw output structures, which are critical for iden-270 
+
+tifying ambiguous regions and guiding manual refinement. Full evaluations for both structure types are detailed in 271 
+
+Supplementary Table 3. Representative examples are shown in Figure 6d. For both the glucagon receptor bound 272 
+
+to glucagon and β-arrestin 1 (Chen et al. , 2023) (EMD-36607, 3.3 Å, PDB: 8JRV) and the SERCA2b (Zhang et al. ,273 
+
+2022) (EMD-32347, 3.4 Å, PDB: 7W7T), models built from CryoDi ff -processed maps exhibit improved completeness 274 
+
+relative to those derived from deposited and EMReady2-processed maps. 275 
+
+## 3 Method 276 
+
+3.1 Data collection 277 
+
+To establish a benchmark dataset for model training and evaluation, we curated a collection of cryo-EM map-model 278 
+
+pairs from the EMDB and PDB databases, restricting to entries with resolution better than 7 Å. To ensure a high 279 
+
+standard of data quality and relevance, we implemented two critical data filtering criteria. First, maps exhibiting a 280 
+
+model–map correlation coe ffi cient CC box below 0.5 were excluded. Second, to further reduce redundancy, we utilized 281 
+
+mmseqs.easy-linclust (Hauser et al. , 2016) to cluster the remaining entries with a chain-level sequence identity thresh-282 
+
+old of 30%. This process finally yielded 980 non-redundant entries, which were randomly partitioned into training 283 
+
+(737), validation (100), and testing (143) sets. For the test data, all 143 entries constitute the primary test set, while a 284 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+subset of 80 entries with publicly available half-maps forms the half-map test set. Notably, complexes containing RNA 285 
+
+components were explicitly retained. The final dataset encompasses a resolution range of 1.8 Å to 6.8 Å, covering 286 
+
+both high- and medium-resolution regimes (see Supplementary Figure S5). All entries included in this study were 287 
+
+collected up to May 2025. 288 
+
+3.2 Data preprocessing 289 
+
+To ensure data consistency, the experimental maps are first resampled to a uniform voxel size of 1 Å through cubic 290 
+
+interpolation. Subsequently, negative densities are truncated to zero, and the volumes are normalized to the [0,1] 291 
+
+scaled against the 99.999th percentile. Ground-truth simulated maps ρ(x) are then computed from the corresponding 292 
+
+atomic models on the aligned experimental grids x using the molmap command in UCSF ChimeraX (Pettersen et al. ,293 
+
+2004), which can be formulated as: 294 
+
+ρ(x) =
+
+> M
+
+X
+
+> i=1
+
+θZi e−k|x−ri|2
+
+(1) where Zi and ri is the atomic number and the position vector of the i-th heavy atom among the total of M heavy atoms, 295 
+
+k = (π/ 1.2 + 0.6R)2 with R is the reported resolution of the experimental maps and the scaling factor θ is defined as 296 
+
+θ = (k/π )1.5. Finally, these aligned map pairs were first cropped into boxes of the size 60 3 with a stride of 30, followed 297 
+
+by a random crop to a final size of 48 3 for model training. Boxes containing no positive values were excluded. 298 
+
+3.3 Network architecture 299 
+
+We employed a conditional di ff usion model (Rombach et al. , 2022b) to enhance cryo-EM density maps, leveraging its 300 
+
+ability to overcome the blurring e ff ects of conventional denoising and recover fine structural details. Inspired by LDM 301 
+
+(Rombach et al. , 2022a), we adopted its time-conditional 2D U-Net backbone and extended it into time- and map-302 
+
+conditional 3D U-Net architecture to serve as our reverse denoising network. The overview of CryoDi ff is presented 303 
+
+in Figure 1. This 3D U-Net network consists of a hierarchical architecture comprising four encoder stages, a central 304 
+
+bottleneck, and four decoder stages, bridged by skip connections. To balance feature extraction capabilities, residual 305 
+
+convolutional blocks are applied across all scales for local modeling, whereas global attention blocks are selectively 306 
+
+integrated at deeper stages to capture long-range dependencies between the noisy input and the conditioning cryo-EM 307 
+
+densities. The detail of the architecture is shown in Supplementary Figure S4. 308 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+3.4 Network training 309 
+
+CryoDi ff is built upon a denoising di ff usion framework that involves a fixed forward process that progressively adds 310 
+
+noise to the original signal, and a learned reverse process. This reverse process is trained to iteratively recover the 311 
+
+target signal, guided by the di ff usion time step t, and other conditional information. For the map enhancement task, 312 
+
+CryoDi ff conditions on the experimental box xc to recover the high-resolution signal, represented by the simulated box 313 
+
+x0.314 
+
+The forward process generates a noisy sample xt from the clean data x0 at the given timestep t. This is achieved by 315 
+
+sampling a noise variable ϵ from a standard Gaussian distribution, ϵ ∼ N (0 , I), with the same dimensionality as x0.316 
+
+Thus, the xt can be linearly expressed as: 317 
+
+xt = √ ¯αt · x0 + p1 − ¯αt · ϵ, 
+
+¯αt =
+
+> t
+
+Y
+
+> s=1
+
+(1 − βs),
+
+(2) where βt is the noise schedule increasing linearly from βstart = 0.00085 to βend = 0.025 over T di ff usion timesteps 318 
+
+(T = 1000). 319 
+
+The reverse process aims to predict the noise component ˆ ϵ embedded within the noisy box xt at an arbitrary 320 
+
+timestep t. It is performed by a 3D U-Net model, denoted as G(·), which is conditioned on the noisy simulated box xt,321 
+
+experimental box xc and random timestep t, which can be formulated as: 322 
+
+ˆϵt = G xt, xc, t. (3) Inspired by EMReady, we employ a hybrid loss function LG, which is the sum of Smooth L1 loss Lsmooth and 323 
+
+the SSIM loss Lssim , to calculate the di ff erence between ground-truth noise ϵ and the predicted noise ˆ ϵt at an arbitrary 324 
+
+timestep t.325 
+
+The Smooth L1 loss Lsmooth focuses on local di ff erence of ϵ and ˆ ϵt, and is formulated as: 326 
+
+Lsmooth (ˆ ϵt, ϵ ) =
+
+> N
+
+X
+
+> iN
+
+X
+
+> jN
+
+X
+
+> k
+
+ℓi, j,k
+
+N3 , (4) where N is the side length of the output box ( N = 48) and ℓi, j,k is the Smooth L1 distance between ground-truth ϵ and 327 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+predicted ˆ ϵt at position ( i, j, k): 328 
+
+ℓi, j,k =
+
+
+
+> 12
+
+ ˆϵt(i, j, k) − ϵ(i, j, k)2, |ˆϵt(i, j, k) − ϵ(i, j, k)| < 1,
+
+|ˆϵt(i, j, k) − ϵ(i, j, k)| − 12 , otherwise .
+
+(5) The SSIM loss Lssim calculates the global di ff erence of ϵ and ˆ ϵ, and is formulated as: 329 
+
+Lssim (ˆ ϵt, ϵ ) = 1 − 2σˆϵt ϵ + δσ2ˆϵt + σ2 
+
+> ϵ
+
++ δ , (6) where δ = 10 −6, σˆϵt ϵ denotes the covariance between ˆ ϵt and ϵ, σˆϵt and σϵ represent the standard deviations of ˆ ϵt and ϵ,330 
+
+respectively. 331 
+
+3.5 Conditional enhanced map inference 332 
+
+The conditional generation of the enhanced map is guided by the input experimental map and performed via a multi-333 
+
+stage inference pipeline. First, the experimental map is decomposed into overlapping boxes of size 48 3 with a stride 334 
+
+of 16. To improve computational e ffi ciency, boxes are subsequently excluded from processing if their maximum voxel 335 
+
+value does not exceed 3 σ, where σ is the root-mean-square value of the experimental map. For each remaining box, 336 
+
+the enhanced result is then generated using a denoising di ff usion implicit model (DDIM) sampler (Song et al. , 2020). 337 
+
+To accelerate inference, the sampler operates on a sparse subsequence τ = {τ1, . . . , τ S } of S timesteps ( S = 20). This 338 
+
+subsequence τ is constructed by uniformly sampling from the original T timesteps of the forward process. The reverse 339 
+
+di ff usion process R(·) begins with the random noise ˆ xτS sampled from a Gaussian distribution and is conditioned on 340 
+
+the experimental box xc, which can be formulated as: 341 
+
+ˆx0 = R( ˆ xτS , xc, τ ). (7) This process is executed iteratively over the subsequence τ, and can be formulated as: 342 
+
+ˆxτs−1 = p ¯ατs−1
+
+
+
+ˆxτs − p1 − ¯ατs G  ˆxτs , xc, τ s
+
+
+
+√ ¯ατs
+
+ + p1 − ¯ατs−1 G  ˆxτs , xc, τ s
+
+, s = 1, 2, · · · , S . (8) Finally, all resulting enhanced boxes ˆ x0 are assembled into the full-sized enhanced map by averaging the overlap-343 
+
+ping region. 344 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+3.6 Local confidence assessment with pMDD 345 
+
+A comprehensive post-processing workflow should not only produce high-quality enhanced density maps but also 346 
+
+provide quantitative assessments of their reliability, which are critical for guiding subsequent model building and 347 
+
+validating structural interpretations. To address this need, we introduce a novel voxel-wise metric, the predicted 348 
+
+Multi-Di ff usion samples Di ff erence (pMDD). This metric is specifically designed to leverage the inherent uncertainty 349 
+
+of the reverse di ff usion process as an indicator for model confidence, thereby o ff ering a direct measure of local map 350 
+
+quality, which is further refined through an uncertainty calibration procedure to improve its interpretability. 351 
+
+This metric measures the local consistency and stability of the inference results by calculating the mean absolute 352 
+
+error (MAE) between the multiple uncertainty boxes and the enhanced box ˆ x0. Specifically, CryoDi ff first utilizes its 353 
+
+reverse process to generate a high-quality assembly result, which serves as both the reference map for comparison 354 
+
+and the final enhanced map. Next, the original experimental map and the final enhanced map are partitioned into 355 
+
+overlapping boxes xc and ˆ x0 of size 48 3 using a stride of 24. For each experimental box xc, it then generates another 356 
+
+M (M = 5, see Supplementary Figure S9) inferred boxes ˆ xi 
+
+> 0
+
+(i = 1, · · · , M) based on M di ff erent random noise ˆ xi
+
+> τS
+> 357
+
+sampled from a Gaussian distribution. The initial (uncalibrated) pMDD is defined as: 358 
+
+pMDD( xc) =
+
+PMi=1 | ˆxi 
+
+> 0
+
+− ˆx0|
+
+M ,
+
+ˆxi 
+
+> 0
+
+=R( ˆ xi 
+
+> τS
+
+, xc, τ )(9) To improve the comparability and interpretability of pMDD across maps with di ff erent global resolutions, we fur-359 
+
+ther perform an uncertainty calibration procedure. Specifically, residue-wise (uncalibrated) pMDD are first computed 360 
+
+and paired with local Q-score, which serve as a reference for structural resolvability. To account for the influence 361 
+
+of global resolution, the dataset is partitioned into multiple resolution bins. Within each bin, isotonic regression is 362 
+
+applied to learn a monotonic mapping from raw pMDD to the corresponding Q-score. The learned mappings (see 363 
+
+Supplementary Figure S8) are then used to transform raw pMDD values into calibrated score. This calibration yields 364 
+
+the final normalized and resolution-consistent pMDD to be comparable across datasets while preserving the relative 365 
+
+ordering of voxel-wise MAE. 366 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+3.7 Evaluation metrics 367 
+
+We utilize various model-map corelation metrics including map-model FS C 0.5, Q-score, CC box , CC mask and CC peaks 368 
+
+to verify the superiority of CryoDi ff .369 
+
+Map-model FS C 0.5 The map-model Fourier Shell Correlation ( FS C ) provides a quantitative measure of similarity 370 
+
+between the model-derived map and the enhanced map as a function of spatial frequency, with the resolution of this 371 
+
+match conventionally defined by the point where the FSC curve intersects the 0.5 threshold (B¨ ottcher et al. , 1997). 372 
+
+Q-score Q-score (Pintilie et al. , 2020) is a quantitative metric that characterizes the resolvability of individual 373 
+
+atoms in cryo-EM maps. It is defined as the correlation coe ffi cient between two vectors, denoted as u and v, which 374 
+
+represent the density values sampled from the input map and the corresponding simulated map in the local neighbor-375 
+
+hood of a given atom, respectively: 376 
+
+Q = ⟨u − ¯u, v − ¯v⟩∥u − ¯u∥ ∥ v − ¯v∥ . (10) Once per-atom Q-score were computed, we determined the average Q-score(P) and Q-score(N) values separately for 377 
+
+all protein atoms and for all nucleic acid atoms within the entry. And the Q-score is calculated by the MapQ plugin in 378 
+
+UCSF Chimera (Pettersen et al. , 2004). 379 
+
+CC calculation The map-model real-space cross-correlation (CC) (Afonine et al. , 2018) aims to quantify how 380 
+
+well the model fits the experimental map. It is calculated between the experimental (enhanced) map ρ1(i) and a model-381 
+
+derived map ρ2(i), which is first generated from the atomic coordinates and then sampled onto the identical grid i as 382 
+
+the experimental map. The process of CC calculation can be formulated as: 383 
+
+CC (ρ1, ρ 2) =
+
+X
+
+> i
+
+ρ1(i) − ¯ρ1
+
+2
+
+ 
+
+> −1/2
+
+X
+
+> i
+
+ρ2(i) − ¯ρ2
+
+2
+
+
+
+> −1/2
+
+·
+
+X
+
+> n
+
+ρ1(i) − ¯ρ1
+
+  ρ2(i) − ¯ρ2
+
+ , (11) where ¯ ρ1 and ¯ ρ2 is the mean value of ρ1, ρ 2. In this work, we utilize CC box , CC mask , and CC peaks to quantify the quality 384 
+
+of the enhanced map with phenix.map model cc tool. Specifically, CC box assesses global map completeness, CC mask 385 
+
+focuses on local model accuracy, and CC peaks targets the robust consistency of the strongest signal peaks. Each metric 386 
+
+is calculated separately from the filtered grid n based on its specific target. 387 
+
+Residue coverage Residue coverage (Terashi and Kihara, 2018) is used to evaluate the improvement in modeling 388 
+
+accuracy provided by an enhanced map. Specifically, it quantifies the percentage of residues in the reference model 389 
+
+whose C α atoms are located within 3 Å of their corresponding C α atoms in the built model. 390 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+Sequence matching Sequence matching is used to evaluate the accuracy of amino acid type assignment in the 391 
+
+built model. Specifically, it quantifies the percentage of matched residues whose amino acid types in the built model 392 
+
+are identical to those in the reference model. 393 
+
+Residue precision In contrast to residue coverage, residue precision is used to assess whether post-processing 394 
+
+introduces structural artifacts during the model-building process. It quantifies the percentage of residues in the built 395 
+
+model that have a matching C α atom within 3 Å of the reference model. 396 
+
+Completeness Completeness integrates backbone recall with amino acid assignment accuracy. First, the Hungar-397 
+
+ian algorithm is employed to establish optimal one-to-one correspondences between the built and reference models. 398 
+
+Let n denote the total number of residues in the reference model, and p denote the number of matched residue pairs 399 
+
+with identical amino acid types. Completeness is thus defined as the fraction of reference residues that are correctly 400 
+
+recovered in both position and type (i.e., p/n). 401 
+
+Amino acid accuracy Amino acid accuracy is used to quantify the correctness of amino acid type assignment 402 
+
+in the built model relative to the reference model. It is computed over all matched residues (i.e. p/m). This metric 403 
+
+measures the consistency of residue type prediction between the reconstructed and reference structures. 404 
+
+Cα RMSD The C α root-mean-square deviation (RMSD) measures the geometric accuracy of the built model 405 
+
+relative to the reference model, and can be calculated as: 406 
+
+RMSD =
+
+vt 1
+
+m
+
+> m
+
+X
+
+> i=1
+
+r built  
+
+> i
+
+− r ref 
+
+> i
+> 2
+
+, (12) where r built  
+
+> i
+
+and r ref  
+
+> i
+
+denote the coordinates of the C α atoms of the i-th residue in the built model and the reference 407 
+
+model, respectively. 408 
+
+3.8 Network implementation 409 
+
+The proposed network was implemented in PyTorch 1.13.1 (CUDA 12.2) and trained on two NVIDIA A100 GPUs. 410 
+
+To mitigate overfitting and enhance model generalization, data augmentation techniques, including random cropping 411 
+
+and rotation, were applied during training. The network was optimized using the AdamW optimizer with a batch size 412 
+
+of 32 and an initial learning rate of 10 −4. The learning rate was dynamically reduced by 10% upon a validation loss 413 
+
+plateau of six epochs to ensure stable convergence. The model was totally trained for 300 epochs. 414 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+3.9 The calculation of per-residue pMDD 415 
+
+To investigate the relationship between pMDD and Q-score and modeling error, we derived the residue-wise pMDD 416 
+
+for a given structure. For Figure 2c and 3a, the pMDD for a residue is defined as the mean value within a mask 417 
+
+obtained by intersecting a 5 Å sphere centered at the C α atom with a molecular mask from the enhanced map (contour 418 
+
+level 0.1). We further evaluated the robustness of this definition using di ff erent sphere radii (see Supplementary Figure 419 
+
+S7). For Figure 2d, the pMDD for a residue is defined as the mean value within a mask obtained as the union of 2 Å 420 
+
+spheres centered at all backbone atoms. 421 
+
+## 4 Discussion 422 
+
+In this work, we proposed a di ff usion-based model named CryoDi ff for Cryo-EM map post-processing. The evalua-423 
+
+tion results demonstrate that CryoDi ff consistently outperforms existing methods across multiple metrics. Specifically, 424 
+
+maps processed by CryoDi ff exhibit superior backbone continuity and better-resolved side-chain density features, 425 
+
+thereby directly facilitating more accurate downstream structural modeling. The observed improvements underscore 426 
+
+the intrinsic advantages of di ff usion-based modeling. While conventional feed-forward methods often su ff er from 427 
+
+over-smoothing and the generation of artifactual features, CryoDi ff overcomes these limitations by leveraging the it-428 
+
+erative and probabilistic sampling inherent in di ff usion processes. This allows the model to progressively reconstruct 429 
+
+plausible density distributions conditioned on the experimental data. Consequently, this generative mechanism ef-430 
+
+fectively mitigates over-smoothing and reduces the risk of artifacts, providing a more faithful representation of the 431 
+
+underlying biological structures. 432 
+
+Furthermore, CryoDi ff provides a voxel-wise reliability metric, termed pMDD, which is derived from the mean ab-433 
+
+solute error (MAE) across multiple di ff usion samples and subsequently calibrated to correct for resolution-dependent 434 
+
+biases, enabling a more interpretable measure of local resolvability. While we have demonstrated its e ffi cacy in high-435 
+
+lighting regions susceptible to misinterpretation and its correlation with local quality metrics such as Q-score, certain 436 
+
+limitation should be considered. Namely, pMDD is influenced by multiple factors—including intrinsic structural flex-437 
+
+ibility, local resolution, and training data representation—rather than a single source of uncertainty. Consequently, a 438 
+
+high pMDD value indicates general uncertainty but does not determine its specific cause. 439 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+Despite its superior performance, CryoDi ff presents certain limitations. First, the model may exhibit limited e ffi -440 
+
+cacy in resolving features underrepresented in the current training data, such as small ligands, glycosylation sites, and 441 
+
+metal-coordination spheres (see Supplementary Figure S2a). Additionally, CryoDi ff may occasionally misidentify ex-442 
+
+tremely weak density signals as noise, potentially leading to the loss of real structural information (see Supplementary 443 
+
+Figure S2b). To mitigate this risk, manual inspection and cross-validation against the raw experimental map remain 444 
+
+essential. Finally, the current implementation is computationally intensive (see Supplementary Figure S3). Thus, our 445 
+
+future work will focus on optimizing inference strategies and exploring di ff usion distillation techniques to enhance 446 
+
+computational e ffi ciency for large-scale applications. 447 
+
+## 5 Availability of data and materials 448 
+
+The data that support this study are available from the corresponding authors upon request. The data used as examples 449 
+
+are available from the EMDB and PDB. The source data underlying Table 1, 2, 3 and Supplementary Tables S1 are 450 
+
+provided as Source Data files. 451 
+
+## 6 Funding 452 
+
+This research was supported by the National Key Research and Development Program of China [2021YFF0704300], 453 
+
+the Fundamental Research Funds for the Central Universities, the Dubai Future Foundation [Award No. 2024CANAD-454 
+
+MES-061], and the Natural Science Foundation of Ningxia Province [2026AAC040016], the National Natural Science 455 
+
+Foundation of China [W2511070, 624B2089, 32241027, 62472034], and the Natural Science Foundation of Shandong 456 
+
+Province [ZR2023YQ057]. 457 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint
+
+## References 458 
+
+Afonine, P. V., Klaholz, B. P., Moriarty, N. W., Poon, B. K., Sobolev, O. V., Terwilliger, T. C., Adams, P. D., and Urzhumtsev, A. (2018). New tools for the analysis and 459 
+
+validation of cryo-em maps and atomic models. Biological Crystallography , 74 (9), 814–840. 460 
+
+Anderson, D. M., Sheedlo, M. J., Jensen, J. L., and Lacy, D. B. (2020). Structural insights into the transition of clostridioides di ffi cile binary toxin from prepore to pore. 461 
+
+Nature microbiology , 5(1), 102–107. 462 
+
+Berman, H. M., Westbrook, J., Feng, Z., Gilliland, G., Bhat, T. N., Weissig, H., Shindyalov, I. N., and Bourne, P. E. (2000). The protein data bank. Nucleic acids 463 
+
+research , 28 (1), 235–242. 464 
+
+B¨ ottcher, B., Wynne, S., and Crowther, R. (1997). Determination of the fold of the core protein of hepatitis b virus by electron cryomicroscopy. Nature , 386 (6620), 465 
+
+88–91. 466 
+
+Cao, H., Li, T., He, J., and Huang, S. (2025). Bps2025-emready2: A general model for improving cryo-em and cryo-et maps by heterogeneity-aware deep learning. 467 
+
+Biophysical Journal , 124 (3), 625a. 468 
+
+Chen, K., Zhang, C., Lin, S., Yan, X., Cai, H., Yi, C., Ma, L., Chu, X., Liu, Y., Zhu, Y., et al. (2023). Tail engagement of arrestin at the glucagon receptor. Nature ,469 
+
+620 (7975), 904–910. 470 
+
+Dolce, L., Zimmer, A., Tengo, L., et al. (2022). Structural basis for sequence-independent substrate selection by eukaryotic wobble base trna deaminase adat2 /3. nat 471 
+
+commun 13: 6737. 472 
+
+Glaeser, R. M. and Taylor, K. A. (1978). Radiation damage relative to transmission electron microscopy of biological specimens at low temperature: a review. Journal 473 
+
+of microscopy , 112 (1), 127–138. 474 
+
+Hauser, M., Steinegger, M., and S¨ oding, J. (2016). Mmseqs software suite for fast and deep clustering and searching of large protein sequence sets. Bioinformatics ,475 
+
+32 (9), 1323–1330. 476 
+
+He, J., Li, T., and Huang, S.-Y. (2023). Improvement of cryo-em maps by simultaneous local and non-local deep learning. Nature Communications , 14 (1), 3217. 477 
+
+Herzik, M. A., Fraser, J. S., and Lander, G. C. (2019). A multi-model approach to assessing local and global cryo-em map quality. Structure , 27 (2), 344–358. 478 
+
+Ho, J., Jain, A., and Abbeel, P. (2020). Denoising di ff usion probabilistic models. Advances in neural information processing systems , 33 , 6840–6851. 479 
+
+Hu, Y., Desimmie, B. A., Nguyen, H. C., Ziegler, S. J., Cheng, T. C., Chen, J., Wang, J., Wang, H., Zhang, K., Pathak, V. K., et al. (2019). Structural basis of antagonism 480 
+
+of human apobec3f by hiv-1 vif. Nature structural & molecular biology , 26 (12), 1176–1183. 481 
+
+Huang, H.-Y., Liao, H.-Y., Chen, X., Wang, S.-W., Cheng, C.-W., Shahed-Al-Mahmud, M., Liu, Y.-M., Mohapatra, A., Chen, T.-H., Lo, J. M., et al. (2022). Vaccination 482 
+
+with sars-cov-2 spike protein lacking glycan shields elicits enhanced protective responses in animal models. Science Translational Medicine , 14 (639), eabm0899. 483 
+
+Jakobi, A. J., Wilmanns, M., and Sachse, C. (2017). Model-based local density sharpening of cryo-em maps. Elife , 6, e27131. 484 
+
+Kimanius, D., Forsberg, B. O., Scheres, S. H., and Lindahl, E. (2016). Accelerated cryo-em structure determination with parallelisation using gpus in relion-2. elife , 5,485 
+
+e18722. 486 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint Nogales, E. and Scheres, S. H. (2015). Cryo-em: a unique tool for the visualization of macromolecular complexity. Molecular cell , 58 (4), 677–689. 487 
+
+Pettersen, E. F., Goddard, T. D., Huang, C. C., Couch, G. S., Greenblatt, D. M., Meng, E. C., and Ferrin, T. E. (2004). Ucsf chimera—a visualization system for 488 
+
+exploratory research and analysis. Journal of computational chemistry , 25 (13), 1605–1612. 489 
+
+Pintilie, G., Zhang, K., Su, Z., Li, S., Schmid, M. F., and Chiu, W. (2020). Measurement of atom resolvability in cryo-em maps with q-scores. Nature methods , 17 (3), 490 
+
+328–334. 491 
+
+Ram´ ırez-Aportela, E., Vilas, J. L., Glukhova, A., Melero, R., Conesa, P., Mart´ ınez, M., Maluenda, D., Mota, J., Jim´ enez, A., Vargas, J., et al. (2020). Automatic local 492 
+
+resolution-based sharpening of cryo-em maps. Bioinformatics , 36 (3), 765–772. 493 
+
+Rombach, R., Blattmann, A., Lorenz, D., Esser, P., and Ommer, B. (2022a). High-resolution image synthesis with latent di ff usion models. In Proceedings of the 494 
+
+IEEE /CVF conference on computer vision and pattern recognition , pages 10684–10695. 495 
+
+Rombach, R., Blattmann, A., Lorenz, D., Esser, P., and Ommer, B. (2022b). High-resolution image synthesis with latent di ff usion models. In Proceedings of the 496 
+
+IEEE /CVF conference on computer vision and pattern recognition , pages 10684–10695. 497 
+
+Rosenthal, P. B. and Henderson, R. (2003). Optimal determination of particle orientation, absolute hand, and contrast loss in single-particle electron cryomicroscopy. 498 
+
+Journal of molecular biology , 333 (4), 721–745. 499 
+
+Sanchez-Garcia, R., Gomez-Blanco, J., Cuervo, A., Carazo, J. M., Sorzano, C. O. S., and Vargas, J. (2021). Deepemhancer: a deep learning solution for cryo-em volume 500 
+
+post-processing. Communications biology , 4(1), 874. 501 
+
+Selvaraj, J., Wang, L., and Cheng, J. (2024). Cryoten: E ffi ciently enhancing cryo-em density maps using transformers. bioRxiv .502 
+
+Smithers, L., Degtjarik, O., Weichert, D., Huang, C.-Y., Boland, C., Bowen, K., Oluwole, A., Lutomski, C., Robinson, C. V., Scanlan, E. M., et al. (2023). Structure 503 
+
+snapshots reveal the mechanism of a bacterial membrane lipoprotein n-acyltransferase. Science advances , 9(26), eadf5799. 504 
+
+Song, J., Meng, C., and Ermon, S. (2020). Denoising di ff usion implicit models. arXiv preprint arXiv:2010.02502 .505 
+
+Subramaniya, S. R. M. V., Terashi, G., and Kihara, D. (2021). Super resolution cryo-em maps with 3d deep generative networks. Biophysical Journal , 120 (3), 283a. 506 
+
+Terashi, G. and Kihara, D. (2018). De novo main-chain modeling for em maps using mainmast. Nature communications , 9(1), 1618. 507 
+
+Terashi, G., Wang, X., Maddhuri Venkata Subramaniya, S. R., Tesmer, J. J., and Kihara, D. (2022). Residue-wise local quality estimation for protein models from 508 
+
+cryo-em maps. Nature methods , 19 (9), 1116–1125. 509 
+
+Terwilliger, T. C., Sobolev, O. V., Afonine, P. V., and Adams, P. D. (2018). Automated map sharpening by maximization of detail and connectivity. Biological 510 
+
+Crystallography , 74 (6), 545–559. 511 
+
+Terwilliger, T. C., Sobolev, O. V., Afonine, P. V., Adams, P. D., and Read, R. J. (2020a). Density modification of cryo-em maps. Biological Crystallography , 76 (10), 512 
+
+912–925. 513 
+
+Terwilliger, T. C., Ludtke, S. J., Read, R. J., Adams, P. D., and Afonine, P. V. (2020b). Improvement of cryo-em maps by density modification. Nature methods , 17 (9), 514 
+
+923–927. 515 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint Ton, W. D., Wang, Y., Chai, P., Beauchamp-Perez, C., Flint, N. T., Lammers, L. G., Xiong, H., Zhang, K., and Markus, S. M. (2023). Microtubule-binding-induced 516 
+
+allostery triggers lis1 dissociation from dynein prior to cargo transport. Nature structural & molecular biology , 30 (9), 1365–1379. 517 
+
+Wrapp, D., Wang, N., Corbett, K. S., Goldsmith, J. A., Hsieh, C.-L., Abiona, O., Graham, B. S., and McLellan, J. S. (2020). Cryo-em structure of the 2019-ncov spike 518 
+
+in the prefusion conformation. Science , 367 (6483), 1260–1263. 519 
+
+Xu, J., He, Y., Wu, X., and Li, L. (2022). Conformational changes of a phosphatidylcholine flippase in lipid membranes. Cell Reports , 38 (11). 520 
+
+You, L., Ma, J., Wang, J., Artamonova, D., Wang, M., Liu, L., Xiang, H., Severinov, K., Zhang, X., and Wang, Y. (2019). Structure studies of the crispr-csm complex 521 
+
+reveal mechanism of co-transcriptional interference. Cell , 176 (1), 239–253. 522 
+
+Zhang, C., Condon, A., and Duc, K. D. (2025). Cryosamu: Enhancing 3d cryo-em density maps of protein structures at intermediate resolution with structure-aware 523 
+
+multimodal u-nets. arXiv preprint arXiv:2503.20291 .524 
+
+Zhang, Y., Kobayashi, C., Cai, X., Watanabe, S., Tsutsumi, A., Kikkawa, M., Sugita, Y., and Inaba, K. (2022). Multiple sub-state structures of serca2b reveal 525 
+
+conformational overlap at transition steps during the catalytic cycle. Cell Reports , 41 (10). 526 
+
+Zivanov, J., Nakane, T., Forsberg, B. O., Kimanius, D., Hagen, W. J., Lindahl, E., and Scheres, S. H. (2018). New tools for automated high-resolution cryo-em structure 527 
+
+determination in relion-3. elife , 7, e42166. 528 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 6, 2026. ;https://doi.org/10.64898/2026.06.04.730282 doi: bioRxiv preprint

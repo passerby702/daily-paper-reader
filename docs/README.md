@@ -6,56 +6,65 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-13
-- 运行时间：2026-06-13 19:13:00 UTC
+- 最新运行日期：2026-06-14
+- 运行时间：2026-06-14 19:33:53 UTC
 - 运行状态：成功
-- 本次总论文数：12
-- 精读区：3
-- 速读区：9
+- 本次总论文数：15
+- 精读区：5
+- 速读区：10
 
 ### 今日简报（AI）
-今日共读12篇论文，精读2篇高分研究聚焦生成路径一致性与流形感知扩散。最值得关注的是自洽生成路径及周期性终端定律的扩散模型，可提升生成质量与流形适应性。建议后续关注扩散模型与变分自编码器在分子设计中的融合应用。
-- 详情：[/202606/13/README](/202606/13/README)
+今日阅读15篇论文，精读5篇速读10篇，重点关注流形感知扩散与环肽自动化设计两大方向。最值得看的是精读中的《PTL-Diffusion》与《APCyc》，分别提出新型扩散框架和环肽自动化闭环设计方法。建议普通读者优先关注扩散模型在分子生成与结构生物学中的落地应用。
+- 详情：[/202606/14/README](/202606/14/README)
 
 ### 精读区论文标签
-1. [Self-Consistent Generative Paths via Admissible Random Variational Transport](/202606/13/2606.08953v1-self-consistent-generative-paths-via-admissible-random-variational-transport)  
+1. [PTL-Diffusion: Manifold-Aware Diffusion with Periodic Terminal Laws](/202606/14/2606.09816v1-ptl-diffusion-manifold-aware-diffusion-with-periodic-terminal-laws)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：生成路径自洽性的理论框架，涵盖扩散模型
-2. [PTL-Diffusion: Manifold-Aware Diffusion with Periodic Terminal Laws](/202606/13/2606.09816v1-ptl-diffusion-manifold-aware-diffusion-with-periodic-terminal-laws)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：具有周期终端律的流形感知扩散模型
-3. [AlphaFold3 for Structure-guided Ligand Discovery](/202606/13/biorxiv-10-64898-2025-12-04-692352-v2-alphafold3-for-structure-guided-ligand-discovery)  
+   evidence：具有周期终端分布的新型扩散模型
+2. [APCyc: Property-Informed Design of Cyclic Peptides via Automated Cyclization](/202606/14/2606.12991v1-apcyc-property-informed-design-of-cyclic-peptides-via-automated-cyclization)  
    标签：评分：8.0/10、query:pocket-lig
-   evidence：蛋白质-配体复合物预测AlphaFold3虚拟筛选
+   evidence：靶点感知的环肽生成，口袋适应性环化
+3. [Uncertainty Estimation for Molecular Diffusion Models](/202606/14/2606.13451v1-uncertainty-estimation-for-molecular-diffusion-models)  
+   标签：评分：8.0/10、query:diff-gen
+   evidence：专门针对分子扩散模型的不确定性估计方法
+4. [World Tracing: Generative Pixel-Aligned Geometry Beyond the Visible](/202606/14/2606.13652v1-world-tracing-generative-pixel-aligned-geometry-beyond-the-visible)  
+   标签：评分：8.0/10、query:diff-gen
+   evidence：使用扩散Transformer生成像素对齐的3D几何，补全遮挡部分
+5. [Promera: a unified model for biomolecular structure prediction, filtering, and design](/202606/14/biorxiv-10-64898-2026-06-07-729267-v1-promera-a-unified-model-for-biomolecular-structure-prediction-filtering-and-design)  
+   标签：评分：8.0/10、query:pocket-lig
+   evidence：统一的生物分子结构预测与设计生成模型
 
 ### 速读区论文标签
-1. [Closing the Prior-Posterior Loop: Self-Reflective Molecular Design with Analysis-Driven LLM Iteration](/202606/13/2606.09520v1-closing-the-prior-posterior-loop-self-reflective-molecular-design-with-analysis-driven-llm-iteration)  
+1. [Self-Consistent Generative Paths via Admissible Random Variational Transport](/202606/14/2606.08953v1-self-consistent-generative-paths-via-admissible-random-variational-transport)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：基于LLM的分子设计结合第一性原理反馈
-2. [Evaluating the Representation Space of Diffusion Models via Self-Supervised Principles](/202606/13/2606.09718v1-evaluating-the-representation-space-of-diffusion-models-via-self-supervised-principles)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：联合评估扩散模型表示与生成的框架
-3. [DeepRHP: A Hybrid Variational Autoencoder for Designing Random Heteropolymers as Protein Mimics](/202606/13/2606.11651v1-deeprhp-a-hybrid-variational-autoencoder-for-designing-random-heteropolymers-as-protein-mimics)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：变分自编码器用于设计随机杂聚物作为蛋白质模拟物
-4. [pLM-Guided Inverse Folding for Antibody Sequence Design](/202606/13/biorxiv-10-64898-2026-06-04-730089-v1-plm-guided-inverse-folding-for-antibody-sequence-design)  
+   evidence：对包括扩散模型在内的生成概率路径的理论统一
+2. [EasyNano: rapid epitope-targeted nanobody CDR design via differentiable distogram optimization with ESMFold2](/202606/14/2606.12772v1-easynano-rapid-epitope-targeted-nanobody-cdr-design-via-differentiable-distogram-optimization-with-esmfold2)  
    标签：评分：7.0/10、query:pocket-lig
-   evidence：基于结构的抗体序列逆折叠，与条件于蛋白质口袋结构的分子生成相关
-5. [GeroQubit: a lightweight, honesty-first de-novo design platform for geroscience-native small molecules with calibrated uncertainty](/202606/13/biorxiv-10-64898-2026-06-07-730687-v1-geroqubit-a-lightweight-honesty-first-de-novo-design-platform-for-geroscience-native-small-molecules-with-calibrated-uncertainty)  
+   evidence：针对表位的纳米抗体设计，属于配体生成
+3. [CryoDiff: An uncertainty-aware diffusion model for Cryo-EM map enhancement](/202606/14/biorxiv-10-64898-2026-06-04-730282-v1-cryodiff-an-uncertainty-aware-diffusion-model-for-cryo-em-map-enhancement)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：从头小分子生成平台，具有校准的不确定性
-6. [LiteVSR: Lightweight Adaptation of Frozen Diffusion Transformers for Video Super-Resolution](/202606/13/2606.09250v1-litevsr-lightweight-adaptation-of-frozen-diffusion-transformers-for-video-super-resolution)  
+   evidence：扩散模型用于增强3D冷冻电镜图谱
+4. [GLACIER: A Multimodal Student-Teacher Foundation Model for Molecular Property Prediction](/202606/14/2606.11382v1-glacier-a-multimodal-student-teacher-foundation-model-for-molecular-property-prediction)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：使用扩散变换器进行视频超分辨率，与视频帧插值方法相关
-7. [BSTabDiff: Block-Subunit Diffusion Priors for High-Dimensional Tabular Data Generation](/202606/13/2606.09257v1-bstabdiff-block-subunit-diffusion-priors-for-high-dimensional-tabular-data-generation)  
+   evidence：多模态分子性质预测辅助生成
+5. [Physics-Aware Auxiliary Losses Improve Out-of-Distribution Generalization of a GNN Synthesizability Filter](/202606/14/2606.12651v1-physics-aware-auxiliary-losses-improve-out-of-distribution-generalization-of-a-gnn-synthesizability-filter)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：用于表格数据生成的扩散模型
-8. [VFUSE: Virulent Feature Understanding with Sparse autoEncoders](/202606/13/2606.10080v1-vfuse-virulent-feature-understanding-with-sparse-autoencoders)  
+   evidence：改进生成分子管线的可合成性过滤器
+6. [Reliability of Probabilistic Emulation of Physical Systems](/202606/14/2606.12997v1-reliability-of-probabilistic-emulation-of-physical-systems)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：在扩散变换器激活上应用稀疏自编码器进行蛋白质模型审计
-9. [Multi-level, multi-body atomic interaction graphs for machine learning-based prediction of protein-ligand binding energies](/202606/13/biorxiv-10-64898-2026-06-05-730001-v2-multi-level-multi-body-atomic-interaction-graphs-for-machine-learning-based-prediction-of-protein-ligand-binding-energies)  
+   evidence：评估包括扩散在内的生成模型在物理系统中的可靠性
+7. [The Geometry of Phase Transitions in Generative Dynamics via Projection Caustics](/202606/14/2606.13191v1-the-geometry-of-phase-transitions-in-generative-dynamics-via-projection-caustics)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：扩散/流匹配生成动力学中相变的几何分析
+8. [Enhanced Low-Density Region Exploration in Classifier-Guided Diffusion Models Through Modified Reverse Diffusion Sampling](/202606/14/2606.13347v1-enhanced-low-density-region-exploration-in-classifier-guided-diffusion-models-through-modified-reverse-diffusion-sampling)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：扩散模型低密度区域探索
+9. [VFUSE: Virulent Feature Understanding with Sparse autoEncoders](/202606/14/biorxiv-10-64898-2026-06-08-730928-v1-vfuse-virulent-feature-understanding-with-sparse-autoencoders)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：使用稀疏自编码器解释基于扩散的蛋白质生成模型
+10. [MoE-Bind: Guiding De Novo Protein Binder Generation with Sparse Experts](/202606/14/biorxiv-10-64898-2026-06-13-732043-v1-moe-bind-guiding-de-novo-protein-binder-generation-with-sparse-experts)  
    标签：评分：6.0/10、query:pocket-lig
-   evidence：多层级原子相互作用图用于蛋白质-配体结合预测
+   evidence：基于稀疏专家混合的从头蛋白质结合剂生成
 
 
 <div class="dpr-home-promo-card">
