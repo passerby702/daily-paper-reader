@@ -6,41 +6,41 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-15
-- 运行时间：2026-06-15 20:41:27 UTC
+- 最新运行日期：2026-06-16
+- 运行时间：2026-06-16 20:45:41 UTC
 - 运行状态：成功
 - 本次总论文数：7
-- 精读区：6
-- 速读区：1
+- 精读区：4
+- 速读区：3
 
 ### 今日简报（AI）
-今日精读两篇9.0分论文，聚焦纳米抗体CDR快速设计与环肽自动环化。值得关注EasyNano的差异化距离优化与ESMFold2结合策略，以及APCyc的物性引导环化方法。建议下一步在抗体工程中尝试EasyNano，在肽类药物中使用APCyc进行先导优化。
-- 详情：[/202606/15/README](/202606/15/README)
+今日推荐7篇扩散模型前沿论文，精读2篇高分突破：物理耦合扩散模型连接分子世界，多模态扩散Transformer扩展生成边界。值得关注分子设计与多模态生成方向；建议普通读者重点阅读这两篇精读论文，掌握扩散模型在结构生成中的最新范式。
+- 详情：[/202606/16/README](/202606/16/README)
 
 ### 精读区论文标签
-1. [EasyNano: rapid epitope-targeted nanobody CDR design via differentiable distogram optimization with ESMFold2](/202606/15/2606.12772v1-easynano-rapid-epitope-targeted-nanobody-cdr-design-via-differentiable-distogram-optimization-with-esmfold2)  
-   标签：评分：9.0/10、query:pocket-lig
-   evidence：表位靶向的纳米抗体设计方法
-2. [APCyc: Property-Informed Design of Cyclic Peptides via Automated Cyclization](/202606/15/2606.12991v1-apcyc-property-informed-design-of-cyclic-peptides-via-automated-cyclization)  
-   标签：评分：9.0/10、query:pocket-lig
-   evidence：面向蛋白质口袋的环肽生成，具有口袋自适应环化
-3. [Smoothing Dark Areas in Molecular Latent Diffusion](/202606/15/2606.13955v1-smoothing-dark-areas-in-molecular-latent-diffusion)  
+1. [Stitching Molecular Worlds Together with Physics-Coupled Diffusion Models](/202606/16/2606.16147v1-stitching-molecular-worlds-together-with-physics-coupled-diffusion-models)  
    标签：评分：9.0/10、query:diff-gen
-   evidence：基于拓扑优化VAE的分子潜扩散
-4. [MoE-Bind: Guiding De Novo Protein Binder Generation with Sparse Experts](/202606/15/biorxiv-10-64898-2026-06-13-732043-v1-moe-bind-guiding-de-novo-protein-binder-generation-with-sparse-experts)  
-   标签：评分：9.0/10、query:pocket-lig
-   evidence：使用序列生成模型和稀疏专家架构进行蛋白质结合物从头生成
-5. [Prompt2Effect: Training-Free Image-to-Video Model Specialization via LoRA Generation](/202606/15/2606.13971v1-prompt2effect-training-free-image-to-video-model-specialization-via-lora-generation)  
+   evidence：基于物理耦合的扩散模型用于分子生成
+2. [MMDiff: Extending Diffusion Transformers for Multi-Modal Generation](/202606/16/2606.16673v1-mmdiff-extending-diffusion-transformers-for-multi-modal-generation)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：使用扩散变压器的多模态生成
+3. [Efficient Reinforcement for Visual-Textual Thinking with Discrete Diffusion Model](/202606/16/2606.14792v1-efficient-reinforcement-for-visual-textual-thinking-with-discrete-diffusion-model)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：用于视频效果的图像到视频扩散模型特化
-6. [PepALD: Macrocyclic Peptide Generation via Autoregressive Latent Diffusion](/202606/15/2606.14510v1-pepald-macrocyclic-peptide-generation-via-autoregressive-latent-diffusion)  
+   evidence：离散扩散模型用于多模态视觉文本推理与生成
+4. [Atomic Design Transformer: xTB-Validated 3D Molecule Generation from Scaffolds](/202606/16/2606.15220v1-atomic-design-transformer-xtb-validated-3d-molecule-generation-from-scaffolds)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：使用自回归潜在扩散的大环肽生成
+   evidence：使用变压器从骨架生成3D分子
 
 ### 速读区论文标签
-1. [Compositional Generative Modeling from Decentralized Data](/202606/15/2606.10153v1-compositional-generative-modeling-from-decentralized-data)  
+1. [Generative design of antigen-specific T-cell receptor sequences with a conditional diffusion model](/202606/16/biorxiv-10-64898-2026-06-10-730756-v1-generative-design-of-antigen-specific-t-cell-receptor-sequences-with-a-conditional-diffusion-model)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：基于扩散模型的T细胞受体序列生成
+2. [DifFRACT: Diffusion Feature Reconstruction and Attribution for Circuit Tracing](/202606/16/2606.15796v1-diffract-diffusion-feature-reconstruction-and-attribution-for-circuit-tracing)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：面向分散数据的组合式流匹配生成框架
+   evidence：分析多模态扩散变换器的可解释性
+3. [Structure-Semantic Co-optimized Latent Diffusion Model for Fast Visual Anagram Synthesis](/202606/16/2606.16241v1-structure-semantic-co-optimized-latent-diffusion-model-for-fast-visual-anagram-synthesis)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：用于视觉字谜生成的扩散模型
 
 
 <div class="dpr-home-promo-card">
