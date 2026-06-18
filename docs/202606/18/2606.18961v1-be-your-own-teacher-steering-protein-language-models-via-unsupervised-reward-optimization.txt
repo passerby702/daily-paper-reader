@@ -1,0 +1,1029 @@
+Title: Be Your Own Teacher: Steering Protein Language Models via Unsupervised Reward Optimization
+
+URL Source: https://arxiv.org/pdf/2606.18961v1
+
+Published Time: Thu, 18 Jun 2026 00:49:42 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# Be Your Own Teacher: Steering Protein Language Models via Unsupervised Reward Optimization 
+
+Lanqing Li 1∗, Shentong Mo 2, Yang Yu 3, Pheng-Ann Heng 11 The Chinese University of Hong Kong,  
+
+> 2
+
+MBZUAI, 3 Hong Kong University of Science and Technology 
+
+{lanqingli1993, shentongmo}@gmail.com, eeyangyu@ust.hk, pheng@cse.cuhk.edu.hk 
+
+## Abstract 
+
+Protein language models (PLMs) have emerged as powerful tools for controllable biomolecular design, yet their post-training adaptation typically relies on costly wet-lab validation or curated preference datasets. To overcome this supervision bot-tleneck, we introduce unsupervised reward optimization of PLMs, a comprehensive framework for steerable protein generation without ground-truth labels. Our key in-sight is that task-agnostic rewards, which combine intrinsic model uncertainty with extrinsic semantic consistency informed by protein representation models, exhibit strong correlation with controllability measures across base models and tempera-ture regimes. Building upon this discovery, we propose two offline algorithms: Soft Reward Optimization (SRO) and Binarized Reward Optimization (BRO), which effectively maximize the classical RLHF objective induced by these proxy rewards. Extensive experiments on compositional out-of-distribution prompts demonstrate that both methods significantly outperform competitive baselines (DPO, KTO), while approaching oracle performance across multiple sampling temperatures, model scales and protein families. Moreover, PLMs fine-tuned with unsupervised rewards can achieve consistently higher coverage compared to their base model in pass@k evaluations. By enabling self-improvement of PLMs through their own generated experience, our framework provides a scalable pathway toward control-lable biomolecular design in settings where labeled preferences or experimental feedback are scarce or unavailable. 
+
+## 1 Introduction 
+
+Just as large language models (LLMs) encode, express and reason over natural languages of human intelligence, biomolecular foundation models (BFMs) have been developed [ 1 –15 ] to decipher the language of life. Exemplified by protein language models (PLMs) which were trained on billions of biological sequences 1 of proteins, BFMs learn expressive deep representations emerging within language models that reflect the evolution, structure and function of biomolecules without explicit supervision on those properties [ 16 – 18 ]. Moreover, frontier PLMs like ProGen [ 7, 19 ] and ESM3 [ 11 ]enable controllable generation and design [ 20 ] by following prompts that specify protein families, functions, or other design objectives. It has been extensively shown that the generation quality and fidelity can be significantly improved with scale by post-training [11, 21, 22]. Supervised fine-tuning (SFT) and reinforcement learning from human feedback (RLHF) have emerged as the dominant paradigm for aligning large language models (LLMs) with human preferences during  
+
+> ∗Corresponding Author
+> 1By biological sequences , we mean molecular representations that can be tokenized and serialized for sequential modeling. For instance, multimodal PLMs such as ESM3 employ different input tracks to encode protein sequence, structure, and function. Preprint.
+> arXiv:2606.18961v1 [cs.LG] 17 Jun 2026
+
+post-training adaptation [ 23 – 27 ]. More recently, reinforcement learning with verifiable rewards (RLVR) has been popularized to achieve remarkable reasoning capability of LLMs on mathematics, coding and science benchmarks [ 28 –32 ]. However, these approaches typically incur high costs for data labeling, and when scaling beyond human expertise in specialized domains, obtaining reliable ground-truth supervision becomes increasingly infeasible [ 33 –35 ]. For post-training BFMs toward generalist biological artificial intelligence (GBAI) [ 36 ], the challenge intensifies: data curation requires prohibitively expensive wet-lab validation or clinical trials and poses substantial safety risks in healthcare and biomedical applications. In the domain of LLMs, this supervision bottleneck [ 35 ] has spurred growing interest in unsupervised post-training, which leverages intrinsic and extrinsic reward signals without ground-truth labels, achieving encouraging gains in language tasks such as free-form question-answering and reason-ing [ 37 – 39 ]. Yet in biological domains, how to devise reliable proxy rewards for BFM post-training and equally importantly, how to design algorithms robust to the presumably noisy supervision signals remain largely unexplored. To address the outstanding challenge of unsupervised post-training for steerable generation of BFMs, we take protein language models as testbeds and conduct a holistic study covering the design of rewards, data sampling and optimization algorithms as well as benchmark tasks for in silico evaluation. By examining a broad spectrum of inherent and external statistical metrics across different sampling temperatures, we identify reward functions that exhibit good correlation with the PLM’s ability to follow high-level functional and structural instructions. Based on the reward design, we propose two offline algorithms, namely Soft Reward Optimization (SRO) and Binarized Reward Optimization (BRO) to optimize the classical RLHF objective, by leveraging continuous and discrete reward signals respectively. We find that both proposed methods significantly enhance the steerability of frontier PLMs despite relying solely on noisy supervision, and attain performance comparable to that of the oracle (base model fine-tuned with ground-truth labels) in certain temperature regimes. Our main contributions include: • We present, to the best of our knowledge, the first investigation to fine-tune protein language models (PLMs) with unsupervised rewards for controllable generation. This work paves the way for steerable adaptation and self-improvement of PLMs on offline, unlabeled corpora, with promising implications for biomedical domains that suffer from limited annotated data. • We provide a novel, comprehensive recipe for unsupervised post-training of PLMs, involving (i) task-agnostic metrics as proxy rewards, (ii) a multi-temperature sampling strategy for creating diverse training sets, and (iii) SRO and BRO algorithms that effectively enhance the instruction-following capability of frontier PLMs, even when trained with noisy supervision. • Our empirical study demonstrates that under the same unsupervised reward labeling protocol, both SRO and BRO outperform competitive baselines like DPO [ 40 ] and KTO [ 41 ] by a substantial margin across various out-of-distribution (OOD) generation tasks, sampling temperatures and model scales. • To facilitate future research, we provide novel datasets and benchmark tasks by constructing realistic compositional OOD prompts from 7 Pfam [ 42 ] protein families, to probe the controllability and generalization of PLMs in de novo protein design [20, 43–45]. 
+
+## 2 Related Work 
+
+Protein Language Models Inspired by the inherent similarity between natural languages and biological sequences, protein language models (PLMs) have revolutionized computational biology by learning rich, contextual representations from massive unlabeled corpora of protein sequences through NLP-inspired architectures [ 46 , 47 ] and self-supervised pre-training [ 1, 3 , 16 –18 ]. Pioneering models like ESM [ 1 ] and ProtTrans [ 3] demonstrate that transformer architectures can implicitly capture evolutionary constraints, structural stability, and functional motifs. This foundational capability has catalyzed a new generation of controllable generative PLMs. For instance, ProGen [ 7, 19 ] and ProLLaMA [ 48 ] enable conditional generation to create novel proteins across diverse families, while frontier multimodal foundation model like ESM3 [ 11 ] can jointly reason over sequence, structure, and function to perform complex, instruction-guided design tasks, such as generating a functional fluorescent protein with low homology to wild types. Recent studies [ 21 , 22 , 11 ] apply preference-based [ 40 ], directed evolution [ 49 , 50 ] and activation steering [ 51 ] methods to greatly enhance the 2steerability of PLMs. However, the reliance on curated datasets of preference pairs and experimental observations significantly constrains their applicability in biological domains. To this end, our work charts a course for PLM self-improvement through their own generated experience instead of human data [34], thereby opening a promising avenue towards scientific superintelligence [33, 52]. 
+
+Unsupervised Fine-Tuning of Language Models Aligning LLMs with complex primitives typically relies on Reinforcement Learning from Human Feedback (RLHF) [ 23 –26 ]. However, such approach is severely hampered by the "supervision bottleneck" [ 35 ]: acquiring high-quality labels incurs substantial human labor and even worse, requires costly and time-consuming wet-lab experiments or clinical data in biological domains. This challenge has motivated the study of unsupervised post-training methods that use proxy rewards instead of ground-truth labels. A key line of research is Unsupervised Reinforcement Learning with Verifiable Rewards (URLVR), where existing methods can be classified as either intrinsic or extrinsic based on their source of supervision signals [ 35 ]. Intrinsic reward methods such as those based on self-certainty [ 53 ], entropy [ 39 , 54 , 55 ], or majority voting [ 38 ] leverage proxy rewards generated solely by the model itself. They operate through a common "sharpening" mechanism that reinforces the model’s initial confident predictions, achieving early training gains at the risk of reward hacking and model collapse at later stages [ 55 – 57 ]. In contrast, extrinsic reward methods generate rewards via mechanisms such as self-supervised objectives on unlabeled corpora [ 58 – 61 ] or external computation from compilers, proof assistants or game engines [ 37 , 62 – 64 ], which are entirely independent of the model’s internal state. These rewards are generally more robust and scalable than intrinsic ones, however, their reliance on feedback from verifiable environments renders them infeasible in many scientific domains that require large-scale simulation or wet-lab/clinical validation. In this paper, we propose hybrid, task-agnostic reward functions for PLM fine-tuning that combine intrinsic uncertainty measures with self-consistency metrics from an external protein representation model ESMC [ 65 ]. Our empirical study shows that this unique design exhibits consistent agreement with controllability measures (e.g. keyword/structure recovery) without any prior knowledge of the ground-truth labels, and is demonstrated to elicit strong instruction-following capability of PLMs via reward optimization algorithms. 
+
+## 3 Method 
+
+3.1 Preliminaries 
+
+To achieve de novo protein design via controllable generation, such as generating highly specialized functional proteins, frontier generative PLMs [ 7, 11 , 19 ] are generally 2 trained via a three-stage procedure similar to modern LLMs [26]: 
+
+Pretraining Given a large corpus of protein sequences y, train the model πθ to minimize a generative masked language modeling objective: 
+
+Lpretrain = −Ey,m 
+
+X
+
+> i∈m
+
+log πθ (yi|y\m). (1) If m is a causal mask, Eq. (1) becomes the classical autoregressive next-token prediction. This stage endows the model with general knowledge of the statistical and evolutionary patterns of natural protein sequences. The pretrained model π0 can therefore be used for unconditional generation .
+
+Supervised Finetuning (SFT) Finetune the model via masked language modeling on data that are more relevant to the downstream task. Analogous to instruction finetuning [ 66 ] in LLM, SFT data often comprise control tags as instructions x and a completed protein sequence as the response y.The finetuned model πref is therefore trained by the objective 
+
+LSFT = −Ex,y,m 
+
+X
+
+> i∈m
+
+log πθ (yi|y\m, x ) (2) and applicable to conditional generation .
+
+Reinforcement Learning (RL) To further align πref for controllable generation and design, a reward/score function r(x, y ) operates to quantify the quality of the generated sequence y given 
+
+> 2Some multimodal PLMs like ESM3 may skip the SFT stage by tokenizing control tags (e.g. structural and functional tokens) in the pretraining stage. However, if the downstream task represents a novel distribution that cannot be naively characterized by known prompts during pretraining, SFT should still be used for adaptation to the new distribution and prompts/conditions.
+
+3prompt x. Similar to RLHF/RLVR for LLM post-training, this RL stage can be formulated as solving a KL-constrained reward maximization problem: 
+
+max 
+
+> πθ
+
+Ex∼D ,y ∼πθ (y|x)[r(x, y )] − βD KL [πθ (y|x) ∥ πref (y|x)] . (3) Following [40], the problem above has a closed-form solution: 
+
+π∗(y|x) = 1
+
+Z(x) πref (y|x) exp 
+
+ 1
+
+β r(x, y )
+
+
+
+, (4) where Z(x) = P 
+
+> y
+
+πref (y|x) exp( 1 
+
+> β
+
+r(x, y )) is the partition function. 
+
+Theorem 3.1. The reward optimization problem in Eq. (3) is equivalent to minimizing the KL-divergence DKL [πθ (y|x) ∥ π∗(y|x)] , where π∗(y|x) is the optimal policy defined in Eq. (4). 
+
+All proofs are deferred to Appendix B. LLM post-training normally learns a parameterized reward model rϕ or applies an implicit reward [ 40 ] r ∝ log[ πθ /π ref ] of the model πθ as a proxy for human preference. However, in this paper, we propose a novel problem named unsupervised reward optimization for PLMs . Our goal is to develop an explicit, a priori score function r(x, y ) without any knowledge of ground-truth labels for direct optimization on offline data. In the next section, we will present our unique design choices for such rewards along with sampling strategies for constructing the training sets. 
+
+3.2 Task-Agnostic Reward Design and Data Sampling 
+
+The guiding principle of our unsupervised reward design is to find a proxy for controllability , to measure how well a generated sample aligns with its prompt. Moreover, the reward function should be task-agnostic for it to be truly unsupervised. Following current progress in URLVR [ 35 ], various intrinsic and extrinsic rewards induced by the reference policy πref 3 are examined. For the former, we investigate the sequence-level negative log-likelihood (predictive entropy) and its length-normalized variant (normalized entropy) 
+
+Hπ (x, y ) = −
+
+> |y|
+
+X
+
+> i=1
+
+log πref (yi|y<i , x ), ˜Hπ (x, y ) = − 1
+
+|y|
+
+> |y|
+
+X
+
+> i=1
+
+log πref (yi|y<i , x ) (5) as measures of the model’s uncertainty in the generated sequence y given prompt x, which is widely adopted in entropy-based RL [ 54 , 67 – 69 ]. We define the intrinsic reward ri(x, y ) ≜ −H π (x, y )
+
+or − ˜Hπ (x, y ) to steer model towards more confident generations. For the latter, inspired by the notion of "semantic equivalence" in language tasks [ 70 , 71 ], we obtain protein embeddings using an off-the-shelf representation model q(z|y) and evaluate the distance between generated sequences 
+
+¯dq (x, y ) = Ey′∼πref (·| x)[d(q(y), q (y′))] ≃ 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+d(q(y), q (y(i))) , where y(i) ∼ πref (· | x), (6) 
+
+d can be any well-defined metric on the latent space, which provides a measure of semantic distance 4
+
+between generated samples. Intuitively, if a generated sequence is semantically distant from other generations conditioning on the same prompt, it is highly likely to be a statistical outlier or "hallu-cination" of the model. Therefore, we propose to define the extrinsic reward re(x, y ) ≜ − ¯dq (x, y )
+
+as the negative semantic distance to encourage consistent generations. Our construction scales linearly with O(N ) inference calls to model q, significantly improving upon prior LLM-based approaches [39, 70, 71] that rely on pairwise equivalence checks and exhibit complexity O(N 2).Beyond designing proxy rewards, we further study temperature as a key factor in both offline data construction and reward labeling. Our rationale is two-fold. First, it’s well-known that LLM generation statistics are highly sensitive to sampling temperatures [ 72 – 74 ], and in the same vein, PLMs could benefit from a multi-temperature sampling strategy to create more diverse offline dataset for unsupervised reward optimization (verified in Appendix D). Second, we empirically observe that the proposed metrics in Eqs. (5) and (6) exhibit distinct correlation patterns with ground-truth labels at different temperatures. Consequently, for explicit reward optimization, the most strongly correlated   
+
+> 3This enables offline training and self-improvement of the base model as the reference policy.
+> 4For proteins, we hypothesize that this semantic distance serves as a faithful measure of the evolutionary, functional and structural similarity between sequences, given that the representation model qis well-trained.
+
+4metric should be selected at each temperature to minimize the noise of the reward signal. Therefore, given a prompt set X and temperature set T , we define our multi-temperature sampling and reward labeling strategy for constructing offline training set D as follows: 
+
+D = [
+
+> x∈X
+
+[ 
+
+> T∈T
+
+n 
+
+x, y (i), r T (x, y (i))
+
+o Ni=1 
+
+, where y(i) ∼ πref (· | x; T ), (7) 
+
+rT is the best-performing reward at temperature T . We defer our implementation of D to Section 4.2 since the optimal design choice is contingent on empirical evaluation. However, the final reward functions (one continuous and one binary) achieve consistent correlations with controllability metrics and deliver robust model improvements across conditional generation tasks (Tab. 10) and model scales (Tab. 1), highlighting the generality and effectiveness of our task-agnostic design. 
+
+3.3 Soft Reward Optimization (SRO) 
+
+To see how a continuous reward can be maximized explicitly, substitute Eq. (4) into Theorem 3.1, the KL objective LKL becomes 
+
+min 
+
+> πθ
+
+LKL = min 
+
+> πθ
+
+Ex∼D Ey∼πθ (y|x)
+
+
+
+log πθ (y|x)
+
+π∗(y|x)
+
+
+
+≡ min 
+
+> πθ
+
+Ex∼D Ey∼πref (y|x)
+
+ πθ
+
+πref 
+
+
+
+log πθ
+
+πref 
+
+− r(x, y )
+
+β
+
+ 
+
+(8) 
+
+≡ min 
+
+> πθ
+
+Ex∼D Ey∼πref (y|x)
+
+" exp( rθ (x,y ) 
+
+> β
+
+)
+
+Z(x) log exp( rθ (x,y ) 
+
+> β
+
+)
+
+Z(x) − log exp( r(x,y ) 
+
+> β
+
+)
+
+Z(x)
+
+!# 
+
+(9) where the expectation of log Z(x) can be dropped in Eq. (8) or added in Eq. (9) since it does not depend on πθ , and rθ (x, y ) is the implicit reward parameterized by the model πθ [40] 
+
+rθ (x, y ) = β log πθ (y|x)
+
+πref (y|x) + β log Z(x). (10) Since Eq. (9) can be interpreted as the KL-divergence between the distributions induced by the implicit reward rθ (x, y ) and explicit reward r(x, y ), prior methods [ 21 , 22 ] approximate it using batch-normalized distributions exp( rθ (x, y i)) / P 
+
+> i
+
+exp( rθ (x, y i)) and exp( r(x, y i)) / P 
+
+> i
+
+exp( r(x, y i)) up to a scaling factor β. To circumvent the batch effect 5, we instead propose to directly estimate the RHS of Eq. (8) on D via importance-weighted Monte Carlo sampling: 
+
+LSRO = Ex∼D Ey∼πref (y|x)
+
+ πθ
+
+πref 
+
+
+
+log πθ
+
+πref 
+
+− r(x, y )
+
+β − α
+
+ 
+
+≃ 1
+
+|D| 
+
+> |D|
+
+X
+
+> i=1
+
+πθ (yi|xi)
+
+πref (yi|xi)
+
+
+
+log πθ (yi|xi)
+
+πref (yi|xi) − r(xi, y i)
+
+β − α
+
+
+
+(11) where α is a multiplier that constrains the overall probability mass of πθ on D. Eq. (11) operates as the objective of our proposed soft reward optimization (SRO) .
+
+Theorem 3.2. Given a reward function r(x, y ), SRO in Eq. (11) has a closed-form solution 
+
+π∗ 
+
+> θ
+
+= πref exp 
+
+ r(x, y )
+
+β + α − 1
+
+
+
+. (12) For implementation, we sample a group of responses {yj }Gj=1 for each prompt xi with πref . We 
+
+normalize 6 the reward as an advantage function following RLVR methods like GRPO [28] 
+
+ˆr(x, y ) = r(x, y ) − mean y (r(x, y )) 
+
+std y (r(x, y )) . (13) By Theorem 3.2, we choose α = 1 to ensure that π∗ 
+
+> θ
+
+(y|x) = πref (y|x) for y that receives zero (average) reward 7.         
+
+> 5In Tab. 11, we show that SRO variants substantially outperform this "weighted DPO" introduced by [21, 22].
+> 6In principle, this normalization is valid for algorithms like SRO which use global labels rather than groupwise or pairwise labels, only if the overall and the promptwise reward statistics are consistent (e.g., exhibit similar high correlation with the ground-truth label), which is verified in Section 4.2.
+> 7Note that α= 1 does not strictly preserve the probability simplex constraint P
+> yπθ(y|x) = 1 since we are making estimations on a finite, offline dataset. This choice empirically proves to be robust and effective in our experiments.
+
+53.4 Binarized Reward Optimization (BRO) 
+
+In practice, as a proxy for ground-truth labels, the reward signal r(x, y ) can be noisy and inaccurate (see Section 4.2), which may render SRO unreliable. To this end, previous methods such as DPO [ 40 ]circumvent the need for explicit reward by adopting the Bradley-Terry formalism [ 75 ] for preference distribution modeling. However, DPO and its variants require strictly ranked samples. As a more general alternative, we derive a novel optimization objective by leveraging unpaired binary rewards introduced by KTO [ 41 ]. Specifically, we assume that instead of assigning a continuous score, the generated response y can be classified as positive ( y ∈ D +) or negative ( y ∈ D −) in terms of alignment with its prompt x. This formulation, termed binarized reward optimization (BRO) , can be interpreted as an extreme case of LSRO in the limit β → 0:
+
+LBRO ≜ lim  
+
+> β→0
+
+LSRO 
+
+= Ex∼D Ey∼πref (y|x)
+
+ πθ
+
+πref 
+
+
+
+log πθ
+
+πref 
+
+− r(x, y )
+
+β
+
+ 
+
+= E(x,y )∼D +∪D −
+
+ πθ
+
+πref 
+
+
+
+log πθ
+
+πref 
+
+− rBRO (x, y )
+
+ 
+
+(14) where 
+
+rBRO (x, y ) = 
+
+∞, if y ∈ D +,
+
+−∞ , if y ∈ D −. (15) To make LBRO tractable, inspired by pre-existing methods [ 21 , 22 ] that approximate the two probabil-ities in Eq. (9) by their batch-normalized softmax variants, we propose optimizing their normalized variants in the binary label space: 
+
+πθ, BRO ≜ σ
+
+
+
+log πθ
+
+πref 
+
+
+
+= πθ
+
+πref + πθ
+
+, (16) 
+
+π∗ 
+
+> BRO
+
+≜ σ (rBRO ) = 
+
+1, if y ∈ D +,
+
+0, if y ∈ D −. (17) Optimizing DKL (πθ, BRO ∥ π∗
+
+> BRO
+
+) as a proxy for DKL (πθ ∥ π∗) requires constraining the probability mass of πθ on D as in Eq. (11). Alternatively, we propose to directly minimize DKL (π∗ 
+
+> BRO
+
+∥ πθ, BRO )
+
+instead: 
+
+LBRO ≃ DKL (π∗ 
+
+> BRO
+
+∥ πθ, BRO )= H(π∗
+
+> BRO
+
+, π θ, BRO ) −   H(π∗
+
+> BRO
+
+)= −E(x,y )∼D 
+
+
+
+1{y ∈ D +} log πθ
+
+πref + πθ
+
++  1 − 1{y ∈ D +} log πref 
+
+πref + πθ
+
+
+
+(18) where 1(·) is the indicator function, which is precisely the logistic regression loss for binary classifi-cation. From a game-theoretic view, the reward maximization problem induced by LBRO in Eq. 18 can be interpreted as a zero-sum game where the learned policy πθ competes against the reference policy πref over a labeled dataset D = D+ ∪ D −. For a detailed derivation, please see Appendix B.3. 
+
+## 4 Experiments 
+
+We present an empirical study of the proposed unsupervised reward optimization framework for PLMs through two main experimental components: (1) evaluating the proposed statistical metrics in Section 3.2 for reward labeling, and (2) benchmarking PLMs fine-tuned by SRO/BRO on novel compositional OOD prompt generalization tasks with rewards from part (1). Our proposed methods show competitive performance despite being trained with noisy supervision, and in certain regimes achieve performance comparable to that of the oracle model fine-tuned with ground-truth labels. 
+
+4.1 Experimental Setup 
+
+Benchmarking the intrinsic and extrinsic rewards proposed in Section 3.2 requires (1) a prompt set X
+
+as conditions, (2) a base model πref to sample protein sequences Y, (3) a representation model q to compute semantic distance, and (4) a ground-truth labeler l : X × Y → R for evaluating alignment with the prompt. To this end, we consider two frontier PLMs with customized setups: 6• ProGen2 [ 19 ]: An autoregressive PLM pre-trained over one billion natural protein sequences and can be finetuned to generate highly specialized functional protein by instruction tuning. We use a 151M version called progen2-small-mix7 as the primary reference model, which is fine-tuned by Hrbáˇ n and Hoksza [76] via SFT on a dataset of 7 Pfam [ 42 ] protein families. For a detailed description of these Pfam proteins, please see Appendix C. The SFT prompts consist of special family tokens like <|pf00002|> . Following ESM3 [11], we apply InterProScan [77] as the ground-truth labeler by letting l(x, y ) = 1 if the Pfam family keyword is recovered by InterProScan and 
+
+0 otherwise. We also train a 764M progen2-medium-mix7 model via SFT on the same dataset for scaling experiments. • ESM3 [ 11 ]: A state-of-the-art multimodal PLM with three tracks (sequence, structure and function) and pretrained via masked language modeling in Eq. (1). Due to its multimodal nature, ESM3 can perform diverse conditional generation tasks with customized functional and structural primitives. For Func2Seq tasks, we follow the same procedure as ProGen2 and use the keyword (InterPro entries) recovery rate by InterProScan as the ground-truth label. For Struct2Seq tasks, namely inverse folding [ 78 , 79 ], we predict the structure of generated sequence by ESMfold [ 80 ] and compute the backbone cRMSD against the prompted structure. The target structure is considered recovered if the cRMSD < 2 Å. The only open-weight model, 1.4B esm3-sm-open-v1, is used in this study. 
+
+Prompt and Dataset Construction Since no prior work considers the exact setting of unsuper-vised reward optimization for PLMs, we introduce novel prompt sets for biologically meaningful Func2Seq and Struct2Seq tasks. For ESM3, we randomly sample 1000 proteins from the Dracuncu-lus medinensis (DRAME )8 subset of AlphaFoldDB [ 81 ], and employ their InterPro entries and 3D structures as the Func2Seq and Struct2Seq prompts respectively. The ESM3 prompt sets are used for benchmarking unsupervised rewards only. For ProGen2, based on the 7 Pfam control tags of progen2-small-mix7, we concatenate each family token with the first 10 residues of sequences from 
+
+another family to construct a novel OOD prompt set. For fine-tuning, the training and testing set comprise 1400 ( Pfam1400 ) and 700 ( Pfam700 ) prompts in total, with 200 and 100 entries from each Pfam family. These prompts are used for both reward benchmarking and BRO/SRO post-training to evaluate the compositional generalization [ 82 , 83 ] of our proposed framework 9. Our full datasets D
+
+are sampled over five temperatures T ∈ { 0.3, 0.5, 0.7, 1.0, 1.5} according to Eq. (7) with N = 64 ,and therefore contain 448 k and 224 k samples, respectively. We apply a state-of-the-art representation PLM ESMC-600M [ 65 ] for generating protein embeddings and extrinsic rewards. An alternative model is also assessed and produces consistent results, see details in Appendix E. 
+
+4.2 Benchmarking Unsupervised Rewards 
+
+We examine our proposed unsupervised rewards in Section 3.2 on three combinations of prompt sets and tasks: Pfam700-Func2Seq, DRAME-Func2Seq and DRAME-Struct2Seq. For extrinsic rewards defined in Eq. (6), we evaluate a broad spectrum of metrics d (see details in Appendix E) and select two representatives for illustration in Figure 1: L1-mean and PCA1-bos. For the Func2Seq tasks shown in Figure 1(a) and (b), all metrics exhibit consistent trends across different PLMs and prompt sets. The entropy-based intrinsic rewards increase monotonically in temperature, starting from strongly negative correlation with the ground truth at T ≤ 0.7 and drastically reaching high positive correlation at T > 1.0. This suggests that both ProGen2 and ESM3 models are over-confident at low temperatures, leading to degenerate and repetitive sequences with high probability [ 84 , 85 ] and under-confident at high temperatures, generating incoherent and random outputs. Intriguingly, as observed in Tab. 1 and appendix H, the "critical temperature" at which the models transition from being over-confident to under-confident, which is T ∼ 0.7 for ProGen2 and T ∼ 1.0 for ESM3, coincides with the best-performing temperature. However, at this critical temperature, intrinsic rewards are close to random, offering no predictive power. Compared to predictive and normalized entropy, the extrinsic rewards exhibit more nuanced patterns. For PCA1-bos, the projection is up to a sign, which we always choose for it to be positively correlated with the ground truth 10 . Therefore, the AUROCs for PCA1-bos are always above 0.5, while generally     
+
+> 8We chose this dataset to prevent data leakage as Dracunculus medinensis was added to AlphaFoldDB since v5 release, whereas ESM3 reported using v4 for training.
+> 9Biologically, this setup can be interpreted to test the model’s controllability as well as creativity in "reprogramming" functional context from one protein family onto the N-terminal scaffold of another.
+> 10 We empirically observe that at lower T, PCA1 effectively separates generated sequences into feasible-looking ones and degenerate gibberish, which aligns with a recent study [ 86 ]. Therefore, the sign of PCA can be determined by assigning the projection score of the non-biological sequences as negative, without any knowledge of ground-truth labels.
+
+70.3 0.5 0.7 1.0 1.5                     
+
+> Sampling Temperature
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> AUROC
+> 0.3 0.5 0.7 1.0 1.5
+> Sampling Temperature
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> AUROC
+> 0.3 0.5 0.7 1.0 1.5
+> Sampling Temperature
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> AUROC
+> 0.3 0.5 0.7 1.0 1.5
+> Sampling Temperature
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Promptwise AUROC
+> (a) Pfam700-Func2Seq
+> 0.3 0.5 0.7 1.0 1.5
+> Sampling Temperature
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Promptwise AUROC
+> (b) DRAME-Func2Seq
+> 0.3 0.5 0.7 1.0 1.5
+> Sampling Temperature
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Promptwise AUROC
+> (c) DRAME-Struct2Seq
+> Predictive entropy (intrinsic)
+> Normalized entropy (intrinsic)
+> L1-mean (extrinsic)
+> PCA1-bos (extrinsic)
+> pLDDT
+> pTM
+
+Figure 1: Correlations between intrinsic/extrinsic rewards and the ground-truth label in terms of AUROC on (a) Pfam700 prompt set for Func2Seq task, and DRAME prompt set for (b) Func2Seq and (c) Struct2Seq tasks, across five sampling temperatures. Promptwise AUROC evaluates the correlation within the generated sequences for each prompt. decreasing in temperature. In contrast, L1-mean always peaks at the critical temperature, making it a 
+
+great complement to other metrics, especially the intrinsic uncertainty measures. For Struct2Seq tasks in Figure 1(c), we also consider pLDDT and pTM [ 4, 80 ] from ESMfold prediction as competitive baselines. Compared to Func2Seq tasks, all proposed metrics demonstrate positive correlations with the ground truth and much more stable trends w.r.t. temperature. Despite being more computationally efficient 11 , they underperform relative to pLDDT and pTM. Moreover, unlike in Func2Seq tasks, the promptwise correlations for all metrics, including pLDDT and pTM, deteriorate markedly. We interpret this as evidence that correlations in Struct2Seq tasks are largely prompt-dependent: some structures are inherently easier to recover than others. This also implies that, for many prompts, all generated sequences are infeasible, as we empirically confirm, leaving few positive samples for self-improvement. As a result, we exclude Struct2Seq tasks from the subsequent post-training study, while retaining them as diagnostic evidence for our task-agnostic reward design. Based on the analysis above, we instantiate the multi-temperature sampling and reward-labeling strategy in Eq. (7) by defining a piecewise reward function rT w.r.t. the critical temperature Tc:
+
+rT =
+
+
+
+− ¯dPCA1-bos , if T < T c
+
+− ¯dL1-mean , if T = Tc
+
+− ˜Hπ , if T > T c
+
+(19) which is motivated by the diagnostic correlations in Figure 1. See Appendix D for the ablation study of design choices. For each prompt, we sample N = 64 sequences and retain only the top-4 and bottom-4 for post-training to reduce reward noise. Moreover, this construction naturally produces positive and negative samples for BRO/DPO/KTO. More detail can be found in Appendix G. 
+
+4.3 Compositional OOD Prompt Generalization 
+
+To demonstrate the effectiveness of our proposed framework, we fine-tune two SFT models, Progen2-small-mix7 and Progen2-medium-mix7, via SRO/BRO (ours) and two competitive baselines (DPO [ 40 ] and KTO [ 41 ]) with the unsupervised rewards in Eq. (19). For binary rewards used by BRO, DPO and KTO, we find that adopting L1-mean alone regardless of T produces robust 
+
+> 11
+
+For our experiments with a single A40 GPU, the average inference time per sequence for ESMC-600M is less than 0.1s, whereas ESMfold takes more than 2.0s. 
+
+8improvements for all post-training methods (Tab. 2), which we report here. As oracle baselines, we also train base models with ground-truth reward via BRO, since the labels are inherently binary. Table 1: Keyword recovery on Pfam700 Func2Seq tasks . We report pass@1 success rate with top-k decoding, where k = 15 . For each temperature, the best model except Oracle is bolded and the second best is underlined. More details can be found in Appendix G. 
+
+T = 0 .3 T = 0 .5 T = 0 .7 T = 1 .0 T = 1 .5 Average 
+
+151M model 
+
+Progen2-small-mix7 0.210 0.288 0.390 0.401 0.118 0.281 Progen2-small-mix7 DPO 0.283 0.395 0.512 0.435 0.122 0.350 Progen2-small-mix7 KTO 0.272 0.347 0.430 0.458 0.175 0.337 Progen2-small-mix7 BRO 0.406 0.445 0.494 0.520 0.298 0.433 
+
+Progen2-small-mix7 SRO 0.383 0.455 0.498 0.499 0.301 0.427 Progen2-small-mix7 Oracle 0.537 0.573 0.579 0.506 0.247 0.488 
+
+764M model 
+
+Progen2-medium-mix7 0.383 0.471 0.567 0.428 0.074 0.385 Progen2-medium-mix7 DPO 0.591 0.693 0.670 0.379 0.067 0.480 Progen2-medium-mix7 KTO 0.507 0.620 0.681 0.557 0.159 0.505 Progen2-medium-mix7 BRO 0.678 0.697 0.701 0.645 0.342 0.613 
+
+Progen2-medium-mix7 SRO 0.655 0.706 0.708 0.648 0.292 0.602 Progen2-medium-mix7 Oracle 0.661 0.700 0.704 0.642 0.308 0.603 Shown in Tabs. 1 and 10, both SRO and BRO significantly improve the generalization of the base model on the challenging compositional OOD prompt set Pfam700 across temperatures, model scales and protein families. They outperform DPO and KTO by a substantial margin and, in some regimes, achieve performance comparable to the Oracle. For example, for the 764M base model, BRO attains an average recovery rate of 61 .3% , compared with 60 .3% for the Oracle. Moreover, we conduct pass@k analysis [ 72 ] in Figure 2 to further dissect the nature of the improvements conferred by BRO and SRO. We observe that they generally boost pass@k scores for small k yet converge with the base model at high k values. This implies that BRO/SRO incentivize the model to prioritize and consistently generate patterns that align with the prompts, rather than instilling fundamentally novel ones, reconfirming recent studies on post-training reasoning LLMs [ 39 , 87 – 89 ]. However, DPO, despite underperforming BRO/SRO at small k, exhibits stronger performance compared to the base model for nearly all k values, suggesting that it not only enhances the probability of successful generations, but also pushes the boundary of the model’s compositional generalization capabilities. Overall, these observations highlight the effectiveness and potential of our refined strategy for reward labeling, data sampling and algorithm design. 1 2 4 8 16 32                  
+
+> Number of Samples k
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Coverage (pass@k)
+> T = 0.5
+> 124816 32
+> Number of Samples k
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0 T = 0.7
+> 124816 32
+> Number of Samples k
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0 T = 1.0
+> Base DPO KTO BRO SRO Oracle
+
+Figure 2: Pass@k curves for Progen2-small-mix7 on Pfam700 Func2Seq tasks. For each prompt, 
+
+N = 64 sequences are sampled for evaluation. 9References 
+
+[1] Alexander Rives, Joshua Meier, Tom Sercu, Siddharth Goyal, Zeming Lin, Jason Liu, Demi Guo, Myle Ott, C. Lawrence Zitnick, Jerry Ma, and Rob Fergus. Biological structure and function emerge from scaling unsupervised learning to 250 million protein sequences. PNAS , 2019. doi: 10.1101/622803. URL https://www.biorxiv.org/content/10.1101/622803v4 .[2] Ethan C Alley, Grigory Khimulya, Surojit Biswas, Mohammed AlQuraishi, and George M Church. Unified rational protein engineering with sequence-based deep representation learning. 
+
+Nature methods , 16(12):1315–1322, 2019. [3] Ahmed Elnaggar, Michael Heinzinger, Christian Dallago, Ghalia Rehawi, Yu Wang, Llion Jones, Tom Gibbs, Tamas Feher, Christoph Angerer, Martin Steinegger, Debsindhu Bhowmik, and Burkhard Rost. Prottrans: Toward understanding the language of life through self-supervised learning. IEEE Transactions on Pattern Analysis and Machine Intelligence , 44(10):7112–7127, 2022. doi: 10.1109/TPAMI.2021.3095381. [4] John Jumper, Richard Evans, Alexander Pritzel, Tim Green, Michael Figurnov, Olaf Ron-neberger, Kathryn Tunyasuvunakool, Russ Bates, Augustin Žídek, Anna Potapenko, et al. Highly accurate protein structure prediction with alphafold. nature , 596(7873):583–589, 2021. [5] Minkyung Baek, Frank DiMaio, Ivan Anishchenko, Justas Dauparas, Sergey Ovchinnikov, Gyu Rie Lee, Jue Wang, Qian Cong, Lisa N Kinch, R Dustin Schaeffer, et al. Accurate prediction of protein structures and interactions using a three-track neural network. Science ,373(6557):871–876, 2021. [6] Jiayang Chen, Zhihang Hu, Siqi Sun, Qingxiong Tan, Yixuan Wang, Qinze Yu, Licheng Zong, Liang Hong, Jin Xiao, Tao Shen, et al. Interpretable rna foundation model from unannotated data for highly accurate rna structure and function predictions. arXiv preprint arXiv:2204.00300 ,2022. [7] Ali Madani, Ben Krause, Eric R Greene, Subu Subramanian, Benjamin P Mohr, James M Holton, Jose Luis Olmos Jr, Caiming Xiong, Zachary Z Sun, Richard Socher, et al. Large language models generate functional protein sequences across diverse families. Nature biotechnology , 41 (8):1099–1106, 2023. [8] Joseph L Watson, David Juergens, Nathaniel R Bennett, Brian L Trippe, Jason Yim, Helen E Eisenach, Woody Ahern, Andrew J Borst, Robert J Ragotte, Lukas F Milles, et al. De novo design of protein structure and function with rfdiffusion. Nature , 620(7976):1089–1100, 2023. [9] Jin Su, Chenchen Han, Yuyang Zhou, Junjie Shan, Xibin Zhou, and Fajie Yuan. Saprot: Protein language modeling with structure-aware vocabulary. In The Twelfth International Conference on Learning Representations , 2024. [10] Eric Nguyen, Michael Poli, Matthew G Durrant, Brian Kang, Dhruva Katrekar, David B Li, Liam J Bartie, Armin W Thomas, Samuel H King, Garyk Brixi, et al. Sequence modeling and design from molecular to genome scale with evo. Science , 386(6723):eado9336, 2024. [11] Thomas Hayes, Roshan Rao, Halil Akin, Nicholas J Sofroniew, Deniz Oktay, Zeming Lin, Robert Verkuil, Vincent Q Tran, Jonathan Deaton, Marius Wiggert, et al. Simulating 500 million years of evolution with a language model. Science , 387(6736):850–858, 2025. [12] Sarah Lewis, Tim Hempel, José Jiménez-Luna, Michael Gastegger, Yu Xie, Andrew YK Foong, Victor García Satorras, Osama Abdin, Bastiaan S Veeling, Iryna Zaporozhets, et al. Scalable emulation of protein equilibrium ensembles with generative deep learning. Science , 389(6761): eadv9817, 2025. [13] Saro Passaro, Gabriele Corso, Jeremy Wohlwend, Mateo Reveiz, Stephan Thaler, Vignesh Ram Somnath, Noah Getz, Tally Portnoi, Julien Roy, Hannes Stark, et al. Boltz-2: Towards accurate and efficient binding affinity prediction. BioRxiv , 2025. [14] Bo Chen, Xingyi Cheng, Pan Li, Yangli-ao Geng, Jing Gong, Shen Li, Zhilei Bei, Xu Tan, Boyan Wang, Xin Zeng, et al. xtrimopglm: unified 100-billion-parameter pretrained transformer for deciphering the language of proteins. Nature Methods , 22(5):1028–1039, 2025. 10 [15] Shentong Mo and Lanqing Li. Sadit: Efficient protein backbone design via latent structural tokenization and diffusion transformers. arXiv preprint arXiv:2602.06706 , 2026. [16] Michael Heinzinger, Ahmed Elnaggar, Yu Wang, Christian Dallago, Dmitrii Nechaev, Florian Matthes, and Burkhard Rost. Modeling aspects of the language of life through transfer-learning protein sequences. BMC bioinformatics , 20(1):723, 2019. [17] Joshua Meier, Roshan Rao, Robert Verkuil, Jason Liu, Tom Sercu, and Alex Rives. Language models enable zero-shot prediction of the effects of mutations on protein function. Advances in neural information processing systems , 34:29287–29303, 2021. [18] Roshan Rao, Joshua Meier, Tom Sercu, Sergey Ovchinnikov, and Alexander Rives. Transformer protein language models are unsupervised structure learners. In International Conference on Learning Representations , 2021. [19] Erik Nijkamp, Jeffrey A Ruffolo, Eli N Weinstein, Nikhil Naik, and Ali Madani. Progen2: exploring the boundaries of protein language models. Cell systems , 14(11):968–978, 2023. [20] Noelia Ferruz and Birte Höcker. Controllable protein design with language models. Nature Machine Intelligence , 4(6):521–532, 2022. [21] Talal Widatalla, Rafael Rafailov, and Brian Hie. Aligning protein generative models with experimental fitness via direct preference optimization. bioRxiv , pages 2024–05, 2024. [22] Filippo Stocco, Maria Artigues-Lleixa, Andrea Hunklinger, Talal Widatalla, Marc Guell, and Noelia Ferruz. Guiding generative protein language models with reinforcement learning, 2024. URL https://arxiv.org/abs/2412.12979 .[23] Daniel M Ziegler, Nisan Stiennon, Jeffrey Wu, Tom B Brown, Alec Radford, Dario Amodei, Paul Christiano, and Geoffrey Irving. Fine-tuning language models from human preferences. 
+
+arXiv preprint arXiv:1909.08593 , 2019. [24] Nisan Stiennon, Long Ouyang, Jeffrey Wu, Daniel Ziegler, Ryan Lowe, Chelsea Voss, Alec Radford, Dario Amodei, and Paul F Christiano. Learning to summarize with human feedback. 
+
+Advances in neural information processing systems , 33:3008–3021, 2020. [25] Yuntao Bai, Andy Jones, Kamal Ndousse, Amanda Askell, Anna Chen, Nova DasSarma, Dawn Drain, Stanislav Fort, Deep Ganguli, Tom Henighan, et al. Training a helpful and harmless assistant with reinforcement learning from human feedback. arXiv preprint arXiv:2204.05862 ,2022. [26] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. Training language models to follow instructions with human feedback. Advances in neural information processing systems ,35:27730–27744, 2022. [27] Tomasz Korbak, Kejian Shi, Angelica Chen, Rasika Vinayak Bhalerao, Christopher Buckley, Jason Phang, Samuel R Bowman, and Ethan Perez. Pretraining language models with human preferences. In International conference on machine learning , pages 17506–17533. PMLR, 2023. [28] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, et al. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. [29] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, et al. Deepseek-r1 incentivizes reasoning in llms through reinforcement learning. Nature , 645(8081):633–638, 2025. [30] Qwen Team. Qwq-32b: Embracing the power of reinforcement learning, 2025. URL https: //qwenlm.github.io/blog/qwq-32b/ .[31] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388 , 2025. 11 [32] Gheorghe Comanici, Eric Bieber, Mike Schaekermann, Ice Pasupat, Noveen Sachdeva, Inderjit Dhillon, Marcel Blistein, Ori Ram, Dan Zhang, Evan Rosen, et al. Gemini 2.5: Pushing the frontier with advanced reasoning, multimodality, long context, and next generation agentic capabilities. arXiv preprint arXiv:2507.06261 , 2025. [33] Collin Burns, Pavel Izmailov, Jan Hendrik Kirchner, Bowen Baker, Leo Gao, Leopold As-chenbrenner, Yining Chen, Adrien Ecoffet, Manas Joglekar, Jan Leike, et al. Weak-to-strong generalization: Eliciting strong capabilities with weak supervision. In Forty-first International Conference on Machine Learning .[34] David Silver and Richard S Sutton. Welcome to the era of experience. Google AI , 1:11, 2025. [35] Bingxiang He, Yuxin Zuo, Zeyuan Liu, Shangziqi Zhao, Zixuan Fu, Junlin Yang, Cheng Qian, Kaiyan Zhang, Yuchen Fan, Ganqu Cui, Xiusi Chen, Youbang Sun, Xingtai Lv, Xuekai Zhu, Li Sheng, Ran Li, Huan ang Gao, Yuchen Zhang, Lifan Yuan, Bowen Zhou, et al. How far can unsupervised RLVR scale LLM training? In The Thirteenth International Conference on Learning Representations , 2026. [36] Vishwanatha M Rao, Serena Zhang, Brian S Plosky, Patrick D Hsu, Bo Wang, James Zou, Marinka Zitnik, Eric J Topol, and Pranav Rajpurkar. Generalist biological artificial intelligence in modeling the language of life. Nature Biotechnology , pages 1–16, 2026. [37] Andrew Zhao, Yiran Wu, Yang Yue, Tong Wu, Quentin Xu, Matthieu Lin, Shenzhi Wang, Qingyun Wu, Zilong Zheng, and Gao Huang. Absolute zero: Reinforced self-play reasoning with zero data. In The Thirty-ninth Annual Conference on Neural Information Processing Systems .[38] Yuxin Zuo, Kaiyan Zhang, Li Sheng, Shang Qu, Ganqu Cui, Xuekai Zhu, Haozhan Li, Yuchen Zhang, Xinwei Long, Ermo Hua, Biqing Qi, Youbang Sun, Zhiyuan Ma, Lifan Yuan, Ning Ding, and Bowen Zhou. TTRL: Test-time reinforcement learning. In Thirty-ninth Conference on Neural Information Processing Systems , 2025. URL https://openreview.net/forum? id=VuVhgEiu20 . Poster Presentation. [39] Qingyang Zhang, Haitao Wu, Changqing Zhang, Peilin Zhao, and Yatao Bian. Right question is already half the answer: Fully unsupervised llm reasoning incentivization. In Thirty-ninth Conference on Neural Information Processing Systems , 2025. URL https://openreview. net/forum?id=k8Mim6RI5O . Spotlight Presentation. [40] Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, and Chelsea Finn. Direct preference optimization: Your language model is secretly a reward model. 
+
+Advances in neural information processing systems , 36:53728–53741, 2023. [41] Kawin Ethayarajh, Winnie Xu, Niklas Muennighoff, Dan Jurafsky, and Douwe Kiela. Model alignment as prospect theoretic optimization. In International Conference on Machine Learning ,pages 12634–12651. PMLR, 2024. [42] Robert D Finn, Alex Bateman, Jody Clements, Penelope Coggill, Ruth Y Eberhardt, Sean R Eddy, Andreas Heger, Kirstie Hetherington, Liisa Holm, Jaina Mistry, et al. Pfam: the protein families database. Nucleic acids research , 42(D1):D222–D230, 2014. [43] Adam Winnifrith, Carlos Outeiral, and Brian L Hie. Generative artificial intelligence for de novo protein design. Current Opinion in Structural Biology , 86:102794, 2024. [44] Tanja Kortemme. De novo protein design—from new structures to programmable functions. 
+
+Cell , 187(3):526–544, 2024. [45] Wei Yang, Shunzhi Wang, Gyu Rie Lee, Jason Z Zhang, Alexis Courbet, David Juergens, Xinru Wang, Thomas Schlichthaerle, Mohamad Abedi, Robert Ragotte, et al. The past, present and future of de novo protein design. Nature , 652(8112):1139–1152, 2026. [46] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. 12 [47] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. Bert: Pre-training of deep bidirectional transformers for language understanding. In Proceedings of the 2019 conference of the North American chapter of the association for computational linguistics: human language technologies, volume 1 (long and short papers) , pages 4171–4186, 2019. [48] Liuzhenghao Lv, Zongying Lin, Hao Li, Yuyang Liu, Jiaxi Cui, Calvin Yu-Chian Chen, Li Yuan, and Yonghong Tian. Prollama: A protein large language model for multi-task protein language processing. IEEE Transactions on Artificial Intelligence , 2025. [49] Kaiyi Jiang, Zhaoqing Yan, Matteo Di Bernardo, Samantha R Sgrizzi, Lukas Villiger, Alisan Kayabolen, BJ Kim, Josephine K Carscadden, Masahiro Hiraizumi, Hiroshi Nishimasu, et al. Rapid in silico directed evolution by a protein language model with evolvepro. Science , 387 (6732):eadr6006, 2024. [50] Kevin K Yang, Zachary Wu, and Frances H Arnold. Machine-learning-guided directed evolution for protein engineering. Nature methods , 16(8):687–694, 2019. [51] Long-Kai Huang, Rongyi Zhu, Bing He, and Jianhua Yao. Steering protein language models. In International Conference on Machine Learning , pages 26247–26260. PMLR, 2025. [52] Zhangde Song, Jieyu Lu, Yuanqi Du, Botao Yu, Thomas M Pruyn, Yue Huang, Kehan Guo, Xiuzhe Luo, Yuanhao Qu, Yi Qu, et al. Evaluating large language models in scientific discovery. 
+
+arXiv preprint arXiv:2512.15567 , 2025. [53] Xuandong Zhao, Zhewei Kang, Aosong Feng, Sergey Levine, and Dawn Song. Learning to reason without external rewards. 2026. URL https://openreview.net/forum?id= OU9nFEYR2M .[54] Ganqu Cui, Yuchen Zhang, Jiacheng Chen, Lifan Yuan, Zhi Wang, Yuxin Zuo, Haozhan Li, Yuchen Fan, Huayu Chen, Weize Chen, et al. The entropy mechanism of reinforcement learning for reasoning language models. arXiv preprint arXiv:2505.22617 , 2025. [55] Shivam Agarwal, Zimin Zhang, Lifan Yuan, Jiawei Han, and Hao Peng. The unreasonable effectiveness of entropy minimization in LLM reasoning. In Thirty-ninth Conference on Neural Information Processing Systems , 2025. URL https://openreview.net/forum?id= UfFTBEsLgI . Poster Presentation. [56] Sheikh Shafayat, Fahim Tajwar, Ruslan Salakhutdinov, Jeff Schneider, and Andrea Zanette. Can large reasoning models self-train? arXiv preprint arXiv:2505.21444 , 2025. [57] Yanzhi Zhang, Zhaoxi Zhang, Haoxiang Guan, Yilin Cheng, Yitong Duan, Chen Wang, Yue Wang, Shuxin Zheng, and Jiyan He. No free lunch: Rethinking internal feedback for llm reasoning. arXiv preprint arXiv:2506.17219 , 2025. [58] Qingxiu Dong, Li Dong, Yao Tang, Tianzhu Ye, Yutao Sun, Zhifang Sui, and Furu Wei. Reinforcement pre-training. arXiv preprint arXiv:2506.08007 , 2025. [59] Ali Hatamizadeh, Syeda Nahida Akter, Shrimai Prabhumoye, Jan Kautz, Mostofa Patwary, Mohammad Shoeybi, Bryan Catanzaro, and Yejin Choi. Rlp: Reinforcement as a pretraining objective. arXiv preprint arXiv:2510.01265 , 2025. [60] Shuaijie She, Yu Bao, Yu Lu, Lu Xu, Tao Li, Wenhao Zhu, Shujian Huang, Shanbo Cheng, Lu Lu, and Yuxuan Wang. Dupo: Enabling reliable llm self-verification via dual preference optimization. arXiv preprint arXiv:2508.14460 , 2025. [61] Syeda Nahida Akter, Shrimai Prabhumoye, Matvei Novikov, Seungju Han, Ying Lin, Evelina Bakhturina, Eric Nyberg, Yejin Choi, Mostofa Patwary, Mohammad Shoeybi, et al. Nemotron-crossthink: Scaling self-learning beyond math reasoning. In Proceedings of the 19th Conference of the European Chapter of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 984–1002, 2026. [62] Toby Simonds and Akira Yoshiyama. Ladder: Self-improving llms through recursive problem decomposition. arXiv preprint arXiv:2503.00735 , 2025. 13 [63] Zhihong Shao, Yuxiang Luo, Chengda Lu, ZZ Ren, Jiewen Hu, Tian Ye, Zhibin Gou, Shirong Ma, and Xiaokang Zhang. Deepseekmath-v2: Towards self-verifiable mathematical reasoning. 
+
+arXiv preprint arXiv:2511.22570 , 2025. [64] Thomas Hubert, Rishi Mehta, Laurent Sartran, Miklós Z Horváth, Goran Žuži´ c, Eric Wieser, Aja Huang, Julian Schrittwieser, Yannick Schroecker, Hussain Masoom, et al. Olympiad-level formal mathematical reasoning with reinforcement learning. Nature , pages 1–3, 2025. [65] ESM Team. Esm cambrian: Revealing the mysteries of proteins with unsupervised learning, 2024. URL https://evolutionaryscale.ai/blog/esm-cambrian .[66] Jason Wei, Maarten Bosma, Vincent Zhao, Kelvin Guu, Adams Wei Yu, Brian Lester, Nan Du, Andrew M Dai, and Quoc V Le. Finetuned language models are zero-shot learners. In 
+
+International Conference on Learning Representations , 2022. [67] Brian D Ziebart, Andrew L Maas, J Andrew Bagnell, Anind K Dey, et al. Maximum entropy inverse reinforcement learning. In Aaai , volume 8, pages 1433–1438. Chicago, IL, USA, 2008. [68] Tuomas Haarnoja, Haoran Tang, Pieter Abbeel, and Sergey Levine. Reinforcement learning with deep energy-based policies. In International conference on machine learning , pages 1352–1361. PMLR, 2017. [69] Tuomas Haarnoja, Aurick Zhou, Pieter Abbeel, and Sergey Levine. Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. In International conference on machine learning , pages 1861–1870. Pmlr, 2018. [70] Lorenz Kuhn, Yarin Gal, and Sebastian Farquhar. Semantic uncertainty: Linguistic invariances for uncertainty estimation in natural language generation. In The Eleventh International Conference on Learning Representations , 2023. [71] Sebastian Farquhar, Jannik Kossen, Lorenz Kuhn, and Yarin Gal. Detecting hallucinations in large language models using semantic entropy. Nature , 630(8017):625–630, 2024. [72] Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde De Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, et al. Evaluating large language models trained on code. arXiv preprint arXiv:2107.03374 , 2021. [73] Yuqi Zhu, Jia Li, Ge Li, YunFei Zhao, Zhi Jin, and Hong Mei. Hot or cold? adaptive temperature sampling for code generation with large language models. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 38, pages 437–445, 2024. [74] Shimao Zhang, Yu Bao, and Shujian Huang. Edt: Improving large language models’ generation by entropy-based dynamic temperature sampling. arXiv preprint arXiv:2403.14541 , 2024. [75] Ralph Allan Bradley and Milton E Terry. Rank analysis of incomplete block designs: I. the method of paired comparisons. Biometrika , 39(3/4):324–345, 1952. [76] Hugo Hrbáˇ n and David Hoksza. Protein family sequence generation through progen2 fine-tuning. In 2024 IEEE International Conference on Bioinformatics and Biomedicine (BIBM) ,pages 7037–7039, 2024. doi: 10.1109/BIBM62325.2024.10821712. [77] Typhaine Paysan-Lafosse, Matthias Blum, Sara Chuguransky, Tiago Grego, Beatriz Lázaro Pinto, Gustavo A Salazar, Maxwell L Bileschi, Peer Bork, Alan Bridge, Lucy Colwell, et al. Interpro in 2022. Nucleic acids research , 51(D1):D418–D427, 2023. [78] Chloe Hsu, Robert Verkuil, Jason Liu, Zeming Lin, Brian Hie, Tom Sercu, Adam Lerer, and Alexander Rives. Learning inverse folding from millions of predicted structures. In International conference on machine learning , pages 8946–8970. PMLR, 2022. [79] Justas Dauparas, Ivan Anishchenko, Nathaniel Bennett, Hua Bai, Robert J Ragotte, Lukas F Milles, Basile IM Wicky, Alexis Courbet, Rob J de Haas, Neville Bethel, et al. Robust deep learning–based protein sequence design using proteinmpnn. Science , 378(6615):49–56, 2022. 14 [80] Zeming Lin, Halil Akin, Roshan Rao, Brian Hie, Zhongkai Zhu, Wenting Lu, Nikita Smetanin, Robert Verkuil, Ori Kabeli, Yaniv Shmueli, et al. Evolutionary-scale prediction of atomic-level protein structure with a language model. Science , 379(6637):1123–1130, 2023. [81] Mihaly Varadi, Stephen Anyango, Mandar Deshpande, Sreenath Nair, Cindy Natassia, Galabina Yordanova, David Yuan, Oana Stroe, Gemma Wood, Agata Laydon, et al. Alphafold protein structure database: massively expanding the structural coverage of protein-sequence space with high-accuracy models. Nucleic acids research , 50(D1):D439–D444, 2022. [82] Robert Kirk, Amy Zhang, Edward Grefenstette, and Tim Rocktäschel. A survey of zero-shot generalisation in deep reinforcement learning. Journal of Artificial Intelligence Research , 76: 201–264, 2023. [83] Haoran Yang, Hongyuan Lu, Wai Lam, and Deng Cai. Exploring compositional generalization of large language models. In Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 4: Student Research Workshop) , pages 16–24, 2024. [84] Sean Welleck, Ilia Kulikov, Stephen Roller, Emily Dinan, Kyunghyun Cho, and Jason Weston. Neural text generation with unlikelihood training. In International Conference on Learning Representations , 2020. [85] Ari Holtzman, Jan Buys, Li Du, Maxwell Forbes, and Yejin Choi. The curious case of neural text degeneration. In International Conference on Learning Representations , 2020. [86] R Prabakaran and Yana Bromberg. Quantifying uncertainty in protein representations across models and tasks. Nature Methods , pages 1–9, 2026. [87] Zhengxuan Wu, Aryaman Arora, Zheng Wang, Atticus Geiger, Dan Jurafsky, Christopher D Manning, and Christopher Potts. Reft: Representation finetuning for language models. Advances in Neural Information Processing Systems , 37:63908–63962, 2024. [88] Yang Yue, Zhiqi Chen, Rui Lu, Andrew Zhao, Zhaokai Wang, Shiji Song, and Gao Huang. Does reinforcement learning really incentivize reasoning capacity in llms beyond the base model? In 
+
+The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. [89] Yuda Song, Hanlin Zhang, Carson Eisenach, Sham M Kakade, Dean Foster, and Udaya Ghai. Mind the gap: Examining the self-improvement capabilities of large language models. In The Thirteenth International Conference on Learning Representations , 2025. [90] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In International Conference on Learning Representations .15 A Discussion and Limitations 
+
+While our unsupervised reward optimization framework demonstrates strong performance in steering protein language models, several limitations remain. First, our unsupervised metrics, though effective for both ProGen2 and ESM3 on Func2Seq tasks, underperform structure-based baselines like pLDDT and pTM for inverse folding tasks (despite being much more computationally efficient as discussed in Section 4.2). Second, we only conduct in silico evaluations in this study, and wet-lab or clinical validations are required to demonstrate the real-world impact of our proposed framework in biological applications. Finally, the reliance on proxy rewards inherently introduces approximation error compared to oracle supervision, which may limit performance in domains where ground-truth labels are available (Tab. 1 and fig. 2). Future work may investigate more sophisticated reward design, uncertainty-aware optimization, and hybrid approaches that combine unsupervised signals with minimal human feedback. 
+
+Broader impacts. The proposed framework may support beneficial protein engineering by reducing reliance on costly experimental labels, potentially accelerating applications in enzyme design, thera-peutics, vaccines, and biomaterials. At the same time, improved controllability of PLMs is a dual-use capability: similar techniques could be misused to search for proteins with harmful biological activity or to optimize pathogen-, toxin-, or immune-evasion-related functions. Since our work is evaluated only in silico , any deployment should be coupled with biosecurity screening, restrictions on sensitive targets, access control, request auditing, and institutional biosafety/ethics review. 
+
+## B Proofs and Derivations 
+
+B.1 Proof of Theorem 3.1 
+
+Proof. Let 
+
+Vπθ = Ex∼D ,y ∼πθ (y|x)[r(x, y )] − βD KL [πθ (y|x) ∥ πref (y|x)] (20) 
+
+V∗ ≜ Ex∼D ,y ∼π∗(y|x)[r(x, y )] − βD KL [π∗(y|x) ∥ πref (y|x)] , (21) From the definition of π∗ in Eq. 4, take log 
+
+log π∗(y|x) = log πref (y|x) + r(x, y )
+
+β − log Z(x) (22) and rearrange 
+
+r(x, y ) = β log π∗(y|x)
+
+πref (y|x) + β log Z(x). (23) Substitute into Vπθ in Eq. 20: 
+
+Vπθ = ExEy∼πθ
+
+
+
+β log π∗
+
+πref 
+
++ β log Z(x) − β log πθ
+
+πref 
+
+
+
+= βEx
+
+
+
+log Z(x) − Ey∼πθ (·| x)
+
+
+
+log πθ (y|x)
+
+π∗(y|x)
+
+ 
+
+= βEx[log Z(x)] 
+
+| {z }
+
+> V∗
+
+−βEx[DKL (πθ (·| x)|| π∗(·| x))] (24) 
+
+Remark: The first term V∗ is exactly the value of the optimal policy: 
+
+V∗ = ExEy∼π∗
+
+
+
+r(x, y ) − β log π∗
+
+πref 
+
+
+
+, (25) 16 which can be verified by plugging π∗ into the original objective in Eq. 21. 
+
+B.2 Proof of Theorem 3.2 
+
+Proof. We minimize the population objective 
+
+LSRO = Ex∼D Ey∼πref (y|x)
+
+ πθ (x, y )
+
+πref (x, y )
+
+
+
+log πθ (x, y )
+
+πref (x, y ) − r(x, y )
+
+β − α
+
+ 
+
+,
+
+where we write πθ (x, y ) = πθ (y|x) pD (x) and similarly for πref , so that the joint densities share the same marginal pD (x). Since the expectation over x is fixed, we can optimize the integrand pointwise for each (x, y ).Define the pointwise loss for a fixed (x, y ):
+
+ℓ(πθ ) = πθ (x, y )
+
+πref (x, y )
+
+
+
+log πθ (x, y )
+
+πref (x, y ) − r(x, y )
+
+β − α
+
+
+
+.
+
+Let u = πθ (x, y ) > 0 and treat πref (x, y ) as constant. Then 
+
+ℓ(u) = uπref 
+
+
+
+log uπref 
+
+− rβ − α
+
+
+
+.
+
+Differentiate w.r.t. u:
+
+dℓ du = 1
+
+πref 
+
+
+
+log uπref 
+
+− rβ − α
+
+
+
++ uπref 
+
+· 1
+
+u = 1
+
+πref 
+
+
+
+log uπref 
+
+− rβ − α + 1 
+
+
+
+.
+
+Set derivative to zero for optimality: 
+
+log u∗
+
+πref 
+
+− rβ − α + 1 = 0 ⇒ log u∗
+
+πref 
+
+= rβ + α − 1.
+
+Exponentiating both sides yields 
+
+u∗ = πref (x, y ) exp 
+
+ r(x, y )
+
+β + α − 1
+
+
+
+.
+
+Since this holds for all (x, y ), the optimal policy satisfies 
+
+π∗ 
+
+> θ
+
+(x, y ) = πref (x, y ) exp 
+
+ r(x, y )
+
+β + α − 1
+
+
+
+,
+
+which implies the conditional form 
+
+π∗ 
+
+> θ
+
+(y|x) = πref (y|x) exp 
+
+ r(x, y )
+
+β + α − 1
+
+
+
+.
+
+This completes the proof. 
+
+B.3 Game-Theoretic View of Binarized Reward Optimization (BRO) 
+
+From a game-theoretic view, the reward maximization problem induced by LBRO in Eq. (18) can be interpreted as zero-sum game where the learned policy πθ competes against the reference policy πref 
+
+over a labeled dataset D = D+ ∪ D −. For each prompt-response pair (x, y ), a win for πθ is defined as: • assigning higher relative likelihood than πref to positive samples ( y ∈ D +), i.e., πθ (y|x) 
+
+> πref (y|x)
+
+> 1,and • assigning lower relative likelihood than πref to negative samples ( y ∈ D −), i.e., πθ (y|x) 
+
+> πref (y|x)
+
+< 1.17 Under the BT model [ 75 ], the probability that πθ wins against πref on (x, y ) is modeled via logistic pairwise comparison. Define the signed reward 
+
+sBRO (x, y ) = 
+
++1 , y ∈ D +
+
+−1, y ∈ D − .
+
+Then the win probability is 
+
+Pwin (x, y ) = σ (sBRO (x, y ) · (rθ (x, y ) − rref (x, y ))) (26) 
+
+= σ
+
+
+
+sBRO (x, y ) · β log πθ (y|x)
+
+πref (y|x)
+
+
+
+, (27) where σ(z) = 11+ e−z is the logistic sigmoid function. Maximizing the expected winrate is equivalent to maximizing the log-likelihood of observed wins, which yields the BRO objective by letting β = 1 :
+
+LBRO = −E(x,y )∼D 
+
+
+
+log σ
+
+
+
+sBRO (x, y ) · β log πθ (y|x)
+
+πref (y|x)
+
+ 
+
+(28) 
+
+= −E(x,y )∼D 
+
+
+
+1{y ∈ D +} log πθ
+
+πref + πθ
+
++  1 − 1{y ∈ D +} log πref 
+
+πref + πθ
+
+
+
+. (29) Thus, minimizing LBRO corresponds to optimizing πθ to dominate πref in a zero-sum competition: 
+
+πθ seeks to increase its relative likelihood on D+ and decrease it on D−, with victory governed by a Bradley–Terry (BT) ranking where the “skill” of a policy on (x, y ) is proportional to its log-probability log π(y|x) by Eq. (10). This frames policy improvement as maximizing the empirical winrate against the reference policy under pairwise logistic comparison. 
+
+## C Details of Prompt Sets 
+
+Following [76], the seven Pfam families used for our prompt sets are: • PF00002 - GPCRs • PF00042 - Globins • PF00125 - Core histones • PF00127 - Copper binding proteins • PF00257 - Dehydrins • PF00262 - Calreticulins • PF03668 - P-loop ATPase To construct compositional OOD prompt sets, for each family token, we append the first 10 residues of proteins from the next family on the list above to create 7 compositional prompt templates: • <|pf00002|>[first 10 tokens from seqs in PF00042] 
+
+• <|pf00042|>[first 10 tokens from seqs in PF00125] 
+
+• <|pf00125|>[first 10 tokens from seqs in PF00127] 
+
+• <|pf00127|>[first 10 tokens from seqs in PF00257] 
+
+• <|pf00257|>[first 10 tokens from seqs in PF00262] 
+
+• <|pf00262|>[first 10 tokens from seqs in PF03668] 
+
+• <|pf03668|>[first 10 tokens from seqs in PF00002] 
+
+18 Table 2: BRO/SRO with different choices of rewards for fine-tuning Progen2-small-mix7 on Pfam700 Func2Seq task. Method T = 0 .3 T = 0 .5 T = 0 .7 T = 1 .0 T = 1 .5 Average base 0.210 0.288 0.390 0.401 0.118 0.281 
+
+BRO ( rT ) 0.327 0.406 0.470 0.453 0.276 0.386 
+
+BRO (L1, Tab. 1) 0.407 0.445 0.494 0.521 0.298 0.433 
+
+BRO (entropy) 0.249 0.323 0.414 0.453 0.266 0.341 
+
+BRO (PCA) 0.228 0.302 0.359 0.325 0.129 0.268 
+
+SRO ( rT , Tab. 1) 0.383 0.455 0.498 0.499 0.301 0.427 
+
+SRO (L1) 0.339 0.384 0.458 0.504 0.261 0.389 
+
+SRO (entropy) 0.269 0.350 0.434 0.480 0.287 0.364 
+
+## D Ablation Study 
+
+We provide comparative analysis of various design choices of reward in Tab. 2. We conclude that BRO and SRO achieve consistent improvement over the base model with different reward functions across all temperatures, demonstrating its robustness to noisy supervision signals. Among which, BRO + L1-mean and SRO + rT bring the most significant gain, which are reported in Tab. 1. Additionally, we present ablation on our proposed multi-temperature sampling strategy in Tab. 3. For BRO (L1, T = 0 .7) and BRO (entropy, T = 1 .0), we sample the same amount of data as the reported BRO (L1, multi-T) with 5 × prompts and the best-performing metric at a single temperature according to Figure 1(a). BRO trained on multi-temperature data significantly outperforms its single-temperature counterparts, highlighting the effectiveness of the proposed reward design and sampling strategy in Section 3.2. Table 3: Performance comparison across temperatures (values rounded to 3 significant figures). Method T = 0 .3 T = 0 .5 T = 0 .7 T = 1 .0 T = 1 .5 Average base 0.210 0.288 0.390 0.401 0.118 0.281 
+
+BRO (L1, multi-T) 0.407 0.445 0.494 0.521 0.298 0.433 
+
+BRO (L1, T = 0 .7) 0.279 0.325 0.393 0.487 0.348 0.366 
+
+BRO (entropy, T = 1 .0) 0.225 0.308 0.406 0.410 0.206 0.311 
+
+19 E More Experiments on Reward Design 
+
+For our reward design, we report all candidate metrics considered in the following tables, evaluated with ESMC-600M and a smaller version, ESMC-300M 12 , which demonstrate consistent correlations: Table 4: Ground-truth AUROC on DRAME-Func2Seq with ESMC-300M embedding model. 
+
+Metric T=0 T=0.3 T=0.5 T=0.7 T=1.0 T=1.5 
+
+cos-mean 0.3852 0.4820 0.4917 0.4996 0.6036 0.5218 cos-bos 0.3451 0.3922 0.4183 0.4899 0.6461 0.6585 cos-eos 0.2726 0.3101 0.3456 0.4205 0.5222 0.5303 euc-mean 0.4488 0.5937 0.6639 0.6931 0.8029 0.6606 euc-bos 0.3003 0.3461 0.3831 0.4639 0.6342 0.6555 euc-eos 0.2499 0.2948 0.3410 0.4216 0.5302 0.5626 L2 2-mean 0.5108 0.6469 0.6914 0.7051 0.7924 0.6470 L2 2-bos 0.3420 0.3883 0.4135 0.4833 0.6331 0.6519 L2 2-eos 0.2815 0.3232 0.3611 0.4373 0.5345 0.5612 L1-mean 0.4682 0.6228 0.7075 0.7432 0.8583 0.7420 L1-bos 0.2738 0.3174 0.3661 0.4701 0.6821 0.6615 L1-eos 0.2435 0.2892 0.3351 0.4156 0.5194 0.5546 Predictive Ent 0.1319 0.1302 0.1881 0.3177 0.4836 0.5037 Normalized Ent 0.1385 0.1459 0.1990 0.3041 0.5323 0.8805 Semantic Ent [70] - - 0.6390 0.6374 0.6763 0.4658 PCA-1-mean 0.6198 0.5294 0.6294 0.7808 0.7009 0.6463 PCA-1-bos 0.8937 0.8936 0.8728 0.8120 0.7099 0.5120 PCA-1-eos 0.8787 0.8747 0.8570 0.7956 0.6664 0.5732 PCA-2-mean 0.9114 0.9095 0.8796 0.7137 0.6202 -PCA-2-bos 0.5678 0.5248 0.5395 0.5626 0.5333 -PCA-2-eos 0.5263 0.5037 0.5399 0.5580 0.4298 -Table 5: Ground-truth AUROC on Pfam700-IID-Func2Seq with ESMC-300M embedding model. 
+
+Metric T=0 T=0.3 T=0.5 T=0.7 T=1.0 T=1.5 
+
+cos-mean - 0.7627 0.8314 0.8859 0.6005 0.2071 cos-bos - 0.7786 0.8313 0.8743 0.7847 0.4359 cos-eos - 0.6361 0.6974 0.7726 0.6073 0.2030 euc-mean - 0.8339 0.9053 0.9345 0.7827 0.2957 euc-bos - 0.7780 0.8393 0.8826 0.8083 0.4737 euc-eos - 0.6446 0.7185 0.7932 0.6634 0.2249 L2 2-mean - 0.8354 0.8914 0.9224 0.7489 0.2865 L2 2-bos - 0.7788 0.8301 0.8717 0.7890 0.4557 L2 2-eos - 0.6550 0.7190 0.7873 0.6482 0.2254 L1-mean - 0.8629 0.9259 0.9422 0.8171 0.5148 L1-bos - 0.7800 0.8402 0.8803 0.7984 0.4780 L1-eos - 0.6463 0.7185 0.7745 0.6357 0.2419 Predictive Ent - 0.4078 0.5360 0.7291 0.8357 0.8402 Normalized Ent - 0.3371 0.3851 0.6268 0.8942 0.9054 Semantic Ent [70] - 0.8552 - 0.8384 0.6205 -PCA-1-mean - 0.9734 0.9500 0.7009 0.8162 0.7532 PCA-1-bos - 0.8853 0.6380 0.5619 0.5164 0.5820 PCA-1-eos - 0.9375 0.9196 0.8192 0.5865 0.5841 PCA-2-mean - 0.7146 0.5458 0.8963 0.5542 0.7971 PCA-2-bos - 0.8851 0.9372 0.5818 0.6803 0.8801 PCA-2-eos - 0.6223 0.7382 0.8422 0.7034 0.6819                
+
+> 12 Naming rules: L1-mean measures the pairwise L1 distance between the mean per-residue embeddings of generated sequences, with d(z1, z 2)≜∥z1−z2∥1. PCA1-bos stands for the first PCA component of the BOS token embedding of the sequence, with d(z1, z 2)≜v⊤z1where v= arg max ∥v∥2=1 v⊤Σvand Σbeing the empirical covariance matrix of the centered data.
+
+20 Table 6: Ground-truth AUROC on Pfam700-OOD-Func2Seq with ESMC-300M embedding model. 
+
+Metric T=0 T=0.3 T=0.5 T=0.7 T=1.0 T=1.5 
+
+cos-mean - 0.3313 0.4095 0.5541 0.5134 0.3053 cos-bos - 0.3189 0.3907 0.4851 0.4912 0.3188 cos-eos - 0.2535 0.3044 0.4000 0.4140 0.2238 euc-mean - 0.4670 0.5590 0.6498 0.5992 0.3192 euc-bos - 0.3153 0.3812 0.4806 0.4907 0.3140 euc-eos - 0.2612 0.3151 0.4187 0.4415 0.2288 L2 2-mean - 0.4637 0.5386 0.6360 0.6110 0.3386 L2 2-bos - 0.3158 0.3857 0.4800 0.4926 0.3238 L2 2-eos - 0.2735 0.3306 0.4268 0.4495 0.2343 L1-mean - 0.5305 0.5979 0.6185 0.5932 0.4214 L1-bos - 0.3160 0.3770 0.4660 0.4803 0.3091 L1-eos - 0.2634 0.3123 0.3952 0.4130 0.2359 Predictive Ent - 0.2341 0.3264 0.4731 0.6578 0.8222 Normalized Ent - 0.2087 0.2209 0.3602 0.6896 0.8803 Semantic Ent [70] - 0.5506 0.5395 0.6066 0.5490 0.3787 PCA-1-mean - 0.8288 0.8090 0.7536 0.6214 0.5273 PCA-1-bos - 0.7841 0.7743 0.6462 0.5051 0.5414 PCA-1-eos - 0.7712 0.7472 0.7095 0.6144 0.6190 PCA-2-mean - 0.6068 0.6574 0.5620 0.5276 0.7499 PCA-2-bos - 0.5521 0.5522 0.6378 0.6305 0.8029 PCA-2-eos - 0.5039 0.5172 0.5604 0.5162 0.5721 Table 7: Ground-truth AUROC on DRAME-Func2Seq with ESMC-600M embedding model. 
+
+Metric T=0 T=0.3 T=0.5 T=0.7 T=1.0 T=1.5 
+
+cos-mean 0.4273 0.5565 0.5933 0.6073 0.7129 0.5986 cos-bos 0.4180 0.5473 0.6352 0.7005 0.7958 0.7135 cos-eos 0.2887 0.3764 0.4355 0.4920 0.6006 0.5240 euc-mean 0.4394 0.5929 0.6808 0.7211 0.8135 0.7078 euc-bos 0.3495 0.4752 0.5889 0.6742 0.7876 0.7156 euc-eos 0.2448 0.3133 0.3801 0.4506 0.5759 0.5623 L2 2-mean 0.5111 0.6581 0.7170 0.7378 0.8092 0.6957 L2 2-bos 0.4126 0.5405 0.6270 0.6912 0.7860 0.7094 L2 2-eos 0.2785 0.3559 0.4068 0.4619 0.5773 0.5625 L1-mean 0.4399 0.5913 0.6907 0.7432 0.8477 0.7731 L1-bos 0.3618 0.4975 0.6278 0.7349 0.8512 0.7113 L1-eos 0.2274 0.2822 0.3464 0.4300 0.5699 0.5401 Predictive Ent 0.1319 0.1302 0.1881 0.3177 0.4836 0.5037 Normalized Ent 0.1385 0.1459 0.1990 0.3041 0.5323 0.8805 Semantic Ent [70] - 0.6085 - 0.6172 0.6309 0.4942 PCA-1-mean 0.6233 0.5311 0.6387 0.7932 0.6865 0.5581 PCA-1-bos 0.7246 0.5097 0.8958 0.8509 0.7729 0.6420 PCA-1-eos 0.7056 0.5774 0.7023 0.7958 0.6470 0.6686 PCA-2-mean 0.9118 0.9139 0.8784 0.6930 - 0.7128 PCA-2-bos 0.9273 0.9257 0.7568 0.5666 - 0.5788 PCA-2-eos 0.8989 0.9089 0.8047 0.5758 - 0.5596 21 Table 8: Ground-truth AUROC on Pfam700-IID-Func2Seq with ESMC-600M embedding model. 
+
+Metric T=0 T=0.3 T=0.5 T=0.7 T=1.0 T=1.5 
+
+cos-mean - 0.8069 0.8682 0.9079 0.6255 0.2290 cos-bos - 0.8326 0.8740 0.9041 0.8048 0.4209 cos-eos - 0.6925 0.7484 0.8119 0.5591 0.2252 euc-mean - 0.8449 0.9121 0.9349 0.7941 0.3173 euc-bos - 0.8167 0.8755 0.9099 0.8212 0.4296 euc-eos - 0.6621 0.7238 0.8034 0.6390 0.2269 L2 2-mean - 0.8536 0.9024 0.9247 0.7610 0.2998 L2 2-bos - 0.8295 0.8708 0.9010 0.8007 0.4208 L2 2-eos - 0.6752 0.7230 0.7952 0.6261 0.2280 L1-mean - 0.8590 0.9266 0.9452 0.8358 0.5629 L1-bos - 0.8212 0.8861 0.9196 0.8137 0.4367 L1-eos - 0.6499 0.7158 0.7924 0.6300 0.2680 Predictive Ent - 0.4078 0.5360 0.7291 0.8357 0.8402 Normalized Ent - 0.3371 0.3851 0.6268 0.8942 0.9054 Semantic Ent [70] - 0.8536 0.8602 0.7981 0.6140 0.3131 PCA-1-mean - 0.9745 0.9513 0.6758 0.7889 0.7080 PCA-1-bos - 0.8383 0.7507 0.5445 0.7162 0.6951 PCA-1-eos - 0.9496 0.9255 0.6443 0.5278 0.6219 PCA-2-mean - 0.5816 0.5897 0.8973 0.6205 0.6484 PCA-2-bos - 0.9760 0.9654 0.8626 0.6660 0.8669 PCA-2-eos - 0.5739 0.8063 0.8622 0.7018 0.7693 Table 9: Ground-truth AUROC on Pfam700-OOD-Func2Seq with ESMC-600M embedding model. 
+
+Metric T=0 T=0.3 T=0.5 T=0.7 T=1.0 T=1.5 
+
+cos-mean - 0.3936 0.4685 0.5935 0.5352 0.3302 cos-bos - 0.4224 0.4841 0.5803 0.6110 0.3445 cos-eos - 0.2704 0.3297 0.4528 0.4173 0.2503 euc-mean - 0.4920 0.5792 0.6529 0.6126 0.3414 euc-bos - 0.4104 0.4809 0.5806 0.6057 0.3317 euc-eos - 0.2539 0.3026 0.4361 0.4438 0.2455 L2 2-mean - 0.4993 0.5643 0.6414 0.6206 0.3566 L2 2-bos - 0.4152 0.4780 0.5763 0.6099 0.3447 L2 2-eos - 0.2581 0.3077 0.4382 0.4535 0.2499 L1-mean - 0.5224 0.5990 0.6257 0.6174 0.4602 L1-bos - 0.4298 0.5035 0.5819 0.5966 0.3311 L1-eos - 0.2321 0.2731 0.3936 0.4050 0.2518 Predictive Ent - 0.2341 0.3264 0.4731 0.6578 0.8222 Normalized Ent - 0.2087 0.2209 0.3602 0.6896 0.8803 Semantic Ent [70] - 0.5583 0.5854 0.5866 0.5625 0.4088 PCA-1-mean - 0.8324 0.8125 0.7470 0.6262 0.5642 PCA-1-bos - 0.8429 0.7992 0.6334 0.6336 0.6769 PCA-1-eos - 0.7634 0.7529 0.7180 0.5097 0.5947 PCA-2-mean - 0.5546 0.6030 0.5601 0.5207 0.6780 PCA-2-bos - 0.5119 0.7333 0.6406 0.5619 0.5677 PCA-2-eos - 0.5724 0.5217 0.5634 0.7023 0.6086 22 F More Experiments on Post-training 
+
+In parallel to Tab. 1, we also provide keyword recovery statistics for each Pfam family prompts in Tab. 10 where BRO/SRO consistently achieve the best/second best performance across 7 families. Additionally, we also examine the sensitivity of SRO to hyperparameter β in Eq. (11). Tab. 11 demonstrates that the performance of SRO is stable across different values of β and outperforms the batch-normalized weight DPO (wDPO) proposed in [21]. Table 10: Keyword recovery for each Pfam family averaged over five sampling temperatures. PF00002 PF00042 PF00125 PF00127 PF00257 PF00262 PF03668 Overall 151M model Progen2-small-mix7 0.359 0.168 0.295 0.439 0.156 0.146 0.406 0.281 Progen2-small-mix7 DPO 0.502 0.213 0.328 0.516 0.237 0.158 0.494 0.350 Progen2-small-mix7 KTO 0.494 0.197 0.335 0.494 0.165 0.169 0.503 0.337 Progen2-small-mix7 BRO 0.630 0.238 0.503 0.672 0.279 0.180 0.528 0.433                                                                 
+
+> Progen2-small-mix7 SRO 0.617 0.266 0.468 0.735 0.197 0.210 0.495 0.427 Progen2-small-mix7 Oracle 0.632 0.432 0.513 0.776 0.365 0.304 0.397 0.488 764M model Progen2-medium-mix7 0.270 0.187 0.497 0.377 0.223 0.535 0.604 0.385 Progen2-medium-mix7 DPO 0.396 0.275 0.644 0.496 0.350 0.523 0.675 0.480 Progen2-medium-mix7 KTO 0.385 0.245 0.661 0.527 0.282 0.681 0.751 0.505 Progen2-medium-mix7 BRO 0.539 0.327 0.839 0.691 0.233 0.907 0.754 0.613
+> Progen2-medium-mix7 SRO 0.482 0.315 0.838 0.693 0.292 0.827 0.766 0.602 Progen2-medium-mix7 Oracle 0.276 0.457 0.812 0.578 0.502 0.824 0.774 0.603
+
+Table 11: SRO with different β for fine-tuning Progen2-small-mix7 on Pfam700 Func2Seq task. Method T = 0 .3 T = 0 .5 T = 0 .7 T = 1 .0 T = 1 .5 Average base 0.210 0.288 0.390 0.401 0.118 0.281 
+
+SRO ( β = 1 , Tab. 1) 0.383 0.455 0.498 0.499 0.301 0.427 
+
+SRO ( β = 0 .5) 0.374 0.433 0.483 0.492 0.308 0.418 
+
+SRO ( β = 2 .0) 0.329 0.448 0.508 0.506 0.286 0.415 
+
+Weighted DPO [21] 0.455 0.463 0.455 0.377 0.153 0.381 
+
+## G Details of Model Training and Evaluation 
+
+To reduce noise in the unsupervised rewards, for each prompt, we keep only the top-4 and bottom-4
+
+of the 64 generated samples in D for all post-training experiments (including single-temperature control groups in Appendix D), resulting in 56 k samples for training and 28 k for testing. The reward statistics of this selected subset are consistent with those of the full dataset, yet exhibit a stronger correlation with the ground truth (see Tab. 12). For BRO/DPO/KTO that operate on binarized reward, we label top-4 as positive samples and bottom-4 as negative ones. For training DPO specifically, we randomly pair the top-4 and bottom-4 samples to produce four preference pairs per prompt. We train all BRO/SRO variants as well as two offline baselines, DPO [ 40 ] and KTO [ 41 ] on the same dataset for 1 epoch with AdamW optimizer [ 90 ] and learning rate 5e-7 without extensive hyperparameter search on a single NVIDIA A40 GPU. Due to the memory constraint, we train the 151M model with batch size 32 and the 764M model with batch size 8. All fine-tuned models employ a top-k decoding with k = 15 . The DPO and KTO baselines are trained with default configurations from the TRL 
+
+package. All SFT and post-training are conducted via an 8:2 train-validation split. 
+
+## H Critical Temperature as the Best-Performing Temperature 
+
+To support this claim in Section 4.2, we report the recovery rate of the ESM3 and Progen2-small-mix7 base model on DRAME-Func2Seq and Pfam700-Func2Seq tasks respectively: The best-performing temperature for ESM3 on DRAME-Func2Seq and Progen2-small-mix7 on Pfam700-Func2Seq is T ∼ 1.0 and T ∈ [0 .7, 1.0] respectively, coinciding with the critical tempera-tures observed in Figure 1(a) and (b). 23 Table 12: Promptwise AUROC on selected test sets with ESMC-300M embedding model. 
+
+T = 0 .3 T = 0 .5 T = 0 .7 T = 1 .0
+
+Pfam700-OOD-Func2Seq L1-mean 0.4949 0.6214 0.7411 0.5875 Predictive Ent 0.2332 0.3479 0.5360 0.7179 Normalized Ent 0.2149 0.2358 0.4267 0.7841 PCA1-bos 0.8839 0.8583 0.6051 0.5929 Pfam700-OOD-Func2Seq Top4-Bot4 L1-mean 0.5590 0.6963 0.8006 0.6426 Predictive Ent 0.2262 0.3317 0.5429 0.7659 Normalized Ent 0.2072 0.2144 0.4295 0.8185 PCA1-bos 0.9086 0.8829 0.6114 0.6098 Table 13: Keyword recovery on DRAME-Func2Seq and Pfam700-Func2Seq tasks over six sampling temperatures. Pfam700-IID-Func2Seq refers to the 7 Pfam family tokens (without residue tokens) used in the SFT stage of Progen2-small-mix7. 
+
+T = 0 .0 T = 0 .3 T = 0 .5 T = 0 .7 T = 1 .0 T = 1 .5
+
+DRAME-Func2Seq 0.207 0.210 0.229 0.259 0.263 0.094 Pfam700-IID-Func2Seq - 0.681 0.747 0.809 0.755 0.322 Pfam700-OOD-Func2Seq - 0.210 0.288 0.390 0.401 0.118 24
