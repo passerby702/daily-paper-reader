@@ -6,44 +6,55 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-18
-- 运行时间：2026-06-18 19:59:32 UTC
+- 最新运行日期：2026-06-19
+- 运行时间：2026-06-19 20:05:38 UTC
 - 运行状态：成功
-- 本次总论文数：8
-- 精读区：2
-- 速读区：6
+- 本次总论文数：11
+- 精读区：1
+- 速读区：10
 
 ### 今日简报（AI）
-今日精选8篇论文，精读2篇高分工作，速读6篇，涵盖PROTAC理性设计与生成模型新范式。最值得关注的是9.0分的多条件扩散框架《DesignMaster》及8.0分的Perron-Frobenius操作子匹配方法，它们在药物设计和生成建模中提出关键突破。建议普通读者优先精读这两篇，并留意速读中关于扩散模型记忆与递归扩展的洞察。
-- 详情：[/202606/18/README](/202606/18/README)
+今日共处理11篇论文，精读1篇内窥镜视频高斯过程先验VAE（评分9.0），速读3篇涵盖实时全景视频建模、MMD微调生成模型及多目标化学搜索。  
+最值得关注精读论文，其高斯过程先验显著增强了内窥镜视频的表示与生成能力；速读中《MoVerse》的实时全景建模也值得一看。  
+建议优先理解精读论文中的时空建模思路，并尝试将MMD微调方法应用于其他生成任务的细粒度校准。
+- 详情：[/202606/19/README](/202606/19/README)
 
 ### 精读区论文标签
-1. [DesignMaster: A Multi-Conditional Diffusion Framework for Rational PROTAC Design](/202606/18/biorxiv-10-64898-2026-06-15-732318-v1-designmaster-a-multi-conditional-diffusion-framework-for-rational-protac-design)  
-   标签：评分：9.0/10、query:pocket-lig
-   evidence：使用扩散模型合理设计靶向蛋白质降解的PROTACs
-2. [Perron--Frobenius Operator Matching for Generative Modeling](/202606/18/2606.17465v1-perron--frobenius-operator-matching-for-generative-modeling)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：提出统一生成框架，涵盖流、扩散和跳跃模型，与扩散模型理论相关
+1. [Gaussian Process Prior Variational Autoencoder for Endoscopic Videos](/202606/19/2606.19908v1-gaussian-process-prior-variational-autoencoder-for-endoscopic-videos)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：视频帧插值方法
 
 ### 速读区论文标签
-1. [Local Coverage Governs Memorization in Diffusion Models](/202606/18/2606.14390v1-local-coverage-governs-memorization-in-diffusion-models)  
+1. [MoVerse: Real-Time Video World Modeling with Panoramic Gaussian Scaffold](/202606/19/2606.13376v2-moverse-real-time-video-world-modeling-with-panoramic-gaussian-scaffold)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：扩散模型记忆化的理论分析
-2. [Recursive Scaling in Masked Diffusion Models](/202606/18/2606.18022v1-recursive-scaling-in-masked-diffusion-models)  
+   evidence：使用拓扑感知扩散生成360度全景，进而实现3D场景重建，属于扩散模型用于3D场景生成
+2. [Calibrating Generative Models to Feature Distributions with MMD Finetuning](/202606/19/2606.19496v1-calibrating-generative-models-to-feature-distributions-with-mmd-finetuning)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：在掩码扩散模型中引入递归缩放以提高参数效率
-3. [Curvature-Guided Geometric Representation for Protein-Ligand Binding Affinity Prediction](/202606/18/2606.14159v1-curvature-guided-geometric-representation-for-protein-ligand-binding-affinity-prediction)  
-   标签：评分：6.0/10、query:pocket-lig
-   evidence：蛋白-配体结合亲和力预测，几何表示可迁移至口袋靶向配体生成
-4. [Contrastive learning of dynamical representations for enhanced molecular sampling](/202606/18/2606.15495v1-contrastive-learning-of-dynamical-representations-for-enhanced-molecular-sampling)  
+   evidence：以分子生成为例的生成模型校准方法
+3. [Interpretable Meta-Learning for Multi-Objective Chemical Search](/202606/19/2606.20497v1-interpretable-meta-learning-for-multi-objective-chemical-search)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：元学习用于分子发现
+4. [RareFold: Structure prediction and design of proteins with noncanonical amino acids](/202606/19/biorxiv-10-1101-2025-05-19-654846-v3-rarefold-structure-prediction-and-design-of-proteins-with-noncanonical-amino-acids)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：用于含有非天然氨基酸的蛋白质结构预测与设计的深度学习方法
+5. [Controlling metal-carbonate phase, form, and function through de novo protein design](/202606/19/biorxiv-10-64898-2026-06-10-730916-v1-controlling-metal-carbonate-phase-form-and-function-through-de-novo-protein-design)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：微调扩散模型用于控制矿化的蛋白质设计
+6. [Performance Analysis and Optimization of 3D Generative Diffusion Models across GPU Architectures](/202606/19/2606.19365v1-performance-analysis-and-optimization-of-3d-generative-diffusion-models-across-gpu-architectures)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：自监督对比学习用于分子动力学中集体变量发现，增强稀有事件采样
-5. [Be Your Own Teacher: Steering Protein Language Models via Unsupervised Reward Optimization](/202606/18/2606.18961v1-be-your-own-teacher-steering-protein-language-models-via-unsupervised-reward-optimization)  
+   evidence：3D生成扩散模型在医学图像合成中的性能分析
+7. [Score Approximation for Diffusion Models on Arbitrary Low-Dimensional Structures](/202606/19/2606.19894v1-score-approximation-for-diffusion-models-on-arbitrary-low-dimensional-structures)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：用于可控生成的蛋白质语言模型无监督奖励优化
-6. [ConformFlow: scalable normalizing flow for protein conformational ensemble generation](/202606/18/biorxiv-10-64898-2026-06-12-731927-v1-conformflow-scalable-normalizing-flow-for-protein-conformational-ensemble-generation)  
+   evidence：扩散模型的分数逼近理论
+8. [Variable-Length Tokenization via Learnable Global Merging for Diffusion Transformers](/202606/19/2606.20076v1-variable-length-tokenization-via-learnable-global-merging-for-diffusion-transformers)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：可扩展归一化流用于蛋白质构象系综生成
+   evidence：为扩散transformer提供可变长度分词，改进LDM质量-计算权衡
+9. [Through the PRISM: Preference Representation in Intermediate States of Video Diffusion Models](/202606/19/2606.20310v1-through-the-prism-preference-representation-in-intermediate-states-of-video-diffusion-models)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：视频扩散模型用于偏好表示
+10. [Robust Conditional Diffusion with Noisy Templates for Antibody Sequence-Structure Design](/202606/19/biorxiv-10-64898-2026-06-18-733127-v1-robust-conditional-diffusion-with-noisy-templates-for-antibody-sequence-structure-design)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：用于抗体序列-结构设计的扩散模型
 
 
 <div class="dpr-home-promo-card">
