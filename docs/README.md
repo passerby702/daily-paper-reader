@@ -6,55 +6,59 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-19
-- 运行时间：2026-06-19 20:05:38 UTC
+- 最新运行日期：2026-06-20
+- 运行时间：2026-06-20 19:50:40 UTC
 - 运行状态：成功
-- 本次总论文数：11
-- 精读区：1
-- 速读区：10
+- 本次总论文数：13
+- 精读区：4
+- 速读区：9
 
 ### 今日简报（AI）
-今日共处理11篇论文，精读1篇内窥镜视频高斯过程先验VAE（评分9.0），速读3篇涵盖实时全景视频建模、MMD微调生成模型及多目标化学搜索。  
-最值得关注精读论文，其高斯过程先验显著增强了内窥镜视频的表示与生成能力；速读中《MoVerse》的实时全景建模也值得一看。  
-建议优先理解精读论文中的时空建模思路，并尝试将MMD微调方法应用于其他生成任务的细粒度校准。
-- 详情：[/202606/19/README](/202606/19/README)
+今日处理13篇论文，精读2篇高分工作。最值得关注两篇：Emyx实现快速高效的全原子蛋白质生成，FlowObject用流导向桥接生成先验与重建保真度。建议关注蛋白质生成及SMARTPocket中RNA结合口袋的深度学习检测。
+- 详情：[/202606/20/README](/202606/20/README)
 
 ### 精读区论文标签
-1. [Gaussian Process Prior Variational Autoencoder for Endoscopic Videos](/202606/19/2606.19908v1-gaussian-process-prior-variational-autoencoder-for-endoscopic-videos)  
+1. [Emyx: Fast and efficient all-atom protein generation](/202606/20/2606.19377v1-emyx-fast-and-efficient-all-atom-protein-generation)  
    标签：评分：9.0/10、query:diff-gen
-   evidence：视频帧插值方法
+   evidence：使用条件流匹配进行全原子蛋白质生成
+2. [FlowObject: Flow Steering for Bridging Generative Priors and Reconstruction Fidelity](/202606/20/2606.19019v1-flowobject-flow-steering-for-bridging-generative-priors-and-reconstruction-fidelity)  
+   标签：评分：8.0/10、query:diff-gen
+   evidence：流匹配用于少视图3D物体重建
+3. [PerceptionDLM: Parallel Region Perception with Multimodal Diffusion Language Models](/202606/20/2606.19534v1-perceptiondlm-parallel-region-perception-with-multimodal-diffusion-language-models)  
+   标签：评分：8.0/10、query:diff-gen
+   evidence：多模态扩散语言模型用于并行区域感知
+4. [Robust Conditional Diffusion with Noisy Templates for Antibody Sequence-Structure Design](/202606/20/biorxiv-10-64898-2026-06-18-733127-v1-robust-conditional-diffusion-with-noisy-templates-for-antibody-sequence-structure-design)  
+   标签：评分：8.0/10、query:pocket-lig
+   evidence：抗体序列-结构设计的扩散模型
 
 ### 速读区论文标签
-1. [MoVerse: Real-Time Video World Modeling with Panoramic Gaussian Scaffold](/202606/19/2606.13376v2-moverse-real-time-video-world-modeling-with-panoramic-gaussian-scaffold)  
+1. [MoECa: Aligning Feature Reuse with Expert Decomposition in Diffusion Transformers](/202606/20/2606.15615v1-moeca-aligning-feature-reuse-with-expert-decomposition-in-diffusion-transformers)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：使用拓扑感知扩散生成360度全景，进而实现3D场景重建，属于扩散模型用于3D场景生成
-2. [Calibrating Generative Models to Feature Distributions with MMD Finetuning](/202606/19/2606.19496v1-calibrating-generative-models-to-feature-distributions-with-mmd-finetuning)  
+   evidence：扩散变换器中的高效缓存
+2. [IDPForge: Deep Learning of Proteins with Global and Local Regions of Disorder](/202606/20/biorxiv-10-64898-2026-03-25-714313-v2-idpforge-deep-learning-of-proteins-with-global-and-local-regions-of-disorder)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：以分子生成为例的生成模型校准方法
-3. [Interpretable Meta-Learning for Multi-Objective Chemical Search](/202606/19/2606.20497v1-interpretable-meta-learning-for-multi-objective-chemical-search)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：元学习用于分子发现
-4. [RareFold: Structure prediction and design of proteins with noncanonical amino acids](/202606/19/biorxiv-10-1101-2025-05-19-654846-v3-rarefold-structure-prediction-and-design-of-proteins-with-noncanonical-amino-acids)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：用于含有非天然氨基酸的蛋白质结构预测与设计的深度学习方法
-5. [Controlling metal-carbonate phase, form, and function through de novo protein design](/202606/19/biorxiv-10-64898-2026-06-10-730916-v1-controlling-metal-carbonate-phase-form-and-function-through-de-novo-protein-design)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：微调扩散模型用于控制矿化的蛋白质设计
-6. [Performance Analysis and Optimization of 3D Generative Diffusion Models across GPU Architectures](/202606/19/2606.19365v1-performance-analysis-and-optimization-of-3d-generative-diffusion-models-across-gpu-architectures)  
+   evidence：用于无序蛋白构象系综生成的变压器蛋白质语言扩散模型
+3. [Geometric Deep Learning Reveals Ligandable and Cryptic RNA Binding Small Molecule Pockets (SMARTPocket)](/202606/20/biorxiv-10-64898-2026-06-18-732920-v1-geometric-deep-learning-reveals-ligandable-and-cryptic-rna-binding-small-molecule-pockets-smartpocket)  
+   标签：评分：7.0/10、query:pocket-lig
+   evidence：预测RNA可配体结合口袋，与口袋特异性分子生成相关
+4. [Track2View: 4D-Consistent Camera-Controlled Video Generation via Paired 3D Point Tracks](/202606/20/2606.15534v1-track2view-4d-consistent-camera-controlled-video-generation-via-paired-3d-point-tracks)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：3D生成扩散模型在医学图像合成中的性能分析
-7. [Score Approximation for Diffusion Models on Arbitrary Low-Dimensional Structures](/202606/19/2606.19894v1-score-approximation-for-diffusion-models-on-arbitrary-low-dimensional-structures)  
+   evidence：基于3D点轨迹和视频扩散变换器的摄像机控制
+5. [Learning a Maximum Entropy Model for Visual Textures using Diffusion](/202606/20/2606.17342v1-learning-a-maximum-entropy-model-for-visual-textures-using-diffusion)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：扩散模型的分数逼近理论
-8. [Variable-Length Tokenization via Learnable Global Merging for Diffusion Transformers](/202606/19/2606.20076v1-variable-length-tokenization-via-learnable-global-merging-for-diffusion-transformers)  
+   evidence：扩散模型用于视觉纹理建模
+6. [Perron--Frobenius Operator Matching for Generative Modeling](/202606/20/2606.17465v1-perron--frobenius-operator-matching-for-generative-modeling)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：为扩散transformer提供可变长度分词，改进LDM质量-计算权衡
-9. [Through the PRISM: Preference Representation in Intermediate States of Video Diffusion Models](/202606/19/2606.20310v1-through-the-prism-preference-representation-in-intermediate-states-of-video-diffusion-models)  
+   evidence：统一生成框架，涵盖流、扩散、跳跃模型
+7. [Score Approximation for Diffusion Models on Arbitrary Low-Dimensional Structures](/202606/20/2606.19894v1-score-approximation-for-diffusion-models-on-arbitrary-low-dimensional-structures)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：扩散模型分数近似的理论分析
+8. [Variable-Length Tokenization via Learnable Global Merging for Diffusion Transformers](/202606/20/2606.20076v1-variable-length-tokenization-via-learnable-global-merging-for-diffusion-transformers)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：扩散变压器的可变长度分词方法，提升视觉合成效率
+9. [Through the PRISM: Preference Representation in Intermediate States of Video Diffusion Models](/202606/20/2606.20310v1-through-the-prism-preference-representation-in-intermediate-states-of-video-diffusion-models)  
    标签：评分：6.0/10、query:diff-gen
    evidence：视频扩散模型用于偏好表示
-10. [Robust Conditional Diffusion with Noisy Templates for Antibody Sequence-Structure Design](/202606/19/biorxiv-10-64898-2026-06-18-733127-v1-robust-conditional-diffusion-with-noisy-templates-for-antibody-sequence-structure-design)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：用于抗体序列-结构设计的扩散模型
 
 
 <div class="dpr-home-promo-card">
