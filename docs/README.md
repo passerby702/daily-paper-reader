@@ -6,59 +6,50 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-20
-- 运行时间：2026-06-20 19:50:40 UTC
+- 最新运行日期：2026-06-21
+- 运行时间：2026-06-21 19:26:00 UTC
 - 运行状态：成功
-- 本次总论文数：13
-- 精读区：4
+- 本次总论文数：10
+- 精读区：1
 - 速读区：9
 
 ### 今日简报（AI）
-今日处理13篇论文，精读2篇高分工作。最值得关注两篇：Emyx实现快速高效的全原子蛋白质生成，FlowObject用流导向桥接生成先验与重建保真度。建议关注蛋白质生成及SMARTPocket中RNA结合口袋的深度学习检测。
-- 详情：[/202606/20/README](/202606/20/README)
+今天聚焦蛋白质设计与可控视频生成，重点精读基于稀疏专家混合的蛋白质结合物生成方法。最值得深入的是MoE-Bind（8.0分）如何通过专家引导提升从头设计精度，同时Track2View的4D一致性控制视频生成也很有潜力。建议优先精读MoE-Bind的专家设计细节，并对比MoECa在扩散模型中的特征重用思路。
+- 详情：[/202606/21/README](/202606/21/README)
 
 ### 精读区论文标签
-1. [Emyx: Fast and efficient all-atom protein generation](/202606/20/2606.19377v1-emyx-fast-and-efficient-all-atom-protein-generation)  
-   标签：评分：9.0/10、query:diff-gen
-   evidence：使用条件流匹配进行全原子蛋白质生成
-2. [FlowObject: Flow Steering for Bridging Generative Priors and Reconstruction Fidelity](/202606/20/2606.19019v1-flowobject-flow-steering-for-bridging-generative-priors-and-reconstruction-fidelity)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：流匹配用于少视图3D物体重建
-3. [PerceptionDLM: Parallel Region Perception with Multimodal Diffusion Language Models](/202606/20/2606.19534v1-perceptiondlm-parallel-region-perception-with-multimodal-diffusion-language-models)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：多模态扩散语言模型用于并行区域感知
-4. [Robust Conditional Diffusion with Noisy Templates for Antibody Sequence-Structure Design](/202606/20/biorxiv-10-64898-2026-06-18-733127-v1-robust-conditional-diffusion-with-noisy-templates-for-antibody-sequence-structure-design)  
+1. [MoE-Bind: Guiding De Novo Protein Binder Generation with Sparse Experts](/202606/21/biorxiv-10-64898-2026-06-13-732043-v1-moe-bind-guiding-de-novo-protein-binder-generation-with-sparse-experts)  
    标签：评分：8.0/10、query:pocket-lig
-   evidence：抗体序列-结构设计的扩散模型
+   evidence：基于稀疏专家混合的蛋白质结合剂从头设计生成模型
 
 ### 速读区论文标签
-1. [MoECa: Aligning Feature Reuse with Expert Decomposition in Diffusion Transformers](/202606/20/2606.15615v1-moeca-aligning-feature-reuse-with-expert-decomposition-in-diffusion-transformers)  
+1. [Track2View: 4D-Consistent Camera-Controlled Video Generation via Paired 3D Point Tracks](/202606/21/2606.15534v1-track2view-4d-consistent-camera-controlled-video-generation-via-paired-3d-point-tracks)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：扩散变换器中的高效缓存
-2. [IDPForge: Deep Learning of Proteins with Global and Local Regions of Disorder](/202606/20/biorxiv-10-64898-2026-03-25-714313-v2-idpforge-deep-learning-of-proteins-with-global-and-local-regions-of-disorder)  
+   evidence：基于3D点轨迹条件化的视频扩散Transformer生成
+2. [MoECa: Aligning Feature Reuse with Expert Decomposition in Diffusion Transformers](/202606/21/2606.15615v1-moeca-aligning-feature-reuse-with-expert-decomposition-in-diffusion-transformers)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：用于无序蛋白构象系综生成的变压器蛋白质语言扩散模型
-3. [Geometric Deep Learning Reveals Ligandable and Cryptic RNA Binding Small Molecule Pockets (SMARTPocket)](/202606/20/biorxiv-10-64898-2026-06-18-732920-v1-geometric-deep-learning-reveals-ligandable-and-cryptic-rna-binding-small-molecule-pockets-smartpocket)  
-   标签：评分：7.0/10、query:pocket-lig
-   evidence：预测RNA可配体结合口袋，与口袋特异性分子生成相关
-4. [Track2View: 4D-Consistent Camera-Controlled Video Generation via Paired 3D Point Tracks](/202606/20/2606.15534v1-track2view-4d-consistent-camera-controlled-video-generation-via-paired-3d-point-tracks)  
+   evidence：通过分支级特征重用提升扩散变换器效率
+3. [Unlocking Your Programmable and Creative RNA Sequence Designer with RDiffusion](/202606/21/biorxiv-10-64898-2026-06-13-732023-v1-unlocking-your-programmable-and-creative-rna-sequence-designer-with-rdiffusion)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：基于扩散的RNA序列设计生成模型
+4. [Generating antimicrobial peptides via genomic transfer learning](/202606/21/biorxiv-10-64898-2026-06-16-732639-v1-generating-antimicrobial-peptides-via-genomic-transfer-learning)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：使用GPT迁移学习生成多肽分子
+5. [Robust Conditional Diffusion with Noisy Templates for Antibody Sequence-Structure Design](/202606/21/biorxiv-10-64898-2026-06-18-733127-v2-robust-conditional-diffusion-with-noisy-templates-for-antibody-sequence-structure-design)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：抗体序列-结构设计的条件扩散模型
+6. [Variational Test-time Optimization for Diffusion Synchronization](/202606/21/2606.15614v2-variational-test-time-optimization-for-diffusion-synchronization)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：基于3D点轨迹和视频扩散变换器的摄像机控制
-5. [Learning a Maximum Entropy Model for Visual Textures using Diffusion](/202606/20/2606.17342v1-learning-a-maximum-entropy-model-for-visual-textures-using-diffusion)  
+   evidence：扩散同步方法用于合作生成
+7. [Circuit Tracing in Autoregressive Protein Language Models](/202606/21/2606.16044v1-circuit-tracing-in-autoregressive-protein-language-models)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：扩散模型用于视觉纹理建模
-6. [Perron--Frobenius Operator Matching for Generative Modeling](/202606/20/2606.17465v1-perron--frobenius-operator-matching-for-generative-modeling)  
+   evidence：蛋白质语言模型用于分子生成可解释性
+8. [Perron--Frobenius Operator Matching for Generative Modeling](/202606/21/2606.17465v1-perron--frobenius-operator-matching-for-generative-modeling)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：统一生成框架，涵盖流、扩散、跳跃模型
-7. [Score Approximation for Diffusion Models on Arbitrary Low-Dimensional Structures](/202606/20/2606.19894v1-score-approximation-for-diffusion-models-on-arbitrary-low-dimensional-structures)  
+   evidence：统一生成框架涵盖扩散模型
+9. [From Scarce Functional Labels to Label-Aware Generation in Homologous Protein Families](/202606/21/biorxiv-10-1101-2025-07-22-665933-v2-from-scarce-functional-labels-to-label-aware-generation-in-homologous-protein-families)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：扩散模型分数近似的理论分析
-8. [Variable-Length Tokenization via Learnable Global Merging for Diffusion Transformers](/202606/20/2606.20076v1-variable-length-tokenization-via-learnable-global-merging-for-diffusion-transformers)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：扩散变压器的可变长度分词方法，提升视觉合成效率
-9. [Through the PRISM: Preference Representation in Intermediate States of Video Diffusion Models](/202606/20/2606.20310v1-through-the-prism-preference-representation-in-intermediate-states-of-video-diffusion-models)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：视频扩散模型用于偏好表示
+   evidence：使用深度学习生成蛋白质序列，基于ESM2嵌入
 
 
 <div class="dpr-home-promo-card">
