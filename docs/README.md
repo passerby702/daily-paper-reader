@@ -6,50 +6,55 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-21
-- 运行时间：2026-06-21 19:26:00 UTC
+- 最新运行日期：2026-06-22
+- 运行时间：2026-06-22 20:56:40 UTC
 - 运行状态：成功
-- 本次总论文数：10
-- 精读区：1
+- 本次总论文数：11
+- 精读区：2
 - 速读区：9
 
 ### 今日简报（AI）
-今天聚焦蛋白质设计与可控视频生成，重点精读基于稀疏专家混合的蛋白质结合物生成方法。最值得深入的是MoE-Bind（8.0分）如何通过专家引导提升从头设计精度，同时Track2View的4D一致性控制视频生成也很有潜力。建议优先精读MoE-Bind的专家设计细节，并对比MoECa在扩散模型中的特征重用思路。
-- 详情：[/202606/21/README](/202606/21/README)
+今日11篇论文，精读聚焦MUNI多模态统一生成和RXFP1蛋白设计两大高分工作，速读关注扩散模型同步与调度优化。  
+最值得看的方向：多模态任意生成（MUNI实现文本/图像/音频连贯交互）和基于结构的小蛋白药物设计（RXFP1模型指导高效配体开发）。  
+建议优先精读这两篇高分论文，把握多模态AI与计算生物学的最新融合趋势。
+- 详情：[/202606/22/README](/202606/22/README)
 
 ### 精读区论文标签
-1. [MoE-Bind: Guiding De Novo Protein Binder Generation with Sparse Experts](/202606/21/biorxiv-10-64898-2026-06-13-732043-v1-moe-bind-guiding-de-novo-protein-binder-generation-with-sparse-experts)  
+1. [MUNI: Multimodal Unified Latent Diffusion for Coherent Any-to-Any Generation](/202606/22/2606.16408v1-muni-multimodal-unified-latent-diffusion-for-coherent-any-to-any-generation)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：多模态扩散模型用于任意对任意生成
+2. [A complete RXFP1-relaxin interaction model unlocks the design of potent mini-protein modulators](/202606/22/biorxiv-10-64898-2026-06-19-733483-v1-a-complete-rxfp1-relaxin-interaction-model-unlocks-the-design-of-potent-mini-protein-modulators)  
    标签：评分：8.0/10、query:pocket-lig
-   evidence：基于稀疏专家混合的蛋白质结合剂从头设计生成模型
+   evidence：使用深度学习结构建模设计RXFP1微蛋白调节剂
 
 ### 速读区论文标签
-1. [Track2View: 4D-Consistent Camera-Controlled Video Generation via Paired 3D Point Tracks](/202606/21/2606.15534v1-track2view-4d-consistent-camera-controlled-video-generation-via-paired-3d-point-tracks)  
+1. [Variational Test-time Optimization for Diffusion Synchronization](/202606/22/2606.15614v1-variational-test-time-optimization-for-diffusion-synchronization)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：基于3D点轨迹条件化的视频扩散Transformer生成
-2. [MoECa: Aligning Feature Reuse with Expert Decomposition in Diffusion Transformers](/202606/21/2606.15615v1-moeca-aligning-feature-reuse-with-expert-decomposition-in-diffusion-transformers)  
+   evidence：扩散同步优化方法
+2. [MoECa: Aligning Feature Reuse with Expert Decomposition in Diffusion Transformers](/202606/22/2606.15615v1-moeca-aligning-feature-reuse-with-expert-decomposition-in-diffusion-transformers)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：通过分支级特征重用提升扩散变换器效率
-3. [Unlocking Your Programmable and Creative RNA Sequence Designer with RDiffusion](/202606/21/biorxiv-10-64898-2026-06-13-732023-v1-unlocking-your-programmable-and-creative-rna-sequence-designer-with-rdiffusion)  
+   evidence：扩散Transformer中基于专家分支的缓存优化方法
+3. [Learning When to Denoise: Optimizing Asynchronous Schedules for Latent Diffusion](/202606/22/2606.19662v1-learning-when-to-denoise-optimizing-asynchronous-schedules-for-latent-diffusion)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：基于扩散的RNA序列设计生成模型
-4. [Generating antimicrobial peptides via genomic transfer learning](/202606/21/biorxiv-10-64898-2026-06-16-732639-v1-generating-antimicrobial-peptides-via-genomic-transfer-learning)  
+   evidence：优化多表示扩散中的去噪调度，提升视觉合成效果
+4. [CrossFlow: One-Step Generation Across Latent and Pixel Spaces](/202606/22/2606.19970v1-crossflow-one-step-generation-across-latent-and-pixel-spaces)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：使用GPT迁移学习生成多肽分子
-5. [Robust Conditional Diffusion with Noisy Templates for Antibody Sequence-Structure Design](/202606/21/biorxiv-10-64898-2026-06-18-733127-v2-robust-conditional-diffusion-with-noisy-templates-for-antibody-sequence-structure-design)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：抗体序列-结构设计的条件扩散模型
-6. [Variational Test-time Optimization for Diffusion Synchronization](/202606/21/2606.15614v2-variational-test-time-optimization-for-diffusion-synchronization)  
+   evidence：跨空间流公式连接潜在空间和像素空间，与多领域生成建模相关
+5. [Variational Test-time Optimization for Diffusion Synchronization](/202606/22/2606.15614v2-variational-test-time-optimization-for-diffusion-synchronization)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：扩散同步方法用于合作生成
-7. [Circuit Tracing in Autoregressive Protein Language Models](/202606/21/2606.16044v1-circuit-tracing-in-autoregressive-protein-language-models)  
+   evidence：扩散同步的通用框架，可应用于多模态生成
+6. [Volterra Generative Models](/202606/22/2606.18071v1-volterra-generative-models)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：蛋白质语言模型用于分子生成可解释性
-8. [Perron--Frobenius Operator Matching for Generative Modeling](/202606/21/2606.17465v1-perron--frobenius-operator-matching-for-generative-modeling)  
+   evidence：具有路径依赖噪声的新型扩散生成框架
+7. [SketchKeyAnime: Reference-anchored Sparse Key-Sketch Animation Synthesis](/202606/22/2606.19958v1-sketchkeyanime-reference-anchored-sparse-key-sketch-animation-synthesis)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：统一生成框架涵盖扩散模型
-9. [From Scarce Functional Labels to Label-Aware Generation in Homologous Protein Families](/202606/21/biorxiv-10-1101-2025-07-22-665933-v2-from-scarce-functional-labels-to-label-aware-generation-in-homologous-protein-families)  
+   evidence：视频扩散框架用于稀疏关键帧动画，类似于插值
+8. [Variable-Length Tokenization via Learnable Global Merging for Diffusion Transformers](/202606/22/2606.20076v1-variable-length-tokenization-via-learnable-global-merging-for-diffusion-transformers)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：使用深度学习生成蛋白质序列，基于ESM2嵌入
+   evidence：改进了扩散变换器的分词方法，对视觉生成中的扩散模型效率有贡献
+9. [Geometric Deep Learning Reveals Ligandable and Cryptic RNA Binding Small Molecule Pockets (SMARTPocket)](/202606/22/biorxiv-10-64898-2026-06-18-732920-v1-geometric-deep-learning-reveals-ligandable-and-cryptic-rna-binding-small-molecule-pockets-smartpocket)  
+   标签：评分：6.0/10、query:pocket-lig
+   evidence：使用几何深度学习预测RNA小分子结合口袋
 
 
 <div class="dpr-home-promo-card">

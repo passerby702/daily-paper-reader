@@ -1,0 +1,313 @@
+Title: SketchKeyAnime: Reference-anchored Sparse Key-Sketch Animation Synthesis
+
+URL Source: https://arxiv.org/pdf/2606.19958v1
+
+Published Time: Fri, 19 Jun 2026 00:44:04 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# SketchKeyAnime: Reference-anchored Sparse Key-Sketch Animation Synthesis 
+
+# Meixi Li 1 Xianlin Zhang 1 Yue Zhang 1 Xueming Li 11Beijing University of Posts and Telecommunications 
+
+Figure 1. Overview of the proposed reference-anchored sparse key-sketch animation synthesis task. Given a single RGB reference image and a small number of temporally indexed key sketches, SketchKeyAnime generates a complete animation sequence with consistent character appearance and controllable motion. Input images are from the ATD-12K dataset. 
+
+# Abstract 
+
+Traditional animation production relies heavily on man-ual drawing and iterative refinement, particularly for key-pose design, in-betweening, and character coloring. While existing animation and video generation methods have made notable progress, they typically depend on RGB boundary frames, dense frame-wise conditions, or com-plete sketch sequences, limiting their applicability under low-cost input conditions. We present SketchKeyAnime, a video diffusion framework for generating structurally con-trollable, appearance-consistent, and temporally coherent animations from sparse key-sketch inputs. Given a single reference RGB image and a few temporally indexed key sketches, SketchKeyAnime introduces a dual-branch condi-tioning mechanism to encode local geometric constraints alongside semantic-temporal context. It leverages Sketch Cross Attention to fuse reference image and sketch con-ditions with learnable gating, and incorporates an Adap-tive Weighted Loss to strengthen supervision on key-sketch frames and line-art regions. Experimental results on the Aesthetic subset of Sakuga-42M show that our approach consistently outperforms representative animation interpo-lation and sketch-guided generation baselines. Compared to the best-performing baseline, SketchKeyAnime reduces EDMD by 31.9% and FVD by 9.5%, demonstrating supe-rior sketch fidelity and temporal coherence, while achiev-ing the best overall performance across most quantitative metrics. These results validate the proposed framework and highlight its potential for low-cost, highly controllable ani-mation creation. 
+
+# 1. Introduction 
+
+Animation is an important visual medium widely used in entertainment, education, and digital content creation. 1
+
+> arXiv:2606.19958v1 [cs.CV] 18 Jun 2026
+
+However, producing high-quality animation remains labor-intensive and time-consuming. A typical animation pipeline requires artists to design characters, draw key poses, com-plete in-between frames, and maintain consistent coloring and appearance across frames. In sketch-based workflows, artists often need to infer continuous motion from only a few key poses while preserving character structure and tem-poral consistency. Reducing such manual effort through au-tomatic or semi-automatic animation generation is therefore of significant practical value. Recent advances in generative models and diffusion models [3, 9, 11, 12, 19, 34, 37, 45] have greatly pro-moted visual content generation and have inspired a va-riety of animation-related methods. Existing approaches can roughly be grouped into sketch-guided generation and video or animation inbetweening. Sketch-guided meth-ods use sketches, line-art, or edges as structural condi-tions, but they often require dense frame-wise conditions, complete sketch sequences, text prompts, or specific in-put formats [8, 25, 50]. In contrast, interpolation-based methods synthesize intermediate frames from given bound-ary frames and are effective when RGB keyframes are available [23, 42, 46]. Nevertheless, animation data often contains large low-texture color regions, clear line bound-aries, exaggerated pose changes, and nonlinear deforma-tions, which can lead to broken lines, ghosting artifacts, or structural misalignment [5, 36, 52]. Overall, although exist-ing methods have made progress in structural control and animation inbetweening, they remain limited in low-cost animation creation scenarios where users may only provide a reference appearance and a few key-pose sketches. A practical sparse-sketch animation system should jointly satisfy three requirements. First, it should in-fer coherent intermediate motion from sparse structural constraints, since most frames do not have user-provided sketches. Second, it should preserve the character appear-ance from a reference RGB image while following the pose and structure specified by key sketches. Third, it should effectively learn from supervision concentrated on a small number of key-sketch frames and line-art regions. These requirements are difficult to satisfy simultaneously: frame-wise spatial control alone lacks temporal reasoning for frames without sketches, reference image and sketch con-ditions may compete during denoising, and uniform recon-struction losses may under-emphasize the sparse but impor-tant structural signals. To address these issues, we propose SketchKeyAnime, a diffusion-based framework for reference-anchored sparse key-sketch animation synthesis. Given a single RGB ref-erence image and a small set of temporally indexed key sketches, our method generates a complete animation se-quence with consistent appearance, sketch-aligned struc-tures, and coherent motion. We introduce a Dual-Branch Conditioning Mechanism that combines spatial key-sketch control with semantic-temporal sketch modeling, enabling both local structural guidance and motion reasoning across sparse sketches. We further design Sketch Cross Attention with learnable gating to balance reference-image appear-ance conditions and sketch-based structural guidance dur-ing denoising. Finally, we propose Adaptive Weighted Loss to emphasize key-sketch frames and line-art regions. Exten-sive experiments show that SketchKeyAnime outperforms representative animation interpolation and sketch-guided generation baselines in temporal consistency, appearance preservation, and motion fidelity. Our main contributions are summarized as follows: • We introduce reference-anchored sparse key-sketch animation synthesis as a low-cost animation genera-tion setting, and propose SketchKeyAnime to gener-ate complete animation sequences from a single RGB reference image and a few temporally indexed key sketches. • We design a Dual-Branch Conditioning Mechanism that exploits sparse key sketches through both frame-wise spatial control and semantic-temporal modeling, enhancing structural constraints at key-sketch frames and motion completion in frames without sketches. • We propose Sketch Cross Attention, which fuses refer-ence image conditions and sketch semantic conditions with learnable gating during diffusion denoising, bal-ancing character appearance preservation and sketch-based structural control. • We propose Adaptive Weighted Loss to strengthen key-sketch supervision at both frame and spatial levels, improving structural alignment and generation stabil-ity under sparse conditions. 
+
+# 2. Related Work 
+
+2.1. Sketch-guided Video Generation 
+
+Sketches provide low-cost structural cues such as con-tours, poses, and spatial layouts, and have therefore been widely used for controllable visual generation. Control-Net [50] injects conditions such as sketches, edges, depth maps, and poses into pretrained diffusion models through an additional control branch, laying an important founda-tion for structure-controllable generation. With the de-velopment of video diffusion models, subsequent studies further extend such structural control to video generation, aiming to constrain both spatial content and cross-frame consistency [41]. For controllable video diffusion, Spar-seCtrl [8] introduces sparse condition control for text-to-video generation, enabling complete video generation from 2only a few sketch, depth, or RGB conditions, and modi-fies the vanilla ControlNet encoder for sparse-control sce-narios. Motion-controllable generation methods further ex-plore explicit motion guidance for video synthesis [44]. Ctrl-Adapter [24] studies how to efficiently adapt existing ControlNets to different image and video diffusion back-bones, supporting sparse-frame control and multiple struc-tural conditions. These methods reduce the cost of dense frame-wise conditioning and validate the effectiveness of sparse structural signals in video generation. However, they mainly focus on incorporating structural conditions, while the joint modeling of reference appearance preservation, key-pose completion, and motion coherence in animation generation remains underexplored. Research closer to sketch-based creation further explores generating dynamic content from hand-drawn sketches. Sketch Me A Video [49] alleviates the domain gap between free-hand sketches and real videos through retrieval and feature projection. SketchBetween [27] targets sprite ani-mation and generates in-between animations from rendered start/end keyframes and intermediate sketches. Recently, FlipSketch [1] generates hand-drawn-style animations from a single static sketch and a text description. VidS-ketch [18] supports video animation generation from an ar-bitrary number of hand-drawn sketches and text prompts. SketchVideo [25] enhances sketch-conditioned video gen-eration and editing through sketch control blocks, inter-frame attention, and latent fusion. These works demonstrate the potential of sketches in video generation and animation creation, showing that hand-drawn structural conditions can provide intuitive and effective control. In the animation domain, reference-based line-art video colorization methods [14,28,35] study how to generate tem-porally consistent colored animations under the guidance of reference images or character designs. Image animation methods such as MagicAnimate [48] and Animate Any-one [13] further study temporally consistent character an-imation from reference images. ToonCrafter [46, 47] intro-duces generative video priors into cartoon interpolation and uses line-art-related conditions to improve animation com-pletion quality. These methods are closer to practical ani-mation workflows, but they usually assume relatively com-plete frame-wise line-art sequences or explicit RGB bound-ary frames, which imposes high requirements on input com-pleteness and limits flexible control with only a few key poses. 
+
+2.2. Video Interpolation 
+
+Video interpolation aims to synthesize intermediate frames from given adjacent or boundary frames, and is a classical task in video processing, slow-motion generation, and animation inbetweening. Traditional deep interpolation methods usually establish frame correspondences through optical flow estimation, feature matching, kernel prediction, or warping [2, 17, 21, 22, 29]. In recent years, RIFE [15] achieves efficient real-time interpolation by directly esti-mating intermediate optical flows, FILM [33] improves in-terpolation quality under large motion through multi-scale features and large-motion modeling, and AMT [23] uses all-pairs correlation and multi-field transforms to better handle large motion and occlusion. These methods have achieved significant progress in natural video interpolation, but still rely on explicit correspondences or estimable motion fields between input RGB frames. With the development of diffu-sion models, some methods reformulate video interpolation from a generative perspective [40]. LDMVFI [7] formulates video frame interpolation as a conditional generation prob-lem and leverages latent diffusion to improve perceptual quality. VIDIM [16] adopts cascaded diffusion models to generate complete intermediate videos given start and end frames. In addition, SEINE [6] and Generative Inbetween-ing [42] explore video diffusion models for transition gener-ation or keyframe interpolation. These generative methods alleviate the reliance on precise motion correspondence. Animation interpolation is more challenging than natural video interpolation. Animation videos often contain large textureless color regions, sharp line boundaries, exagger-ated pose changes, and nonlinear deformations, causing nat-ural video interpolation methods to suffer from line break-age, ghosting, or structural misalignment. To address these challenges, AnimeInterp [36] systematically studies anima-tion video interpolation and uses segment-guided matching and recurrent flow refinement to handle low-texture regions and large motion. EISAI [5] improves 2D animation in-terpolation from the perspective of perceptual quality, re-ducing line destruction and ghosting artifacts through for-ward warping and line-distance-related constraints. Thin-Plate Spline-based Interpolation for Animation Line Inbe-tweening [52] targets animation line-art inbetweening and uses thin-plate spline transformations to model large defor-mations between key line drawings. ToonCrafter [46] fur-ther introduces generative video priors into cartoon interpo-lation, showing stronger animation completion ability under complex nonlinear motion and occlusion. Overall, video and animation interpolation methods have made important progress in intermediate-frame completion, especially generative methods that improve the ability to handle complex motion. However, interpolation tasks usu-ally assume that explicit RGB boundary frames are already provided, and the model mainly generates transitions be-tween these known appearances and structures. 
+
+# 3. Method 
+
+This section introduces the design of SketchKeyAnime. Given a single reference image Ir and a temporally indexed sparse key-sketch set S = {(Sk, t k)}Kk=1 , where Sk denotes 3Figure 2. Overview of the SketchKeyAnime architecture. The framework takes a reference image and sparse temporally indexed key sketches as inputs. The reference image serves as the appearance condition, while the sparse key sketches provide structural and motion guidance through the Spatial Sparse ControlNet and the Semantic-Temporal Sketch Context Encoder. Conditioned on these complementary signals, the SVD-based denoising model generates a complete animation sequence with consistent character appearance and coherent motion. 
+
+the k-th key sketch and tk ∈ { 0, . . . , F − 1} denotes its corresponding video time position, the goal is to generate a complete animation sequence V = {It}F −1 
+
+> t=0
+
+. As shown in Fig. 2, SketchKeyAnime builds upon Stable Video Dif-fusion (SVD) as the base backbone and consists of three main modules: (1) the Dual-Branch Conditioning Mecha-nism exploits sparse key sketches from both spatial struc-tural and semantic-temporal perspectives; (2) Sketch Cross Attention fuses the reference image condition and sketch semantic condition with learnable gating; and (3) Adaptive Weighted Loss strengthens the supervision on key-sketch frames and line-art regions. 
+
+3.1. Preliminary 
+
+Stable Video Diffusion (SVD) [3] is a video generation framework based on latent diffusion models (LDMs) [11, 12, 34, 37]. It performs diffusion modeling in the low-dimensional latent space constructed by a pretrained VAE [20] and uses a spatio-temporal UNet to model both per-frame visual content and cross-frame motion. Given an input video sequence x ∈ RT ×C×H×W , SVD maps it into the latent space with a pretrained VAE encoder E, ob-taining z0 = E(x) ∈ RT ×c×h×w, where T denotes the number of video frames, C and c denote the channel di-mensions in pixel and latent spaces, and (H, W ) and (h, w )
+
+denote the original and latent spatial resolutions. In image-to-video generation, SVD incorporates reference conditions through both CLIP image features [32] and the VAE la-tent of the reference image. The former is injected into the denoising network via cross-attention to provide semantic and appearance priors, while the latter is concatenated with the noisy video latent along the channel dimension to pro-vide low-level spatial guidance. Given a clean video latent 
+
+z0, the forward diffusion process produces a noisy latent 
+
+zτ = ατ z0 + στ ϵ, ϵ ∼ N (0 , I ). In the reverse process, the denoising network predicts the clean latent representation from zτ , diffusion timestep τ , and conditioning informa-tion c, i.e., ˆz0 = ϵθ (zτ , τ, c ). We express the SVD training objective using an equivalent latent-space denoising recon-struction form: 
+
+LSVD = Ez0,ϵ,σ,c 
+
+h
+
+w(σ) ∥ˆz0 − z0∥22
+
+i
+
+, (1) where w(σ) is a reconstruction weight related to the noise strength. 
+
+3.2. Dual-Branch Conditioning Mechanism 
+
+Under sparse key-sketch conditioning, frame-wise spa-tial control can constrain keyframe structures but struggles to model motion relationships between key poses, while global semantic modeling helps capture motion context but is insufficient for accurate contour alignment at keyframes. To this end, we propose a Dual-Branch Conditioning 
+
+4Mechanism , which exploits key sketches from two com-plementary perspectives: local geometric constraints and global motion context. 
+
+3.2.1 Spatial ControlNet Branch 
+
+To provide direct local geometric constraints at key-sketch frames, we adopt a spatial ControlNet branch to inject sparse key sketches in a frame-wise manner. Let the tem-poral index set of key sketches be T = {t1, t 2, . . . , t K }.We expand the sparse key-sketch set S into a sparse sketch sequence ˜S = { ˜St}F −1 
+
+> t=0
+
+of length F :
+
+˜St =
+
+(
+
+Sk, t = tk, t ∈ T ,
+
+0, t / ∈ T . (2) We also define a frame-wise conditioning mask: 
+
+Mt =
+
+(
+
+1, t ∈ T ,
+
+0, t / ∈ T . (3) The control input for the spatial branch at frame t is then 
+
+ct = [ ˜St, M t], (4) where [·, ·] denotes channel-wise concatenation. This uni-fied input allows the model to distinguish real key-sketch frames from frames without sketches. The spatial branch encodes {ct}F −1 
+
+> t=0
+
+and outputs multi-scale control residuals to the video UNet, providing contour, pose, and local struc-tural constraints at key-sketch frames. The spatial control branch follows the sparse-control modification of SparseCtrl rather than the vanilla Control-Net design. Vanilla ControlNet feeds the noisy latent zτ,t 
+
+together with the condition signal into the control encoder, which may cause the branch to over-rely on the noisy sam-ple at frames without sketches and weaken its response to actual sketch conditions. We therefore remove the direct input path from the noisy latent to the control encoder: 
+
+xvanilla  
+
+> t
+
+= Econd (ct) + zτ,t , (5) 
+
+xours  
+
+> t
+
+= Econd (ct). (6) Here, Econd (·) denotes the initial mapping of the condition signal. With this design, the spatial branch focuses on ex-tracting structural control information from sparse sketches and the conditioning mask. Since this branch remains frame-wise by nature and cannot model motion relation-ships among key sketches, we further introduce a semantic-temporal branch as a complement. 
+
+3.2.2 Semantic-Temporal Sketch Branch 
+
+To model the motion correlations and temporal dependen-cies among sparse key sketches, we design a Semantic-Temporal Sketch Context Encoder, as shown in Fig. 3. It encodes a variable number of key sketches into fixed-format frame-wise sketch semantic tokens, which serve as the con-ditional context for the subsequent Sketch Cross Attention. The encoder consists of three main components: a frozen CLIP image encoder, a Sketch Relation Transformer, and a Sketch Resampler. First, we use a frozen CLIP image encoder to extract a global semantic representation from each key sketch: 
+
+fk = ECLIP (Sk), k = 1 , . . . , K. (7) Here, ECLIP follows the image encoding architecture of SVD and remains frozen during training. We then add tem-poral positional encoding according to the actual frame in-dex of each sketch: 
+
+¯fk = fk + PE( tk). (8) The sketch features with temporal information are fed into the Sketch Relation Transformer based on self-attention [39]. Based on self-attention along the key-sketch dimension, this module allows different key sketches to ex-change information and captures semantic correlations and temporal dependencies among key poses: 
+
+ˆF = Erelation ( ¯f1, ¯f2, . . . , ¯fK ). (9) Here, Erelation denotes the Sketch Relation Transformer, and ˆF denotes the sketch features enriched with semantic relationships and temporal positional information. Since the number of key sketches varies across samples, we further use a Sketch Resampler to convert ˆF into fixed-format frame-wise conditional tokens. This module adopts a query-based resampling structure, where learnable query tokens aggregate information from relation-aware sketch features through cross-attention. Let the target video length be F , the number of sketch queries per frame be L, and the token dimension be D. The Resampler output is 
+
+Csketch = Resampler( ˆF) ∈ RF ×L×D. (10) The sketch semantic condition for frame t is 
+
+Csketch  
+
+> t
+
+= Csketch [t] ∈ RL×D . (11) Since different temporal positions have different query to-kens, the Sketch Resampler can aggregate different con-textual representations for different target frames from the same set of key-sketch features, thereby organizing sparse sketch information along the full temporal axis. The sub-sequent Sketch Cross Attention uses Csketch  
+
+> t
+
+as the sketch condition for frame t, injecting the structural semantics and motion context of key sketches into the diffusion denoising process. 5Figure 3. Semantic-Temporal Sketch Context Encoder. Given sparse key sketches with their temporal indices, a frozen CLIP image encoder first extracts semantic features from each sketch. The features are augmented with temporal positional embeddings and processed by the Sketch Relation Transformer to model semantic relationships and temporal dependencies among key sketches. The Sketch Resampler then converts the variable-length sketch features into fixed-format frame-wise sketch context tokens, which are injected into the Sketch Cross Attention modules of the SVD UNet. 
+
+3.3. Sketch Cross Attention 
+
+After obtaining the reference-image condition and the sketch semantic-temporal condition, the model needs to preserve character appearance consistency while respond-ing to sketch-defined structural changes during diffusion de-noising. To this end, we propose Sketch Cross Attention, which adds an additional sketch-conditioning branch on top of the original image cross-attention and controls its injec-tion strength with learnable gating. Let H denote the current hidden state of the UNet, 
+
+Cimage denote the reference-image condition, and Csketch 
+
+denote the sketch condition. We share the query projected from the hidden state, Q = WQH, and compute the atten-tion outputs for the image and sketch conditions separately: 
+
+Oimage = Attn( Q, K image , V image ), (12) 
+
+Osketch = Attn( Q, K sketch , V sketch ), (13) where the image condition uses the original key and value projections of cross-attention, while the sketch condition uses additional independent key and value projections. The two condition outputs are fused before the output projec-tion: 
+
+O = Oimage + λeff Osketch , (14) 
+
+CA( H) = WO O. (15) Here, λeff controls the influence of the sketch condition in the current layer. Since different network layers have dif-ferent demands for appearance preservation and structural control, a fixed sketch weight is insufficient for all levels. Therefore, we assign an independent learnable gating pa-rameter α to each injected layer and define 
+
+λeff = λbase · (tanh( α) + 1) , (16) where λbase is the base scaling factor. When α = 0,the sketch condition has a stable non-zero contribution at the beginning of training; during training, the layer-wise α
+
+adaptively adjusts the sketch response strength, enabling a flexible balance between reference appearance preservation and sketch-based structural control. In implementation, Sketch Cross Attention is inserted into all BasicTransformerBlocks with cross-attention in the SVD spatio-temporal UNet, allowing sketch conditions to participate in denoising at multiple spatial resolutions and semantic levels. 
+
+3.4. Adaptive Weighted Loss 
+
+Since sparse key sketches provide explicit structural su-pervision only at a few temporal positions, a standard uni-form reconstruction loss may weaken the learning of key poses and line-art structures. To address this issue, we propose an Adaptive Weighted Loss , which increases the training weights of key supervised regions at both the frame and spatial levels. 
+
+Frame-level Adaptive Weighting. At the frame level, we increase the weights of conditioned frames according to the sparsity of key sketches in the current sample. Given 6a target video of F frames and the frame-wise condition-ing mask Mt, the number of conditioned frames is K =PF −1 
+
+> t=0
+
+Mt. The sample sparsity ratio is defined as 
+
+rsparse = 1 − KF . (17) A smaller number of key sketches leads to a larger rsparse ,and thus conditioned frames should receive stronger super-vision. We define the frame-level adaptive coefficient as 
+
+λframe = 1 + λ1rsparse , (18) where λ1 is a hyperparameter. The corresponding frame-level weight is 
+
+Wframe (t) = 1 + ( λframe − 1) Mt =
+
+(
+
+λframe , Mt = 1 ,
+
+1, Mt = 0 .
+
+(19) That is, frames with sketch conditions are assigned higher weights, while frames without sketch conditions retain the original weight. 
+
+Sketch-aware Spatial Weighting. At the spatial level, we further emphasize sketch line regions. Let Mline (t, x, y ) de-note the line-region mask obtained from the input sketch condition ˜St, where a value of 1 indicates a line region and 0 indicates a background region. The spatial weight is de-fined as 
+
+Wline (t, x, y ) = 
+
+
+
+λ2, Mt = 1 , M line (t, x, y ) = 1 ,
+
+1, Mt = 1 , M line (t, x, y ) = 0 ,
+
+1, Mt = 0 ,
+
+(20) where λ2 controls the enhancement strength of line-art re-gions. This weight only takes effect on line regions in frames with sketch conditions; for frames without sketch conditions, the spatial weight remains 1. The total weight is 
+
+Wtotal (t, x, y ) = Wframe (t) · Wline (t, x, y ). (21) The Adaptive Weighted Loss is defined as 
+
+Ladaptive = Eσ,t,x,y 
+
+h
+
+w(σ) (ˆ z0(t, x, y ) − z0(t, x, y )) 2
+
+· Wtotal (t, x, y )
+
+i
+
+.
+
+(22) This loss jointly adjusts the supervision strength according to sample sparsity, key-sketch frames, and line-art regions, encouraging the model to focus more on key structures un-der sparse conditions. 
+
+# 4. Experiments 
+
+4.1. Implementation Details 
+
+Dataset. We use the Aesthetic subset of the Sakuga-42M dataset as the source for training and evaluation [30]. This subset contains approximately 60k animation clips. We ran-domly select over 100 samples as the test set and use the remaining samples for training. To avoid abrupt content changes caused by shot transitions, we use PySceneDe-tect [31] for scene cut detection and construct video clips only within the same continuous scene. Each sample con-tains 15 temporal positions, with all frames resized to 
+
+256 × 256 . The first frame is used as the RGB reference image, and the following 14 frames are used as the target animation sequence. Sketch conditions are extracted by In-formative Drawings [4] and then binarized. 
+
+Training strategy. SketchKeyAnime is trained based on Stable Video Diffusion [3] in three stages. In the first stage, we train the Spatial ControlNet Branch for 50k steps to obtain basic sketch-based geometric responsiveness, where the first 20k steps use frame-wise sketch conditions and the remaining 30k steps use sparse key-sketch conditions. In the second stage, we train the Sketch Context Encoder and Sketch Cross Attention for 50k steps, enabling the model to extract semantic-temporal context from sparse key sketches and inject it into the denoising process. In the third stage, we further fine-tune Sketch Cross Attention and jointly op-timize part of the spatial-attention-related UNet parameters with a small learning rate for 20k steps, improving the coor-dination between sketch semantic conditions and the SVD backbone. 
+
+Key-sketch sampling strategy. During training, we adopt a mixed key-sketch sampling strategy to improve adapt-ability to different sparse input configurations. It contains four modes: Bisection Mode preserves the first and last key-sketch frames and recursively selects temporal mid-points; Boundary Mode preserves the first and last frames and randomly adds key-sketch frames in the middle; Lo-cal Dense Mode densely samples key-sketch frames within local rapid-motion segments; and Random Mode randomly selects the number and positions of key sketches. The sam-pling ratio of the four modes is set to 6:2:1:1 throughout training. 
+
+Training and hyperparameters. All experiments are conducted on 4 NVIDIA V100 GPUs with a total batch size of 16, using AdamW as the optimizer. The depths of the Sketch Relation Transformer and Sketch Resampler are both set to 4, and the Resampler uses 16 sketch tokens per frame. The base sketch scaling factor λbase in Sketch Cross Attention is set to 1. For Adaptive Weighted Loss, the frame-level coefficient λ1 and the line region enhance-ment coefficient λ2 are set to 1.5 and 2, respectively. 
+
+4.2. Quantitative Comparisons 
+
+Baselines. We compare SketchKeyAnime with four rep-resentative methods, including the cartoon video interpola-tion method ToonCrafter [46], the animation image inter-7Table 1. Quantitative comparison with representative baselines un-der sparse key-sketch conditions. Results are averaged across three sparse-input settings using 2, 3, and 5 key sketches. For baselines that require RGB inputs, the input key sketches are colorized by MangaNinja using the same reference image before being fed to the corresponding methods.                                          
+
+> Metric SparseCtrl ToonCrafter AMT EISAI Ours EDMD ↓7.2321 6.1119 5.9788 5.9700 4.1588
+> FID ↓82.3274 47.3319 90.3480 90.1897 65.5113 FVD ↓1109.4439 422.7736 768.6147 607.9490 382.5594
+> LPIPS ↓0.3415 0.1885 0.3273 0.2932 0.1861
+> PSNR ↑13.8070 19.3532 17.0297 17.0560 20.6994
+> SSIM ↑0.5144 0.6987 0.6207 0.6215 0.7058
+
+Table 2. User study results measured by subjective preference rates. For RGB-input baselines, key sketches are colorized by MangaNinja using the same reference image. Percentages indi-cate voting rates for each criterion.                              
+
+> Criterion SparseCtrl ToonCrafter AMT EISAI Ours Overall Quality ↑6.06% 23.23% 6.06% 13.13% 51.52%
+> Sketch Alignment ↑9.09% 22.22% 4.04% 10.10% 54.55%
+> Motion Quality ↑13.13% 20.20% 8.08% 5.05% 53.54%
+> Temporal Coherence ↑5.05% 17.17% 7.07% 11.11% 59.60%
+
+polation method EISAI [5], the general video interpolation method AMT [23], and the sparse conditional video gener-ation method SparseCtrl [8]. Since some baselines cannot directly take sketches as input, we use MangaNinja [26] to colorize the key sketches according to the same RGB ref-erence image, and use the resulting colored keyframes as inputs for the corresponding baselines. For SparseCtrl, we use the colorized keyframes as sparse RGB conditions and leave the text condition empty to avoid insufficient appear-ance constraints from text prompts. 
+
+Metrics. We conduct quantitative evaluation from three aspects: 1) image and video generation quality, where FID [10] and FVD [38] measure frame-level image dis-tribution and video temporal distribution; 2) frame-level similarity to ground-truth animations, where LPIPS [51], PSNR, and SSIM [43] measure perceptual difference, pixel accuracy, and structural similarity; and 3) sketch structural alignment, where we adopt EDMD following LVCD [14]. EDMD compares the Euclidean Distance Map Difference between the line-art extracted from generated frames and the input sketches. A lower EDMD indicates better struc-tural alignment with the input sketches. 
+
+Results. In quantitative experiments, we evaluate cases with 2, 3, and 5 key sketches under recursive bisection sampling, and report the average results over the three set-tings. Although the optimal key-sketch positions may vary across animation clips, this setting provides unified and re-producible sparse input conditions for fair comparison. As shown in Table 1, SketchKeyAnime achieves the best re-sults on most metrics except FID. In particular, it signifi-cantly outperforms all baselines in FVD, indicating that our method generates videos that are closer to the real anima-tion distribution and more temporally coherent under sparse key-sketch conditions. Although MangaNinja+ToonCrafter achieves a lower FID, this may be related to ToonCrafter’s toon rectification learning and detail-recovery decoder de-signed for cartoon interpolation, which can improve frame-level visual distribution quality in the cartoon domain. In addition, FID mainly measures frame-level image distribu-tion and cannot fully reflect whether the generated results follow the input key sketches or preserve coherent cross-frame motion. 
+
+4.3. Qualitative Comparisons 
+
+The qualitative results are shown in Figs. 4 and 5. Compared with interpolation-based methods such as EI-SAI and AMT, our method does not simply produce uni-form transitions between key sketches, but instead infers more reasonable intermediate motions from sparse key sketches, leading to more natural and smooth pose changes. Meanwhile, AMT tends to produce blurry results in some cases. Compared with SparseCtrl, SketchKeyAnime can more stably utilize the reference image and key-sketch conditions, avoiding severe line-structure changes, bright-ness flickering, and implausible motion variations. Toon-Crafter can generate rich dynamic details, while our method shows more stable motion organization and line continu-ity under key-sketch constraints. Overall, SketchKeyAnime achieves a better balance among motion plausibility, transi-tion smoothness, and line structure stability. 
+
+4.4. User Study 
+
+In addition to objective metrics, we conduct a user study to evaluate the subjective generation quality of different methods. We invite 11 participants and select 9 samples from the test set for evaluation. For each sample, we provide 2, 3, and 5 key sketches under recursive bisection sampling, and compare our method with the same baselines used in the quantitative experiments. All method names are hidden during evaluation. Participants are asked to rate the results from four aspects: overall quality, sketch alignment, motion quality, and temporal coherence. The user study results are shown in Table 2. Our method receives higher preference across all subjective criteria, further validating its effective-ness for sparse key-sketch animation synthesis. 
+
+4.5. Ablation Study 
+
+To analyze the effect of each module, we construct five variants under the same training data and evaluation set-ting: (I) Spatial-only : only the Spatial ControlNet Branch is used. (II) Spatial + AWL : Adaptive Weighted Loss is added to Spatial-only. (III) Spatial + S-T Sketch Branch :8Table 3. Ablation study of the main components in SketchKeyAnime. All variants are evaluated under the same sparse key-sketch setting.                                                               
+
+> Variant Spatial Branch AWL S-T Sketch Branch Gate EDMD ↓FID ↓FVD ↓LPIPS ↓PSNR ↑SSIM ↑
+> I. Spatial-only ✓-3.9819 66.2395 424.8304 0.1957 20.1119 0.6924 II. Spatial + AWL ✓✓-4.1239 67.2228 420.8799 0.2009 20.2114 0.6944 III. Spatial + S-T Sketch Branch ✓✓Learnable 4.1233 66.2830 385.5657 0.1887 20.6019 0.7028 IV. Fixed-gate SketchKeyAnime ✓✓✓Fixed 4.1130 66.8089 407.4537 0.1912 20.6305 0.7002 V. SketchKeyAnime ✓✓✓Learnable 4.1588 65.5113 382.5594 0.1861 20.6994 0.7058 ToonCrafter
+> Input
+> Ours  SparseCtrl AMT  EISAI
+
+Figure 4. Qualitative comparison with SparseCtrl, ToonCrafter, AMT, and EISAI under sparse key-sketch conditions. For baselines that require RGB inputs, the input key sketches are first colorized by MangaNinja using the same reference image. This example uses key sketches from the first and last frames. 
+
+the Semantic-Temporal Sketch Context Encoder and Sketch Cross Attention are added to Spatial-only. (IV) Fixed-gate SketchKeyAnime : AWL and the semantic-temporal sketch branch are used, but the gate in Sketch Cross Attention is fixed. (V) SketchKeyAnime : the full model with AWL, the semantic-temporal sketch branch, and learnable gating. As shown in Table 3, Spatial-only achieves the lowest EDMD, indicating that the spatial branch already provides strong local structural constraints at key-sketch frames. However, its FVD is relatively high, suggesting that frame-9ToonCrafter 
+
+> Input
+> Ours  SparseCtrl AMT  EISAI Figure 5. Qualitative comparison with SparseCtrl, ToonCrafter, AMT, and EISAI under sparse key-sketch conditions. For baselines that require RGB inputs, the input key sketches are first colorized by MangaNinja using the same reference image. This example uses key sketches from the first, middle, and last frames.
+
+wise spatial control alone is insufficient for coherent inter-mediate motion. In Fig. 6, this variant produces visible lines around the character’s collar, but the motion changes are of-ten abrupt. Adding AWL slightly improves PSNR and SSIM, show-ing that weighting key supervised regions helps improve re-construction quality and structural preservation. However, since AWL does not introduce temporal context, its ben-efit for motion completion is limited. In contrast, adding the Semantic-Temporal Sketch Branch reduces FVD from 424.8304 to 385.5657 and also improves LPIPS, PSNR, and SSIM, demonstrating that semantic-temporal sketch context provides useful motion cues for frames without sketch in-puts and leads to more reasonable transitions. Fixed-gate SketchKeyAnime uses both AWL and the semantic-temporal branch, but a fixed gate cannot adap-tively balance the reference-image condition and the sketch condition, which may cause weak line control and blurred boundaries. The full model with learnable gating achieves the best FVD, LPIPS, PSNR, and SSIM, and produces clearer collar lines and more natural motion transitions in Fig. 6. Overall, the ablation study shows that the modules are complementary: the spatial branch provides local geometric constraints, AWL strengthens key supervised regions, the Semantic-Temporal Sketch Branch improves motion com-10 I. Spatial-only 
+
+> II. Spatial + AWL
+> III. Spatial + S-T SketchBranch
+> V. SketchKeyAnime(Ours)
+> IV. Fixed-gate SketchKeyAnime
+> Input
+
+Figure 6. Qualitative ablation comparison of SketchKeyAnime components under sparse key-sketch conditions. The compared variants examine the effects of Adaptive Weighted Loss, the Semantic-Temporal Sketch Branch, and the learnable gating mechanism, with the Spatial ControlNet Branch used as the base setting. 
+
+pletion, and learnable gating further balances reference ap-pearance preservation and sketch-based structural control. The full model therefore achieves the best overall perfor-mance. 
+
+# 5. Conclusion 
+
+In this paper, we propose SketchKeyAnime, a frame-work for reference-anchored sparse key-sketch animation synthesis. To address the difficulty of balancing struc-tural control, motion completion, and appearance preser-vation under sparse key-sketch conditions, we build upon Stable Video Diffusion and design a dual-branch condition-ing mechanism. The Spatial ControlNet Branch provides keyframe-level geometric constraints, while the Semantic-Temporal Sketch Context Encoder models motion relation-ships among key sketches. Meanwhile, Sketch Cross At-tention fuses reference image conditions and sketch con-ditions through learnable gating, and Adaptive Weighted Loss further strengthens supervision on key-sketch frames and line-art regions. Experimental results show that SketchKeyAnime can generate animation sequences with accurate structures, coherent motions, and consistent ap-pearance from only a few key sketches, providing an effec-tive solution for low-cost and highly controllable animation 11 creation. 
+
+# References 
+
+[1] Hmrishav Bandyopadhyay and Yi-Zhe Song. Flipsketch: Flipping static drawings to text-guided sketch animations. In 
+
+Proceedings of the Computer Vision and Pattern Recognition Conference (CVPR) , pages 28394–28404, June 2025. 3 [2] Wenbo Bao, Wei-Sheng Lai, Chao Ma, Xiaoyun Zhang, Zhiyong Gao, and Ming-Hsuan Yang. Depth-aware video frame interpolation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 3703–3712, 2019. 3 [3] Andreas Blattmann, Tim Dockhorn, Sumith Kulal, Daniel Mendelevitch, Maciej Kilian, Dominik Lorenz, Yam Levi, Zion English, Vikram Voleti, Adam Letts, Varun Jampani, and Robin Rombach. Stable video diffusion: Scaling la-tent video diffusion models to large datasets. arXiv preprint arXiv:2311.15127 , 2023. 2, 4, 7 [4] Caroline Chan, Fr´ edo Durand, and Phillip Isola. Learning to generate line drawings that convey geometry and semantics. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 7915–7925, June 2022. 7 [5] Shuhong Chen and Matthias Zwicker. Improving the per-ceptual quality of 2d animation interpolation. In Computer Vision – ECCV 2022 , Lecture Notes in Computer Science, pages 271–287. Springer, 2022. 2, 3, 8 [6] Xinyuan Chen, Yaohui Wang, Lingjun Zhang, Shaobin Zhuang, Xin Ma, Jiashuo Yu, Yali Wang, Dahua Lin, Yu Qiao, and Ziwei Liu. SEINE: Short-to-long video diffu-sion model for generative transition and prediction. In In-ternational Conference on Learning Representations (ICLR) .OpenReview.net, 2024. 3 [7] Duolikun Danier, Fan Zhang, and David Bull. LDMVFI: Video frame interpolation with latent diffusion models. In 
+
+Proceedings of the AAAI Conference on Artificial Intelli-gence , volume 38, pages 1472–1480. AAAI Press, 2024. 3 [8] Yuwei Guo, Ceyuan Yang, Anyi Rao, Maneesh Agrawala, Dahua Lin, and Bo Dai. Sparsectrl: Adding sparse con-trols to text-to-video diffusion models. In Computer Vision – ECCV 2024 , Lecture Notes in Computer Science, pages 330–348. Springer, 2024. 2, 8 [9] Yuwei Guo, Ceyuan Yang, Anyi Rao, Zhengyang Liang, Yaohui Wang, Yu Qiao, Maneesh Agrawala, Dahua Lin, and Bo Dai. Animatediff: Animate your personalized text-to-image diffusion models without specific tuning. In Inter-national Conference on Learning Representations (ICLR) .OpenReview.net, 2024. 2 [10] Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochreiter. Gans trained by a two time-scale update rule converge to a local nash equilib-rium. In Advances in Neural Information Processing Systems (NeurIPS) , volume 30. Curran Associates, Inc., 2017. 8 [11] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising dif-fusion probabilistic models. In Advances in Neural Informa-tion Processing Systems (NeurIPS) , volume 33, pages 6840– 6851. Curran Associates, Inc., 2020. 2, 4 [12] Jonathan Ho, Tim Salimans, Alexey Gritsenko, William Chan, Mohammad Norouzi, and David J. Fleet. Video dif-fusion models. In Advances in Neural Information Process-ing Systems (NeurIPS) , volume 35, pages 8633–8646. Cur-ran Associates, Inc., 2022. 2, 4 [13] Li Hu. Animate anyone: Consistent and controllable image-to-video synthesis for character animation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 8153–8163, 2024. 3 [14] Zhitong Huang, Mohan Zhang, and Jing Liao. LVCD: Reference-based lineart video colorization with diffusion models. ACM Transactions on Graphics , 43(6), November 2024. 3, 8 [15] Zhewei Huang, Tianyuan Zhang, Wen Heng, Boxin Shi, and Shuchang Zhou. Real-time intermediate flow estimation for video frame interpolation. In Computer Vision – ECCV 2022 , Lecture Notes in Computer Science, pages 624–642. Springer, 2022. 3 [16] Siddhant Jain, Daniel Watson, Eric Tabellion, Aleksander Ho?ynski, Ben Poole, and Janne Kontkanen. Video in-terpolation with diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 7341–7351, June 2024. 3 [17] Huaizu Jiang, Deqing Sun, Varun Jampani, Ming-Hsuan Yang, Erik Learned-Miller, and Jan Kautz. Super slomo: High quality estimation of multiple intermediate frames for video interpolation. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , pages 9000–9008, 2018. 3 [18] Lifan Jiang, Shuang Chen, Boxi Wu, Deng Cai, and Jiahui Zhang. Vidsketch: Hand-drawn sketch-driven video gener-ation with diffusion control. Neural Networks , 196:108465, 2026. 3 [19] Levon Khachatryan, Andranik Movsisyan, Vahram Tade-vosyan, Roberto Henschel, Zhangyang Wang, Shant Navasardyan, and Humphrey Shi. Text2video-zero: Text-to-image diffusion models are zero-shot video generators. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 15954–15964, 2023. 2 [20] Diederik P. Kingma and Max Welling. Auto-encoding varia-tional bayes. In International Conference on Learning Rep-resentations (ICLR) , 2014. 4 [21] Lingtong Kong, Boyuan Jiang, Donghao Luo, Wenqing Chu, Xiaoming Huang, Ying Tai, Chengjie Wang, and Jie Yang. IFRNet: Intermediate feature refine network for effi-cient frame interpolation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 1969–1978, 2022. 3 [22] Hyeongmin Lee, Taeoh Kim, Tae-Young Chung, Daehyun Pak, Yukyung Ban, and Sangyoun Lee. AdaCoF: Adaptive collaboration of flows for video frame interpolation. In Pro-ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 5316–5325, 2020. 3 [23] Zhen Li, Zuo-Liang Zhu, Ling-Hao Han, Qibin Hou, Chun-Le Guo, and Ming-Ming Cheng. Amt: All-pairs multi-field transforms for efficient frame interpolation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pat-
+
+12 tern Recognition (CVPR) , pages 9801–9810, June 2023. 2, 3, 8 [24] Han Lin, Jaemin Cho, Abhay Zala, and Mohit Bansal. Ctrl-adapter: An efficient and versatile framework for adapting diverse controls to any diffusion model. In International Conference on Learning Representations (ICLR) . OpenRe-view.net, 2025. 3 [25] Feng-Lin Liu, Hongbo Fu, Xintao Wang, Weicai Ye, Pengfei Wan, Di Zhang, and Lin Gao. Sketchvideo: Sketch-based video generation and editing. In Proceedings of the Com-puter Vision and Pattern Recognition Conference (CVPR) ,pages 23379–23390, June 2025. 2, 3 [26] Zhiheng Liu, Ka Leong Cheng, Xi Chen, Jie Xiao, Hao Ouyang, Kai Zhu, Yu Liu, Yujun Shen, Qifeng Chen, and Ping Luo. Manganinja: Line art colorization with precise reference following. In Proceedings of the Computer Vision and Pattern Recognition Conference (CVPR) , pages 5666– 5677, June 2025. 8 [27] Dagmar Lukka Loftsd´ ottir and Matthew Guzdial. Sketch-between: Video-to-video synthesis for sprite animation via sketches. In Proceedings of the 17th International Confer-ence on the Foundations of Digital Games , pages 32:1–32:7. ACM, 2022. 3 [28] Yihao Meng, Hao Ouyang, Hanlin Wang, Qiuyu Wang, Wen Wang, Ka Leong Cheng, Zhiheng Liu, Yujun Shen, and Huamin Qu. Anidoc: Animation creation made easier. In 
+
+Proceedings of the Computer Vision and Pattern Recognition Conference (CVPR) , pages 18187–18197, June 2025. 3 [29] Simon Niklaus, Long Mai, and Feng Liu. Video frame inter-polation via adaptive separable convolution. In Proceedings of the IEEE International Conference on Computer Vision (ICCV) , pages 261–270, 2017. 3 [30] Zhenglin Pan. Sakuga-42m dataset: Scaling up cartoon re-search. arXiv preprint arXiv:2405.07425 , 2024. 7 [31] PySceneDetect Authors. PySceneDetect. https : //github.com/Breakthrough/PySceneDetect ,2023. Accessed: October 1, 2023. 7 [32] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. Learning transferable visual models from natural language supervision. In Proceedings of the 38th International Conference on Machine Learning (ICML) , Proceedings of Machine Learning Research, pages 8748–8763. PMLR, 2021. 4 [33] Fitsum A. Reda, Janne Kontkanen, Eric Tabellion, Deqing Sun, Caroline Pantofaru, and Brian Curless. FILM: Frame interpolation for large motion. In Computer Vision – ECCV 2022 , Lecture Notes in Computer Science, pages 250–266. Springer, 2022. 3 [34] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bj¨ orn Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 10684–10695, June 2022. 2, 4 [35] Min Shi, Jia-Qi Zhang, Shu-Yu Chen, Lin Gao, Yu-Kun Lai, and Fang-Lue Zhang. Reference-based deep line art video colorization. IEEE Transactions on Visualization and Com-puter Graphics , 29(6):2965–2979, 2023. 3 [36] Li Siyao, Shiyu Zhao, Weijiang Yu, Wenxiu Sun, Dimitris Metaxas, Chen Change Loy, and Ziwei Liu. Deep ani-mation video interpolation in the wild. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 6587–6595, June 2021. 2, 3 [37] Jiaming Song, Chenlin Meng, and Stefano Ermon. De-noising diffusion implicit models. In International Confer-ence on Learning Representations (ICLR) . OpenReview.net, 2021. 2, 4 [38] Thomas Unterthiner, Sjoerd van Steenkiste, Karol Kurach, Rapha¨ el Marinier, Marcin Michalski, and Sylvain Gelly. FVD: A new metric for video generation. In ICLR Workshop on Deep Generative Models for Highly Structured Data .OpenReview.net, 2019. 8 [39] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszko-reit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. In Advances in Neu-ral Information Processing Systems (NeurIPS) , volume 30. Curran Associates, Inc., 2017. 5 [40] Vikram Voleti, Alexia Jolicoeur-Martineau, and Chris Pal. MCVD: Masked conditional video diffusion for prediction, generation, and interpolation. In Advances in Neural Infor-mation Processing Systems (NeurIPS) , volume 35. Curran Associates, Inc., 2022. 3 [41] Xiang Wang, Hangjie Yuan, Shiwei Zhang, Dayou Chen, Ji-uniu Wang, Yingya Zhang, Yujun Shen, Deli Zhao, and Jin-gren Zhou. Videocomposer: Compositional video synthesis with motion controllability. In Advances in Neural Informa-tion Processing Systems (NeurIPS) , volume 36. Curran As-sociates, Inc., 2023. 2 [42] Xiaojuan Wang, Boyang Zhou, Brian Curless, Ira Kemelmacher-Shlizerman, Aleksander Holynski, and Steven M. Seitz. Generative inbetweening: Adapting image-to-video models for keyframe interpolation. In 
+
+International Conference on Learning Representations (ICLR) . OpenReview.net, 2025. 2, 3 [43] Zhou Wang, Alan C. Bovik, Hamid R. Sheikh, and Eero P. Simoncelli. Image quality assessment: From error visibility to structural similarity. IEEE Transactions on Image Pro-cessing , 13(4):600–612, 2004. 8 [44] Zhouxia Wang, Ziyang Yuan, Xintao Wang, Yaowei Li, Tianshui Chen, Menghan Xia, Ping Luo, and Ying Shan. Motionctrl: A unified and flexible motion controller for video generation. In ACM SIGGRAPH 2024 Conference Pa-pers . Association for Computing Machinery, 2024. 3 [45] Jay Zhangjie Wu, Yixiao Ge, Xintao Wang, Stan Weixian Lei, Yuchao Gu, Yufei Shi, Wynne Hsu, Ying Shan, Xiaohu Qie, and Mike Zheng Shou. Tune-a-video: One-shot tuning of image diffusion models for text-to-video generation. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 7623–7633, 2023. 2 [46] Jinbo Xing, Hanyuan Liu, Menghan Xia, Yong Zhang, Xin-tao Wang, Ying Shan, and Tien-Tsin Wong. Tooncrafter: Generative cartoon interpolation. ACM Transactions on Graphics , 43(6), November 2024. 2, 3, 7 
+
+13 [47] Jinbo Xing, Menghan Xia, Yong Zhang, Hao Chen, Wangbo Yu, Hanyuan Liu, Gongye Liu, Xintao Wang, Ying Shan, and Tien-Tsin Wong. Dynamicrafter: Animating open-domain images with video diffusion priors. In Computer Vision – ECCV 2024 , Lecture Notes in Computer Science, pages 399–417. Springer, 2024. 3 [48] Zhongcong Xu, Jianfeng Zhang, Jun Hao Liew, Hanshu Yan, Jia-Wei Liu, Chenxu Zhang, Jiashi Feng, and Mike Zheng Shou. Magicanimate: Temporally consistent human im-age animation using diffusion model. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 1481–1490, 2024. 3 [49] Haichao Zhang, Gang Yu, Tao Chen, and Guozhong Luo. Sketch me a video. arXiv preprint arXiv:2110.04710 , 2021. 3[50] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 3836–3847, October 2023. 2[51] Richard Zhang, Phillip Isola, Alexei A. Efros, Eli Shecht-man, and Oliver Wang. The unreasonable effectiveness of deep features as a perceptual metric. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recogni-tion (CVPR) , June 2018. 8 [52] Tianyi Zhu, Wei Shang, and Dongwei Ren. Thin-plate spline-based interpolation for animation line inbetweening. In Proceedings of the AAAI Conference on Artificial Intelli-gence , volume 39, pages 10995–11003. AAAI Press, 2025. 2, 3 
+
+14
