@@ -1,0 +1,3838 @@
+Title: Multigrid2
+
+URL Source: https://arxiv.org/pdf/2606.22377v1
+
+Published Time: Tue, 23 Jun 2026 02:03:06 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+MULTIGRID TRAINING FOR MOLECULAR GENERATION USING 
+
+GRAPH NEURAL NETWORKS 
+
+ZIXUAN 
+
+LING 
+
+*, 
+
+PAULA 
+
+MERCURIO 
+
++, 
+
+AND 
+
+DI LIU 
+
+#
+
+Abstract. Deep learning has demonstrated significant success for modeling bio-chemical mo-
+
+lecular systems, where inputs are commonly represented as graphs or 3D grids. A major challenge 
+
+is that computational cost scales with resolution, making full graph/grid computation of molecular 
+
+densities expensive and often unstable. We introduce a multigrid training strategy that leverages low 
+
+resolution optimization to accelerate learning at higher resolution through parameter transfer across          
+
+> discretizations. For graph molecular representations, we progressively transfer parameters learned
+
+from a coarse graph to a sequence of increasingly finer graphs via biased random walk upsampling.              
+
+> For 3D molecular generation, we voxelize the molecular structures at multiple resolutions, pretrain a
+
+coarse resolution conditional Variational Autoencoder (CVAE), and initialize a fine resolution CVAE 
+
+by transferring shape compatible convolutional parameters from the coarse model. Numerical ex-
+
+periments on receptor-conditioned 3D Ligand generation show that multigrid training accelerates 
+
+convergence and improves generalization compared to training from scratch.           
+
+> Key words. Molecular modeling, multigrid methods, graph neural networks, conditional Vari-
+
+ational Autoencoder 
+
+AMS subject classifications. 65F08, 62D05 
+
+1. Introduction. The chemical space of stable, synthetically accessible mole-
+
+novel molecules that satisfy preferred properties. 
+
+A widely adopted generative model in molecular design is the Variational Autoen-
+
+coder (VAE), which learns a continuous latent representation that supports sampling 
+
+and interpolation. The latent space provides a convenient interface for generating 
+
+and sampling become substantially more expensive as the resolution of the molecu-
+
+lar representation increases, i.e. larger graphs and finer voxel grids, which motivates 
+
+multilevel strategies that iterate between coarse and fine models to efficiently solve 
+
+the multiscale system. 
+
+*Department of Mathematics, Michigan State University, East Lansing, MI. (lingzixu@msu.edu) 
+
+Department 
+
+of Mathematics, Hamline University, Saint Paul, MN. (pmercurio01@hamline.edu)                
+
+> ‡Department of Mathematics, Michigan State University, East Lansing, MI. (liudil@msu.edu) 2ZIXUAN LING, DI LIU, PAULA MERCURIO
+
+Deep generative models for molecular design often formulate generation as a se-                                               
+
+> quence modeling problem over SMILES (i.e. Simplified Molecular Input Line Entry
+> System) strings. Each molecule is represented as atoken sequence x; =(Si,1,..., Si,T,)
+> with Si,t €V, where Vis atoken vocabulary of SMILES. Such sequences are modeled
+> with avariational encoder-decoder architecture, typically with arecurrent decoder
+
+that generates tokens autoregressively [13). Several approaches improve string valid-
+
+ity by incorporating explicit syntactic constraints during learning and decoding (24, 7). 
+
+Sequence based 
+
+generators 
+
+have also been 
+
+fine 
+
+tuned 
+
+with 
+
+reinforcement learning 
+
+to 
+
+bias sampling toward property driven objectives [33]. 
+
+Molecules can also be represented as graphs such that each sample has the form 
+
+Х; = (Vi, Ei), where each atom v € Vi carries discrete attributes such as element 
+
+type, aromaticity, and formal charge, while each bond e E E; is labeled by its bond 
+
+type. Graph Neural Networks (GNNs) learn from such data by passing messages 
+
+along edges and aggregating neighborhood information to obtain node embeddings 
+
+and a graph level representation [17, 48). Many graph based generators also adopt 
+
+an encoder-decoder design. For example, GraphVAE encodes an input molecular 
+
+graph into a latent representation and decodes by predicting an adjacency structure 
+
+together with node and edge labels [44]. Chemical validity is enforced by decoding 
+
+via constrained action spaces and using reinforcement learning to bias generation to-
+
+ward target properties (5, 57). Other approaches generate molecules by composing 
+
+chemically significant substructures into a full molecular graph [21]. Normalizing flow 
+
+models have been developed for molecular graphs, enabling exact likelihood evalua-
+
+tion and efficient sampling [30]. Despite these advances, standard message passing 
+
+architectures are largely flat and do not explicitly encode multiscale organization. 
+
+To introduce hierarchy, several works, including DiffPool and Graph U-Nets [56, 11], 
+
+augment GNNs with learnable pooling or coarsening modules. Later variants refine 
+
+pooling by improving node selection and better preserving locality 25, 40). 
+
+While 2D graphs capture bonding relations, structure based applications such 
+
+as drug discovery are inherently 3-dimensional. One example is receptor-conditioned 
+
+3D Ligand generation, where the goal is to identify small molecules (ligands) that 
+
+adopt plausible binding poses and form favorable interactions within the binding 
+
+pockets 
+
+of target 
+
+proteins 
+
+(receptors). 
+
+In 
+
+the 
+
+3D 
+
+setting, 
+
+each 
+
+ligand 
+
+is 
+
+represented                   
+
+> by Xi ={(aig, Pi)} =1, where Ni is the number of atoms in the ligand, aij gives the
+
+atom type 
+
+and 
+
+rij 
+
+E
+
+R3 
+
+denotes 
+
+the Cartesian coordinates. Before 
+
+pocket-conditioned 
+
+3D generation became practical, early deep learning work in structure-based drug                                                      
+
+> design focused on scoring: learning functions that recognize favorable protein-ligand
+> interaction patterns. Acommon strategy voxelizes the receptor environment and can-
+> didate poses in multi-channel 3D atomic grids and scores them with 3D convolutional
+> neural networks 50, 37. Such learned scorers have been integrated into docking by
+> combining conventional pose search with neural scoring [32]. The grid formulation
+
+also provides differentiable objectives that support gradient based pose refinement 
+
+(39, 46) 
+
+and analysis 
+
+that highlight 
+
+which features 
+
+of the pocket-ligand 
+
+most influence 
+
+the predicted score [18]. 
+
+Building on voxel grid scoring models, early pocket-conditioned generators also 
+
+perated on 3D grids, either by generating ligand density grids aligned to the binding                                                   
+
+> site and then performing atom fitting and bond inference [38], or by learning acondi-
+> tional score on voxel grids and sampling with Langevin dynamics [36, 49]. More recent
+> methods move beyond grids to direct
+> 3D
+> graph/point-cloud formulations and enforce
+> equivariance to translations and rotations [19]. Aprominent approach is the gener-MULTIGRID GRAPH NEURAL NETWORKS
+
+3
+
+ation of autoregressive pocket-conditioned ligands, which grows a ligand sequentially                                  
+
+> by placing atoms in a3D space conditioned on the pocket and the current partial
+> ligand [29, 35, 26]. Subsequent work strengthens stepwise conditioning by explicitly
+> encoding pocket-ligand interaction roles, improving control over contact patterns, and
+
+generalizing to unseen targets [58]. Diffusion models have also been widely used for              
+
+> 3D ligand generation (43, 15, 16, 34, 31], although their iterative sampling can make
+
+inference more expensive than one-shot decoders such as VAEs. 
+
+Recent work has explored hierarchical latent variable VAEs on atomic density 
+
+grids, using hierarchical priors to better capture multiscale molecular structures [52]. 
+
+However, these latent levels do not explicitly correspond to a prescribed hierarchy 
+
+of grid resolutions 45, 47, 6, 41). From a computational perspective, both graph           
+
+> message passing and voxel grid generative modeling become increasingly expensive as
+
+resolution grows. This suggests connections to multigrid methods that have been very 
+
+effective for broad computational tasks, from numerical solutions of Partial Differen-
+
+tial Equations [4] to large scale nonlinear optimization [53]. Multigrid approaches 
+
+construct a hierarchy of discretizations from coarse to fine, couple different levels 
+
+through transfer operators such as restriction and prolongation, and use coarse grid 
+
+corrections to reduce low frequency error components on finer levels. Coarse levels 
+
+provide inexpensive approximations that supply effective trial points, thereby accel-
+
+erating convergence on the fine problem. 
+
+In this paper, we adapt the classical multigrid methodology to resolution de-
+
+pendent deep learning for molecular modeling. Specifically, we make the following 
+
+contributions: 
+
+• We propose a multigrid training tramework for GNNs that builds a hierar-
+
+chy of graphs through biased random walk upsampling and transfers learned 
+
+parameters across levels. We analyze cross-level propagation consistency and 
+
+show that under overlap alignment and sufficient coverage, the transferred weights 
+
+provide 
+
+a
+
+provable well conditioned 
+
+start 
+
+with 
+
+bounded fine level 
+
+loss 
+
+and gradient norm at initialization. 
+
+• For pocket conditioned 3D ligand generation, we construct receptor-ligand 
+
+density grids at multiple voxel resolutions within a fixed binding site box and               
+
+> initiate the fine resolution conditional variational autoencoder (CVAE) by
+> transferring convolutional parameters from the coarse model.
+
+•
+
+We 
+
+empirically 
+
+compare 
+
+multigrid training 
+
+against single 
+
+resolution 
+
+training 
+
+from scratch, quantifying improvements in training efficiency and general-
+
+ization for graph learning, as well as ligand quality for receptor-conditioned 
+
+2. Background. In this section, we briefly review the graph learning setting                                  
+
+> used in our multigrid training framework, focusing on message passing graph neural
+> networks (GNNs) and standard supervised objectives for node and graph classifica-
+> tion.
+> 2.1. Graph Neural Network. Let G=(V, E) denote an undirected graph
+
+of |V| 
+
+=
+
+N
+
+nodes 
+
+with 
+
+adjacency 
+
+matrix A
+
+=
+
+{aig} 
+
+€
+
+{0, 1}N ×N
+
+and 
+
+node feature 
+
+matrix X eRNXD, where each node is associated with a vector of dimensions D. The 
+
+goal of node embedding is to learn a function f: V ￫ Rd that assigns a label yi to 
+
+each 
+
+node v; based on 
+
+the overall structure of the graph and the note features. The 
+
+learned embedding function y = f(v) is optimized to reflect the proximity of nodes 
+
+in the original graphs and networks, and therefore it can be used for downstream              
+
+> machine learning tasks such as clustering and classification. 4ZIXUAN LING, DI LIU, PAULA MERCURIO
+
+We build on the framework of message passing graph neural networks, which 
+
+pdate 
+
+node 
+
+embeddings 
+
+through 
+
+iterative 
+
+aggregation 
+
+of neighborhood information 
+
+i generic L-layer message passing GNN updates node embeddings according to th 
+
+following recursion: 
+
+(2.1) H) = M (A, H(1-1); o'), 1=1,2,...,L, 
+
+where H() € RNXD denotes the node embeddings at Ith layer, initialized with H(0) =
+
+X. The function M is a differentiable message propagation function that depends 
+
+on the adjacency matrix A, the embeddings of the previous layer, and the learnable 
+
+parameters 
+
+0('). 
+
+Various 
+
+GNN 
+
+architectures differ 
+
+in 
+
+how 
+
+M
+
+is 
+
+instantiated. 
+
+A notable 
+
+example is the Graph Convolutional Network (GCN) [23], which uses the propagation 
+
+rule: 
+
+> (2.2)
+
+passing GNNs of the form given in Equation (2.1) and does not rely on the specific 
+
+implementation of M. 
+
+.2. Supervised Classification. We apply a softmax classifier row-wise to th       
+
+> final node embeddings H(L) €RNXE
+
+where F is the number of classes. The predicte 
+
+class distribution for node v; is given by: 
+
+Zi = softmax (H,"), where exp(zj) softmax (zj) =
+
+, the model is trained to minimize the cross 
+
+> F
+> L
+> E
+> V
+> L
+> f
+> =
+> 1
+
+vhere Yif € {0,1) is the one-hot encoded ground-truth label for node vi, and Zuf is 
+
+he predicted 
+
+probability 
+
+of 
+
+class 
+
+f. 
+
+The model parameters 
+
+{0(k)1K, 
+
+(e.g. 
+
+W(k) 
+
+is 
+
+the GCN case) are optimized using gradient descent. 
+
+2.3. Graph Representation. In addition to node level tasks, many applica-
+
+tions such as molecular generation require learning representations for entire graphs. 
+
+In graph classification, the input consists of a set of graphs G = {G1, G2,...,Gn}, 
+
+## * h ph C, = (V, Bi) has its own adiacency matrix 1, node features 
+
+• The goal is to learn a function f: 9 ￫ J that maps each graph to 
+
+a class label y € Y. To do so, message passing GNNs are first applied to compute 
+
+node embeddings as in Equation (2.1). A permutation invariant pooling function (e.g. 
+
+global mean, sum, or max pooling) is then used to aggregate the node embeddings 
+
+into a graph embedding. This embedding is passed to a classifier to predict the graph 
+
+label. As with node classification, the model is trained to minimize the cross-entropy 
+
+loss over a labeled training set of graphs. MULTIGRID GRAPH NEURAL NETWORKS 5
+
+3. Multigrid GNN. In this section, we introduce the multigrid training frame-
+
+work for graph neural networks. We first define a graph upsampling operator that 
+
+builds a hierarchy of increasingly refined subgraphs and then describe how we transfer 
+
+and update model parameters across levels in a multigrid training procedure. 
+
+3.1. Graph Upsampling. We construct the multigrid framework as a hierarchy 
+
+of graphs, where each level corresponds to a different resolution. This requires an 
+
+upsampling mechanism that systematically expands a coarse graph into a finer one. In 
+
+structured 
+
+grid 
+
+based 
+
+methods, 
+
+upsampling 
+
+is 
+
+typically 
+
+performed 
+
+using 
+
+interpolation. 
+
+However, these operations do not directly apply to graph data due to their irregular 
+
+connectivity. We propose an upsampling method based on biased random walks, 
+
+inspired by [14]. Starting from the coarse graph, we explore connectivity and add 
+
+newly visited nodes and edges to form the next level. 
+
+Formally, we propose the layerwise upsampling rule for a coarse subgraph G* =
+
+(Vk, Ek, Xk) as 
+
+Gk+1= U(Gril, w, a), 
+
+where l is the length of the random-walk, w is the number of walks per node, and a
+
+is a bias weight toward unexplored neighbors. The upsampling operator U expands 
+
+Gk to Gk+ 1 = (Vk+1, Ek+1, Xk+1) by exploring the original full graph during random 
+
+walks. For a chosen start node u € Vi, we simulate a walk {co, c1,...,ce-1) with 
+
+co = u. At each step i, the next node Ci+1 is chosen from the neighbors of the current 
+
+node c; according to a biased transition distribution: 
+
+otherwise, 
+
+# where e is an andra red weigh thate code our bal toward vain previously 
+
+# » = L.0, otherwise 
+
+if c; #x for all 0 ≤j ≤ i, 
+
+After performing w biased walks from each node in Vi, we group all newly visited 
+
+nodes into Vk+1 and add any newly encountered edge (v, x) into Ek+1. The feature 
+
+matrix 
+
+Xk+1 should 
+
+inherit 
+
+the 
+
+row vectors 
+
+of the original 
+
+feature 
+
+set 
+
+X. 
+
+The computational cost of the upsampling procedure depends primarily on the 
+
+number of nodes |V| in the current coarse graph G, the length of the random walk l, 
+
+the number 
+
+of 
+
+walks 
+
+per 
+
+node 
+
+w, 
+
+and 
+
+the 
+
+average degree of 
+
+the 
+
+node 
+
+d
+
+in 
+
+G. 
+
+Each 
+
+walk 
+
+step involves sampling a neighbor based on a biased transition probability, leading 
+
+to an overall runtime of O(wld|Vkl). This runtime scales linearly with |Vkl, and 
+
+since d is typically small for real world networks, the procedure remains efficient for 
+
+hierarchical training. Moreover, since the random walks originating from different 
+
+nodes 
+
+are 
+
+independent, the procedure can 
+
+be 
+
+executed efficiently 
+
+in 
+
+parallel 
+
+on 
+
+GPUs. 
+
+3.2. Multigrid Training. The gist of multigrid algorithms is to leverage infor-
+
+mation from the coarser levels to generate new trial points for problems on finer grids, 
+
+thereby improving efficiency while preserving essential structural details. Inspired by 
+
+this principle, we propose a multigrid GNN framework that progressively refines the 
+
+graph from a coarse level Go to the original input graph G for node classification 
+
+tasks. ZIXUAN LING, DI LIU, PAULA MERCURIO 
+
+Coarse Graph Sampling and Training. We begin by sampling a small subgraph Go 
+
+from the original graph G. This is done by selecting multiple random starting nodes 
+
+to form an initial subgraph Gtiny without edges. We apply the upsampling operator 
+
+U to obtain Go =U(Gtiny), producing a reduced graph that captures key connectivity 
+
+patterns while allowing efficient training. Let Xo e RIVolD denote the node features 
+
+restricted to Vo. We train a GNN on Go to obtain initial weights {WoJt=1, where 
+
+each W! € RD' ×D' is the learned weight matrix at layer I. These parameters form the 
+
+initial conditions for subsequent refinements. We then upsample Go to form a finer 
+
+graph G1, incorporating additional structural details for next level training. 
+
+Parameter Sharing. We first adopt a parameter sharing approach by reusing GNN 
+
+weights trained on coarser graphs to initialize models on finer graphs. After training a
+
+GNN on the coarse graph Go, we obtain weight matrices {Wo}t=1, which are then used 
+
+to initialize 
+
+the 
+
+corresponding 
+
+layers on 
+
+the 
+
+finer 
+
+graph 
+
+Gi; 
+
+that 
+
+is, 
+
+we 
+
+set 
+
+W, 
+
+=
+
+W
+
+for each layer i = 1,...,L. This process is repeated as we upsample to successive 
+
+levels G2, G3,..., with each new level initialized using the trained parameters from 
+
+the previous 
+
+one. Once 
+
+we 
+
+reach 
+
+the 
+
+final 
+
+level 
+
+G
+
+=
+
+G, no 
+
+further 
+
+upsampling 
+
+is necessary and the model is trained on all nodes and edges of the original graph. 
+
+Although the graphs differ in connectivity, the embedding dimensions D' remain fixed, 
+
+allowing the parameters to be transferred directly without architectural changes. This 
+
+multigrid 
+
+refinement 
+
+allows 
+
+each 
+
+finer 
+
+level 
+
+GNN 
+
+to 
+
+benefit 
+
+from 
+
+a
+
+well informed 
+
+initialization, accelerating convergence, and preserving knowledge learned at coarser 
+
+resolutions. 
+
+Layer Freezing. As an alternative to parameter sharing, we also adopt a coarse-to-
+
+fine training strategy that progressively freezes layers to retain the knowledge learned at 
+
+earlier 
+
+stages. 
+
+After 
+
+training a
+
+GNN on 
+
+the 
+
+coarse 
+
+graph 
+
+Go, 
+
+we 
+
+obtain 
+
+weight 
+
+matrices 
+
+{Wo ł=1, 
+
+which 
+
+are 
+
+transferred to 
+
+initialize 
+
+the corresponding 
+
+layers on 
+
+the 
+
+finer graph G1. During training on G1, we freeze the lower layers (e.g., the first mo 
+
+layers) and update only the remaining layers to adapt to the finer structure. This 
+
+where at each level more says rs are froze we upese ve to success learned representations ais strateg 
+
+allows earlier layers to capture coarse level structural patterns, while deeper layers 
+
+are progressively fine tuned to the detailed topology of finer graphs. In doing so, the 
+
+model gradually shifts its focus from global to local information. 
+
+Self-Avoiding Mechanism. Both parameter sharing and layer freezing strategies 
+
+can be improved by a self-avoiding mechanism that restricts each intermediate training 
+
+stage 
+
+to 
+
+newly 
+
+added nodes 
+
+only. 
+
+After training 
+
+on 
+
+the 
+
+coarse 
+
+graph, 
+
+we 
+
+proceed 
+
+to 
+
+train on a finer subgraph, excluding the nodes already seen during the coarse stage. 
+
+Chis self-avoiding scheme ensures that each stage trains on a disjoint subset of nodes 
+
+hereby enforcing a hierarchical decomposition of the learning task. Conceptually, this 
+
+scheme resembles the bottom-up pass of a full multigrid cycle. The final training phase 
+
+on the full original graph, with all layers unfrozen, acts as a top level correction step 
+
+that integrates the multi-resolution representations. The complete multigrid training 
+
+procedure is summarized in Algorithm 3.1. 
+
+3.3. Cross-level Consistency. Although our multigrid GNN framework trains models sequentially from 
+
+coarse 
+
+to 
+
+fine levels, 
+
+it 
+
+is 
+
+important to maintain 
+
+cross-level 
+
+consistency, which is a well-established strategy for improving convergence and effi-
+
+ciency in classical multigrid methods. 
+
+To this end, we introduce a guidance loss to promote consistency across levels. 
+
+After training on a coarse subgraph, we store its predictions. When training on the MULTIGRID GRAPH NEURAL NETWORKS 7     
+
+> Algorithm 3.1 General Multigrid GNN Framework
+
+Input: Graph G = (V, E), feature matrix X, GNN model, upsampling operator 
+
+U, number of levels K, number of layers L, optional freezing schedule {mk} k=0. 
+
+Initialize Gtiny by sampling a set of nodes from V (with no edges). 
+
+Form the initial coarse graph Go + U (Gtiny). 
+
+Train the GNN on Go to obtain weights {W.)t=1         
+
+> for k=0,1,...,K -1do
+> Upsample: Gk+1 +U(Gk).
+
+Initialize parameters on level k+1 by transfer: Wk+1 + Wifor l= 1,..., L. 
+
+if layer freezing is used then 
+
+Freeze layers 1,..., mk and fine tune layers mk+1,...,L on Gk+1. 
+
+if self-avoiding mechanism is used then 
+
+Define the training node set Vetin + Vk+1 \ Vh. 
+
+else 
+
+Define the training node set Vitin < Vk+1. 
+
+Train the GNN on Gk+1 using labeled nodes in Vitin. 
+
+Unfreeze all layers and train the GNN on the full graph Gr = G using labeled 
+
+nodes 
+
+in 
+
+V. 
+
+Output: Final weights {WkJ=1 
+
+next finer graph, we add an extra loss term that penalizes discrepancies between the 
+
+current predictions and the stored outputs on overlapping nodes. This encourages 
+
+the finer-level model 
+
+to 
+
+align 
+
+with 
+
+the 
+
+coarse-level 
+
+solution while adapting to 
+
+the 
+
+finer 
+
+graph structure such that 
+
+(3.1) L=LGNN + \ <Guidance, 
+
+where Lann is the standard supervised loss at the current level, ‹Guidance is the cross-
+
+level consistency term, and 1 ≥ 0 controls its strength. We define the guidance loss 
+
+at level k+1 as the cross-entropy between the stored predictions from level k and the 
+
+current predictions at level k+1: 
+
+(3.2)  
+
+> lEVk f=1
+
+where yit) is the stored probability that node v, belongs to class f at level k, and 
+
+yik+1 
+
+is 
+
+the 
+
+predicted 
+
+probability that 
+
+node 
+
+v, belongs 
+
+to 
+
+class 
+
+fat 
+
+level 
+
+k+ 
+
+1. 
+
+4. Analysis of the Multigrid Scheme. We analyze our multigrid training 
+
+scheme by quantifying cross-level propagation consistency on the overlap set. In 
+
+particular, we derive bounds on the prediction, loss, and gradient gaps between the 
+
+coarse and fine objectives, which imply that coarse-to-fine transfer provides a warm 
+
+start under good alignment and high coverage. Throughout this section, we assume 
+
+the activation function is Lipschitz and has a Lipschitz derivative. 
+
+AssUMPTIoN 4.1. The activation o: R ￫ R is Lo-Lipschitz, i.e., lo (a) - o (b)| ≤
+
+Lola-b| for all a, b E R. Moreover, its derivative o' is Lo'-Lipschitz, i.e., lo'(a) -
+
+0'(b)| Lola -bl for all a, b E R. 8 ZIXUAN LING, DI LIU, PAULA MERCURIO   
+
+> G1 G2 G3
+
+Fig. 1: Three-level coarse-to-fine hierarchy. In G1, blue circles denote the coarse-level 
+
+nodes. In G2, new nodes appear as red triangles, and blue regions indicate areas 
+
+upsampled from the corresponding blue circle in G1. In G3, green squares indicate 
+
+the 
+
+fine-level 
+
+nodes, and 
+
+red 
+
+ellipses 
+
+indicate 
+
+the 
+
+neighborhoods 
+
+upsampled from 
+
+the 
+
+corresponding red triangles in Gz. 
+
+We apply o and o' entrywise: for z ERn, (o(z)); = o(zi) and (o'(z)); = o' (zi). 
+
+Remark 4.2. Under Assumption 4.1, for any z, ź' € Rn, 
+
+Indeed, by Assumption 4.1, for each i we have |o (zi) - o (z)| ≤ Lo|zi - Zil. Squaring 
+
+and summing over i yields 
+
+I 10(z) - 0 (2) 1 3 - ⼆ 10(3) - a(3) ≤ ⼆ 1 - 2 1 = 2 2 - 2 ,
+
+and taking square roots gives the claim. The proof for o' is identical, giving ||o'(z) -
+
+0(z)|2 ≤L01z-z2 
+
+4.1. Coarse Fine Training Setup. We analyze a single layer GCN for node-
+
+wise regression with squared loss, a minimal setup capturing the essential transfer 
+
+effect. The classification case will be similar. For simplicity, we present the scalar 
+
+output case p = 1 (so w € R"). The multi-output case with We Rdxp follows 
+
+by applying o entry-wise and measuring residuals and gradients with the Frobenius 
+
+We work 
+
+with 
+
+a
+
+fine graph G
+
+=
+
+(V, 
+
+E) of n
+
+nodes and 
+
+a
+
+feature 
+
+matrix 
+
+X
+
+€
+
+Rnxd. 
+
+The coarse graph Gc = (U, Ec) is a subgraph with U C V, IU| = m, and Ec S E. To 
+
+relate the two node sets, let Q € {0, 1}nxm be the selection matrix for U, obtained by 
+
+taking m columns of the identity In indexed by U. Then Xe:= QX e Rmxd collects 
+
+coarse features and Ye:= QTY € Rm extracts coarse targets from Y € R". We write MULTIGRID GRAPH NEURAL NETWORKS 9
+
+A e RAXn and Ac E Rmxm for the self-loop augmented, symmetrically normalized 
+
+adjacency matrices of G and Ge, respectively. 
+
+We 
+
+use 
+
+a
+
+single 
+
+layer 
+
+GCN 
+
+with 
+
+weight vector 
+
+w
+
+€
+
+Rd 
+
+and 
+
+a
+
+pointwise 
+
+nonlinearity 
+
+o : R ￫ R. On the fine graph we compute predictions j(w) = o(AXw), and on 
+
+he 
+
+coarse 
+
+graph 
+
+we 
+
+have 
+
+Ye(w) 
+
+=
+
+(AcX,W). 
+
+We measure 
+
+fit 
+
+with 
+
+a
+
+node-averagec 
+
+squared loss. With residuals ry = Ý, - Y and re = Yc - Yc, the loss functions for the            
+
+> PROPOSITION 4.3 (Permutation invariance). Suppose P€{0, 1}nxn and R€
+
+{0, 1}mxm are permutation matrices acting on V and U, respectively. Define 
+
+Á' = PAPT  
+
+> A'
+> =
+> RA.R'
+
+Q' = PQRT. 
+
+Then 
+
+Proof. We compute 
+
+# QTA-AQ=(RQP(PAPT)-(RAR)(RQP)=R(Q'A-AcQ)PT 
+
+Since P and R are orthogonal, ||RM PT||2 = ||M||2 for any M. Therefore 
+
+Remark 4.4. To see why we set Q' = PQRT 
+
+,
+
+let 
+
+x E
+
+R" 
+
+be 
+
+a
+
+signal on 
+
+the fine 
+
+nodes V. Restricting x to the coarse set U gives Q'x € Rm. After relabeling, the fine 
+
+signal becomes 
+
+Px 
+
+and 
+
+the 
+
+coarse 
+
+signal becomes 
+
+R(Qx). 
+
+We 
+
+require 
+
+restriction to 
+
+commute with relabeling: 
+
+# (Q)(Px) = R(Q x) for all x E R". 
+
+Hence (Q)TP = RQ™    
+
+> ,
+> which implies Q'
+> =PQRT
+
+Hence, we may treat 5 as an intrinsic graph quantity for the pair (G, Gc) over U, 
+
+invariant to relabeling. 
+
+4.2. Prediction Mismatch and and Loss Gap. We begin by quantifying the 
+
+discrepancy between the fine-level and coarse-level predictions on the shared node 
+
+set U. This prediction mismatch is the basic quantity that drives the subsequent 
+
+comparison of the two objectives. 
+
+LEMMA 4.5 (Prediction mismatch on U). For any w ERd 
+
+,
+
+we have 10 ZIXUAN LING, DI LIU, PAULA MERCURIO 
+
+Proof. 
+
+Because 
+
+Q
+
+selects 
+
+coordinates 
+
+and 
+
+o
+
+acts 
+
+entrywise, 
+
+the 
+
+two operations 
+
+commute:@(2)=o(Qz) Using QAXw-AXw= EXw, we get 
+
+# |QY(w)-Ÿc(w)||2=110(@AXw)-o(AcXcW)|l2 
+
+This bound shows that the prediction discrepancy on U is controlled by the align-
+
+ment parameter d and scales linearly with the activation Lipschitz constant Lo, the 
+
+feature norm, and the weight norm. The dependence on ||X||2||w||2 suggests that 
+
+standard training techniques such as feature normalization and weight decay tighten 
+
+We now quantify how the training objectives on the two levels relate. 
+
+THEOREM 4.6 (Loss gap). Let p:= m/n be the coarse-to-fine node ratio. Define 
+
+ry:=@rf andry:= (I-QQ)ry, where ry is the fine residual restricted to U
+
+and ru is the fine residual on V\U. Then for any w ERd, 
+
+|[s(20) 
+
+-
+
+Ic(w)| ≤ PLod 
+
+-
+
+11m7113. 
+
+Proof. See Appendix A. ⼝
+
+The bound decomposes into an overlap term and two non-overlap corrections. 
+
+he 
+
+overlap 
+
+term 
+
+is 
+
+controlled 
+
+by 
+
+the 
+
+alignment parameter 
+
+and 
+
+scales 
+
+with 
+
+th 
+
+eature and weight norms. The remaining two terms arise from averaging difference 
+
+# ash 
+
+# handals 
+
+# e
+
+# of 
+
+# dies outside 
+
+# and 
+
+# din 
+
+# 40. 
+
+# a
+
+# wen, 
+
+# for 
+
+# a
+
+# wel 
+
+# trained 
+
+# by 
+
+# are 
+
+# ml) 
+
+# the, 
+
+namely a point w* with small Lc(w*) and small ||rc(w*)||2, Theorem 4.6 gives 
+
+Lf(W*) ≤ Lc(W*) + Eloss (W*). 
+
+When & is small and the coverage p is close to 1, this discrepancy is small and decreases 
+
+with 
+
+the 
+
+coarse 
+
+residual ||rc(w*)||2, 
+
+so 
+
+the transferred 
+
+point 
+
+achieves 
+
+a
+
+comparable 
+
+fine-level objective. 
+
+1.3. Gradient Gap. Next we compare the gradients of the fine and coarse 
+
+objectives. To control operator norms in the gradient expressions, we first record a
+
+spectral bound for the symmetrically normalized adjacency matrix. 
+
+LEMMA 4.7 (Spectral norm of the normalized adjacency). Let A e Rxn be the 
+
+self-loop augmented adjacency matrix of an undirected graph, and let D:= diag (A1) 
+
+be the corresponding degree matrix. Define the symmetrically normalized adjacency 
+
+matrir 
+
+associated 
+
+with 
+
+A
+
+by     
+
+> Ã:= D-1/2 ĂD-1/2.
+
+Then all eigenvalues of Â lie in [-1, 1], and in particular || Ăll2 ≤ 1. 
+
+Proof. See Appendix B. 
+
+Lemma 4.7 implies ||Al|2 ≤ 1 and ||Acl2 ≤ 1 for the propagation matrices used 
+
+at the two levels, which we use in the proof of Theorem 4.8. MULTIGRID GRAPH NEURAL NETWORKS 11 
+
+THEOREM 4.8 (Gradient gap). Under the notation of Theorem 4.6, we have for 
+
+any w E Rd 
+
+Proof. See Appendix C. 
+
+# course del w) denot the right and side of There 18. Then, for a well trained 
+
+# VL(w*)||2 ≤Egrad(W*). 
+
+hen o is small and the coverage p is close to 1, the term Egrad(W*) is small an 
+
+ecreases with the coarse residual. Thus the transferred point w* is approximatel 
+
+first-order stationary for the fine objective. 
+
+4.4. Multilevel Hierarchy. We now extend the two-level mismatch operator 
+
+E = QTA- AcQT to a k-level hierarchy. Let Ge = (Ve, Ee), l = 1,...,k, be a nested 
+
+sequence of graphs with Vi C V2 C... C V and |Vel = ne. Let Ae e Rnexne be the 
+
+(self-loop augmented) symmetrically normalized adjacency for Ge. 
+
+For each consecutive pair (Ge, Ge+1), let Que+1 € {0, 1) netixne be the selection        
+
+> natrix that embeds signals on vo into v
+
+## natrix that emared sigals on. Finto Vet (equivalently, a restricts a signal or 
+
+gives the composed map from Vi to V;,    
+
+> Qi:j =Qj-1:jQj-2:j-1...Qiit1 ERn;xni.
+
+Since Qij has orthonormal columns, ||Qig|l2 = ||Qtjl|2 = 1. We then define the 
+
+cross-level propagation mismatch 
+
+Eij:= QigA; - AiQij ERnixns, Si,j:= ||Ei,jllz. 
+
+As in Proposition 4.3, the mismatch operator Ei,j and its norm Si,j are invariant to 
+
+the relabeling of the nodes. 
+
+THEOREM 4.9 (Telescoping bound for multilevel mismatch). For the k-level hi-
+
+erarchy above, we have 
+
+> k-1
+
+Sa,k 
+
+≤
+
+Ise,ets. 
+
+> l=1
+
+Proof. See Appendix D. •
+
+Theorem 4.9 is a local-to-global consistency bound. It shows that the mismatch 
+
+between the endpoints of the hierarchy is controlled by the accumulated mismatch 
+
+incurred across adjacent level transitions. In particular, any prediction, loss, or gradi-
+
+ent comparison that depends on the quantity of two-levels 5 can be applied between 
+
+Gi 
+
+and 
+
+G
+
+by replacing 
+
+&
+
+with 
+
+the multilevel bound Ek=1 
+
+Se,e+1. 
+
+Now 
+
+we specialize Theorem 
+
+4.9 
+
+under 
+
+a
+
+geometric decay model for the adjacent-
+
+level mismatches. 12 ZIXUAN LING, DI LIU, PAULA MERCURIO 
+
+THEOREM 4.10 (Bound under geometric mismatch decay). Let k ≥ 2. Suppose 
+
+that there exist constants C > 0, a > 1, and q € (0,1), and nonnegative scalars 
+
+{re}e=1 c10,00) with fixed total I := 2K-1 Te, such that for each l = 1,...,k - 1, 
+
+бе ,е+1 ≤ С те , Te = Tig-1. 
+
+Then   
+
+> 1-q°
+
+Moreover, for fixed I, C, a, 9, the right-hand side decreases in k. 
+
+Proof. See Appendix E. ⼝
+
+Theorem 4.10 shows that a chain of small, well-aligned transfers can be prefer-
+
+able to a single coarse-to-fine jump. In the geometric mismatch decay model, the 
+
+refinement of the hierarchy (larger k) decreases the mismatch of the endpoint S1,k-
+
+Consequently, the bounds 
+
+in 
+
+Lemma 
+
+4.5 
+
+and Theorems 
+
+4.6-4.8 
+
+tighten 
+
+as 
+
+intermediate 
+
+levels are inserted. 
+
+5. Generating Molecular Structures. We further apply the multigrid strat-
+
+egy to study pocket-conditioned 3D ligand generation, that can find new ligand struc-
+
+tures to form successful bonds with protein receptor sites. The method is based on 
+
+recent development of generative molecular models, in the form of Variational Au-
+
+toencoders 
+
+(VAE), 
+
+which learns 
+
+a
+
+distribution 
+
+of 
+
+molecular 
+
+structures 
+
+parameterized 
+
+by deep neural networks from a set of chemical datasets. 
+
+5.1. Variational Autoencoders. We first briefly recall the Variational Au-
+
+toencoder (VAE) framework. Let x E Rm denote an observed data sample and let 
+
+2
+
+E
+
+Ri 
+
+be 
+
+a
+
+latent variable 
+
+with prior p(z) (typically 
+
+p(z) =
+
+N(0, 
+
+1)). 
+
+A VAE 
+
+con-
+
+sists of a decoder po (x | z) and an encoder 9ø(z |x). Training maximizes the evidence 
+
+lower bound (ELBO) 
+
+where the first term encourages accurate reconstruction and the KL term regularizes 
+
+the encoder toward the prior. 
+
+If side information e is available (e.g., a receptor, in the 3D ligand generation 
+
+setting), we use a conditional VAE with decoder po (x | z, c) and encoder 9ø(z | x, c) 
+
+and optimize the corresponding conditional ELBO. All multigrid constructions below 
+
+apply to both VAEs and CVAEs. For brevity, we present the unconditional form. 
+
+5.2. Multigrid Implementation. We describe a coarse-to-fine, multiresolution 
+
+training 
+
+scheme 
+
+for VAEs, 
+
+where 
+
+a
+
+model trained at 
+
+a
+
+coarse 
+
+resolution 
+
+is 
+
+used 
+
+to 
+
+initialize training at a finer resolution. Since the molecular structures are described 
+
+by 3D coordinates, instead of network relations, we do not employ the random walk 
+
+upsampling technique for generating multigrid hierarchy. 
+
+Given a dataset X = {xi) 1, we construct per-level datasets X (e) = {x) }E, for 
+
+l = 1,..., L, ordered from the coarsest (l = 1) to the finest (l = L). Fix a reference 
+
+level lo at which the data are given (so x|fo) = Xi). We generate neighboring levels 
+
+using restriction and prolongation operators Re ￫e-1 and Pe ￫e+1: 
+
+x(l-1) = Re-e-125 2 ( 1) = P er e +1269)MULTIGRID GRAPH NEURAL NETWORKS 13 
+
+Thus, for each i, the family {x) }E=, represents the same underlying sample at dif-
+
+ferent resolutions. In practice, Re ￫e-1 can be implemented by average pooling over 
+
+local neighborhoods, while Pe ￫e+1 can be implemented by interpolation. 
+
+We use a consistent encoder-decoder design across resolutions and train sequen-
+
+tially from coarse to fine. At level l, for a sample x(e) € X°), with the encoder and 
+
+decoder: 
+
+## Poce) 
+
+## (Il) 
+
+## |=), 
+
+and we optimize the level-l ELBO  
+
+> ELBO =
+
+## 〒
+
+## ( B
+
+## c
+
+## 0
+
+## (
+
+## 1
+
+## 2
+
+## 8
+
+## )
+
+## 1
+
+## 0
+
+## 8
+
+## 7
+
+## 0
+
+## 0
+
+## (
+
+## 0 8
+
+## 9
+
+## 1
+
+## 2
+
+## )
+
+## -
+
+## K
+
+## 1
+
+## (
+
+## 9
+
+## 6
+
+## (
+
+## 2
+
+## 12
+
+## 4
+
+## 9
+
+## )
+
+## 1
+
+## 2
+
+## (
+
+## 2
+
+## )
+
+## )
+
+After training level l, we denote the weights by (F(e), §le)). To initialize level l+1, we 
+
+transfer parameters via 
+
+where Te ￫e+1 denotes a parameter-transfer operator that maps the level-l weights to 
+
+an initialization at level l+1. We then optimize LEtBO from (Ofe+1) , t1 to obtain 
+
+(F(e+1), ö(e+1)). This process is summarized in Algorithm 5.1.     
+
+> Algorithm 5.1 Multigrid VAE Training
+
+Input: Per-level datasets {X(e) }é=1, parameter-transfer operators Te ￫e+1 
+
+# Initialize (oll. 
+
+for l = 1 to L do 
+
+Train from 
+
+(00) , 0) on X (e) by maximizing LElBo to obtain (Fle), § (e)) 
+
+if l < L then 
+
+Set (oet1) , 0 (+1 ) - Te e +189 ), 8 9 )
+
+Output: final weights (FL), ф(L)) 
+
+6. Numerical experiments. We report numerical experiments to assess the 
+
+effectiveness of the proposed multigrid training schemes. All experiments were run in 
+
+Google Colab on 
+
+a
+
+single 
+
+NVIDIA 
+
+Tesla 
+
+T4 GPU. For 
+
+multigrid 
+
+GNNs, 
+
+we 
+
+assess 
+
+efficiency and accuracy through convergence speed and final predictive performance 
+
+relative to random initialization, examine stability through the effect of the guidance 
+
+loss relative to vanilla multigrid, and test architectural generality by checking whether 
+
+coarse-to-fine initialization consistently improves training across multiple GNN back-
+
+bones. We evaluate these effects on two settings: BACE molecular graph classification 
+
+and benchmark node classification datasets (Amazon Computers and OGBN-ArXiv). 
+
+We also compare multigrid initialization with a single-resolution baseline for a
+
+receptor-conditioned CVAE on CrossDocked2020. We evaluate generation quality 
+
+using docking-based metrics (Vina energy and CNN affinity) under posterior and 
+
+prior sampling. 
+
+6.1. BACE Dataset Experiments. We first evaluate our approach on the 
+
+BACE dataset, which contains experimental measurements of molecular activity against 
+
+the human B-secretase 1 (BACE-1) protein. The dataset is sourced from Molecu-
+
+leNet [54], a benchmark collection for molecular machine learning. The task is formu-
+
+lated as a graph classification problem, where each molecule is represented as a graph 14 ZIXUAN LING, DI LIU, PAULA MERCURIO 
+
+and labeled as either active (yi = 1) or inactive (Yi = 0) based on its inhibitory effect 
+
+## on BACE-1.             
+
+> Each molecule is initially represented as aSMILES string and then converted into
+
+a graph using RDKit and PyTorch Geometric. We model it as an undirected graph              
+
+> r=(V, E), where nodes correspond to atoms, excluding implicit hydrogens, and edge
+
+epresent chemical bonds. Node features capture detailed atomic properties such a
+
+atomic number, 
+
+valence, 
+
+hybridization 
+
+state, and 
+
+aromaticity. 
+
+Edges 
+
+are 
+
+established 
+
+between 
+
+atoms 
+
+that 
+
+share 
+
+an 
+
+explicit 
+
+chemical bond, 
+
+with 
+
+bond 
+
+types 
+
+such 
+
+as 
+
+single 
+
+and double bonds encoded as edge features. 
+
+We adopt a two-layer Graph Isomorphism Network with Edge features (GINE) 
+
+(GIN), introduced by Xu et al. [55], which is one of the most expressive message 
+
+passing architectures for graph level prediction. The GINE operator, introduced by 
+
+Hu 
+
+et 
+
+al. 
+
+20), 
+
+extends 
+
+the 
+
+GIN 
+
+architecture 
+
+by 
+
+incorporating 
+
+edge 
+
+features 
+
+into 
+
+the 
+
+aggregation process. This enhancement is particularly important in molecular graphs, 
+
+where bond types carry significant semantic meaning. The update rule for each node 
+
+v at layer l in GINE is given by 
+
+(6.1) 
+
+where 
+
+H!') 
+
+is 
+
+the embedding of node 
+
+v
+
+at 
+
+layer 
+
+I, 
+
+N(v) 
+
+denotes 
+
+its 
+
+neighbors, 
+
+euv 
+
+is                                                        
+
+> the edge feature between nodes uand v, e) is alearnable or fixed scalar, and MLP
+> is amulti-layer perceptron applied after aggregation.
+> We tested three training strategies using the GINE architecture. Method 1(origi-
+> nal training) trains on the original dataset for 1000 epochs from random initialization.
+> Method 2(subgraph pretraining) pretrains on upsampled subgraphs for 60 epochs,
+
+then fine tunes on the original dataset for 1000 epochs. Method 3 (layer-freezing) uses 
+
+the same 60-epoch pretraining, then freezes the first GNN layer and trains on the orig-
+
+inal dataset for 200 epochs. Finally, all layers are unfrozen and training continues for 
+
+The results of these experiments are summarized in Figure 2. In the training        
+
+> across all epochs, maintaining the lowest BCE loss.
+
+6.2. Benchmark Node Classification Datasets. We study two representa-                                                   
+
+> tive benchmark node-classification datasets. First, the Amazon Computers dataset
+> from PyTorch Geometric is aco-purchasing network where nodes represent products
+> and edges indicate items frequently bought together. Node features are derived from
+> product metadata, and the classification task involves predicting product categories.
+> It contains 13,752 nodes and 491,722 edges. We use 7,752 nodes for training, 3,000
+
+for validation, and 3,000 for testing. To prevent data leakage during upsampling, test 
+
+nodes are sampled from those in the full graph Gr that do not appear in the finer 
+
+subgraph Gk-1. We use a two-layer GCN with hidden dimension 16, dropout rate 
+
+0.5, and Lz weight decay of 5 × 10-4. 
+
+The second dataset, OGBN-ArXiv, is a large scale citation graph from the Open 
+
+Graph Benchmark. Each node corresponds to an arXiv paper, with a 128-dimensional             
+
+> feature vector extracted from its title and abstract. Edges represent citation links, and
+
+MULTIGRID GRAPH NEURAL NETWORKS       
+
+> —Method 1(baselike)
+> -Method 3
+> rethod 1(baseline)
+> Metrod 30
+
+15    
+
+> 0s-
+> 0.+-
+> mat
+> 01-
+> 0.4-
+> 0.3-
+> 0.2-400 600 800
+> Epoch
+
+Fig. 2: Training BCE loss (left) and Validation BCE loss (right) curves for different 
+
+training strategies on the BACE dataset.                       
+
+> Training Loss: Original vs. Multigrid GCN (First 200 Epochs)
+> Original GCN Training Loss
+> Multigrid GCN Training Loss
+> Training Accuracy: Original vs. Multigrid GCN (First 200 Epochs)
+
+00-         
+
+> as-
+> 20-
+> as--Original GCN Training Accuracy
+> Multigrid GCN Training Accuracy
+> 버200
+
+Fig. 3: Training loss and accuracy curves over the first 200 epochs on the OGBN-
+
+ArXiv dataset. 
+
+the task is to classify papers into one of 40 subject areas. It contains 169,343 nodes 
+
+and 1,166,243 directed edges. We use 10,000 nodes for validation, 10,000 for testing, 
+
+and 
+
+the remaining 
+
+nodes 
+
+for training. 
+
+A
+
+two-layer GCN 
+
+with 
+
+hidden dimension 
+
+64 
+
+is 
+
+used, 
+
+and 
+
+all other 
+
+training 
+
+hyperparameters 
+
+are 
+
+kept 
+
+the 
+
+same 
+
+as 
+
+in 
+
+the 
+
+Amazon 
+
+Computers experiments. 
+
+lo quantify the effect of multigrid initialization, we repeat the training procedure 
+
+ver 10 random seeds, each producing a different multigrid hierarchy. This protoco 
+
+assesses 
+
+robustness 
+
+across 
+
+varying 
+
+coarse-to-fine 
+
+hierarchy constructions. 
+
+For each 
+
+run, 
+
+we 
+
+compare 
+
+two GCN variants 
+
+on 
+
+the 
+
+full 
+
+graph: 
+
+one trained from random 
+
+initialization and the other initialized with parameters transferred from a GCN trained 
+
+on a coarser resolution graph. Figures 3 and 4 illustrate the benefits of multigrid 
+
+initialization. With multigrid initialization, training starts at a lower loss, converges 
+
+faster, and maintains a lower validation loss over training. 
+
+To further assess training efficiency, we compare the average number of epochs to 
+
+convergence under a 20-epoch early stopping criterion. That is, we stop training when 
+
+the validation loss fails to decrease for 20 successive epochs. As shown in Table 1, 
+
+multigrid initialization consistently leads to faster convergence while achieving slightly 
+
+higher accuracy than random initialization. Moreover, using multiple starting nodes 
+
+to construct a richer coarse subgraph yields even greater improvements, as shown in 
+
+Table 
+
+2. 
+
+To evaluate the impact of our guidance loss, we perform a two-level multigrid pro-
+
+cedure on the OGBN-ArXiv dataset. We first train on a coarse graph using an early-16 ZIXUAN LING, DI LIU, PAULA MERCURIO                       
+
+> Validation Loss (Epoch 100-2000)
+> —Original GCN Val Loss
+> Multigrid GCN Val Loss aos.
+> Validation Accuracy (Epoch 100-2000)
+> 1130.
+> 125-
+> ass-
+> 058 250 750 1750
+> Multigrid GCN Val Accuracy
+> 1250 1500 2750 2000
+
+Fig. 4: Validation loss and accuracy curves over 2,000 epochs on the OGBN-ArXiv 
+
+dataset. 
+
+Table 1: Accuracy and epoch compar-
+
+ison with early stopping for Amazon 
+
+Computers dataset (1 starting node). 
+
+Initialization Accuracy [%] 
+
+Multigrid init 
+
+8
+
+9
+
+.
+
+0
+
+⼠
+
+0
+
+.
+
+4
+
+Random init 88.8 ⼠ 0.4
+
+Epochs 
+
+3
+
+3
+
+1
+
+⼠
+
+2
+
+4
+
+.
+
+3
+
+497 ⼠ 39.9
+
+Table 2: Accuracy and epoch compar-
+
+ison with early stopping for Amazon 
+
+Computers dataset (5 starting node). 
+
+Initialization Accuracy (%] 
+
+Multigrid init 
+
+8
+
+8
+
+.
+
+7
+
+⼠
+
+0
+
+.
+
+4
+
+Random init 
+
+8
+
+8
+
+.
+
+0
+
+⼟
+
+0
+
+1
+
+Epochs 
+
+3
+
+3
+
+5
+
+⼟
+
+4
+
+1
+
+.
+
+7
+
+5
+
+1
+
+5
+
+⼟
+
+68
+
+.
+
+0 
+
+> nvercence w
+
+# on er ence cith cy. er re istan to trender training detain a made 
+
+that enhances training stability and efficiency. 
+
+6.3. Receptor-Conditioned Ligand Generation. Given a receptor binding 
+
+pocket represented by the 3D coordinates and atom types of the pocket environment. 
+
+our goal is to generate ligands that are geometrically compatible with the pocket and 
+
+chemically valid. We represent the pocket and ligand with aligned atom-density grids 
+
+and learn 
+
+a
+
+conditional 
+
+model 
+
+po 
+
+(x 
+
+|
+
+c), 
+
+where 
+
+c
+
+denotes the 
+
+receptor grid 
+
+and x
+
+the 
+
+ligand grid. 
+
+We use the CrossDocked2020 dataset [10], a large collection of protein-ligand 
+
+complexes with both re-docked and cross-docked poses (3D coordinates of receptors 
+
+receptor pocket, whereas in cross-docking, the same ligand is docked into other pro-
+
+teins with similar pockets, increasing diversity but adding noise. CrossDocked2020 
+
+contains 2,922 pockets, 18,450 pocket-ligand complexes, and 13,780 unique ligands, MULTIGRID GRAPH NEURAL NETWORKS 17     
+
+> Effect of Àon -In(epoch)
+
+Table 3: Performance on OGBN-ArXiv with dif-
+
+ferent initialization schemes and guidance weights. 
+
+All values are mean + 95% CI over 10 seeds. : -6.1 
+
+Method Epochs (Time [s))         
+
+> Accuracy
+> (%]
+> Random
+> init 920⼟93.6(147.017.1)
+> 6
+> 7
+> .
+> 0
+> ⼟
+> 0.
+> 4
+> MG init 1=0
+
+5
+
+7
+
+4
+
+⼟
+
+6
+
+8
+
+.2
+
+(
+
+9
+
+2
+
+.
+
+8
+
+⼟
+
+1
+
+1
+
+.
+
+8
+
+) 67.3 ⼟ 0.4            
+
+> MG init 1=0.1 444⼟42.5(71.4⼟6.3)
+> 6
+> 7
+> .
+> 1
+> ⼟
+> 0
+> .
+> 4
+> MG init 1=0.2
+
+346 ⼟ 36 .3 (5 5 .8 ⼟ 6.1)                        
+
+> MGinit⼊=0.3320⼟58.4(51.9⼟10.6)66.3‡0.5
+> MGinit⼊=0.531230.9(50.44.7)
+> 6
+> 5
+> .
+> 9
+> 0
+> .
+> 5
+> 05
+
+Fig. 5: - In(epoch) versus 1 on 
+
+66.7 ‡ 0.4 OGBN-ArXiv. Larger values in-
+
+dicate fewer epochs required to 
+
+converge. 
+
+with over 22 million docked poses in total. Following common practice, we discard 
+
+poses whose ligand RMSD exceeds 2 A relative to the aligned reference pose and filter 
+
+out molecules that fail RDKit sanitization. 
+
+6.3.1. Atom density grids. To turn atoms into learnable features, we assign 
+
+each atom a vector built from chemically meaningful properties: element, aromatic-
+
+ity, hydrogen bond donor status, hydrogen bond acceptor status, and formal charge. 
+
+For a given atom a, we encode it with a one-hot vector for each property and then 
+
+concatenate them: 
+
+## t(a) = (one-hotelement (a) || one-hotaromatic (a) || one-hotdonor (a) 
+
+# I one-hotacceptor (a) || one-hotcharge(a)]. 
+
+We place a cubic grid around the binding site, typically centered at the ligand 
+
+centroid. The box side length and voxel spacing determine spatial coverage and 
+
+resolution. See Fig. 6 for an illustration. Following [38], we use a box of side 23.5 Å
+
+and a spacing of 0.5 Å, which yields a 48 × 18 × 48 grid in our experiments. 
+
+Each atom is represented as a smooth Gaussian density centered at its coordinates. 
+
+Let d be Euclidean distance between a voxel center and an atom, and let r be an atomic 
+
+radius. The contribution of that atom to nearby voxels is given by 
+
+a
+
+>
+
+1.5 
+
+r. 
+
+The radius is fixed at r = 1À for all atoms in this work. We start from a zero-valued 
+
+grid and accumulate contributions from all atoms. For each atom a in the box, we 
+
+find all voxels within distance 1.5r of its position. In each voxel, we add f(d, r)t(a) 
+
+to the grid. Atoms outside the cubic box are ignored 
+
+6.3.2. Conditional Variational Autoencoder. Given a receptor density grid, 
+
+denoted as rec, we aim to sample ligand density grids, lig, from the conditional distri-
+
+bution p(lig | rec). We adopt a conditional Variational Autoencoder (CVAE), which 
+
+introduces a latent variable z of lower dimension to capture unobserved factors un-
+
+derlying receptor-ligand interaction patterns. 
+
+As shown in Fig. 7, the CVAE consists of two encoders and one decoder. The 
+
+conditional encoder gu takes the receptor grid as input and produces a deterministic 18 ZIXUAN LING, DI LIU, PAULA MERCURIO 
+
+Receptor     
+
+> grid (side =23.5 A)
+
+Of excluded atom 
+
+gand 
+
+> •
+
+lisand 
+
+controid 
+
+Fig. 6: 2D slice of the 3D density grid around a ligand. The square shows the cross-
+
+section of a cubic box centered at the ligand centroid (cyan). Red atoms contribute 
+
+to voxel densities; atoms outside the box (green) are excluded. 
+
+conditioning vector 
+
+encoding the binding-site geometry and chemical context. The inference encoder q4 
+
+takes (rec, lig) as input and outputs an approximate posterior over z: 
+
+9¢(z | rec, lig) = N (u(rec, lig), diag(o (rec, lig))). 
+
+Both encoders share the same 3D CNN architecture: four Conv3D blocks with channel 
+
+widths {28,56, 108, 216}, where the first three use 2 × 2 × 2 average pooling, and 
+
+the final block is followed by a fully connected layer of size 128. We then sample 
+
+≥ ~ qф(z | rec, lig) and generate a ligand grid conditioned on c: 
+
+liggen ~ po(lig | %,c). 
+
+The decoder po mirrors the encoder design in reverse: it first maps the con-
+
+catenated code [z; c] e R256 through fully connected layers and reshapes it to a
+
+6 × 6 × 6 x 128 latent grid, then applies four Conv3D blocks with channel widths                
+
+> {216, 108, 56, 28}, with 2×2×2nearest-neighbor upsampling after the first three.
+
+The final block is followed directly by a 3 × 3 x 3 Conv3D layer that produces the 
+
+ligand-density channels. 
+
+Training minimizes a standard CVAE objective with additional steric clash reg-
+
+ularization. Let ligtrue denote the true ligand density grid and liggen the decoder 
+
+output. The reconstruction loss is 
+
+recon = | lligrue - liggenll2-
+
+This l½ loss corresponds to the negative log-likelihood of po(lig | z, C) under an iso-
+
+tropic Gaussian observation model. Minimizing it encourages the decoded ligand 
+
+density to match the ground truth ligand density at each voxel and channel. rec 
+
+> lig
+
+MULTIGRID GRAPH NEURAL NETWORKS           
+
+> Conditional encoder
+> c=9v (rec)
+> Conv3D +pool ￫... ￫FC
+
+19      
+
+> concat
+> [z;c
+> sample
+> 2
+> Conv3D +pool ￫... ￫FC
+> generated
+> lig
+> Decoder
+
+po 
+
+(lig 
+
+| z,c)     
+
+> FC +reshape ￫upsam-
+> ple
+> +
+> Conv3D
+> ￫...
+
+Fig. 7: Diagram of the receptor-conditioned CVAE. The inference encoder maps 
+
+(rec, lig) to (4, o) for sampling %, while a conditional encoder produces a receptor 
+
+code c that conditions the decoder via concatenation. 
+
+The KL term encourages the approximate posterior qø(= | rec, lig) to stay close 
+
+to the standard normal prior p(z) = N(0, I): 
+
+## [KL = DKı (qø(z | rec, lig) || p(z)). 
+
+To discourage steric clashes, we penalize overlap between the receptor density and the 
+
+generated ligand density: 
+
+where i indexes the grid channels. The total loss is a weighted sum         
+
+> L=Arecon Lrecon +1KLLK +Asteric Lsteric-
+
+he decoder produces a multi-channel ligand density grid liggen, but downstrea 
+
+valuation requires a discrete ligand with atom types, bonds and 3D coordinate 
+
+Converting a continuous density grid into a molecular structure is an ill-posed inverse problem 
+
+with 
+
+no 
+
+closed-form solution. Following 
+
+[38], 
+
+we 
+
+reconstruct 
+
+molecules 
+
+in 
+
+two stages: (i) atom fitting to select atom types and 3D coordinates, and (ii) bond 
+
+inference to assign bonds and hydrogens and enforce chemical validity. 
+
+Atom fitting. We formulate atom fitting as an optimization problem over atom 
+
+types and 3D coordinates. Let T denote the selected atom types and C their 3D 
+
+coordinates, and let G(T,C) be the procedure that converts (T,C) into an atomic 
+
+density grid. Atom fitting seeks 
+
+(I*, C*) = arg TC |ligen - SI, C)||-
+
+In practice, we use an iterative greedy refinement scheme. We propose candidate 
+
+atom types and initial centers from voxels with high density in liggen. For each 
+
+candidate, we locally refine its coordinates by gradient based optimization to reduce 20 ZIXUAN LING, DI LIU, PAULA MERCURIO          
+
+> coarse grid coarse onlon
+> CNN
+> encoder CNN
+> decoder
+> atom ftting
+> bond inference
+> fine grid Bine oucour
+
+Fig. 8: Diagram of multigrid CVAE training. We first train a CVAE on a coarse voxel 
+
+grid, then transfer shape compatible CNN weights to initialize the fine-resolution 
+
+CVAE and continue training at the finer resolution. The resulting fine-grid density is 
+
+converted to a discrete 3D molecule via atom fitting and bond inference. 
+
+the 
+
+l½
+
+reconstruction error |iggen - 9(T, C) ź. At each iteration, we add one atom 
+
+(type 
+
+and 
+
+position) 
+
+corresponding 
+
+to 
+
+the candidate 
+
+whose 
+
+optimized 
+
+placement 
+
+yields 
+
+the largest objective decrease, and we stop when no candidate provides a meaningful 
+
+improvement. 
+
+Bond inference. Given the fitted atoms, we initialize a candidate bond graph by 
+
+linking nearby atom pairs in 3D. We then filter the candidate bonds by enforcing 
+
+valence constraints and excluding geometrically implausible connections. Finally, re-
+
+maining 
+
+open 
+
+valences 
+
+are 
+
+satisfied by adding 
+
+explicit 
+
+hydrogens 
+
+or 
+
+adjusting bond 
+
+orders where permitted, producing a discrete molecular graph with consistent 3D 
+
+coordinates. 
+
+6.3.3. Multigrid CVAE on atom density grids. We now apply the general 
+
+multigrid VAE scheme to the atom density grids. Figure 8 provides a schematic 
+
+illustration of our approach. For each receptor-ligand complex, we fix the binding-
+
+site box (side length 23.5 A) and choose a sequence of grid sizes n1 < n2 < ... < nI. 
+
+The voxel spacing at level l is     
+
+> 23.5 Åhe =ne-1'
+
+so each level represents the same physical box, differing only in resolution. At each 
+
+level l, we apply the Gaussian density mapping to the receptor and ligand atoms, 
+
+yielding multi-channel density tensors on the n° voxel lattice with a receptor grid 
+
+rec(e) 
+
+E
+
+RCreexnexnexne 
+
+and 
+
+a
+
+ligand 
+
+grid 
+
+lig(e) 
+
+E
+
+ROlignexnexne. 
+
+Figure 
+
+9
+
+gives 
+
+a
+
+toy 2D illustration of re-voxelizing the same atom on a coarse versus fine grid. In our 
+
+experiments, we use a two-level hierarchy with (n1, N2) = (16,48), corresponding to    
+
+> spacings
+> h1
+> =
+> 23.5
+> Å/15 ~
+> 1.57
+> Å
+> and
+> h2 =
+> 23.5
+> Å/47 =
+> 0.50
+> Å.
+
+We use the same 3D CVAE design template at both resolutions, with a shared 
+
+128-dimensional latent space and identical block types across the encoder and decoder 
+
+stacks. For multigrid training, we first train a coarse CVAE on 163 atom-density grids, 
+
+then use it to initialize a second CVAE on 483 grids and continue training at the finer 
+
+resolution. More specifically, our choice of Te ￫l+1 copies all convolutional weights 
+
+in the receptor encoder, ligand encoder, and decoder whose parameter tensors have 
+
+identical shapes in both models. Layers whose parameter shapes depend on the spatial MULTIGRID GRAPH NEURAL NETWORKS 
+
+Coarse 
+
+grid 
+
+Fine 
+
+grid 
+
+> 21
+
+density 
+
+Fig. 9: Toy 2D slice of an atom-density channel voxelized over a fixed box at two 
+
+resolutions. Colors indicate the Gaussian density value per voxel. 
+
+resolution are not transferred and are initialized independently. In our architecture, 
+
+this includes the encoder heads FC 128 for u and logo and the decoder projectior 
+
+layer FC 256. Figure 10 illustrates this transfer scheme (decoder transfer is analogous 
+
+and omitted for clarity). 
+
+Level 1 (coarse) encoder 
+
+> a
+> (
+> 1
+> )
+> :
+> I
+> C
+> ,
+> 1
+> 6
+> 3
+> 1
+
+Conv3DBlock 163 
+
+2x2x2 AvePool: 163 ￫83 
+
+# Conv3DBlock 83 
+
+2x2x2 AvePool: 83 ￫43    
+
+> Conv3DBlock 43
+> 2x2x2 AvePool: 43 ￫23
+
+Conv3DBlock 
+
+23 
+
+> FC
+> 128
+> (u)
+
+FC 128 (log o)   
+
+> copy
+> weights
+> copy weights
+> copy
+> weights
+> copy weights
+
+Level 2 (fine) encoder 
+
+> x(2):
+> [C,
+> 48°1
+
+Conv3DBlock 483   
+
+> 2x2x2 Pool: 483 ￫243
+
+Conv3DBlock 243 
+
+2x2x2 Pool: 243 ￫123  
+
+> Conv3DBlock 123
+
+2x2x2 Pool: 123 ￫63    
+
+> Conv3DBlock 63
+> FC 128 (4)
+
+FC 128 (log o) 
+
+Fig. 
+
+10: 
+
+Encoder 
+
+weight 
+
+transfer 
+
+from a coarse 
+
+CVAE 
+
+trained 
+
+on 
+
+163 
+
+grids 
+
+to 
+
+a
+
+fine CVAE trained on 483 grids. Each Conv3DBlock denotes a stack of four 3D 
+
+convolutional layers. Dashed arrows indicate convolutional blocks whose weights are 
+
+copied from the coarse model. 
+
+6.3.4. Training and evaluation. We use the same architecture for both a
+
+single-resolution 483 CVAE trained from scratch and a multigrid 163 ￫ 483 CVAE 
+
+initialized by the weight-transfer scheme in Section 6.3.3. Both variants use a cyclical 
+
+KL-weight schedule: in each cycle, we set JkL = 0.1 for the first 45% of the cy-
+
+cle, increase it linearly from 0.1 to 1.6 over the next 20%, and hold AKr = 1.6 for 22 ZIXUAN LING, DI LIU, PAULA MERCURIO      
+
+> 7.0-
+> 6.5-
+> 060-
+> ¾55
+> ·5.0-
+> 4.5-
+> 4.0-
+> ⼀
+> Vina Energy (kcal/mol)  -4-
+> 4.5-
+> $40-
+> -2-
+> -3-
+> (kcal/mol)
+> -4-
+> -8-
+> -9-
+> -101
+> ⽩ 3.01
+> 2.5
+
+## (a) 
+
+## 5g3n-6in 
+
+> -8-
+
+v
+
+o
+
+r
+
+ogase Po
+
+i
+
+ns P
+
+i
+
+gase r i or MG-POSase-POS Go-Priorse:Prior 
+
+## (b) 
+
+## 1u0f-g6p 
+
+Fig. 11: Docking evaluation with GNINA on two CrossDocked2020 targets. 
+
+the remaining 35%. We repeat this schedule throughout training; the final cycle is 
+
+truncated so that training ends at iteration 338,000. We optimize all models using 
+
+RMSprop. 
+
+For the multigrid variant, we first train the coarse 16° model for 1,000 itera-
+
+tions with learning rate 10-* and batch size 32, since the coarse grids fit comfortably 
+
+in memory. We then warm-start the 483 model using the prolongation rule in Sec-
+
+tion 6.3.3 and continue training with learning rate 10-5 under the same KL schedule 
+
+as the single-resolution baseline. 
+
+We generate ligands using three sampling modes. 
+
+• Posterior sampling: Given a receptor-ligand complex (rec, lig), we encode the 
+
+pair to obtain posterior parameters (Mpost, post) and sample        
+
+> 2=Mpost +Avar Opost OE,
+> E
+> ~
+> N(0,1).
+
+Here Avar controls the sampling variability around the encoded ligand. 
+
+• Prior sampling: For prior sampling, we draw 
+
+z = AvarE, 
+
+€
+
+~
+
+N(0, 
+
+1), 
+
+and decode using only the receptor condition. 
+
+• Mixed sampling: To interpolate between posterior- and prior-driven genera-
+
+tion, we use a mixing coefficient a € [0, 1] and sample          
+
+> ≥=aMpost +Avar (a0post +(1-a)1) OE,
+> E
+> ~
+> N(0,
+> I).
+
+When a = 1 this reduces to posterior sampling, and when a = 0 it reduces 
+
+to prior sampling. Intermediate a values control the degree of bias toward 
+
+In all three modes, we compute a receptor embedding c from the receptor encoder 
+
+and decode the concatenated code [z || c] to obtain a ligand density grid. We then 
+
+reconstruct a discrete 3D molecule using atom fitting followed by bond inference 
+
+# (Section 6.3.2). 
+
+To evaluate ligand quality, we use GNINA [32], a deep-learning based molecular 
+
+docking program, and report the Vina energy (kcal/mol; more negative is better) and 
+
+the CNN affinity (pK; higher is better). For each generated ligand, we first relax 
+
+the ligand geometry with UFF minimization in the binding site while keeping the MULTIGRID GRAPH NEURAL NETWORKS 23 
+
+> aseline
+
+0.5 1.0 2.0 4.0 
+
+> Reference
+> Multigrid
+
+## 中 必   
+
+> 0.5 1.0
+> Variability factor
+> 2.0 4.0
+
+Fig. 12: Controlling the variability of generated molecules (1u0f-g6p). Left: reference 
+
+ligand. Rows: baseline (top) and multigrid (bottom) posterior samples at matched 
+
+variability factors. 
+
+receptor fixed, and then dock the relaxed ligand with GNINA to obtain both scores 
+
+for the resulting poses. For each ligand, we keep the best-scoring pose and summarize 
+
+score distributions over 100 samples across sampling modes and models. Figure 11 
+
+shows results on two CrossDocked2020 targets (5g3n-6in and lu0f-g6p). Under poste-
+
+rior sampling, the multigrid initialized model produces higher CNN affinity and more 
+
+favorable Vina energies than the single-resolution baseline, whereas under prior sam-
+
+pling the two 
+
+models 
+
+have 
+
+largely overlapping 
+
+distributions 
+
+and 
+
+both perform 
+
+worse 
+
+than in posterior sampling, since only posterior sampling is guided by the reference 
+
+ligand through the encoded posterior. 
+
+We also study the effect of latent sampling on conditional generation by varying 
+
+the posterior variability factor Avar. Intuitively, Avar sets the sampling scale: smaller 
+
+values keep samples near the posterior mean, while larger values allow larger devia-
+
+tions. Figure 12 illustrates the effect on a representative target: baseline (top row) 
+
+and multigrid (bottom row), with matched \var. At low \var, generated ligands stay 
+
+close to the reference pose with mostly local functional-group edits. Larger Avar yields 
+
+# prograiny 
+
+# laser 
+
+# steal 
+
+# ages 
+
+# and 
+
+# eate 
+
+# poes rap 
+
+# tita 
+
+# lane 
+
+# poetell 
+
+7. Conclusion. We presented a multigrid training framework that connects 
+
+learning across resolutions in two settings. For graph neural networks, we introduced a
+
+coarse-to-fine training strategy that transfers parameters across graph resolutions and 
+
+supports parameter sharing and layer freezing. Our analysis relates cross-level predic-
+
+tion, loss, and gradient discrepancies to the mismatch between fine and coarse oper-
+
+tors, helping clarify when coarse warm starts are effective. For receptor-conditione 
+
+D ligand generation, we applied the same coarse-to-fine principle to conditional Vari 
+
+ational Autoencoders on atom-density grids, transferring convolutional weights that 
+
+are compatible across resolutions to initialize the fine model from the coarse one. 
+
+Across graph benchmarks, scientific regression tasks, and receptor-conditioned 
+
+ligand generation, multigrid initialization improves training efficiency and achieves 
+
+same level of accuracy compared with single-resolution training. Future work in-
+
+cludes extending the theory to deeper architectures and stochastic optimization, as 
+
+well 
+
+as 
+
+designing adaptive coarsening and prolongation operators 
+
+that better 
+
+preserve 
+
+task relevant structure. On the generative side, it would be interesting to integrate 
+
+multigrid initialization with diffusion models by transferring weights across spatial 
+
+resolutions or across coarse-to-fine denoising schedules. 24 ZIXUAN LING, DI LIU, PAULA MERCURIO 
+
+Appendix A. Proof of Theorem 4.6. Decomposing the fine loss into overlap 
+
+and non-overlap parts, we have 
+
+4 s( 0) = 2 7(109 1 5+1051 3 - 21 9 13 +271-91 3:
+
+Hence 
+
+|Lf(20) - Le(W)| ≤:
+
+Writing pl, |?- |rall? = p(|ry |12 - 11ra|12) - (1 - p)|rell, we have 
+
+Observe that on U, the residuals differ by 
+
+# since Yc = QTY. By Lemma 4.5, 
+
+Plugging this into the previous bound yields the desired inequality. 
+
+Appendix 
+
+B. 
+
+Proof 
+
+of 
+
+Lemma 
+
+4.7. 
+
+Since 
+
+Dii 
+
+=
+
+E; 
+
+Aij 
+
+≥
+
+1
+
+for 
+
+all i, 
+
+the 
+
+diagonal matrices D-1 and D-1/2 are well-defined. Set 
+
+> B:=
+> D-'A.
+
+Since A has nonnegative entries, B also has nonnegative entries. Moreover, for each 
+
+row 
+
+i, 
+
+# 之⻛ - ⼆梨 - 号 和 = 1. 
+
+Hence the induced lo matrix norm satisfies 
+
+||B|lo = max _|Bij| = max 2 Bij = 1.  
+
+> 1=1
+
+For any eigenpair Bx = Ax with x ‡ 0, we have 
+
+which implies |\| ≤ 1. Therefore every eigenvalue of B lies in the closed unit disk. 
+
+Next, B is similar to A:         
+
+> Ã=D-1/2 AD-1/2 =D1/2(D-'A)D-1/2 =D1/2 BD-1/2.
+
+## Te reB and have the same eigenvalues. Since A is symmetric, aall its eigenvalue 
+
+IlAll2 =
+
+max|1i(A)| 
+
+≤1, 
+
+which completes the proof. MULTIGRID GRAPH NEURAL NETWORKS 25 
+
+Appendix C. Proof of Theorem 4.8. By the chain rule, we have 
+
+# VIc(w)==XTQA! Deres 
+
+where Dy := Diag(o'(AXw)) and Do:= Diag(o' (AcXcw)). Decompose rf = Qr} +
+
+ry 
+
+and define 
+
+Au:= 1 
+
+> -X'A' Ders.
+
+n
+
+Add and subtract the same coarse term with factor 1/n to separate overlap and 
+
+averaging: 
+
+Let Dy:= QD,Q. Since QQ and Dr are diagonal, they commute; thus 
+
+On the overlap, using DiQr, = QD, r, and since ||Ac|2 ≤ 1, |Dy|2, |Del2 ≤
+
+Lo, 
+
+and 
+
+o' 
+
+is 
+
+Lo'-Lipschitz, 
+
+we 
+
+obtain 
+
+# ≤8 Lollrella+Lallry-rella+||D, - Dellalrellz 
+
+where the last line uses Lemma 4.5 and the Lo'-Lipschitz property of o'. 
+
+For the averaging piece, we have 
+
+Combining the overlap and the averaging term, we obtain 
+
+For the fine-only part, note that ||A||2 ≤ 1 and ||D ||2 ≤ Lo. We have 
+
+|Avella 
+
+≤
+
+Combining the estimates for Au and Auc gives the stated bound. 
+
+Appendix D. Proof of Theorem 4.9. We prove the bound by a one-
+
+step recursion on E1,j. Fix j € {2,...,k}. Since Q1:j = Qj-1:j Q1:j-1, we have 
+
+QI: = QI:-18]-1:;. Add and subtract QI: -1A;-1Qj-1:; to get 
+
+= 01:3- 195- 1 : 343 - 41Q1:3- 195- 1:3
+
+= 013- 1(93- 1:34; - 45- 1 95- 1: 3) + (913- 1 4;- 1 - A1QT:3- 1) 93-1 : 6
+
+=Q1:j-1Ej-1,j + E1,j-1Qj-1:j 26 ZIXUAN LING, DI LIU, PAULA MERCURIO 
+
+Taking spectral norms and using ||91:j-1//2 = 19j-1:j|/2=1 gives 
+
+51,j =||E1,||2 ≤||Ej-1,|2 +||E1,j-1|2 = 8j-1,j + 81,j-1. 
+
+Iterating from j = k down to j = 2 yields 
+
+which proves the claim. 
+
+Appendix E. Proof of Theorem 4.10. By Theorem 4.9, 
+
+Since T = [k=1 Te = 71 , we have 11 = T 1--21, which yields the equality in 
+
+terms of T. 
+
+To show the bound tightens with k when T is fixed, set r := qk-1 € (0,1). The 
+
+T-form of the bound can be written as 
+
+ста (1 - 9)"    
+
+> 1-ga
+
+## g(r), 1 - ya
+
+Consider h(r):= logg(r) = log(1 -pa) - alog(1-r). Differentiating gives 
+
+h'(r) =   
+
+> apa-1
+> 1-ра 1-r
+
+## = a(; =, i - na ) = &(1- 7)(1- 79 ) こ 0,
+
+# she oreg(r) and incred in on (.). Beca ence is increasies as ince and, 
+
+9(r) decreases with k, and the bound decreases in k. 
+
+REFERENCES                   
+
+> [1] A. AHMED, R. D. SMITH, J. J. CLARK, J. DuNBAR, James B., AND H. A. Carlson, Recent im-
+
+rovements 
+
+to 
+
+binding 
+
+moad: 
+
+a
+
+resource 
+
+for 
+
+protein-ligand 
+
+binding 
+
+affinities 
+
+and 
+
+structures 
+
+Nucleic Acids Research, 43(2015), pp. D465-D469, https://doi.org/10.1093/nar/gku1088                 
+
+> [2] H. M. BERMAN, J. WESTBROOK, Z. FENG, G. GILLILAND, T. N. BHAT, H. WEISSIG, I. N.
+
+pp. 235-242, https://doi.org/10.1093/nar/28.1.235.                
+
+> 3G. R. BIckeRtoN, G. V. PAOLINI, J. BESNARD, S. MURESAN, AND A. L. HopkIns, Quantifying
+
+1038/nchem.1243. 
+
+A. BRANDT, Multi-level adaptive solutions to boundary-value problems, Mathematics of Con 
+
+itation, 31 (1977), pp. 333-390, https://doi.org/10.1090/S0025-5718-1977-0431719-] 
+
+[5] N. D. CAO AND T. KIPF, Molgan: An implicit generative model for small molecular graphs, 
+
+arXiv preprint arXiv:1805.11973, (2018), https://doi.org/10.48550/arXiv.1805.11973. 
+
+[6] R. CHILD, Very deep vaes, arXiv preprint arXiv:2011.10650, (2020), https://doi.org/10.48550/ 
+
+arXiv.2011.10650. 
+
+//openreview.net/forum?id=SyqShMZRb. 
+
+[8] C. M. DoBson, Chemical space and biology, Nature, 432(2004), pp. 824-828, https://doi.org/ 
+
+10.1038/nature03192. MULTIGRID GRAPH NEURAL NETWORKS 27 
+
+[9] P. ERTL AND A. SCHUFFENHAUER, Estimation of synthetic accessibility score of drug-like mol-
+
+ecules based on molecular complexity and fragment contributions, Journal of Cheminfor-
+
+matics, 1 (2009), p. 8, https://doi.org/10.1186/1758-2946-1-8. 
+
+pp. 4200-4215, https://doi.org/10.1021/acs.jcim.0c00411. 
+
+[11] H. GAO AND S. JI, Graph u-nets, in Proceedings of the 36th International Conference on 
+
+Machine Learning (ICML 2019), vol. 97 of Proceedings of Machine Learning Research, 
+
+PMLR, 2019, pp. 2083-2092, https://proceedings.mlr.press/v97/gao19a.html.                           
+
+> [12] A. GAULTON, L. J. BELLIS, A. P. BENTO, J. CHAMBERS, M. DAVIES, A. HERSEY, Y. LIGHT,
+> S. McGLINCHEY, D. MICHALOVICH, B. AL-LAZIKANI, AND J. P. OVERINGTON, Chembl:
+
+a large-scale bioactivity database for drug discovery, Nucleic Acids Research, 40 (2012), 
+
+pp. D1100-D1107, https://doi.org/10.1093/nar/gkr777. 
+
+[13] R. GóMEZ-BOMBARELLI, J. N. WEI, D. DUVENAUD, J. M. HERNÁNDEZ-LOBATO, B. SÁNCHEZ-
+
+LENGELING, D. SHEBERLA, J. AGUILERA-IPARRAGUIRRE, T. D. HIRZEL, R. P. ADAMS, AND 
+
+A. AsPURU-GuzIK, Automatic chemical design using a data-driven continuous representa-
+
+tion of molecules, ACS Central Science, 4 (2018), pp. 268-276, https://doi.org/10.1021/ 
+
+acscentsci.7b00572. PMID: 29532027. 
+
+[14] A. GROVER AND J. LESKOVEC, node2vec: Scalable feature learning for networks, in Proceedings 
+
+of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data 
+
+Mining (KDD 2016), ACM, 2016, pp. 855-864, https://doi.org/10.1145/2939672.2939754, 
+
+https://doi.org/10.1145/2939672.2939754.               
+
+> [15] J. GUAN, W. W. QIAN, X. PENG, Y. Su, J. PENG, AND J. MA,
+
+for target-aware molecule generation and affinity prediction, 2023, https://arxiv.org/abs/ 
+
+2303.03543, https://arxiv.org/abs/2303.03543.                     
+
+> [16 J. GUAN, X. ZHOU, Y. YANG, Y. BAO, J. PENg, J. Ma, Q. LIu, L. WANG, AND Q. Gu, De-
+
+compdiff: Diffusion models with decomposed priors for structure-based drug design, 2024, 
+
+https://arxiv.org/abs/2403.07902, https://arxiv.org/abs/2403.07902.              
+
+> [17] W. L. HAMILTON, R. YING, AND J. LESKOVEC, Inductive representation learning on large
+
+graphs, in Proceedings of the 31st International Conference on Neural Information Process-
+
+ing Systems, NIPS'17, Red Hook, NY, USA, 2017, Curran Associates Inc., pp. 1025-1035.               
+
+> 18] J. HocHULI, A. HELBLING, T. SKAIST, M. RAGOZA, AND D. R. Koes, Visualizing convolutional
+
+neural network protein-ligand scoring, Journal of Molecular Graphics and Modelling, 84 
+
+2018), pp. 96-108, https://doi.org/10.1016/j.jmgm.2018.06.005, https://doi.org/10.1016/ 
+
+j.jmgm.2018.06.005.              
+
+> 19] E. HooGEBOOM, V. G. SATORRAS, C. VIGNAC, AND M. WELLING, Equivariant diffusion for
+
+molecule generation in 3D, in Proceedings of the 39th International Conference on Machine 
+
+Learning (ICML), K. Chaudhuri, S. Jegelka, L. Song, C. Szepesvari, G. Niu, and S. Sabato, 
+
+eds., vol. 162 of Proceedings of Machine Learning Research, PMLR, July 2022, pp. 8867-
+
+8887, https://proceedings.mlr.press/v162/hoogeboom22a.html.                  
+
+> [20] W. Hu, B. LIU, J. GoMES, M. ZITNIK, P. LIANG, V. PANDE, AND J. LESKOVEC, Strategies for
+
+pre-training Graph Neural Networks, in International Conference on Learning Representa-
+
+tions (ICLR), 2020, https://dblp.org/rec/conf/iclr/HuLGZLPL20.html.              
+
+> 21] W. JIN, R. BARZILAY, AND T. JAAKKOLA, Junction tree variational autoencoder for molec-
+
+ular graph generation, in Artificial intelligence in drug discovery, The Royal Society of 
+
+Chemistry, 2020, pp. 228-242, https://doi.org/10.1039/9781788016841-00228.                                                                           
+
+> [22] J. JUMPER, R. EVANS, A. PRITZEL, T. GREEN, M. FIGURNOV, O. RoNNEBERGEr, K. TUN-
+> YASUVUNAKOOL, R. BATES, A. ZÍDEK, A. POTAPENKO, A. BRIDGLAND, C. MEYER,
+> S. A. A. KoHL, A. J. BALLARD, A. COWIE, B. ROMERA-PAREDES, S. NIKOLOV, R. JAIN,
+> J. ADLER, T. BACK, S. PETERSEN, D. REIMAN, E. CLANCY, M. ZIELINSKI, M. STEINEG-
+> GER, M. PACHOLSKA, T. BERGHAMMER, S. BODENSTEIN, D. SILVER, O. VINYALS, A. W.
+> SENIOR, K. KAVUKCUOGLU, P. KOHLI, AND D. HASSABIS, Highly accurate protein struc-
+
+ture prediction with AlphaFold, Nature, 596(2021), pp. 583-589, https://doi.org/10.1038/ 
+
+s41586-021-03819-2.             
+
+> [23] T. N. KIPF AND M. WELLING, Semi-supervised classification with graph convolutional net-
+
+works, in International Conference on Learning Representations (ICLR), 2017, https: 
+
+//openreview.net/forum?id=SJU4ayYgl. arXiv:1609.02907.             
+
+> [24] M. J. KUSNER, B. PAIGE, AND J. M. HERNÁNDEZ-LOBATO, Grammar variational autoencoder,
+
+n Proceedings of the 34th International Conference on Machine Learning, D. Precup anc 
+
+. W. Teh, eds., vol. 70 of Proceedings of Machine Learning Research, PMLR, 2017 
+
+pp. 1945-1954, https://proceedings.mlr.press/v70/kusner17a.html. 28 ZIXUAN LING, DI LIU, PAULA MERCURIO 
+
+25 J. LEE, I. LEE, AND J. KANG, Self-attention graph pooling, in Proceedings of the 36th In-
+
+ternational Conference on Machine Learning (ICML 2019), vol. 97 of Proceedings of Ma-
+
+chine Learning Research, PMLR, 2019, pp. 3734-3743, https://proceedings.mlr.press/v97/ 
+
+[26] M. LIu, Y. Luo, K. UcHINo, K. MARUHASHI, AND S. JI, Generating 3D molecules for target pro-
+
+tern binding, 2022, https://arxiv.org/abs/2204.09410, https://arxiv.org/abs/2204.09410. 
+
+(27] T. LIU, L. HWANG, S. K. BURLEY, C. I. NITSCHE, C. SOUTHAN, W. P. WALTERS, AND 
+
+M. K. GIlson, Bindingdb in 2024: a fair knowledgebase of protein-small molecule binding 
+
+data, Nucleic Acids Research, 53(2024), pp. D1633-D1644, https://doi.org/10.1093/nar/ 
+
+[28] Z. LIu, Y. LI, L. HAN, J. Li, J. Liu, Z. ZHAo, W. NIE, Y. LIU, AND R. WANg, Pdb-wide col-
+
+lection of binding data: current status of the pdbbind database, Bioinformatics, 31 (2015), 
+
+pp. 405-412, https://doi.org/10.1093/bioinformatics/btu626.                  
+
+> 29] S. Luo, J. GuAN, J. MA, AND J. PENG, A3D generative model for structure-based drug design,
+
+2022, https://arxiv.org/abs/2203.10446, https://arxiv.org/abs/2203.10446. 
+
+30] K. MADHAWA, K. ISHIGURO, K. NAKAGO, AND M. ABE, Graphnup: An invertible flow model 
+
+for generating molecular graphs, arXiv, (2019), https://arxiv.org/abs/1905.11600, https: 
+
+//arxiv.org/abs/1905.11600. 
+
+[31] A. MARSDEN, N. MoKRZECKI, E. De GIORGI, L. VoST, AND C. M. DEANE, Molsnapper: 
+
+Conditioning diffusion for structure-based drug design, J. Chem. Inf. Model., 65 (2025), 
+
+pp. 4263-4273, https://doi.org/10.1021/acs.jcim.4c02008, http://dx.doi.org/10.1021/acs. 
+
+[32] A. T. McNUTT, P. FRANCOEUR, R. AGGARWAL, T. MASUDA, R. MELI, M. RAGOZA, J. SUNSERI, 
+
+AND D. R. KOES, Gnina 1.0: molecular docking with deep learning, Journal of Cheminfor-
+
+matics, 13 (2021), p. 43, https://doi.org/10.1186/s13321-021-00522-2. 
+
+33] M. OLIVECRONA, T. BLASCHKE, O. ENGKVIST, AND H. CHEN, Molecular de-novo design through 
+
+deep reinforcement learning, J. Cheminform., 9 (2017), p. 48, https://doi.org/10.1186/               
+
+> [34] X. PENG, J. GUAN, Q. LIu, AND J. Ma, MolDiff: Addressing the atom-bond inconsistency
+
+problem in 3D molecule diffusion generation, in Proceedings of the 40th International 
+
+Conference on Machine Learning, vol. 202 of Proceedings of Machine Learning Research, 
+
+MLR, 2023, pp. 27611-27629, https://proceedings.mlr.press/v202/peng23b.html. 
+
+35] X. PeNg, S. Luo, J. GuaN, Q. XIE, J. PENG, AND J. Ma, Pocket2mol: Efficient molecular 
+
+sampling based on 3D protein pockets, 2025, https://arxiv.org/abs/2205.07249, https:// 
+
+arxiv.org/abs/2205.07249. 
+
+36 P. O. PINHEIRO, A. JAMASB, O. MAHMOOD, V. SRESHT, AND S. SAREMI, Structure-based drug 
+
+design by denoising voxel grids, 2024, https://arxiv.org/abs/2405.03961, https://arxiv. 
+
+org/abs/2405.03961. 
+
+[37] M. RAGOZA, J. E. HocHuL, E. IDROBO, J. SUNSERI, AND D. R. Koes, Protein-ligand scoring 
+
+with convolutional neural networks. 
+
+Journal 
+
+of 
+
+Chemical 
+
+Information and 
+
+Modeling, 
+
+57 
+
+(2017), pp. 942-957, https://doi.org/10.1021/acs.jcim.6b00740, https://doi.org/10.1021/ 
+
+acs.jcim.6b00740. 
+
+[38] M. RAGOZA, T. MASUDA, AND D. R. KoEs, Generating 3d molecules conditional on receptor 
+
+binding sites with deep generative models, Chem. Sci., 13 (2022), pp. 2701-2713, https: 
+
+39] M. RAGOZA, L. TURNER, AND D. R. KoEs, Ligand pose optimization with atomic grid-based 
+
+convolutional neural networks, 2017, https://doi.org/10.48550/arXiv.1710.07400, https:// 
+
+doi.org/10.48550/arXiv.1710.07400, https://arxiv.org/abs/1710.07400.               
+
+> [40] E. RANJAN, S. SANYAL, AND P. P. TALUKDAR, ASAP: Adaptive structure aware pooling for
+
+learning hierarchical graph representations, in Proceedings of the AAAI Conference on 
+
+Artificial Intelligence (AAAI 2020), AAAI Press, 2020, pp. 5470-5477, https://doi.org/10. 
+
+1609/AAAI.V34104.5997, https://doi.org/10.1609/AAAI.V34104.5997. 
+
+[41] A. RAZAVI, A. VAN DEN OORD, AND O. VINYALS, Generating diverse high-fidelity images with 
+
+vq-vae-2, arXiv preprint arXiv:1906.00446, (2019), https://doi.org/10.48550/arXiv.1906. 
+
+[42] L. RUDDIGKEIT, R. VAN DEURSEN, L. C. BLUM, AND J. REYMOND, Enumeration of 166 billion 
+
+organic small molecules in the chemical universe database gdb-17, Journal of Chemical 
+
+Information and Modeling, 52(2012), pp. 2864-2875, https://doi.org/10.1021/ci300415d. 
+
+[43] A. SCHNEVING, C. HARRIS, Y. Du, K. DIDI, A. JAMASB, I. IGASHOV, W. Du, C. GoMES, T. L. 
+
+BLUNDELL, P. LIO, M. WELLING, M. BRONSTEIN, AND B. CORREIA, Structure-based drug 
+
+design with equivariant diffusion models, Nat. Comput. Sci., 4(2024), pp. 899-909, https: 
+
+//doi.org/10.1038/s43588-024-00737-x, http://dx.doi.org/10.1038/s43588-024-00737-x. MULTIGRID GRAPH NEURAL NETWORKS 29 
+
+[44] M. SIMONOVSKY AND N. KOMODAKIS, Graphvae: towards generation of small graphs using 
+
+variational autoencoders, in Artificial neural networks and machine learning - icann 2018, 
+
+2018, Springer International Publishing, pp. 412-422, https://doi.org/10.1007/                
+
+> [45] C. K. SØNDERBY, T. RAIKO, L. MAALØE, S. K. SØNDERBY, AND O. WINTHER, Ladder vari-
+
+ational autoencoders, arXiv preprint arXiv:1602.02282, (2016), https://doi.org/10.48550/                 
+
+> 46) J. E. SUNSERI, J. E. KING, P. G. FRANCOEUR, AND D. R. KoEs, Convolutional neural network
+
+Aided Molecular Design, 33 (2019), pp. 19-34, https://doi.org/10.1007/s10822-018-0133-y, 
+
+https://doi.org/10.1007/s10822-018-0133-y. 
+
+47] A. VAHDAT AND J. KAUTZ, Nvae: A deep hierarchical variational autoencoder, in Advances in 
+
+Neural Information Processing Systems (NeurIPS), 2020, https://doi.org/10.48550/arXiv. 
+
+2007.03898. Spotlight.              
+
+> (48] P. VELI ČKOVI Ć,G. CUCURULL, A. CASANOVA, A. ROMERO, P. LIÒ, AND Y. BEN-
+
+GIO, Graph attention networks, in International Conference on Learning Representa-
+
+tions, 2018, https://doi.org/10.48550/arXiv.1710.10903, https://openreview.net/forum? 
+
+id=rJXMpikCZ, https://arxiv.org/abs/1710.10903. 
+
+[49] L. VosT, Y. ZIv, AND C. M. DEANE, Incorporating targeted protein structure in deep 
+
+learning methods for molecule generation in computational drug design, Chem. Sci., 16 
+
+(2025), pp. 20677-20693, https://doi.org/10.1039/D5SC05748E, https://doi.org/10.1039/ 
+
+D5SC05748E.               
+
+> 50] I. WALLACH, M. DZAMBA, AND A. HEIFETS, Atomnet: Adeep convolutional neural network for
+
+bioactivity prediction in structure-based drug discovery, 2015, https://arxiv.org/abs/1510. 
+
+02855, https://arxiv.org/abs/1510.02855.                               
+
+> [51] M. J. WARING, J. ARRoWsMITH, A. R. LEACH, P. D. LEEsON, S. MANDRELL, R. M. OWEN,
+> G. PAIRAUDEAU, W. D. PENNIE, S. D. PICKETT, J. WANG, O. WALLACE, AND A. WEIR,
+
+An analysis of the attrition of drug candidates from four major pharmaceutical companies, 
+
+Nature Reviews Drug Discovery, 14(2015), pp. 475-486, https://doi.org/10.1038/nrd4609. 
+
+52) J. A. WELLER AND R. Rohs, Structure-based drug design with a deep hierarchical generative 
+
+model, Journal of Chemical Information and Modeling, 64(2024), pp. 6450-6463, https: 
+
+//doi.org/10.1021/acs.jcim.4c01193. PMID: 39058534. 
+
+[53] Z. WEN AND D. GOLDFARB, A line search multigrid method for large-scale nonlinear optimiza-
+
+tion, SIAM Journal on Optimization, 20 (2009), pp. 1478-1503, https://doi.org/10.1137/ 
+
+08071524X.                 
+
+> [54] Z. Wu, B. RAMSUNDAR, E. N. FEINBERG, J. GOMES, C. GENIESSE, A. S. PAPPU, K. LESWING,
+
+AND V. PANDE, Moleculenet: a benchmark for molecular machine learning, Chemical Sci-
+
+ence, 9 (2018), pp. 513-530, https://doi.org/10.1039/C7SC02664A.                
+
+> 55 K. Xu, W. HU, J. LESKOVEC, AND S. JEGELKA, How powerful are Graph Neural Networks?,
+
+in International Conference on Learning Representations (ICLR), 2019, https://dblp.org/ 
+
+rec/conf/iclr/XuHLJ19.html.                
+
+> [56] Z. YINg, J. You, C. MoRRIs, X. REN, W. L. HAMILTON, AND J. LESKOVEC, Hierarchical
+
+graph representation learning with differentiable pooling, in Advances in Neural Information 
+
+Processing Systems 31 (NeurIPS 2018), 2018, pp. 4805-4815, https://proceedings.neurips. 
+
+cc/paper/2018/hash/e77dbaf6759253c7c6d0efc5690369c7-Abstract.html. 
+
+57) J. You, Z. LIu, L. SONG, ET AL., Graph convolutional policy network for goal-directed molec-
+
+ular 
+
+graph generation, 
+
+arXiv 
+
+preprint 
+
+arXiv:1806.02473, 
+
+(2018), 
+
+https://doi.org/10.48550/ 
+
+arXiv.1806.02473.               
+
+> [58] W. ZHUNG, H. KIM, AND W. Y. KIm, 3d molecular generative framework for interaction-
+
+guided drug design, Nature Communications, 15 (2024), p. 2688, https://doi.org/10.1038/ 
+
+s41467-024-47011-2, https://www.nature.com/articles/s41467-024-47011-2.

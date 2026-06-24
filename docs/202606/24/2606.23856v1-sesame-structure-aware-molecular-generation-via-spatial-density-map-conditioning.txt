@@ -1,0 +1,673 @@
+Title: Sesame: Structure-Aware Molecular Generation via Spatial Density-Map Conditioning
+
+URL Source: https://arxiv.org/pdf/2606.23856v1
+
+Published Time: Wed, 24 Jun 2026 00:08:17 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# Sesame: Structure-Aware Molecular Generation via Spatial Density-Map Conditioning 
+
+Konstantin Yatsenko, Arvind Thiagarajan ∗
+
+Tessel Biosciences, Inc., 750 Main Street, Cambridge, MA 02139 
+
+Abstract 
+
+Generative molecular models for drug design are a promising direction with much active research. In the next phase of computational drug design, such models will need to understand small molecule structure and protein-ligand interactions, and they will need to possess the machinery to generate molecules de novo . Incorporating each feature poses a critical challenge. Equally important, yet often treated as secondary, is the ability to grow a molecule from a partial starting point – a scaffold or fragment supplied by a chemist – which is the central operation of lead optimization. We present Sesame (Spatial Evoformer for a Structure-Aware Molecular Engine), a diffusion-based molecular generation model that leverages a novel spatial pairformer module to condition on partial molecular structure and the surrounding protein pocket, both expressed as continuous spatial density maps. This single conditioning mechanism supports both de novo generation and fragment-conditioned lead optimization, letting a medicinal chemist prune a hit to a scaffold and have Sesame grow it in productive ways. In addition to this module, we also introduce a diffusion framework for joint denoising of atom types, bond types, and positions, along with a trajectory finetuning scheme that trains on the model’s own sampling rollouts to improve generation quality. Sesame is trained on a large corpus of ligand-only and protein-ligand datasets. 
+
+Keywords: Molecular generation, Diffusion models, Structure-aware design, Density maps, Drug discovery 
+
+Figure 1: Snapshot of the diffusion process, left-to-right. Here, we denoise a ligand with fragment conditioning, allowing the model to fill in the gaps and extend the existing core. 
+
+# 1 Introduction 
+
+1.1 Problem Statement 
+
+Modern protein-folding models possess capabilities to reason about protein-ligand interactions in a meaningful way, with good accuracy across a number of tasks. However, these models 
+
+> ∗
+
+Corresponding author: arvind@tessel.bio 
+
+> arXiv:2606.23856v1 [cs.LG] 22 Jun 2026
+
+are fundamentally constrained by knowledge about a specific ligand, often passed as hard constraints for the generation algorithm. These architectures are incompatible with the generation of de novo molecules, which means that any system using these models for drug discovery must carefully balance exploration of chemical space with computational costs and constraints. Furthermore, these protein-ligand models are not perfect, and can often generate structures with small inconsistencies, e.g. incorrect enantiomers. Our approach aims to learn from successes in the protein-folding space, extending them to perform full molecular generation. Beyond de novo generation, a second capability is equally central to real drug-discovery campaigns and is often underserved by generative models: lead optimization, in which a known hit is refined rather than designed from scratch. In practice this is where human expertise is most valuable – a medicinal chemist can identify the substructure of a hit worth preserving and prune the molecule down to that scaffold. A useful generative model should treat such a fragment as a soft prior to be grown and elaborated, not as a rigid atom-level constraint, so that human insight and generative chemistry compose rather than compete. We therefore treat fragment-conditioned generation as a primary objective alongside de novo 
+
+design, and, as described below, realize both through a single conditioning mechanism. 
+
+1.2 Motivation 
+
+Our approach is motivated by three key insights. First, encoding the local structure of a protein by estimating various forces on a dense grid is a common technique, and largely used in various docking algorithms. These so-called density maps provide a natural representation for 3D structural information, encoding multiple physical properties (charge, hydrophobicity, hydrogen bonding, van der Waals interactions) in a unified grid-based format. This allows for modeling diverse sets of protein pockets with identically-sized inputs, which confers a number of computational efficiencies. Second, Pairformer architectures perform admirably for a variety of tasks that require complex multi-way interactions between components. An extension to this architecture to allow for information to pass from the density map to the prediction is an essential component to a model whose inputs are density maps. Third, diffusion models whose goal is to produce molecules require a diffusion approach that handles both discrete atom types and continuous atomic coordinates. Many naive approaches fail to take into account biases that trained models produce, and a careful examination of the reverse diffusion process is necessary to have a robust generative model. 
+
+1.3 Contributions 
+
+Our main contributions are: 1. Novel density map conditioning architecture : An attention-based mechanism that adaptively samples from density maps to guide molecular generation, enabling structure-aware generation. 2. Unified fragment and pocket conditioning for lead optimization : Because both the protein pocket and a partial ligand are supplied to the model as the same continuous density field, a single mechanism supports de novo generation and fragment-conditioned growth with no architectural changes. This makes lead optimization a first-class capability: a medicinal chemist can prune a hit molecule down to a scaffold, and Sesame grows chemically sensible, pocket-compatible completions around it – 2a direct integration of human insight with generative chemistry. Across fragment-conditioned generation, 94.8% of generated molecules retain the seeding fragment as a substructure, confirming that the conditioning is honored rather than ignored. 3. Hybrid discrete-continuous diffusion : A unified diffusion process that handles discrete atom types and bond types via categorical diffusion and continuous coordinates via Gaussian diffusion. 4. Trajectory finetuning : A self-distillation finetuning scheme that rolls out the model’s own reverse-diffusion trajectories, re-matches the predicted atoms to ground truth, and trains on the resulting (noisy state, aligned target) pairs, improving the quality of fully generated molecules. 
+
+# 2 Related Work 
+
+Generating 3D molecules. Denoising generative models operating directly on 3D molec-ular structure have become the dominant paradigm for de novo design. Equivariant diffusion models established the template by jointly denoising atomic coordinates and types under E(3)/SE(3) symmetry (Hoogeboom et al., 2022), with subsequent work unifying the diffusion of continuous coordinates and discrete atom and bond features (Vignac et al., 2023b). A complementary line replaces denoising diffusion with flow matching, trading stochastic reverse-time dynamics for deterministic transport and typically improving sampling efficiency and physical quality (Irwin et al., 2025; Dunn and Koes, 2026). Most of these methods target generic small molecules – frequently benchmarked on QM9-scale data – rather than drug-like chemistry per se (Hoogeboom et al., 2022; Vignac et al., 2023b; Irwin et al., 2025), and they share a structural limitation relevant to our setting: the number of atoms is fixed prior to sampling, so the model cannot grow or trim a molecule to fit a target. A distinct architectural lineage comes not from molecule generation but from biomolecular structure prediction: AlphaFold3 couples a Pairformer trunk to a diffusion module that denoises raw atomic coordinates (Abramson et al., 2024), and the open Boltz models adopt and extend this co-folding architecture (Wohlwend et al., 2024; Passaro et al., 2025). While these systems predict the structure of a given complex rather than generating novel ligands, their pairwise-representation-plus-diffusion-decoder design directly informs the architecture of Sesame. 
+
+Spatial-field and voxel representations. A smaller body of work represents molecules not as point sets but as continuous spatial maps – most directly, voxel grids denoised in a learned density space, for both unconditional 3D generation (Pinheiro et al., 2024b) and structure-based design (Pinheiro et al., 2024a). This framing is the closest precedent for our conditioning scheme, in which both the pocket and the (partial) ligand are expressed as maps of physical potentials. ShEPhERD similarly operates over interaction fields – shape, electrostatic potential, and pharmacophores – generating molecules matched to a target profile (Adams et al., 2025), a representation that is conceptually the inverse of our pocket-conditioned setup. 
+
+Conditioning on scaffolds and fragments. Several methods generate molecules from a fixed structural prior – decorating a scaffold, linking fragments, or growing from a seed. DiffLinker designs linkers conditioned on disconnected 3D fragments (Igashov et al., 2024); 3DiffDec performs structure-aware scaffold decoration end-to-end (Xie et al., 2024); and 3D-Scaffold generates 3D coordinates of drug-like molecules around a specified scaffold (Joshi et al., 2021). These correspond to the second conditioning mode in Sesame, in which a full or partial map of a scaffold or fragment seeds generation; unlike methods that fix the substructure as discrete atoms, Sesame supplies it as the same continuous field used for the pocket, allowing the prior to be partial and the surrounding chemistry to be grown to fit. 
+
+Generative models for drug discovery. The methods above are largely concerned with generation in broad chemical space; a parallel body of work shares our specific goal of discovering drug-like hits against a target. For target-aware generation, diffusion models conditioned on the protein binding site generate ligands directly within the pocket: TargetDiff jointly models ligand atoms and their geometry conditioned on the protein context and additionally estimates binding affinity (Guan et al., 2023), while DiffSBDD applies equivariant diffusion to structure-based design across pocket-conditioned generation and inpainting tasks (Schneuing et al., 2024). More recent systems extend pocket conditioning to flow matching with multi-objective guidance (Cremer et al., 2024) and to unified interaction- and fragment-based generation (Cremer et al., 2026). Where an explicit pocket is unavailable, ShEPhERD pursues the same target-driven goal by conditioning on the interaction profile of a known ligand and generating bioisosteric replacements (Adams et al., 2025). A second, persistent gap between these generative models and practical hit finding is synthesizability: structurally valid molecules are not necessarily makeable. A growing line of work addresses this by generating directly in synthesizable chemical space – composing molecules from purchasable building blocks and reaction templates rather than from atoms (Gao et al., 2025), or by amortizing the search over synthetic routes with generative flow networks (Cretu et al., 2025). Sesame differs from the pocket-conditioned methods in that the pocket enters as a spatial potential map rather than as an explicit atomistic context, and pocket conditioning is optional rather than required; synthesizability-aware generation we view as complementary to spatial-field conditioning rather than competing with it, composable as a downstream filter or alternative decoder. Across these lines of work, conditioning on a spatial field, growing from a partial fragment, and targeting a protein pocket have been pursued largely in isolation; Sesame is designed to support all three within a single generative process. 
+
+# 3 Methods 
+
+3.1 Overall Architecture 
+
+Our training pipeline consists of several key components: data generation from multi-ple sources, density map computation, model forward pass, diffusion process, and loss computation. The training process begins with data generation from two sources: ZINC (ligand-only) and SAIR (protein-ligand pairs). Each sample undergoes preprocessing to generate density maps and extract molecular graphs. During training, the model receives noisy atom types and positions from the forward diffusion process, along with density maps and conditioning signals. The model predicts denoised atom types, positions, and bonds, which are compared to ground truth through a multi-component loss function. 4Table 1: Model dimensions and hyperparameters Parameter Value Single dimension ( ds) 384 Pair dimension ( dp) 128 Time dimension ( dt) 256 Density channel dimension ( dd) 384 Number of layers ( L) 24 Number of attention heads 4Number of sampling points ( O · H) 1024 Atom types ( AT ) 17 Bond types ( BT ) 6 (types 1–5 used; see text) Batch size ( B) 128 Max atoms per molecule ( N ) 50 Density grid resolution 0.5 ˚ ADensity grid cube side length 16 ˚ AOptimizer AdamW Weight decay 0.1 Learning rate 2 × 10 −3
+
+3.2 MoleculePairformer Architecture 
+
+3.2.1 Core Components 
+
+The MoleculePairformer 1 operates on two main representations (Figure 2A): 
+
+• Single representation s ∈ RN ×ds : Per-atom features of dimension ds = 384, where 
+
+N is the total potential number of atoms. 
+
+• Pair representation p ∈ RN ×N ×dp : Atom-pair features of dimension dp = 128. Atom types are represented as 16 discrete classes corresponding to (element, number of implicit hydrogens) pairs that occur in drug-like molecules, plus one additional pseudo-None class, giving AT = 17 total atom types. The 16 drug-like classes are: (C,0), (C,1), (C,2), (C,3), (N,0), (N,1), (N,2), (O,0), (O,1), (F,0), (P,0), (S,0), (S,1), (Cl,0), (Br,0), (I,0). These cover the vast majority of heavy atoms in drug-like molecules, with implicit hydrogen count encoding local valence context without requiring explicit hydrogen atoms in the model. One key feature of the molecular generation process is that the model needs to predict not only which atom types exist where in space, but also how many atoms are needed for a given molecule. Put differently, the model may output a maximum of N atoms, but must predict the pseudo-None type for all atoms that do not exist in the final molecule. The model uses multiple embedding layers: 1. Atom type embedding : Linear layer mapping from AT noised atom types to ds
+
+dimensions.   
+
+> 1The MoleculePairformer follows the Evoformer/Pairformer lineage of AlphaFold; architecturally it is a pairformer – operating on single and pair representations with no MSA track – and we refer to it as such throughout. The “Evoformer” in Sesame’s expansion (Spatial Evoformer for a Structure-Aware Molecular Engine) reflects this lineage.
+
+52. Atom position embedding : Fourier embedding of atomic positions, followed by a linear projection to ds dimensions. 3. Bond type embedding : Linear layer mapping from BT noised bond types to dp
+
+dimensions, added to the position pair embedding. 4. Position pair embedding : Fourier embedding of relative atomic positions, followed by a linear projection to dp dimensions. Diagonal elements receive the atom position instead of the (zero) relative position. 5. Time embeddings : Three separate Fourier embeddings of the diffusion timestep 
+
+τ ∈ [0 , 1] 3, one per noise channel (coordinate, atom type, bond type), each projected to dt dimensions. The Fourier embedding for a scalar t is defined as: Fourier( t) = √2 cos(2 π(tw + b)) (1) where w and b are learnable parameters. Notably, for both the position and position pair embeddings, all 3 spatial dimensions are embedded with the same w and b. The linear projection that follows does distinguish between the 3 dimensions, though, so the symmetry between dimensions ends there. The atom type and atom position embeddings are summed to form the initial single representation s. The position pair embedding and bond type embedding are summed to form the initial pair representation p. The coordinate and atom type time embeddings are each incorporated into the single representation via separate GatedResidual layers, while the bond type time embedding is incorporated into the pair representation via a GatedResidual 
+
+layer. Finally, each initial 6 × 32 × 32 × 32 density map (protein and ligand) is processed into a 
+
+dd × 12 × 12 × 12 volume via a series of 3D convolutions and MaxPool layers. 
+
+3.2.2 Pairformer Layers 
+
+Each MoleculePairformer layer consists of several components applied in sequence: 
+
+Density Map Conditioning Operations (Figure 2C): First, we generate sampling points via attention on the single representation. Rather than self-attention, we use a per-layer learned key vector of shape H × O × dh, where O is the number of sampling points emitted per attention head. These then attend to the query vectors derived from the single representation. The value vectors (of shape H × 3, where H is the number of heads, typically 4) are also derived from the single representation. With O = 256 sampling points per head and H = 4 heads, this yields 1024 sampling points in total. The sampling points are used to extract features from the density map via trilinear interpolation: 
+
+Fdensity = GridSample( Dprotein , Psample ) (2) where Dprotein ∈ Rdd×12 ×12 ×12 is the post-3D convnet density map. The dd density features are concatenated with sampling point coordinates and used in cross-attention to update single and pair representations. Queries are single- and pair-derived vectors, while key and value vectors are derived from the sampled points. Key vectors are shared between both representations, while value vectors are computed separately. 6Finally, these attention terms are added back to the model via gated residual connections. Details of this module can be found in Appendix A. 
+
+Triangle Operations : Following AlphaFold’s Evoformer architecture, we use triangle multiplication and triangle attention operations. Triangle multiplication computes: 
+
+zij = X
+
+> k
+
+aik bjk (3) for outgoing triangles, and similarly for incoming triangles. 
+
+Triangle Attention : Applies attention along one dimension of the pair representation: Attention( Q, K, V) = softmax 
+
+ QK T
+
+√dk
+
++ B
+
+
+
+V (4) where B is a pair bias learned from the pair representation. 
+
+Attention with Pair Bias : The single representation is updated via attention, with bias terms from the pair representation: 
+
+s′ = s + Attention( s, s, s; bias = p) (5) 
+
+Feed-Forward Networks : We use SwiGLU (Shazeer, 2020) activation: SwiGLU( x) = SiLU( W1x) ⊙ (W2x) (6) All operations are wrapped with residual connections and pre-layer normalization. Fig-ure 2B illustrates the layer structure. 7Inputs 
+
+> noisy atoms, positions, bonds protein & ligand density maps noise levels ( ×3), density gates
+> atom + coordinate embedding
+> bond + position-pair embedding
+> 3D CNN  ×2
+> (protein, ligand)  noise / time conditioning
+> bond-noise conditioning
+> single  (B, N,  384)  pair  (B, N, N,  128)
+> Pairformer layer  × 24
+> single track  ‖ density conditioning  ‖ pair track
+> atom-type head
+> coordinate head
+> bond head
+> from single  from pair
+> A MoleculePairformer
+> single  pair
+> Density-map conditioning
+> protein & ligand  → gated residual into single & pair
+> +
+> triangle mult.
+> (outgoing / incoming)
+> +
+> triangle attn.
+> (start / end)
+> +
+> pair FFN
+> (SwiGLU)
+> +
+> pair ′
+> +
+> attention
+> (pair-biased)
+> +
+> single FFN
+> (SwiGLU)
+> +
+> single ′
+> pair bias
+> B Pairformer layer
+> density volume
+> (B, C, X, Y, Z ) single  pair
+> 1. Predict query points
+> attention: single  → learned anchor points
+> ⇒ 1024 sample coords  (B,  1024 , 3)
+> 2. Sample density
+> grid_sample  volume at the 1024 points
+> ⇒ density features  (B,  1024 , C )
+> 3. Cross-attention to samples
+> targets  = [  density features  ; coords  ]
+> single / pair queries  → attend over 1024 targets
+> single cond.
+> (B, N,  384)
+> pair cond.
+> (B, N, N,  128)
+> coords
+> C DensityMapConditioning Figure 2:  The  MoleculePairformer  architecture.  (A)  Noisy atoms, positions, and bonds are embedded into single and pair representations, conditioned on noise level and encoded protein/ligand density maps, and passed through  L = 24 Pairformer layers before the atom-type, coordinate, and bond output heads.  (B)  A single Pairformer layer applies density-map conditioning, then triangle and feed-forward updates on the pair track and pair-biased attention on the single track.  (C)  Density-map conditioning: the single representation predicts query points that sample the density volume, whose features then update both tracks via cross-attention.
+> 8
+
+3.2.3 Output Heads 
+
+The model produces three outputs: 
+
+Atom Type Head : Predicts logits over AT atom types: 
+
+Apred = MLP( s) (7) 
+
+Coordinate Head : Predicts 3D coordinates: 
+
+Cpred = MLP( s) (8) 
+
+Bond Head : Predicts bond types between atom pairs: 
+
+Bpred = Symmetric(MLP( p)) (9) where Symmetric ensures the bond matrix is symmetric (bond between atoms i and j equals bond between j and i). 
+
+3.3 Diffusion Process 
+
+Molecular generation requires handling both discrete atom types and continuous atomic coordinates. We introduce a novel diffusion process that jointly models these two modalities within a unified framework. The forward diffusion process adds noise independently to each modality, while the reverse process uses joint model predictions to denoise both simultaneously. 
+
+3.3.1 Forward Process 
+
+The forward process defines a distribution q(Cτ , Aτ , Bτ |C0, A0, B0, τ ) over noisy coordinates 
+
+Cτ , noisy atom types Aτ , and noisy bond types Bτ , given true atom coordinates C0, true atom types A0 ∈ { 0, . . . , AT − 1}N , true bond types B0 ∈ { 0, . . . , BT − 1}N ×N , at timestep 
+
+τ ∈ [0 , 1] 3, where τ [0] controls coordinate noise, τ [1] controls atom type noise, and τ [2] controls bond type noise, each sampled independently during training. At τ = (1 , 1, 1), all modalities are considered fully noised. 
+
+Coordinate diffusion For coordinates, we perform a relatively simple set of operations. First, we add noise sampled from N  0, σ 2(τ [0]) I , where σ : [0 , 1] → [smin , s max ] is a power-law function, with p = 7 , s min = 0 .01˚ A, and smax = 8˚ A. 
+
+σ(τ [0]) = 
+
+
+
+s1/p  
+
+> max
+
++ (1 − τ [0])( s1/p  
+
+> min
+
+− s1/p 
+
+> max
+
+)
+
+p
+
+(10) Because coordinate noise is added independently to each atom, a freshly noised cloud is not arranged the way the model expects to denoise it: the point that lands near a given ground-truth atom is not necessarily the one sharing its index. We therefore re-pair the noised points to the ground-truth atoms by minimum total displacement, using a modified Jonker-Volgenant assignment, so that the noisy state is already in correspondence with the target the model predicts. Importantly, this re-pairing does not move any points; as an unordered cloud the noised positions are unchanged, and the assignment only selects which ground-truth atom each point denoises toward. 9Concretely, let ˜Cτ = C0 + ϵ with ϵ ∼ N (0 , σ 2(τ [0]) I) be the noised positions. These are sampled independently, giving the product form 
+
+q( ˜Cτ | C0, τ ) = 
+
+> N
+
+Y
+
+> i=1
+
+N
+
+ ˜Cτ [i]; C0[i], σ 2(τ [0]) I
+
+
+
+. (11) We then compute the pairwise distance cost matrix Cost ij = ∥ ˜Cτ [i] − C0[j]∥2 and find the assignment minimizing total displacement: 
+
+π∗ = arg min 
+
+> π∈SN
+> N
+
+X
+
+> i=1
+
+∥ ˜Cτ [π(i)] − C0[i]∥2, (12) which pairs each ground-truth atom i with the noised point π∗(i) it should denoise toward. The matched coordinates are Cτ [i] = ˜Cτ [π∗(i)], and the discrete targets are permuted by the same assignment ( A0 reindexed by π∗, and the rows and columns of B0 permuted identically), so that type and bond identity remain consistent with the re-paired positions. The discrete corruptions are then applied to these permuted targets: 
+
+q(Aτ | A0, π ∗, τ ) = 
+
+> N
+
+Y
+
+> i=1
+
+q(aτ [i] | a0[i], τ [1]) , (13) 
+
+q(Bτ | B0, π ∗, τ ) = 
+
+> N
+
+Y
+
+> i=1
+> N
+
+Y
+
+> j=1
+
+q(bτ [i, j ] | b0[i, j ], τ [2]) , (14) where a0[i] and b0[i, j ] denote the permuted ground-truth types ( A0[π∗(i)] and B0[π∗(i), π ∗(j)]), and the per-atom and per-pair discrete marginals are as defined in the paragraphs below. 
+
+Atom Type Diffusion We use a marginal diffusion scheme, following the framework of DiGress (Vignac et al., 2023a). The atom type noise level is parameterized by τ [1] ∈ [0 , 1] via a cosine schedule: ¯α(τ [1]) = cos 2
+
+ π τ [1] 2
+
+
+
+(15) so that ¯α(0) = 1 (no noise) and ¯α(1) = 0 (fully noised). The forward marginal for a single atom type is then: 
+
+q(aτ [1] = k | a0 = i) = ¯ α(τ [1]) 1[i = k] + (1 − ¯α(τ [1])) m(A) 
+
+> k
+
+(16) where m(A) 
+
+> k
+
+= 1 /AT is the uniform distribution over atom types. A uniform prior means that at full noise ( ¯α = 0) every atom type is equally likely, avoiding any systematic bias toward chemically common types during the noising process. For a pair of consecutive noise levels τi[1] > τ i−1[1], the effective one-step corruption probability is: 
+
+βτi−1→τi = 1 − ¯α(τi[1]) ¯α(τi−1[1]) (17) This ratio-based formulation means no fixed discrete schedule is required: during training, 
+
+τ [1] is sampled uniformly from [0 , 1], and during generation a trajectory of sorted noise levels is used, with β derived from consecutive ¯ α ratios at each step. 10 Bond Type Diffusion Bond types undergo the same marginal diffusion scheme as atom types, but use an independent noise coordinate τ [2] ∈ [0 , 1] with its own cosine schedule ¯α(τ [2]) = cos 2(πτ [2] /2). Each pairwise bond type is independently noised as: 
+
+q(bτ [2] = k | b0 = i) = ¯ α(τ [2]) 1[i = k] + (1 − ¯α(τ [2])) m(B) 
+
+> k
+
+(18) where m(B) is a fixed prior over bond types, chosen to reflect the strong sparsity of molecular graphs: 
+
+m(B) = [0 , 0.0025 , 0.0025 , 0.0025 , 0.0025 , 0.99] (19) corresponding to types 0 (unused), 1 (single), 2 (double), 3 (triple), 4 (aromatic), and 5 (None) respectively. The dominant weight on type 5 reflects the fact that the vast majority of atom pairs in a molecule are unbonded. The small equal weights on types 1–4 provide a weak non-zero prior over all bonded types, ensuring the posterior never assigns exactly zero probability to any valid bond during the reverse process. Type 0 receives zero prior weight, as it is unused. The noised bond types Bτ are provided as input to the model alongside the noised atom types Aτ , encoded via the pair representation. 
+
+3.3.2 Reverse Process 
+
+The reverse process defines a distribution p(Aτi−1 , Bτi−1 , Cτi−1 |Aτi , Bτi , Cτi , θ, d ) over de-noised atom type logits, bond type logits, and coordinates, given noisy inputs, model parameters θ, and density maps d. The model predicts all three jointly, but the denoising processes are conditionally independent given these predictions: 
+
+p(Cτi−1 , Aτi−1 , Bτi−1 | Aτi , Bτi , Cτi , θ, d)= p(Aτi−1 | Aτi , Bτi , Cτi , θ, d) · p(Bτi−1 | Aτi , Bτi , Cτi , θ, d) · p(Cτi−1 | Aτi , Bτi , Cτi , θ, d)(20) 
+
+Coordinates The model predicts denoised positions Cpred = gθ(Aτi , Bτi , Cτi , τ i, d). Co-ordinates are updated deterministically, while the discrete atom and bond types are sam-pled from their reverse posteriors (below); the coordinate update follows the DDIM-style probability-flow rule (Song et al., 2021) for a variance-exploding schedule: 
+
+Cτi−1 = Cpred + σ(τi−1[0]) 
+
+σ(τi[0]) (Cτi − Cpred ) (21) Note that since the model is trained to predict positions post-matching, we assume that the model predictions already correspond to the correct input atoms, and do not perform any matching algorithm during a denoising step. 
+
+Types The model predicts x0 logits Apred = hθ(Aτi , Bτi , Cτi , τ i, d) for atom types. The reverse posterior is derived by Bayes’ rule and marginalizing over x0:
+
+pθ(aτi−1 = j | aτi = k) ∝ q(aτi = k | aτi−1 = j)·X
+
+> i′
+
+pθ(a0 = i′ | aτi )
+
+q(aτi = k | a0 = i′) ·q(aτi−1 = j | a0 = i′)(22) 11 where all three terms have closed forms under the marginal diffusion structure (Section 3.3.1); in particular, the one-step transition q(aτi | aτi−1 ) is the marginal-scheme transition with corruption probability βτi−1→τi defined there. Critically, the q(aτi = k | a0 = i′) denominator must remain inside the sum — factoring it out drops an i′-dependent correction that systematically over-concentrates probability mass on the most likely class, producing an 
+
+O(K) error on minority classes at low noise levels. In practice this reduces to a K × K matrix multiply per atom: let w = pθ(a0 | aτi )/q (aτi |
+
+a0) (element-wise, clamped for numerical stability), and [ Qτi−1 ]i′j = q(aτi−1 = j | a0 = i′); the unnormalized posterior is: ˜pj ∝ q(aτi = k | aτi−1 = j) · (w⊤Qτi−1 )j (23) normalized over j ∈ { 0, . . . , AT − 1}, from which aτi−1 is sampled. 
+
+Bond Types Bond types are denoised using the identical posterior formula, with m(B),
+
+BT , τ [2], and Bpred replacing their atom-type counterparts. 
+
+3.4 Training Methodology 
+
+3.4.1 Diffusion Training Objective 
+
+During initial training, the model learns to predict both atom types and positions by maximizing the likelihood of the data under the forward diffusion process. The model predicts Cpred , Apred , and Bpred from noisy inputs ( Aτ , Bτ , Cτ ) at a randomly sampled timestep τ .
+
+3.4.2 Loss Functions 
+
+Our loss function combines multiple components: 
+
+Atom Type Loss : Cross-entropy with label smoothing (smoothing factor 0.02): 
+
+Ltype = CrossEntropy( Apred , Atrue ; smoothing = 0 .02) (24) 
+
+Bond Type Loss : Cross-entropy on bonds: 
+
+Lbond = CrossEntropy( Bpred , Btrue ; smoothing = 0 .001) (25) 
+
+Position Loss : Mean squared error: 
+
+Lpos = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+∥C(i)pred − C(i)true ∥2 (26) 
+
+LDDT Loss : We use the same loss as many other protein-folding models, in order to ensure good bond distances, bond angles, dihedral angles, and other multi-atom distances. 
+
+Llddt = 1 − 1
+
+N (N − 1) 
+
+X
+
+> i̸=j
+
+1
+
+|T | 
+
+X 
+
+> τ∈T
+
+σ
+
+
+
+τ − ∥C(i)pred − C(j)pred ∥ − ∥ C(i)true − C(j)true ∥
+
+
+
+(27) where T = {0.5, 1.0, 2.0, 4.0} ˚A are distance thresholds and σ(x) = 1 /(1 + e−x) is the logistic sigmoid. The total loss is a simple unweighted combination: 
+
+Ltotal = Ltype + Lbond + Lpos + Llddt (28) 12 3.4.3 Pretraining Procedure Density Map Augmentation : During training, we apply augmentation to density maps: 
+
+• 50% dropout: Zero out the density map (unconditioned generation) 
+
+• 50% unchanged: Use original density map This augmentation encourages the model to be robust to missing or noisy conditioning information. It also ensures that the model does not over-index on the existence of protein or ligand maps, as the information contained therein is non-trivial. Datapoints with no protein map necessarily come from the ligand-only data source, while datapoints with no ligand map come from the protein-ligand data source, but had an error during ligand map generation, which is strongly correlated with the presence of certain atoms, such as Boron or Silicon, for which the forcefield generation can fail. 
+
+Optimization : We use AdamW optimizer with learning rate 2 · 10 −3 and ϵ = 10 −6.Notably, we use a higher-than-default weight decay of 0.1. Learning rate scheduling: 
+
+• Linear warmup: 500 steps, start factor 10 −3
+
+• Cosine decay: Tmax =100k, ηmin = 10 −3
+
+We used a batch size of 128, and an epoch size of 8192, leading to a set of validation metrics every 64 optimizer steps. Table 2: Training hyperparameters Parameter Value Learning rate 2 × 10 −3
+
+Optimizer AdamW ( ϵ = 10 −6)Weight decay 0.1 Batch size 128 Epoch size 8192 Max optimizer steps 100,000 Gradient norm clipping 10 
+
+3.4.4 Trajectory finetuning 
+
+To aid the model in creating high quality molecules during generation, we applied a fine-tuning pass during which we perform the following procedure: 
+
+• Sample a datapoint identically to that in pretraining. 
+
+• Noise that datapoint to a random noise level in the full noise space. 
+
+• Perform a 100-step diffusion process with that starting noised datapoint, recording each intermediate state as a separate datapoint. 
+
+• Perform a matching algorithm from the ground truth to the final prediction, and use that permutation to re-order the ground truth. 13 • Emit each pair of (input, permuted ground truth) as a datapoint for finetuning. The matching step is critical, because although the individual atom slots have fixed identity, as they were noised from a given input, often a pretrained model will choose to permute several slots early in the trajectory, and not recomputing the permutation leads to a misalignment between the training-time prediction and the ground truth. For finetuning, we use a learning rate of 2 · 10 −6. Other hyperparameters are the same as pretraining. 
+
+3.5 Data Pipeline 
+
+3.5.1 Ligand-Only Datasets ZINC Database : We use the ZINC22 database (Tingle et al., 2023), which contains over 37 billion ready-to-make commercially available compounds. We have downloaded approximately 15 billion compounds for training, filtered to those with 3–50 heavy atoms. For each compound, we generate a 3D conformer using RDKit, apply MMFF94 force field initialization, and compute a density map from the resulting forces and RDKit-derived properties. ZINC provides diverse molecular structures without protein context, enabling the model to learn general molecular geometry and chemistry. 
+
+3.5.2 Ligand-Protein Datasets SAIR Dataset : The Structurally-Augmented IC50 Repository (Lemos et al., 2025) con-tains protein-ligand complexes, predominantly co-folded (synthetic) structures rather than experimental ones. We process SAIR by: 
+
+• Extracting binding pockets around ligands (radius 8 √3 ˚ A) 
+
+• Computing protein properties (charge, hydrophobicity, H-bond donors/acceptors, aromaticity, VdW radii) 
+
+• Generating density maps for both protein and ligand as above 
+
+3.5.3 Density Map Generation 
+
+Density maps are generated with a grid resolution of 0.5 ˚A over a fixed cube size of 32 × 32 × 32 voxels, or a cube with side length 16 ˚A centered at the molecule’s centroid. We used 6 channels encoding charge, hydrophobicity, H-bond donor, H-bond acceptor, aromatic interactions, and van der Waals potential. For ligand density maps, an MMFF94 forcefield was generated using RDKit, and the parameters of that forcefield were used to determine the parameters for the density map generation below. Hydrophobicity channel parameters were determined by using RDKit’s Crippen contributions per-atom. Aromaticity was determined from automatic recognition by RDKit, and H-bond acceptor and donors were detected with SMARTS patterns. For protein density maps, each protein heavy atom had a hardcoded list of the parameters, with no adjustments made for their environment. The density map generator places atomic contributions onto the grid using Gaussian kernels for the hydrophobicity, π-stacking, and H-bond channels, with channel-specific kernel widths for the different interaction types. The electrostatic and van der Waals potentials 14 were computed using their standard analytic formulas. For the van der Waals channel, a post-processing transform of a scaled tanh was applied for numerical stability. 
+
+3.6 Data Augmentation 
+
+3.6.1 Rotational Augmentation 
+
+Random 3D rotations are applied to both ligands and proteins, ensuring rotational invariance. Rotations are generated using QR decomposition of random matrices, ensuring uniform sampling from SO(3). This augmentation prevents overfitting to specific orientations. 
+
+3.6.2 Fragment augmentation 
+
+In order to obtain a model capable of denoising a molecule with a soft constraint of a molecular fragment, we perform the following data augmentation when generating the ligand data on-the-fly during training. First, we use RDKit’s Murcko scaffold implementation to select the canonical scaffold for the target molecule. Then, we sample uniformly the desired fragment size. If that size is smaller than the scaffold, then we remove atoms one at a time at random, restricting to those that would not create disconnected fragments. If the desired size is larger than the scaffold, we add atoms from the molecule one at a time at random, restricting to those that directly connect to atoms already within the fragment. In this way, we obtain an augmented set of fragments that are uniformly size-distributed, and heavily biased towards scaffold-like fragments. This fragment is then used to create the ligand density map in 50% of ligand-conditioned cases. Note that the direct inputs and outputs of the model are unchanged; only the conditioning itself is affected. Table 3: Dataset statistics Dataset Size Notes ZINC ∼15B (of 37B) Ligand-only, 3D conformers SAIR ∼8M Protein-ligand complexes 
+
+# 4 Experiments 
+
+4.1 Training Setup 
+
+Training was performed on an A100 GPU. We used PyTorch 2.7.1 with CUDA 12.6 support and PyTorch Lightning 2.5.0. Pretraining ran for approximately a week over 100k optimizer steps, which corresponds to 12M training datapoints. Finetuning ran for approximately 24 hours, over 1M datapoints. 
+
+4.2 Training Validation 
+
+We validate the model across multiple conditioning modes to assess its ability to use structural information: 
+
+• Fully conditioned (P+L) : Both protein and ligand density maps provided 15 • Protein and fragment conditioned (P+F) : Both protein density maps and a ligand density map from a fragment provided 
+
+• Protein-only (P) : Only protein density map provided 
+
+• Full ligand conditioning (L) : Only ligand density map provided 
+
+• Fragment conditioning only (F) : Only a ligand density map from a fragment is provided 
+
+• Unconditioned (U) : No density maps provided Note that LDDT here is a sigmoid-normalized fraction of atom-pairs that correctly lie within [0.5, 1, 2, 4] ˚A of the ground truth; a surrogate to the loss used in training. Single-fragment is the fraction of molecules that are fully-connected, which proves to be a surprising challenge for variable-atom count models. Atom validity is the proportion of atoms that have correct valence structure. Note that Sesame splits out different atom types according to their hydrogen count, so this metric is stricter than the same metric for many other similar models. Molecule validity is the fraction of generated molecules that satisfy both of the above, for all the constituent atoms. Table 4 shows the results for pretraining, and table 5 shows the results for finetuning. Notably, trajectory-level metrics improve with finetuning, while single-step metrics stay roughly equivalent or degrade slightly. Table 4: Validation metrics by conditioning mode (pretrained) P+L P+F P L F USingle-step metrics from randomly partially noised inputs Loss 0.349 0.508 0.684 0.349 0.565 0.857 Type Accuracy 0.983 0.955 0.924 0.983 0.949 0.909 Bond Accuracy 0.997 0.995 0.993 0.997 0.995 0.993 True Bond Acc 0.911 0.850 0.788 0.911 0.838 0.761 Bond Precision 0.983 0.978 0.977 0.983 0.977 0.982 Bond Recall 0.915 0.859 0.803 0.915 0.848 0.776 Position MSE 0.022 0.074 0.135 0.022 0.105 0.241 LDDT 0.982 0.964 0.946 0.982 0.958 0.929 20-step reverse diffusion validation metrics Single-fragment 0.991 0.939 0.857 0.989 0.924 0.816 Atom validity 0.990 0.992 0.996 0.990 0.991 0.988 Molecule validity 0.755 0.776 0.773 0.752 0.753 0.734 The main type of error the model makes is creating spurious atoms. This is most noticeable in the fragment-conditioning regime, but occurs across all conditioning environments. These excess atoms are typically singletons that do not have any bonds, and the issue can likely be solved with more finetuning or cleverer noise schedules. However, we note that with simple post-processing to remove these atoms, the validity metrics for the two most salient regimes for drug discovery – protein + fragment for lead optimization and protein-only for de novo 
+
+generation – jump to 92.4% and 88.7% respectively on the finetuned model. 16 Table 5: Validation metrics by conditioning mode (finetuned) P+L P+F P L F USingle-step metrics from randomly partially noised inputs Loss 0.381 0.532 0.692 0.380 0.594 0.868 Type Accuracy 0.978 0.950 0.923 0.978 0.944 0.908 Bond Accuracy 0.996 0.995 0.993 0.996 0.995 0.993 True Bond Acc 0.919 0.855 0.790 0.919 0.845 0.760 Bond Precision 0.976 0.969 0.973 0.976 0.970 0.982 Bond Recall 0.923 0.866 0.805 0.923 0.856 0.774 Position MSE 0.030 0.080 0.138 0.030 0.115 0.246 LDDT 0.980 0.963 0.945 0.980 0.956 0.929 20-step reverse diffusion validation metrics Single-fragment 0.994 0.964 0.899 0.994 0.950 0.820 Atom validity 0.992 0.993 0.996 0.992 0.992 0.991 Molecule validity 0.796 0.805 0.825 0.792 0.791 0.763 Beyond producing valid molecules, fragment conditioning must actually steer generation toward the supplied seed. Across all fragment-conditioned generation (both protein + fragment and fragment-only), 94.8% of generated molecules contain the seeding fragment as a substructure, confirming that the soft density-map conditioning reliably preserves the intended scaffold rather than discarding it. Validity alone, however, does not guarantee that generated molecules resemble viable drug candidates. To assess this, we compare the property distributions of Sesame-generated molecules against ligands drawn from SandboxAQ’s SAIR dataset (Lemos et al., 2025), a large synthetic structural dataset that has been widely used to train recent structure-based models. As shown in Figure 3, Sesame produces molecules whose property distributions closely track those of real drug-like ligands and largely respect the Lipinski Rule of 5 thresholds. Notably, seeding generation with an existing scaffold yields slightly more drug-like distributions than 
+
+de novo generation. 
+
+4.3 Sampling 
+
+When sampling with a Sesame model, there are several distinct choices that can be made. The most salient of these is to choose the full 3-dimensional noise schedule, as the model is trained to denoise in a schedule-agnostic manner, but not all paths through noise space are equal. While a full optimization of this path is certainly an option, we chose to adopt a simple strategy: Given that each noise coordinate is normalized to [0 , 1] , choose a function 
+
+σ(t) = ( tγposition , t γatom , t γbond ). We can then sweep through a small set of choices for each of the γ by running a 20-step denoising trajectory with a linear t from 1 to 0. For our sweep, we chose 4 values of γ (0.5, 1, 2, 4), to look at 64 schedules with 2048 randomly sampled initial states, protein conditioning, and no ligand conditioning. We scored the generated molecules with a custom score that penalizes the above metrics in a smooth manner. Results of this sweep are in Figure 4. As expected, the ideal γposition was larger than γatom . This essentially states that fixing positions first is preferable to fixing atom types, and then trying to match them to the correct point in space. Surprisingly, a large γ for bonds was strongly 17 200 
+
+> 300
+> 400
+> 500
+> 600
+> 700
+> 800
+> Molecular weight (Da)
+> Molecular weight (Da)
+> 2
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> cLogP
+> cLogP
+> 0
+> 50
+> 100
+> 150
+> 200
+> TPSA (Å²)
+> TPSA (Å²)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> QED
+> QED
+> 15
+> 20
+> 25
+> 30
+> 35
+> 40
+> 45
+> 50
+> Heavy-atom count
+> Heavy-atom count
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Fraction Csp³
+> Fraction Csp³
+
+Drug-like property distributions   
+
+> Target: real ligands Lead optimization (from fragments) De novo drug design
+
+Figure 3: Sesame produces drug-like molecules. We compare Sesame’s molecule generation to ligands drawn from SandboxAQ’s SAIR dataset, which has been widely used to train recent models. Sesame produces molecules with a similar distribution of properties as real drugs; notably, starting with an existing scaffold (blue distributions) performs slightly better than de novo generation (green distributions). Red dashed lines indicate Lipinski Rule of 5 thresholds, where applicable. 18 favored, one that implies that bonds are fixed before positions become well-determined. Our leading hypothesis is that this is due to two main factors: first, the pairwise matrix of bonds has a magnitude of order more micro-decisions to make, but most of these are relatively trivial. As a result, fixing most bonds to be the non-bonding class is easier to set early and correct at low noise levels, rather than one-shotting the prediction near the end of the diffusion process. The second factor that we believe to be important is that the bond matrix at low noise provides a strong bias for the general structure of the molecule, and make both position and type denoising easier. 0.5 1 2 4                   
+
+> type
+> 0.5
+> 1
+> 2
+> 4
+> pos
+> (a)
+> bond = 0.5
+> 0.5 124
+> type
+> 0.5
+> 1
+> 2
+> 4bond = 1
+> 0.5 124
+> type
+> 0.5
+> 1
+> 2
+> 4bond = 2
+> 0.5 124
+> type
+> 0.5
+> 1
+> 2
+> 4bond = 4
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> pos noise level
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> type noise level
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> bond noise level
+> start (1,1,1)
+> (b)
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> mean total score
+> Mean total score over ( pos ,type ), faceted by bond
+> Power-law schedule trajectories through the noise-level cube
+
+Figure 4: Results from the schedule sweep. Top: gradient-smoothed average score from the 64 schedules. Bottom: 3d path of the schedule in normalized noise space. Paths are colored according to their average final score. 
+
+# 5 Discussion 
+
+Human-in-the-loop lead optimization. A central design goal of Sesame is to make lead optimization a first-class mode of use rather than a special case of de novo generation. The most common real-world drug-discovery task is not designing a molecule from nothing, but 19 improving a known hit. Because a partial ligand enters the model as the same continuous density field used for the protein pocket (Section 3.6.2), a chemist can prune a hit to the substructure worth keeping and hand Sesame that fragment as a soft prior; the model then grows the remaining chemistry to fit both the fragment and the pocket. Unlike methods that fix a scaffold as discrete atoms, the field-based prior can be partial and approximate, and the surrounding atoms, bonds, and geometry are all free to adapt around it. This dual capability is reflected in our validation. The protein-plus-fragment (P+F) regime is among the strongest across the trajectory-level metrics (Table 5), and after simple post-processing the two regimes we consider most salient for drug discovery – protein-plus-fragment for lead optimization and protein-only for de novo generation – reach 92.4% and 88.7% molecule validity respectively. We view this combination, exposed through a single conditioning interface, as the practical core of the system: human structural insight and generative chemistry are composed rather than traded off. 
+
+# 6 Conclusion 
+
+We presented Sesame, a structure-aware molecular generation system that uses density map conditioning and hybrid diffusion. Our key innovation is an attention-based density map conditioning architecture that adaptively extracts structural information to guide generation. The hybrid diffusion process handles both discrete atom types and continuous coordinates within a unified framework. Experiments demonstrate that the model effectively uses conditioning information, with performance improving when both protein and ligand density maps are provided. Multi-source training enables learning from both general molecular chemistry and specific binding interactions. Critically, because the pocket and a partial ligand are presented to the model through the same density-map interface, Sesame supports both de novo design and fragment-conditioned lead optimization within one framework. Our validation across protein-only and protein-plus-fragment regimes shows the model makes productive use of a supplied scaffold, pointing toward a workflow in which a medicinal chemist’s structural insight directly seeds generation and the model elaborates it into pocket-compatible molecules. 
+
+# References 
+
+Josh Abramson, Jonas Adler, Jack Dunger, Richard Evans, Tim Green, Alexander Pritzel, Olaf Ronneberger, Lindsay Willmore, Andrew J. Ballard, Joshua Bambrick, Sebastian W. Bodenstein, David A. Evans, Chia-Chun Hung, Michael O’Neill, David Reiman, Kathryn Tunyasuvunakool, Zachary Wu, Akvil˙ e ˇZemgulyt˙ e, Eirini Arvaniti, Charles Beattie, Ottavia Bertolli, Alex Bridgland, Alexey Cherepanov, Miles Congreve, Alexander I. Cowen-Rivers, Andrew Cowie, Michael Figurnov, Fabian B. Fuchs, Hannah Gladman, Rishub Jain, Yousuf A. Khan, Caroline M. R. Low, Kuba Perlin, Anna Potapenko, Pascal Savy, Sukhdeep Singh, Adrian Stecula, Ashok Thillaisundaram, Catherine Tong, Sergei Yakneen, Ellen D. Zhong, Michal Zielinski, Augustin ˇZ´ ıdek, Victor Bapst, Pushmeet Kohli, Max Jaderberg, Demis Hassabis, and John M. Jumper. Accurate structure prediction of biomolecular interactions with AlphaFold 3. Nature , 630(8016):493–500, 2024. doi: 10.1038/s41586-024-07487-w. URL https://doi.org/10.1038/s41586-024-07487-w .20 Keir Adams, Kento Abeywardane, Jenna Fromer, and Connor W. Coley. ShEPhERD: Diffusing shape, electrostatics, and pharmacophores for bioisosteric drug design. In The Thirteenth International Conference on Learning Representations (ICLR 2025) , 2025. URL https://openreview.net/forum?id=KSLkFYHlYg .Julian Cremer, Tuan Le, Frank No´ e, Djork-Arn´ e Clevert, and Kristof T. Sch¨ utt. PILOT: Equivariant diffusion for pocket-conditioned de novo ligand generation with multi-objective guidance via importance sampling. Chemical Science , 15:14954–14967, 2024. doi: 10.1039/ D4SC03523B. URL https://doi.org/10.1039/D4SC03523B .Julian Cremer, Ross Irwin, Alessandro Tibo, Jon Paul Janet, Simon Olsson, and Djork-Arn´ e Clevert. FLOWR: Flow matching for structure-aware de novo, interaction- and fragment-based ligand generation. Nature Computational Science , 2026. doi: 10.1038/ s43588-026-00998-8. URL https://doi.org/10.1038/s43588-026-00998-8 .Miruna Cretu, Charles Harris, Ilia Igashov, Arne Schneuing, Marwin Segler, Bruno Correia, Julien Roy, Emmanuel Bengio, and Pietro Li` o. SynFlowNet: Towards molecule design with guaranteed synthesis pathways. In The Thirteenth International Conference on Learning Representations (ICLR 2025) , 2025. URL https://openreview.net/forum? id=uvHmnahyp1 .Ian Dunn and David R. Koes. FlowMol3: Flow matching for 3d de novo small-molecule generation. Digital Discovery , 5(5):2052–2066, 2026. Wenhao Gao, Shitong Luo, and Connor W. Coley. Generative AI for navigating syn-thesizable chemical space. Proceedings of the National Academy of Sciences , 122(41): e2415665122, 2025. doi: 10.1073/pnas.2415665122. URL https://doi.org/10.1073/ pnas.2415665122 .Jiaqi Guan, Wesley Wei Qian, Xingang Peng, Yufeng Su, Jian Peng, and Jianzhu Ma. 3d equivariant diffusion for target-aware molecule generation and affinity prediction. In The Eleventh International Conference on Learning Representations (ICLR 2023) , 2023. URL 
+
+https://openreview.net/forum?id=kJqXEPXMsE0 .Emiel Hoogeboom, V´ ıctor Garcia Satorras, Cl´ ement Vignac, and Max Welling. Equivariant diffusion for molecule generation in 3d. In Proceedings of the 39th International Conference on Machine Learning , pages 8867–8887, 2022. Ilia Igashov, Hannes St¨ ark, Cl´ ement Vignac, Arne Schneuing, Victor Garcia Satorras, Pascal Frossard, Max Welling, Michael Bronstein, and Bruno Correia. Equivariant 3d-conditional diffusion model for molecular linker design. Nature Machine Intelligence , 6(4):417–427, 2024. Ross Irwin, Alessandro Tibo, Jon Paul Janet, and Simon Olsson. SemlaFlow – efficient 3d molecular generation with latent attention and equivariant flow matching. arXiv preprint arXiv:2406.07266 , 2025. Rajendra P. Joshi, Niklas W. A. Gebauer, Mridula Bontha, Mercedeh Khazaieli, Rhema M. James, James B. Brown, and Neeraj Kumar. 3D-Scaffold: A deep learning framework to generate 3d coordinates of drug-like molecules with desired scaffolds. The Journal of Physical Chemistry B , 125(44):12166–12176, 2021. doi: 10.1021/acs.jpcb.1c06437. URL 
+
+https://doi.org/10.1021/acs.jpcb.1c06437 .21 Pablo Lemos, Zach Beckwith, Srimukh Bandi, Maarten van Damme, Jordan Crivelli-Decker, Benjamin J. Shields, Thomas Merth, Prabhat Kumar Jha, Nicola De Mitri, Tiffany J. Callahan, Aaron J. Nish, Peter Abruzzo, Romelia Salomon-Ferrer, and Martin Ganahl. SAIR: enabling deep learning for protein–ligand interactions with a synthetic structural dataset. bioRxiv , 2025. doi: 10.1101/2025.06.17.660168. URL https://doi.org/10. 1101/2025.06.17.660168 .Saro Passaro, Gabriele Corso, Jeremy Wohlwend, Mateo Reveiz, Stephan Thaler, Vig-nesh Ram Somnath, Noah Getz, Tally Portnoi, Julien Roy, Hannes Stark, David Kwabi-Addo, Dominique Beaini, Tommi Jaakkola, and Regina Barzilay. Boltz-2: Towards accurate and efficient binding affinity prediction. bioRxiv , 2025. doi: 10.1101/2025.06.14.659707. URL https://doi.org/10.1101/2025.06.14.659707 .Pedro O. Pinheiro, Arian Jamasb, Omar Mahmood, Vishnu Sresht, and Saeed Saremi. Structure-based drug design by denoising voxel grids. arXiv preprint arXiv:2405.03961 ,2024a. Pedro O. Pinheiro, Joshua Rackers, Joseph Kleinhenz, Michael Maser, Omar Mahmood, Andrew Martin Watkins, Stephen Ra, Vishnu Sresht, and Saeed Saremi. 3d molecule generation by denoising voxel grids. arXiv preprint arXiv:2306.07473 , 2024b. Arne Schneuing, Charles Harris, Yuanqi Du, Kieran Didi, Arian Jamasb, Ilia Igashov, Weitao Du, Carla Gomes, Tom L. Blundell, Pietro Li` o, Max Welling, Michael Bronstein, and Bruno Correia. Structure-based drug design with equivariant diffusion models. Nature Computational Science , 4(12):899–909, 2024. Noam Shazeer. GLU variants improve transformer. arXiv preprint arXiv:2002.05202 , 2020. URL https://arxiv.org/abs/2002.05202 .Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. In International Conference on Learning Representations (ICLR) , 2021. URL https: //arxiv.org/abs/2010.02502 .Benjamin I. Tingle, Khanh G. Tang, Mar Castanon, John J. Gutierrez, Munkhzul Khurel-baatar, Chinzorig Dandarchuluun, Yurii S. Moroz, and John J. Irwin. ZINC-22—a free multi-billion-scale database of tangible compounds for ligand discovery. Journal of Chem-ical Information and Modeling , 63(4):1166–1176, 2023. doi: 10.1021/acs.jcim.2c01253. URL https://doi.org/10.1021/acs.jcim.2c01253 . PMID: 36790087. Cl´ ement Vignac, Igor Krawczuk, Antoine Siraudin, Bohan Wang, Volkan Cevher, and Pascal Frossard. DiGress: Discrete denoising diffusion for graph generation. In The Eleventh International Conference on Learning Representations (ICLR 2023) , 2023a. URL 
+
+https://openreview.net/forum?id=UaAD-Nu86WX .Cl´ ement Vignac, Nagham Osman, Laura Toni, and Pascal Frossard. MiDi: Mixed graph and 3d denoising diffusion for molecule generation. In Joint European Conference on Machine Learning and Knowledge Discovery in Databases , pages 560–576, 2023b. Jeremy Wohlwend, Gabriele Corso, Saro Passaro, Noah Getz, Mateo Reveiz, Ken Leidal, Wojtek Swiderski, Liam Atkinson, Tally Portnoi, Itamar Chinn, Jacob Silterra, Tommi Jaakkola, and Regina Barzilay. Boltz-1: Democratizing biomolecular interaction modeling. 22 bioRxiv , 2024. doi: 10.1101/2024.11.19.624167. URL https://doi.org/10.1101/2024. 11.19.624167 .Junfeng Xie, Sensen Chen, Jinping Lei, and Yuedong Yang. DiffDec: Structure-aware scaffold decoration with an end-to-end diffusion model. Journal of Chemical Information and Modeling , 64(7):2554–2564, 2024. doi: 10.1021/acs.jcim.3c01466. URL https://doi. org/10.1021/acs.jcim.3c01466 .23 A Density Map conditioning Operations 
+
+Given single representation s ∈ RB×N ×ds where B is batch size, N is number of atoms, and 
+
+ds = 384 is the single dimension, we compute: 
+
+Qsample = Linear( s) ∈ RB×N ×H×dh (29) 
+
+Ksample = Klearned ∈ RH×O×dh (30) 
+
+Vsample = Linear( s) ∈ RB×N ×H×3 (31) where H = 4 is the number of attention heads, O = 1024 /H = 256 is the number of sampling points per head (for a total of 1024 sampling points), and dh = ds/H = 96 is the dimension per head. The attention mechanism computes: 
+
+A = softmax Ksample QT
+
+> sample
+
+√dh
+
+!
+
+∈ RB×H×O×N (32) and the sampling points are computed as: 
+
+Psample = tanh (reshape( AV sample )) ∈ RB×O·H×3 (33) where the reshape combines the head and sampling point dimensions. The tanh ensures the range in [ −1, 1] for grid sampling. 
+
+Grid Sampling : The sampling points are used to extract features from the density map via trilinear interpolation: 
+
+Fdensity = GridSample( Dprotein , Psample ) (34) where Dprotein ∈ Rdd×12 ×12 ×12 is the post-3D convnet density map. 
+
+Cross-Attention : The dd density features are concatenated with sampling point coordi-nates and used in cross-attention to update single and pair representations: 
+
+Fcombined = [ Fdensity , Psample ] ∈ RB×1024 ×(dd+3) (35) where dd = 384 is the processed density map channel dimension. The cross-attention computes: 
+
+Qsingle = Linear( s) ∈ RB×N ×H×dh (36) 
+
+Qpair = Linear( p) ∈ RB×N ×N ×H×dh (37) 
+
+Kdensity = Linear( Fcombined ) ∈ RB×1024 ×H×dh (38) 
+
+Vsingle = Linear( Fcombined ) ∈ RB×1024 ×ds (39) 
+
+Vpair = Linear( Fcombined ) ∈ RB×1024 ×dp (40) where p ∈ RB×N ×N ×dp is the pair representation with dp = 128. The attention outputs are: 
+
+sconditioned = reshape(softmax( Qsingle KT
+
+> density
+
+/pdh)Vsingle ) ∈ RB×N ×ds (41) 
+
+pconditioned = reshape(softmax( Qpair KT
+
+> density
+
+/pdh)Vpair ) ∈ RB×N ×N ×dp (42) The conditioning is applied to the single and pair representations, respectively, through gated residual connections. 24
