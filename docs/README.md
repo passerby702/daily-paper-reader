@@ -6,49 +6,53 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-25
-- 运行时间：2026-06-25 19:57:38 UTC
+- 最新运行日期：2026-06-26
+- 运行时间：2026-06-26 19:35:05 UTC
 - 运行状态：成功
-- 本次总论文数：9
-- 精读区：4
-- 速读区：5
+- 本次总论文数：11
+- 精读区：2
+- 速读区：9
 
 ### 今日简报（AI）
-1) 今日精选两篇9分前沿：Sesame用空间密度图引导分子生成，Molexar首创多模态分子基础模型，速读覆盖晶体预测、蛋白质柔性模拟与抗体序列设计。
-2) 最推荐Sesame与Molexar，前者突破结构感知分子生成，后者统一文本、图像等多模态分子表征，是AI药物设计的双引擎。
-3) 建议优先精读这两篇，掌握空间条件生成与多模态融合的新思路，再延伸探索Co-Scientist在晶体预测中的自动化潜能。
-- 详情：[/202606/25/README](/202606/25/README)
+今日推荐11篇论文，精读2篇、速读9篇。最值得关注的是生理信号生成建模与高效等变Transformer肽设计。建议优先精读两篇高分论文，再速读ELDiff等生成模型应用。
+- 详情：[/202606/26/README](/202606/26/README)
 
 ### 精读区论文标签
-1. [Sesame: Structure-Aware Molecular Generation via Spatial Density-Map Conditioning](/202606/25/2606.23856v2-sesame-structure-aware-molecular-generation-via-spatial-density-map-conditioning)  
-   标签：评分：9.0/10、query:pocket-lig
-   evidence：基于扩散的分子生成模型，面向蛋白质-配体相互作用
-2. [Molexar: A Unified Multimodal Molecular Foundation Model for Drug Design](/202606/25/2606.25865v1-molexar-a-unified-multimodal-molecular-foundation-model-for-drug-design)  
-   标签：评分：9.0/10、query:pocket-lig
-   evidence：分子生成条件化为蛋白质序列和结合口袋
-3. [Uncertainty-aware reinforcement learning for chemical language models](/202606/25/2606.24990v1-uncertainty-aware-reinforcement-learning-for-chemical-language-models)  
+1. [Generative Modeling for Physiological Signals](/202606/26/2606.23864v1-generative-modeling-for-physiological-signals)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：使用强化学习和化学语言模型进行从头分子设计
-4. [Scalable Peptide Design via Memory-Efficient Equivariant Transformer](/202606/25/2606.25006v1-scalable-peptide-design-via-memory-efficient-equivariant-transformer)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：使用等变变压器的靶标特异性肽生成
+   evidence：生理信号生成模型综述
+2. [Scalable Peptide Design via Memory-Efficient Equivariant Transformer](/202606/26/2606.25006v2-scalable-peptide-design-via-memory-efficient-equivariant-transformer)  
+   标签：评分：8.0/10、query:pocket-lig
+   evidence：等变Transformer用于靶标特异性肽设计，以蛋白靶标为条件
 
 ### 速读区论文标签
-1. [Discovering Crystal Structure Prediction Algorithms with an AI Co-Scientist](/202606/25/2606.22866v1-discovering-crystal-structure-prediction-algorithms-with-an-ai-co-scientist)  
+1. [ELDiff: When Evidential Learning Meets Text-to-Image Diffusion](/202606/26/2606.20924v1-eldiff-when-evidential-learning-meets-text-to-image-diffusion)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：掩码生成模型应用于晶体结构生成，属于3D分子结构生成
-2. [CABS-flex standalone 3: an open command-line platform for protein flexibility simulation, peptide structure modeling, and protein-peptide docking](/202606/25/2606.24487v1-cabs-flex-standalone-3-an-open-command-line-platform-for-protein-flexibility-simulation-peptide-structure-modeling-and-protein-peptide-docking)  
+   evidence：文本到图像扩散，多模态一致性
+2. [Generative Retrieval via Diffusion Transformer with Metric-Ordered Sequence Training and Hybrid-Policy Preference Optimization](/202606/26/2606.26899v1-generative-retrieval-via-diffusion-transformer-with-metric-ordered-sequence-training-and-hybrid-policy-preference-optimization)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：使用扩散Transformer进行生成式检索
+3. [Autoregressive Boltzmann Generators](/202606/26/2606.27361v1-autoregressive-boltzmann-generators)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：自回归生成模型用于分子采样
+4. [Fast Multi-objective RNA Optimization with Autoregressive Reinforcement Learning](/202606/26/biorxiv-10-1101-2025-08-26-672486-v2-fast-multi-objective-rna-optimization-with-autoregressive-reinforcement-learning)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：自回归强化学习用于RNA序列优化
+5. [Robust Conditional Diffusion with Noisy Templates for Antibody Sequence-Structure Design](/202606/26/biorxiv-10-64898-2026-06-18-733127-v3-robust-conditional-diffusion-with-noisy-templates-for-antibody-sequence-structure-design)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：使用条件扩散模型进行抗体设计
+6. [ComplexDesign: sequence-hallucination design of protein binders bridging multiple proteins](/202606/26/biorxiv-10-64898-2026-06-21-733655-v1-complexdesign-sequence-hallucination-design-of-protein-binders-bridging-multiple-proteins)  
    标签：评分：7.0/10、query:pocket-lig
-   evidence：开放平台用于蛋白质柔性和对接，支持基于结构的配体设计
-3. [Robust Conditional Diffusion with Noisy Templates for Antibody Sequence-Structure Design](/202606/25/biorxiv-10-64898-2026-06-18-733127-v3-robust-conditional-diffusion-with-noisy-templates-for-antibody-sequence-structure-design)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：鲁棒条件扩散用于抗体序列结构设计
-4. [Residual-Space Evolutionary Optimization via Flow-based Generative Models](/202606/25/2606.20084v1-residual-space-evolutionary-optimization-via-flow-based-generative-models)  
+   evidence：幻觉设计桥接多蛋白的结合子，靶标感知的序列优化
+7. [Trajectory Forcing: Structure-First Generation with Controllable Semantic Trajectories](/202606/26/2606.22527v1-trajectory-forcing-structure-first-generation-with-controllable-semantic-trajectories)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：基于流的生成模型结合进化优化
-5. [Geometric Deep Learning Reveals Ligandable and Cryptic RNA Binding Small Molecule Pockets (SMARTPocket)](/202606/25/biorxiv-10-64898-2026-06-18-732920-v1-geometric-deep-learning-reveals-ligandable-and-cryptic-rna-binding-small-molecule-pockets-smartpocket)  
-   标签：评分：6.0/10、query:pocket-lig
-   evidence：几何深度学习预测RNA小分子结合口袋，为实现口袋特异性分子生成提供基础
+   evidence：扩散/流模型的轨迹控制
+8. [Focusing on What Matters: Saliency-Harnessing Accurate Routing for Diffusion MoE](/202606/26/2606.26938v1-focusing-on-what-matters-saliency-harnessing-accurate-routing-for-diffusion-moe)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：扩散模型MoE路由改进用于视觉生成
+9. [F.A.D.E. (Fully Agentic Drug Engine): A Conversational AI Platform for Drug Discovery](/202606/26/biorxiv-10-64898-2026-06-20-733481-v1-fade-fully-agentic-drug-engine-a-conversational-ai-platform-for-drug-discovery)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：药物发现平台，涉及分子生成
 
 
 <div class="dpr-home-promo-card">
