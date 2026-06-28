@@ -6,37 +6,34 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-27
-- 运行时间：2026-06-27 19:59:39 UTC
+- 最新运行日期：2026-06-28
+- 运行时间：2026-06-28 20:33:19 UTC
 - 运行状态：成功
 - 本次总论文数：4
-- 精读区：0
-- 速读区：4
+- 精读区：1
+- 速读区：3
 
 ### 今日简报（AI）
-今日速读4篇论文，重点关注扩散模型MoE路由优化与生物基础模型进展。
-
-最值得一看的是《Focusing on What Matters》（7分），提出基于显著性的路由机制提升扩散MoE效率；另两篇《BioMatrix》和构象偏置采样也值得速览。
-
-建议优先阅读那篇7分论文，若对生物计算感兴趣可接着看后两篇，了解跨模态建模与结构采样技术。
-- 详情：[/202606/27/README](/202606/27/README)
+今日精读一篇语义优先的文本生成图像模型，速读三篇扩散模型路由优化与蛋白质设计新方法。  
+最值得关注的是《SeFi-Image》，其语义优先扩散架构在图文一致性上表现突出；同时《Focusing on What Matters》提出的注意力引导路由为扩散MoE提供高效路径。  
+建议普通读者优先精读《SeFi-Image》掌握生成质量提升关键，再略读后两篇了解多模态与生物AI的前沿应用。
+- 详情：[/202606/28/README](/202606/28/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [SeFi-Image: A Text-to-Image Foundation Model with Semantic-First Diffusion](/202606/28/2606.22568v2-sefi-image-a-text-to-image-foundation-model-with-semantic-first-diffusion)  
+   标签：评分：8.0/10、query:diff-gen
+   evidence：文本到图像多模态生成扩散模型
 
 ### 速读区论文标签
-1. [Focusing on What Matters: Saliency-Harnessing Accurate Routing for Diffusion MoE](/202606/27/2606.26938v1-focusing-on-what-matters-saliency-harnessing-accurate-routing-for-diffusion-moe)  
+1. [SeFi-Image: A Text-to-Image Foundation Model with Semantic-First Diffusion](/202606/28/2606.22568v1-sefi-image-a-text-to-image-foundation-model-with-semantic-first-diffusion)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：改进扩散MoE路由用于视觉生成
-2. [BioMatrix: Towards a Comprehensive Biological Foundation Model Spanning the Modality Matrix of Sequences, Structures, and Language](/202606/27/2606.22138v1-biomatrix-towards-a-comprehensive-biological-foundation-model-spanning-the-modality-matrix-of-sequences-structures-and-language)  
+   evidence：基于语义优先扩散的文本到图像基础模型，一种潜在扩散范式
+2. [Focusing on What Matters: Saliency-Harnessing Accurate Routing for Diffusion MoE](/202606/28/2606.26938v1-focusing-on-what-matters-saliency-harnessing-accurate-routing-for-diffusion-moe)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：通过显著性感知机制改进扩散模型路由
+3. [BoltzProt-1: Towards Efficient De Novo Binder Design with Good Developability](/202606/28/biorxiv-10-64898-2026-06-23-733997-v1-boltzprot-1-towards-efficient-de-novo-binder-design-with-good-developability)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：用于分子生成的多模态基础模型
-3. [Biasing Conformational Sampling in AlphaFold 3 and Boltz-2 via Pair Representation Scaling](/202606/27/biorxiv-10-64898-2026-01-23-701250-v2-biasing-conformational-sampling-in-alphafold-3-and-boltz-2-via-pair-representation-scaling)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：利用扩散模型（AlphaFold 3, Boltz-2）进行3D构象采样
-4. [A pocket-centric framework for selective targeting of amyloid fibril polymorphs](/202606/27/biorxiv-10-64898-2026-02-25-707901-v2-a-pocket-centric-framework-for-selective-targeting-of-amyloid-fibril-polymorphs)  
-   标签：评分：6.0/10、query:pocket-lig
-   evidence：针对淀粉样纤维的口袋中心框架，辅助生成适配口袋的3D分子
+   evidence：使用生成模型进行从头结合剂设计
 
 
 <div class="dpr-home-promo-card">
