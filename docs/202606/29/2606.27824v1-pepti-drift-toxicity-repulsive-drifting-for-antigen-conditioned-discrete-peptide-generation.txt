@@ -1,0 +1,567 @@
+Title: Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation
+
+URL Source: https://arxiv.org/pdf/2606.27824v1
+
+Published Time: Mon, 29 Jun 2026 00:33:18 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# PEPTI -DRIFT : T OXICITY -R EPULSIVE DRIFTING FOR 
+
+# ANTIGEN -C ONDITIONED DISCRETE PEPTIDE GENERATION 
+
+Takashi Fujiwara 
+
+Department of AI Systems Medicine Institute of Integrated Research Institute of Science Tokyo, SB Intuitions Tokyo, JAPAN 
+
+takashi.fujiwara@sbintuitions.co.jp 
+
+Hikaru Shindo 
+
+SB Intuitions Tokyo, JAPAN 
+
+hikaru.shindo@sbintuitions.co.jp 
+
+Kaushalya Madhawa 
+
+SB Intuitions Tokyo, JAPAN 
+
+kaushalya.madhawa@sbintuitions.co.jp 
+
+Jun Jin Choong 
+
+SB Intuitions Tokyo, JAPAN 
+
+jun-jin.choong@sbintuitions.co.jp 
+
+Keisuke Ozawa 
+
+SB Intuitions Tokyo, JAPAN 
+
+keisuke.ozawa@sbintuitions.co.jp 
+
+June 29, 2026 
+
+# ABSTRACT 
+
+Peptides are a promising therapeutic modality that combine the chemical tunability of small molecules with the target specificity of macromolecular therapeutics. However, designing antigen-specific binding peptides while avoiding toxicity remains a major challenge for therapeutic peptide discovery. Here, we present Pepti-drift, a toxicity-aware latent refinement framework that generates peptide candidates through a single antigen-conditioned drift step. In a peptide embedding space, Pepti-drift learns to attract generated peptide latents toward antigen-matched binding peptides while repelling them from toxicity-associated regions. This is challenging because binding-promoting physicochemical features often overlap with toxicity-associated features in peptide representation space. To address this, we introduce a warm-up strategy to stabilize this competing objective by first learning binding-oriented attraction and then increasing toxicity repulsion. Pepti-drift achieves highly efficient generation, running 16.2-fold faster than PepMLM and 1,092.0-fold faster than PepTune. Generated peptides show 100% validity, 98.1% uniqueness, the highest sequence diversity, and near-zero cross-antigen reuse. Further evaluation indicates consistently reduced toxicity and hemolysis risk across most peptide-length ranges while retaining target-related predictive binding signal. Pepti-drift thus provides a fast, scalable, and controllable framework for antigen-specific peptide design that directly encodes safe-and-active properties. 
+
+Keywords Therapeutic peptide design · Antigen-conditioned peptide generation · Drifting models · Toxicity-aware generation · Hemolysis avoidance 
+
+> arXiv:2606.27824v1 [cs.LG] 26 Jun 2026
+
+Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation Toxic       
+
+> peptides
+> Binding
+> peptides
+> optimize for
+> binding onl y
+> Naïve
+> generato r
+> overlap
+> zon e
+> Toxic
+> peptides
+> Binding
+> peptides
+> repulsion
+> attraction
+> The problem: binding and toxicity overlap Pepti -drift: attract to bind, repel from toxic
+> Safe & Active
+> ・Balanced peptide properties
+> ・No hemolysis and toxicity risk
+> Target binding ↑Toxicity ↓
+> High hemolysis risk High cytotoxicity risk
+
+Figure 1: Pepti-drift resolves the binding-toxicity overlap in peptide space. (Left) The sequence features that promote target binding also increase toxicity risk, causing the two peptide populations to overlap in representation space. A generator that optimizes for binding alone lands in this overlap zone. (Right) Pepti-drift resolves this by steering generated peptides with two opposing forces: attraction toward the binding distribution and repulsion away from the toxicity distribution, moving candidates into the safe-and-active region. 
+
+# 1 Introduction 
+
+Peptides are short amino-acid sequences that can bind to specific target proteins and modulate their function, making them promising candidates for drug design. As a therapeutic modality, they occupy an attractive space between small molecules and antibodies, combining synthetic accessibility and chemical tunability with the ability to engage protein surfaces with high specificity. However, the space of possible peptide sequences grows exponentially with length, far beyond what experimental screening can explore. Generative models offer an alternative by learning to sample directly from regions of sequence space likely to contain functional candidates. Recent advances in protein language models [Lin et al., 2023] have further enabled sequence-level representations that capture evolutionary, structural, and functional information, making it increasingly feasible to condition peptide generation on target protein sequences. In therapeutic settings, however, generation must be conditional : different target proteins require different binding peptides, and the generator must produce candidates specific to each target rather than sampling from a generic peptide distribution. Moreover, generating sequences that bind is not sufficient on its own. A practically useful generator must produce candidates that are not only target-compatible, but also valid, diverse, antigen-specific, and compatible with downstream developability requirements, learning not only what to produce but also what to avoid .What makes this problem particularly difficult is that the sequence features associated with strong binding and those associated with toxicity are not independent. Many peptides interact with their targets through physicochemical properties such as high positive charge and affinity for lipid membranes. However, these same properties can cause the peptide to disrupt cell membranes non-selectively, damaging healthy cells (cytotoxicity) or destroying red blood cells (hemolysis). For example, a peptide designed to bind and disrupt a bacterial membrane can also lyse human red blood cells through the same biophysical mechanism [Hancock and Sahl, 2006, Fjell et al., 2012]. This coupling means that, in any learned embedding space, binding peptides and toxic peptides are not cleanly separated; they occupy overlapping regions because they share the underlying sequence features that place them nearby in representation space (Figure 1, left). A generator that only optimizes for target binding will therefore tend to produce candidates that fall into this overlap zone, yielding sequences that bind well but carry safety risks. Existing peptide generation methods only partially address this binding-toxicity trade-off. PepMLM [Chen et al., 2025] formulates target-conditioned peptide design as masked sequence reconstruction, in which a target protein sequence is concatenated with a masked peptide region, and a fine-tuned ESM-2 [Lin et al., 2023] model learns to recover the peptide conditioned on the target. PepMLM can generate target-compatible peptides, but its supervision is derived from positive binding examples alone. Consequently, the learned distribution is encouraged to move toward binding-associated regions without an explicit counter-signal that discourages samples from entering nearby toxicity-associated regions. PepTune [Tang et al., 2025] addresses safety and developability more directly by combining discrete diffusion with Monte Carlo Tree Guidance (MCTG) to optimize multiple properties, including binding affinity, solubility, and hemolysis, during inference. This represents an important step toward property-aware peptide generation. However, the safety control is imposed through iterative reward-guided sampling rather than being encoded as an intrinsic geometric 2Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation bias of the learned generator. Moreover, the repeated tree-guided denoising process introduces substantial computational cost, which can limit scalability when screening many antigens or generating large candidate libraries. Thus, current methods remain limited by a trade-off between efficient target-conditioned generation and explicit safety control. What is needed is a scalable framework that encodes toxicity as a negative region of peptide space to be avoided during generation itself. To address these limitations, we propose Pepti-drift, a one-step latent refinement framework that explicitly encodes both where generated peptides should move and where they should not move. Pepti-drift maps antigen and peptide sequences into a shared normalized embedding space using a frozen protein language model (ESM-2). An antigen-conditioned generator produces an initial peptide latent z0 from Gaussian noise, which a learned drift module, building on the one-step refinement principle of the Drifting Model [Deng et al., 2026], a recently emerging novel generative paradigm from the flow-matching family [Lipman et al., 2023, Liu et al., 2023], then refines in a single step. The drift follows a vector field with two components: an attractive term that pulls z0 toward antigen-matched binding peptide latents, and a repulsive term that pushes it away from toxicity-associated peptide regions (Figure 1, right). Unlike iterative approaches that require multiple denoising steps or repeated predictor evaluations, this refinement is a single learned update, making the entire pipeline from antigen embedding to peptide sequence a single forward evaluation. The drifted latent z1 is decoded into a peptide sequence by a non-autoregressive Transformer [Gu et al., 2018] that predicts all positions in parallel, enabling one-step sequence generation. Because the overlap between binding and toxicity distributions is precisely what makes this problem hard, the drift formulation addresses it geometrically: the vector field is constructed so that the generated latent moves toward the part of the binding distribution that does not overlap with toxicity. While classifier-free guidance [Ho and Salimans, 2021] and negative guidance [Koulischer et al., 2025] have been explored for steering diffusion models toward or away from target distributions, Pepti-drift integrates both signals into a single learned drift step rather than modifying the sampling procedure at inference time. A key training challenge arises from this same overlap: early in training, the attractive and repulsive signals can produce competing gradients before the model has learned a stable latent structure. We resolve this with a warm-up schedule that first trains the drift to move toward binding peptides, and then gradually introduces the repulsive signal from toxic peptides once the binding-oriented trajectory has stabilized. On antigen-level split-controlled benchmarks, Pepti-drift generates valid, diverse, and antigen-specific peptide candidates while reducing predicted toxicity and hemolysis risk compared to existing methods. The model achieves 16 × faster end-to-end generation than PepMLM and over 1,000 × faster generation than PepTune, while maintaining predicted binding propensity and reducing cross-antigen reuse to near zero. Our main contributions are: 1. A latent drift framework that generates conditioned sequences by decomposing the learned vector field into attractive (binding) and repulsive (toxicity) components, producing target-compatible and safety-aware peptides in a single step. 2. A warm-up negative repulsion strategy that stabilizes training when the target and avoidance distributions overlap, by first learning attraction and then gradually introducing repulsion. 3. Empirical results showing that Pepti-drift generates valid, diverse, and antigen-specific peptide candidates with reduced predicted toxicity and hemolysis risk, while achieving over three orders of magnitude faster generation than PepTune. 
+
+# 2 Methods 
+
+Pepti-drift is designed for antigen-conditioned peptide generation in a learned latent peptide space (Figure 2). Let a
+
+denote an antigen sequence, y a peptide sequence, and θ the set of all trainable parameters. The protein-language-model encoder is frozen during training. 
+
+2.1 Representation space 
+
+The drift objective requires a latent space in which distances between generated and reference peptides are meaningful: generated latents should be close to binding peptides and far from toxic ones. Raw ESM-2 embeddings are high-dimensional and optimized for masked token prediction, not for this geometric property. We therefore learn a compact, normalized projection that reshapes the embedding space for the drift objective. Both antigen and peptide sequences are first encoded by a frozen ESM-2 (3B) model: 
+
+eA(a) ∈ RdA , eP (y) ∈ RdP , (1) 3Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation x 
+
+> Target antigen
+> sequence
+> Protein
+> encode r
+> Gaussian noise
+> V
+> 𝑉 !"#
+> $
+> 𝑉 %&&
+> '
+> Antigen -conditioned
+> latent generator
+> Generated latent
+> 𝒁 𝟎
+> Binding distribution
+> Toxicity distribution
+> Drifting Block
+> Drifted latent
+> 𝒁 𝟏
+> Transformer
+> decoder
+> Generated peptide
+> sequence
+> ARDG
+
+Figure 2: Overview of the Pepti-drift framework. A target antigen sequence is encoded by a frozen ESM-2 model. The antigen embedding, together with Gaussian noise, is passed to an antigen-conditioned latent generator that produces an initial peptide latent z0. A drifting block then refines z0 by applying a learned vector field V = Vatt + Vrep that combines attraction toward the binding peptide distribution with repulsion from the toxicity-associated distribution, yielding the drifted latent z1. Finally, a non-autoregressive Transformer decoder produces the peptide sequence from z1
+
+in a single forward pass. where dA = dP = 2560 . Learned projection heads then map these embeddings into the spaces used by the model. The antigen embedding is transformed into a conditional representation: 
+
+hθ (a) = ϕA,θ (eA(a)) ∈ Rdh , (2) with dh = 2560 . Each peptide embedding is projected and ℓ2-normalized onto a unit hypersphere: 
+
+uθ (y) = norm( ϕP,θ (eP (y))) ∈ Sdz −1, norm( v) = v
+
+∥v∥2
+
+, (3) with dz = 1024 . Normalization ensures that cosine similarity governs distances in this space, preventing the model from collapsing latents toward the origin. The generator, drift module, and decoder all operate in this shared space. For training, each antigen ai is paired with a known binding peptide y+ 
+
+> i
+
+, whose projection u+ 
+
+> i
+
+= uθ (y+ 
+
+> i
+
+) serves as the antigen-matched positive teacher latent. In contrast, toxicity- and hemolysis-associated peptides are treated as antigen-independent negative references. Let Y− = {y− 
+
+> j
+
+}Mj=1 denote the global pool of negative peptides, with projected latents u− 
+
+> j
+
+= uθ (y− 
+
+> j
+
+).For each training example i, we sample candidate negatives from Y−. During construction of the drift target, after the one-step drift produces the generated latent xi, we retain the Ki hard negatives nearest to ¯xi = norm( xi), using mean squared distance in the normalized latent space. We denote these selected hard-negative latents by {u−
+
+> i,k
+
+}Ki
+
+> k=1
+
+, where each u− 
+
+> i,k
+
+is selected from the global pool. These hard negatives define the local toxicity-associated region to avoid. 
+
+2.2 One-step latent generation and drift 
+
+Pepti-drift generates peptides in a single forward pass: noise in, sequence out. This is achieved by composing two modules. First, an antigen-conditioned generator maps Gaussian noise to an initial peptide latent. Then, a drift module refines this latent in one step, steering it toward the target region of the latent space. Given a noise vector ξi ∼ N (0 , I dz ), the generator produces the initial latent: 
+
+zi, 0 = Gθ (hθ (ai), ξ i). (4) The drift module then computes a learned displacement conditioned on both the current latent and the antigen: 
+
+∆i, 0 = Dθ (zi, 0, h θ (ai)) , zi, 1 = zi, 0 + η ∆i, 0, (5) where η > 0 is the drift step size (set to η = 1 in all experiments). This formulation follows the one-step refinement principle of the Drifting Model [Deng et al., 2026]: rather than iterating through many denoising steps as in diffusion models, the entire trajectory from noise to latent is collapsed into a single update. The resulting mapping defines a conditional pushforward: 
+
+xi = gθ (ai, ξ i) = zi, 1 ∼ qθ,a i , qθ,a i = ( gθ (ai, ·)) #π, (6) 4Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation where gθ (ai, ·) = Gθ (hθ (ai), ·) + ηD θ (Gθ (hθ (ai), ·), h θ (ai)) is the one-step refinement, π = N (0 , I dz ) and (·)#
+
+denotes the pushforward measure. The entire pipeline from antigen embedding to drifted latent is a single differentiable function of the noise sample, requiring no iterative sampling and inference-time control during generation unlike previous work. 
+
+2.3 Attraction-repulsion drift field and warm-up schedule 
+
+The drift module above learns a displacement ∆i, 0, but what should this displacement move toward? When binding peptides and toxic peptides overlap in the latent space (Section 1), a single attractive signal is not sufficient. The model must simultaneously approach the binding distribution and avoid the toxicity distribution. We achieve this by defining a target vector field with two components. Let ¯xi = norm( xi) be the normalized generated latent. The attractive component points from the current latent toward the positive teacher, pulling the generated peptide closer to the known binder: 
+
+V +att (¯ xi) = α+
+
+ u+ 
+
+> i
+
+− ¯xi
+
+ , (7) where α+ > 0 controls the attraction strength. The repulsive component pushes the latent away from the local neighborhood of hard negative references. Let Hi = {ji, 1, . . . , j i,K i } ⊂ { 1, . . . , M } denote the indices of the hard negative peptides selected for example i. For each selected negative, we compute 
+
+d− 
+
+> i,k
+
+= 1
+
+dz
+
+¯xi − u−
+
+> ji,k
+> 22
+
+, w− 
+
+> i,k
+
+= exp( −d−
+
+> i,k
+
+/τ )
+
+PKi 
+
+> ℓ=1
+
+exp( −d−
+
+> i,ℓ
+
+/τ ) . (8) where τ > 0 is the kernel temperature that controls how distantly placed samples contribute to the total field: nearby negative latents thus receive higher weights. The repulsive field is then defined as 
+
+V −
+
+> rep
+
+(¯ xi) = α−(e)
+
+> Ki
+
+X
+
+> k=1
+
+w−
+
+> i,k
+
+
+
+¯xi − u−
+
+> ji,k
+
+
+
+. (9) where we introduced the repulsion coefficient α−(e) ≥ 0 scheduled with training epoch ( e), which is defined below. The complete drift field combines both: 
+
+Vi(¯ xi) = V +att (¯ xi) + V −
+
+> rep
+
+(¯ xi). (10) The training target for the drift is constructed by taking one step along this field and re-normalizing: 
+
+˜xi = sg [norm {¯xi + Vi(¯ xi)}] , (11) where sg[ ·] denotes the stop-gradient operator. The stop-gradient is crucial to preventing the target ˜xi from depending on the same parameters that produce xi. Otherwise, the drift target would co-adapt with the generator instead of providing a fixed supervisory signal. 
+
+Warm-up schedule. When the binding and toxicity distributions overlap in latent space, applying both attraction and repulsion from the start of training creates competing gradients before the model has learned a stable latent structure. We resolve this by introducing the repulsive signal gradually. The repulsion coefficient is ramped from zero to its final value during the warm-up: 
+
+α−(e) = αfinal  
+
+> −
+
+· min 
+
+
+
+1, max(0 , e − estart )
+
+ewarmup 
+
+
+
+, (12) where e is the current epoch, estart is the epoch at which repulsion begins, and ewarmup is the number of epochs over which α− ramps linearly to αfinal  
+
+> −
+
+. This warm-up strategy allows the model to first learn a stable binding-oriented trajectory before the repulsive signal introduces additional competition, achieving a compatible drift between the overlapping attraction and repulsion. 
+
+Training objective. The drift loss trains the generator and drift module to align the generated latent with the drift target: 
+
+Ldrift = 1
+
+Bd zBX
+
+> i=1
+
+∥norm( xi) − ˜xi∥22 . (13) 5Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation A regularization term prevents degenerate solutions in which the drift module produces excessively large displacements: 
+
+Lreg = 1
+
+Bd zBX
+
+> i=1
+
+∥∆i, 0∥22. (14) The overall training objective combines drift alignment, displacement regularization, and the sequence reconstruction loss defined below: 
+
+Ltotal = λseq Lseq + λdrift Ldrift + λreg Lreg , (15) where B denotes the mini-batch size and λseq , λdrift , and λreg are non-negative balancing coefficients. The sequence reconstruction loss Lseq is defined below. 
+
+2.4 Non-autoregressive sequence decoder 
+
+The drifted latent xi encodes a complete peptide-level representation, so converting it to a discrete amino-acid sequence does not require sequential token generation. We use a non-autoregressive Transformer decoder that predicts all positions in parallel, avoiding the latency of autoregressive decoding. Let L = 50 be the maximum peptide length and V the token vocabulary (20 standard amino acids plus ⟨pad ⟩ and ⟨eos ⟩). Let 
+
+s+ 
+
+> i
+
+= ( s+
+
+> i, 1
+
+, . . . , s +
+
+> i,L
+
+) ∈ V L
+
+denote the tokenized target sequence corresponding to the known binding peptide y+ 
+
+> i
+
+. Specifically, y+ 
+
+> i
+
+is truncated to at most L − 1 amino-acid tokens, followed by an ⟨eos ⟩ token, and padded with ⟨pad ⟩ tokens up to length L. During decoding, 
+
+si = ( si, 1, . . . , s i,L )
+
+denotes the predicted peptide token sequence. For each position t, a learned positional query qt ∈ Rdm is combined with projections of the drifted latent and the antigen representation: 
+
+H(0)  
+
+> i
+
+= [ q1 + Wz xi + Wahθ (ai), . . . , q L + Wz xi + Wahθ (ai)] ⊤ . (16) Each position thus receives three sources of information: its index in the peptide, the generated peptide-level code, and the conditioning antigen. These representations are processed by a stack of Transformer self-attention layers without a causal mask: 
+
+Hi = Transformer θ
+
+
+
+H(0) 
+
+> i
+
+
+
+. (17) Because no causal mask is applied, each position can attend to every other position, enabling coordination across the full sequence. Each output position independently predicts a distribution over the vocabulary via softmax, yielding a parallel factorization: 
+
+Pθ (si, 1: L | ai, ξ i) = 
+
+> L
+
+Y
+
+> t=1
+
+Pθ (si,t | xi, h θ (ai)) . (18) The sequence reconstruction loss is the cross-entropy over non-padding positions: 
+
+Lseq = − 1
+
+|Ω|
+
+X
+
+> (i,t )∈Ω
+
+log Pθ (si,t = s+ 
+
+> i,t
+
+| ai, ξ i), (19) where Ω = {(i, t ) : s+
+
+> i,t
+
+̸ = ⟨pad ⟩} and the target peptide is truncated to at most L − 1 amino acids followed by ⟨eos ⟩.
+
+# 3 Results 
+
+3.1 Construction of a split-controlled antigen–peptide dataset 
+
+To train Pepti-drift, a drift-based generative model capable of producing peptide sequences conditioned on diverse antigen sequences, we constructed a dataset comprising two components: (i) attractive antigen–peptide binding pairs and (ii) repulsive toxicity-associated peptides. For the attractive binding pairs, we collected antigen–peptide binding pairs from the training datasets of PPIKB Zhu et al. [2025] and PepCCD Zhang et al. [2026a]. After removing sequences containing non-standard amino acids and eliminating duplicate entries, a total of 20,547 antigen–peptide binding pairs were retained. 6Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation For the repulsive set, we curated 12,709 peptides associated with cytotoxicity or hemolytic toxicity from DRAMP 4.0 Ma et al. [2025], ToxinPred 3.0 Rathore et al. [2024], and Hemolytik 2.0 Gautam et al. [2014]. Among these, 10,246 peptides were associated with cytotoxicity and 4,239 peptides were associated with hemolytic toxicity. No sequence overlap was observed between the peptide sequences in the attractive binding pairs and those in the repulsive toxicity-associated peptide set (Table 1). To evaluate model generalization as antigen-conditioned generation rather than simple sequence memorization, we performed dataset splitting (Table 2) at the antigen level using CD-HIT with a 90% sequence identity threshold Li and Godzik [2006]. This split-control strategy enabled direct evaluation of peptide generation performance for antigen proteins that were not observed during training. Table 1: Summary of attractive and repulsive peptide datasets used for Pepti-drift.               
+
+> Dataset component Description Count
+> Antigen–peptide binding pairs
+> Binding pairs After filtering non-standard amino acids and duplicate pairs 20,547 Unique antigens Antigen sequences in the binding-pair set 8,712 Unique peptides Peptide sequences in the binding-pair set 13,910
+> Toxicity-associated peptide set
+> Toxicity-associated peptides Peptides associated with cytotoxicity 10,246 Hemolysis-associated peptides Peptides associated with hemolytic toxicity 4,239 Total repulsive peptides Unique peptides after merging toxicity and hemolysis sources 12,709 Positive binding pairs were collected from PPIKB and PepCCD. Negative peptides were curated from DRAMP 4.0, ToxinPred 3.0, and Hemolytik 2.0. Cytotoxicity- and hemolysis-associated categories are not mutually exclusive. Therefore, their counts do not sum to the total number of unique negative peptides.
+
+Table 2: Antigen-level split of antigen–peptide binding pairs.             
+
+> Split Binding pairs Unique antigens Antigen clusters Training 16,437 6,616 3,350 Validation 2,057 1,001 539 Test 2,053 1,095 600 CD-HIT clustering was performed at the antigen level using a sequence identity threshold of 0.9. The split was controlled at the antigen-cluster level to reduce antigen-level similarity between training, validation, and test sets. The training set was used to fit Pepti-drift, the validation set to monitor training and select the model used for evaluation, and the test set only for final held-out evaluation.
+
+Together, this dataset design provides the two opposing forms of supervision required by Pepti-drift. Because these two peptide populations are not necessarily well separated in the learned representation space, we next investigated how to stably learn a latent drift field that satisfies both constraints. 
+
+3.2 Warm-up negative repulsion enables stable toxicity-aware latent drift 
+
+Having constructed a dataset with explicit attractive and repulsive peptide supervision, we next tested the central hypothesis of Pepti-drift: a generated peptide latent can be steered by a single learned drift step toward antigen-compatible binding regions while being pushed away from toxicity-associated regions. We investigated whether Pepti-drift can learn a latent refinement process that simultaneously moves generated peptide representations toward antigen-compatible binding peptides and away from toxicity-associated peptides. In principle, this objective can be formulated by combining a positive attractive field and a negative repulsive field: 
+
+Vi(¯ xi) = V +att (¯ xi) + V −
+
+> rep
+
+(¯ xi). (20) However, we found that directly applying the positive and negative terms with comparable strength from the beginning of training was not sufficient when the positive and negative peptide distributions were close in the latent feature space. In this setting, attraction toward the binding distribution and repulsion from the toxicity distribution provide competing signals before the model has learned a stable antigen-conditioned peptide manifold. As a result, the latent drift failed to consistently move generated samples toward the desired binding-associated region. 7Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation To stabilize training, we introduced a warm-up schedule for the negative repulsion term. During the early phase of training, the model was optimized mainly with the positive attractive component, allowing the initial generated latent states to first align with the antigen-conditioned binding distribution. After this positive-oriented alignment was established, the weight of the negative repulsion term was gradually increased. This training strategy allowed the model to first learn where to move, and then learn what to avoid. Consequently, Pepti-drift was able to acquire a stable latent vector field even when the binding-associated and toxicity-associated peptide distributions were located close to each other (Figure 3). Negative Positive Generated Z0 Drifted Z1   
+
+> w/o warm -up warm -up
+> Drifted laten t
+
+Figure 3: Warm-up enables stable positive attraction and negative avoidance Table 3: Effect of the negative-repulsion warm-up on latent drift and test-set generation quality.                          
+
+> Training Distance to matched binder ↓Binder distance vs. warm-up Uniqueness ↑Diversity ↑Novelty ↑
+> w/o warm-up 170.123 148.8 ×0.843 0.381 0.937 Warm-up 1.143 1.0 ×0.953 0.551 0.965
+> The matched-positive distance denotes d+(Z1), the latent-space mean squared error between the drifted latent Z1and the antigen-matched binding peptide latent; values are reported in units of 10 −5. The fold-change column reports d+(Z1)normalized by the warm-up condition, so larger values indicate poorer binding-proximal drift. Sequence-level metrics were computed from generated peptides on the held-out test antigens. Boldface indicates the better value between the two training strategies for each metric.
+
+We next visualized the latent trajectory throughout training using PCA. At early epochs, the generated initial latent states z0 and the drifted states z1 showed limited directional organization. However, as training progressed, z1 gradually shifted toward the positive binding distribution. Importantly, this shift was not a simple movement toward peptide-dense regions in (Figure 4a). Instead, the drifted latent states became increasingly positioned near the positive peptide distribution while avoiding the negative toxicity-associated region. This indicates that the learned drift field captured both aspects of the intended control: attraction to antigen-compatible peptides and avoidance of toxic peptides. A direct comparison between the latent states before and after drift further confirmed this behavior. Before drift, z0
+
+was broadly distributed and was not consistently aligned with the positive binding region. After applying the learned drift, z1 moved closer to the positive examples while remaining separated from the negative density (Figure 4b). Thus, the drift module does not merely apply a small local correction to the initial latent state. Rather, it actively pushes the generated latent distribution toward a binding-compatible and toxicity-avoiding region of the feature space. Next, we quantified this effect by measuring the distance from z0 and z1 to the positive peptide latent and to the nearest negative peptide latent. If the learned drift correctly implements the intended attractive and repulsive controls, the distance to the positive peptide should decrease after drift, whereas the distance to the nearest negative peptide should increase. Consistent with this expectation, Pepti-drift decreased the latent MSE distance to the positive peptide after the transition from z0 to z1. In contrast, the distance to the nearest negative peptide increased after drift. This result demonstrates that the learned update is directionally selective, with generated latents being refined not merely toward 8Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation Epoch 1 Epoch 10 Epoch 120  
+
+> Before drifting After drifting
+
+a
+
+b
+
+> Negative
+> Positive
+> Generated Z0
+> Drifted Z1
+
+Figure 4: Training dynamics of toxicity-aware latent drift. a, PCA visualization across epochs shows that drifted latents 
+
+z1 progressively approach the positive binding distribution while avoiding negative peptide regions. b, Before–after comparison demonstrates that the learned drift shifts generated latents from z0 toward binding-associated and toxicity-avoiding regions. peptide-like representations but specifically toward binding-associated regions and away from toxicity-associated neighborhoods (Table 4). Table 4: Changes in latent distances after the onset of negative repulsion. 
+
+Matched-positive distance ↓ Nearest-negative distance ↑ Margin ↑
+
+Z0 2.17 ± 1.85 0.92 ± 0.31 −1.24 ± 1.71 
+
+Z1 1.14 ± 1.01 1.43 ± 1.27 0.29 ± 1.51 
+
+∆ (Z1 − Z0) [95% CI] −1.02 [−1.32 , −0.75 ] 0.51 [0.32 , 0.72 ] 1.53 [1.13 , 2.02 ]Improved samples 86.7% 71.1% 88.3% Distances and margins are scaled by 10 −5. ∆ = Z1 − Z0. Improved denotes the fraction of samples changing in the desired direction: lower matched-positive distance, higher nearest-negative distance, or higher margin. Distances are latent-space MSE values. Margin is nearest-negative distance minus matched-positive distance, so positive values indicate that generated peptides are closer to the matched positive (binding pairs) than to the nearest negative (toxic peptides). 
+
+Finally, we quantified the directional behavior of the learned drift using cosine-based alignment. Positive alignment was defined as the cosine similarity between the learned displacement z1 − z0 and the direction from z0 to the matched positive latent. Negative-avoidance alignment was defined as the cosine similarity between z1 − z0 and the direction from the nearest negative latent toward z0, corresponding to movement away from the negative reference. After training, positive-attraction alignment shifted strongly toward positive values, indicating that Pepti-drift learned a binding-directed latent update. In contrast, negative-avoidance alignment showed a broader and more modest directional pattern, suggesting that toxicity avoidance was expressed not as uniform movement along a single nearest-negative repulsive vector, but as increased separation and improved margin relative to nearby negative regions, consistent with Tables 4 and 5. 9Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation Table 5: Effect of introducing negative repulsion after the warm-up start. 
+
+Stage α− Binding attraction ↑ Toxicity avoidance ↑ Safety margin ↑
+
+Before warm-up 0.000 0.997 0.417 1.414 After warm-up 0.040 1.024 0.507 1.530 
+
+∆ +0.040 +0.027 +0.090 +0.116 Distance and margin changes are computed from the saved latent snapshots and are scaled by 10 −5. Before warm-up corresponds to epoch 100, the last saved snapshot before negative repulsion becomes non-zero; after warm-up corresponds to epoch 120. Binding attraction is the decrease in matched-positive distance, d+(Z0) − d+(Z1). Toxicity avoidance is the increase in nearest-negative distance, d−(Z1) − d−(Z0). Safety margin is m(Z1) − m(Z0), where m = d− − d+.−1.0 −0.5 0.0 0.5 1.0         
+
+> Cosine
+> (drift, positive -Z0)
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Count
+> Drift alignment to positive
+> −1.0 −0.5 0.0 0.5 1.0
+> Cosine
+> (drift, Z0 -nearest negative)
+> Drift alignment away from nearest negative
+> Epoch 1
+> Epoch 120, positive alignment
+> Epoch 120, negative -avoidance alignment
+> Epoch 1 mean
+> Epoch 120 mean
+
+Figure 5: Cosine-based validation of learned latent drift directions. Cosine similarities were computed between the learned displacement z1 − z0 and two intended control directions at epochs 1 and 120. (Left) Alignment with the positive-attraction direction, defined from z0 to the antigen-matched positive peptide latent. The epoch-120 distribution shifted markedly toward positive cosine values, showing that the learned drift became strongly binding-directed. (Right) 
+
+Alignment with the negative-avoidance direction, defined as the direction from the nearest toxicity-associated negative latent toward z0. This distribution was broader and showed a more modest directional change, suggesting that toxicity avoidance is reflected more clearly in increased latent separation and margin than in uniform cosine alignment to the nearest-negative direction. These directional analyses complement the distance-based results showing that Pepti-drift moves generated latents closer to matched positives while increasing separation from nearby negatives. Together, these results show that warm-up negative repulsion is critical for stable toxicity-aware peptide generation when positive and negative peptide distributions are close in latent space. By first learning attraction toward binding-compatible peptides and then gradually incorporating repulsion from toxicity-associated peptides, Pepti-drift learns to transform initial latent states z0 into refined states z1 that are closer to the positive binding distribution and farther from the negative toxicity distribution. This supports the central concept of Pepti-drift: antigen-conditioned peptide generation can be formulated as a single-step latent movement that explicitly defines both what to generate and what to avoid. 
+
+3.3 Pepti-drift enables faster end-to-end generation than the baseline models 
+
+To evaluate the practical advantage of Pepti-drift, we compared its generation speed with those of PepMLM [Chen et al., 2025] and PepTune [Tang et al., 2025]. We generated 64 peptide candidates for each of 1,095 test antigens, excluding model loading time. PepMLM required 0.314 s per antigen on average, corresponding to 4.904 ms per peptide and 203.9 peptides per second. By contrast, Pepti-drift completed generation in 0.019 s per antigen on average, corresponding to 0.302 ms per peptide and 3,312.1 peptides per second. Accordingly, Pepti-drift was 16.2 times faster than PepMLM when normalized by time per peptide (Table 6). Note that the compared computational efficiency reflects the complete inference pipeline for each method. For Pepti-drift, this includes online ESM-2 antigen embedding, generation, sampling, and decoding, whereas for PepMLM it 10 Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation includes tokenization, masked language model forwarding, sampling, and decoding. Thus, the benchmark represents a practical end-to-end inference setting rather than an isolated measurement of the generation step. Compared with PepTune, Pepti-drift showed an even larger efficiency gain. PepTune required 21.099 s per antigen and 329.679 ms per peptide, yielding only 3.0 peptides per second and making it 1,092.0 times slower than Pepti-drift. These results demonstrate that Pepti-drift provides substantially higher computational efficiency than existing peptide generation methods, supporting its practical utility for large-scale peptide screening against many antigens. Table 6: Generation speed comparison for producing peptide candidates per antigen.                 
+
+> Method Time/antigen (s) Time/peptide (ms) Throughput (peptides/s) Relative time PepTune 21.099 329.679 3.0 1,092 .0×
+> PepMLM 0.314 4.904 203.9 16 .2×
+> Pepti-drift (ours) 0.019 0.302 3,312.1 1.0×
+> PepMLM, PepTune and Pepti-drift were measured on 1,095 test antigens with model loading excluded. Relative time is normalized to Pepti-drift by time per peptide. Pepti-drift timing includes online ESM-2 embedding, generation, sampling, and decoding, whereas PepMLM timing includes tokenization, MLM forwarding, sampling, and decoding. All timing benchmarks were run on one compute node using a single NVIDIA H100 GPU.
+
+3.4 Generated peptides retain favorable sequence-level properties 
+
+The utility of a generative model depends not only on its ability to output peptide sequences, but also on whether it can generate valid and diverse peptides while maintaining desirable physicochemical properties. We therefore evaluated sequences generated by PepTune, PepMLM, and Pepti-drift using the same sequence-level analysis pipeline. PepTune generates peptide SMILES that may include modified or non-standard residues. Therefore, we extracted only linear peptides composed exclusively of the 20 standard amino acids for this fair amino-acid-sequence comparison. All three generators achieved a validity rate of 100.0%, indicating that the generated outputs satisfied the sequence validity criteria for all evaluated models. Despite this uniformly high validity, the models differed substantially in diversity-related metrics. PepTune exhibited a low uniqueness rate of 12.5%, whereas PepMLM and Pepti-drift achieved substantially higher uniqueness rates of 96.0% and 98.1%, respectively. The low uniqueness of PepTune mainly reflects extensive exact-sequence reuse among very short generated peptides. Thus, Pepti-drift achieved the highest uniqueness while preserving complete validity. Pepti-drift also showed the highest Shannon entropy among the three generators. The entropy values were 1.124 for PepTune, 2.727 for PepMLM, and 2.874 for Pepti-drift, indicating that Pepti-drift produced the most diverse model-level sequence distribution. The low entropy observed for PepTune was consistent with its low uniqueness rate, suggesting a more repetitive generation pattern. Cross-antigen reuse further highlighted differences in redundancy across antigen contexts. PepTune showed extensive reuse, with a mean cross-antigen reuse value of 252.30, while PepMLM reduced this value to 12.36. Pepti-drift achieved the lowest reuse value of 0.27, indicating that its generated peptides were rarely shared across additional antigens and were therefore more antigen-specific. Overall, Pepti-drift achieved the most favorable sequence-level profile among the three generators, combining complete validity with the highest uniqueness, highest Shannon entropy, and lowest cross-antigen reuse (Table 7). These results indicate that Pepti-drift can generate diverse and antigen-specific peptide candidates without sacrificing sequence validity. However, sequence-level validity and diversity alone do not establish whether the generated peptides retain target-related functional potential. We therefore next evaluated predicted peptide–antigen binding affinity before assessing safety-related properties. 
+
+3.5 Pepti-drift preserves predicted peptide–antigen binding propensity 
+
+Because Pepti-drift incorporates toxicity-associated peptides as repulsive supervision, it is important to determine whether this safety-aware avoidance removes target-related binding signal from the generated distribution. We therefore evaluated generated peptides using PeptiVerse binding-affinity predictions Zhang et al. [2026b], where higher scores indicate stronger predicted peptide–antigen binding. These scores should be interpreted as relative predictor-based binding signals rather than as direct evidence of high-affinity binding. PepMLM achieved the highest mean binding-affinity score among the three models, with a mean score of 6.219. Pepti-drift showed a lower mean score than PepMLM but remained above PepTune, achieving a mean score of 5.887 11 Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation Table 7: Sequence-level properties of generated peptides across models.                     
+
+> Model Validity rate (%) ↑Uniqueness rate (%) ↑Shannon entropy ↑Cross-antigen reuse ↓
+> PepTune 100.0 12.5 1.124 252.30 PepMLM 100.0 96.0 2.727 12.36 Pepti-drift (ours) 100.0 98.1 2.874 0.27
+> Boldface indicates the most favorable model-level value among the three generators for each endpoint. Validity rate is the fraction of generated sequences that passed the amino-acid sequence validity criteria. Uniqueness rate is the number of distinct valid peptide sequences divided by the total number of valid generated sequences, pooled across all antigens for each model. Shannon entropy summarizes the diversity of the model-level amino-acid sequence distribution, with higher values indicating greater sequence diversity. Cross-antigen reuse is the mean number of additional antigens in which the same peptide sequence appeared.
+
+compared with 5.637 for PepTune (Table 8). Thus, Pepti-drift preserved target-related predictive signal while shifting generated peptides toward a safer sequence profile, indicating that the repulsive toxicity-aware objective did not simply erase binding-associated structure from the generated distribution. These results suggest that the negative-aware latent drift does not simply generate low-toxicity sequences at the expense of target compatibility. Instead, Pepti-drift preserves antigen-conditioned binding propensity to a meaningful extent while shifting the generated sequence distribution away from toxicity-associated regions. We therefore next examined whether this trade-off was reflected in external predictor-based evaluations of toxicity, hemolysis, and non-fouling properties. Table 8: PeptiVerse binding-affinity score comparison across generated peptides.      
+
+> Model Mean binding affinity score ↑
+> PepTune 5.637 PepMLM 6.219
+> Pepti-drift 5.887 Higher scores indicate stronger predicted peptide–antigen binding. Model-level values are sequence-level means.
+
+3.6 External predictors support reduced toxicity and hemolysis risk in Pepti-drift outputs 
+
+To evaluate the safety-related properties of the generated peptides, we next analyzed toxicity and hemolysis risk using PeptiVerse-based predictors, which is a unified peptide property prediction platform for assessing therapeutic peptide properties from amino-acid sequences and chemically modified peptide representations Zhang et al. [2026b]. This analysis was designed to test whether training with repulsive toxicity-associated peptides led not only to latent-space avoidance, but also to reduced predicted toxicity-related properties in the decoded amino-acid sequences. Because peptide length can strongly affect predicted peptide properties, we summarized PeptiVerse predictions in a length-stratified manner across PepMLM, PepTune, and Pepti-drift (Table 9 and Figure 6). For predicted hemolysis risk, Pepti-drift showed lower or comparable scores relative to the baseline models across most length bins. In the shortest peptide bin, Pepti-drift achieved the lowest mean hemolysis score among the three models, with a score of 0.102 compared with 0.169 for PepMLM and 0.185 for PepTune. In the 6–10 aa bin, Pepti-drift matched the lowest score observed for PepTune and remained lower than PepMLM. Pepti-drift also showed a clear reduction relative to PepMLM in the 11–20 aa bin (0.055 versus 0.099). For longer peptides, Pepti-drift and PepMLM showed similar hemolysis predictions, with nearly identical values in the 21–40 aa bin and slightly lower values for Pepti-drift in the > 40 aa bin. Thus, Pepti-drift reduced predicted hemolysis risk most prominently for short-to-medium peptides, while maintaining comparable hemolysis profiles for longer peptides. The reduction was more consistent for predicted toxicity risk. Pepti-drift showed the lowest mean toxicity score in every length bin in which it could be compared with PepMLM. The differences were particularly evident for longer peptides: in the 21–40 aa bin, Pepti-drift reduced the mean toxicity score from 0.352 for PepMLM to 0.239, and in the 
+
+> 40 aa bin from 0.337 to 0.254. Pepti-drift also outperformed PepTune in the two short length bins where PepTune generated evaluable sequences, with toxicity scores of 0.415 versus 0.620 in the 1–5 aa bin and 0.391 versus 0.600 in the 6–10 aa bin. These length-stratified results indicate that Pepti-drift consistently shifts the generated sequence distribution toward lower predicted toxicity risk. 12 Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation Table 9: Length-stratified PeptiVerse prediction summaries for hemolysis, toxicity, and non-fouling scores. Score Peptide length PepMLM PepTune Pepti-drift (ours) 
+
+Hemolysis score ↓
+
+1–5 aa 0.169 (6,365) 0.185 (69,124) 0.102 (3,164) 6–10 aa 0.079 (6,914) 0.066 (917) 0.066 (16,150) 11–20 aa 0.099 (13,660) — 0.055 (24,342) 21–40 aa 0.146 (27,801) — 0.147 (19,409) 
+
+> 40 aa 0.159 (14,078) — 0.155 (6,078) 
+
+Toxicity score ↓
+
+1–5 aa 0.484 (6,363) 0.620 (69,123) 0.415 (3,164) 6–10 aa 0.424 (6,910) 0.600 (916) 0.391 (16,150) 11–20 aa 0.361 (13,655) — 0.336 (24,337) 21–40 aa 0.352 (27,798) — 0.239 (19,403) 
+
+> 40 aa 0.337 (14,075) — 0.254 (6,078) 
+
+Non-fouling score ↑
+
+1–5 aa 0.696 (6,365) 0.649 (69,124) 0.699 (3,164) 6–10 aa 0.687 (6,914) 0.608 (917) 0.673 (16,150) 11–20 aa 0.595 (13,660) — 0.702 (24,342) 21–40 aa 0.195 (27,801) — 0.195 (19,409) 
+
+> 40 aa 0.048 (14,078) — 0.010 (6,078)   
+
+> Values are mean PeptiVerse predictions, with the number of evaluated peptides in each length bin shown in parentheses. Dashes indicate length bins with no evaluated peptides for the corresponding model. Hemolysis ( ↓)Toxicity ( ↓)Non -fouling ( ↑)
+
+Figure 6: Length-stratified PeptiVerse prediction profiles for generated peptides. Mean predicted hemolysis risk, toxicity risk, and non-fouling propensity were summarized across peptide length bins for PepMLM, PepTune, and Pepti-drift. Downward arrows indicate properties for which lower predicted scores are preferable, whereas the upward arrow indicates that higher non-fouling scores are preferable. Pepti-drift showed reduced hemolysis and toxicity scores across most length ranges compared with baseline models, while maintaining high non-fouling scores for short-to-medium peptides; non-fouling predictions decreased sharply for longer peptides across models. PepTune generated peptides only in the 1–5 aa and 6–10 aa bins in this analysis. We further examined predicted non-fouling propensity as a favorable developability-related property. Pepti-drift maintained high non-fouling scores for short and medium-length peptides. In particular, Pepti-drift achieved the highest score in the 1–5 aa bin and a substantially higher score than PepMLM in the 11–20 aa bin. In the 6–10 aa bin, Pepti-drift remained comparable to PepMLM and higher than PepTune. For longer peptides, however, non-fouling scores decreased markedly across models, and Pepti-drift did not improve over PepMLM in the 21–40 aa and > 40 aa bins. This length-dependent decrease suggests that maintaining non-fouling propensity may be more challenging for longer generated peptides, regardless of the generator. In addition, to confirm the robustness of the PeptiVerse-based hemolysis evaluation, we performed an additional analysis using HemoPI2 Rathore et al. [2025], an independent hemolysis predictor. In this length-stratified evaluation, Pepti-drift 13 Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation showed the lowest mean HemoPI2 score in all peptide-length bins (Table 10). Compared with PepMLM, Pepti-drift reduced the mean HemoPI2 score from 0.319 to 0.269 in the 1–5 aa bin, from 0.256 to 0.247 in the 6–10 aa bin, from 0.343 to 0.271 in the 11–20 aa bin, from 0.551 to 0.503 in the 21–40 aa bin, and from 0.637 to 0.590 in the > 40 aa bin. The hemolytic-positive fraction showed a similar trend for medium and long peptides. Pepti-drift reduced the hemolytic-positive fraction relative to PepMLM in the 6–10 aa, 11–20 aa, 21–40 aa, and > 40 aa bins. The reduction was particularly pronounced in the 11–20 aa bin, where the positive fraction decreased from 22.2% for PepMLM to 9.5% for Pepti-drift. Pepti-drift also reduced the positive fraction from 56.3% to 46.4% in the 21–40 aa bin and from 73.1% to 66.0% in the > 40 aa bin. In the shortest 1–5 aa bin, however, PepMLM showed the lowest hemolytic-positive fraction, whereas Pepti-drift showed the lowest continuous HemoPI2 score. This indicates that continuous prediction scores and threshold-based binary positive fractions do not always follow the same ordering, especially for very short peptides. Table 10: Length-stratified HemoPI2 evaluation of predicted hemolysis risk in generated peptides.                                        
+
+> Peptide length Mean HemoPI2 score ↓Hemolytic fraction (%) ↓
+> PepMLM PepTune Pepti-drift (ours) PepMLM PepTune Pepti-drift (ours) 1–5 aa 0.319 0.334 0.269 0.3 0.4 0.7 6–10 aa 0.256 0.251 0.247 6.7 4.6 4.8 11–20 aa 0.343 —0.271 22.2 —9.5
+> 21–40 aa 0.551 —0.503 56.3 —46.4
+> >40 aa 0.637 —0.590 73.1 —66.0
+> Lower mean HemoPI2 scores and lower hemolytic fractions indicate lower predicted hemolytic activity. Boldface indicates the most favorable value among models represented in each length bin. PepTune generated peptides only in the 1–5 aa and 6–10 aa bins in this length-stratified analysis.
+
+For the short peptide bins in which PepTune outputs were available, Pepti-drift achieved the lowest mean HemoPI2 score in both the 1–5 aa and 6–10 aa bins. However, threshold-based hemolytic-positive fractions showed smaller differences among models in these short-length ranges. PepMLM had the lowest positive fraction in the 1–5 aa bin, whereas PepTune had a slightly lower positive fraction than Pepti-drift in the 6–10 aa bin. These results suggest that Pepti-drift tends to shift the overall HemoPI2 score distribution toward lower predicted hemolysis, while binary threshold-based labels may remain sensitive to model-specific score distributions and peptide-length effects. Overall, the independent HemoPI2 evaluation supports the trend observed in the PeptiVerse analysis. Pepti-drift consistently achieved lower mean predicted hemolysis scores than PepMLM across all length bins and reduced hemolytic-positive fractions for peptides longer than 5 amino acids. Although some metric-dependent differences were observed in comparison with PepTune in the short peptide ranges, Pepti-drift demonstrated a consistent reduction in continuous hemolysis risk scores while maintaining high sequence validity and diversity. Taken together, these results show that Pepti-drift uses antigen-conditioned latent drift to move candidate peptide representations toward binding-compatible regions while avoiding toxicity-associated peptide regions. Although its predicted binding-affinity score was lower than that of PepMLM, Pepti-drift maintained a higher relative PeptiVerse binding-affinity score than PepTune while reducing predicted toxicity and hemolysis risk. These findings support Pepti-drift as a fast generator of valid, diverse, antigen-specific, and safety-aware peptide candidates with preserved target-related potential. 
+
+# 4 Related Work 
+
+4.1 Target-conditioned peptide sequence generation 
+
+Recent advances in protein language models have enabled peptide binder design directly from amino-acid sequences, reducing the dependence on experimentally resolved or computationally predicted target structures. A particularly relevant line of work is target sequence-conditioned peptide generation, where the input target protein sequence is used as the conditioning context for generating candidate peptide binders. Among these methods, PepMLM [Chen et al., 2025] is the closest comparison to our setting. PepMLM fine-tunes ESM-2 [Lin et al., 2023] for masked language modeling by concatenating a target protein sequence with a cognate peptide binder region placed at the C-terminus of the target sequence, and then trains the model to reconstruct the masked peptide span conditioned on the unmasked target sequence. This formulation enables de novo generation of linear peptide binders using only the target sequence, without requiring a target structure as mandatory input. The ability to design binders for arbitrary target sequences is especially attractive for proteins whose structures are unavailable, unstable, or intrinsically disordered. 14 Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation Despite this progress, PepMLM and related masked language modeling approaches primarily formulate peptide design as conditional token reconstruction. Candidate peptides are sampled through masked reconstruction or iterative decoding, and the learned model directly parameterizes amino-acid probabilities conditioned on the target context. This differs from our objective in two important ways. First, our method does not use ESM-2 as a direct sequence generator; instead, Pepti-drift uses protein language model embeddings as a shared latent representation for both antigens and peptides. Second, while PepMLM focuses on generating plausible target-conditioned binders, it does not explicitly model a latent drift process that simultaneously attracts peptide representations toward antigen-specific binding neighborhoods and repels them away from toxicity-associated regions. Thus, Pepti-drift complements target-conditioned peptide language modeling by reframing peptide design as controlled movement in a biologically meaningful latent space. 
+
+4.2 Therapeutic peptide generation with multi-objective-guided discrete diffusion 
+
+Peptide therapeutics require optimization beyond binding affinity alone. In practical drug discovery settings, candidate peptides must also satisfy multiple developability and safety-related constraints, including solubility, membrane permeability, hemolysis, cytotoxicity, stability, and non-fouling behavior. This has motivated recent generative approaches that treat peptide design as a multi-objective optimization problem rather than a single-property generation task. PepTune is a representative method in this direction. It introduces a multi-objective discrete diffusion framework for therapeutic peptide design and combines masked discrete diffusion with MCTG to optimize multiple therapeutic properties simultaneously [Tang et al., 2025]. In particular, PepTune generates peptide SMILES strings and guides the denoising process using classifier-based rewards for properties such as target binding affinity, membrane permeability, solubility, hemolysis, and non-fouling. This makes PepTune a powerful framework for exploring chemically modified peptide space under multiple property constraints. However, the problem setting of PepTune differs from ours. PepTune primarily focuses on discrete diffusion over peptide SMILES and Pareto-guided multi-objective exploration, whereas Pepti-drift focuses on antigen-conditioned peptide representation learning from antigen–peptide binding pairs. Rather than optimizing peptide SMILES through inference-time tree search, Pepti-drift learns an antigen-conditioned latent drift field that moves peptide embeddings toward attractive binding neighborhoods while simultaneously pushing them away from repulsive toxicity-associated regions. In this sense, Pepti-drift is not simply a multi-objective peptide generator; it is a target-conditioned latent-space control method in which binding and toxicity signals are geometrically encoded as opposing forces in representation space. 
+
+4.3 Protein language models as sequence representations 
+
+Protein language models have become a central foundation for sequence-based protein engineering. Models such as ESM-2 are trained on large-scale protein sequence corpora using self-supervised objectives and have been shown to learn representations that encode evolutionary, structural, and functional information [Lin et al., 2023]. These embeddings have been widely adopted for downstream tasks such as structure prediction, function prediction, variant effect prediction, protein fitness modeling, and binder design. For example, ESMFold demonstrates that representations learned by ESM-2 can support accurate single-sequence structure prediction, suggesting that protein language models capture structural constraints from sequence statistics alone [Lin et al., 2023]. In peptide and binder design, protein language model embeddings provide a useful alternative to handcrafted sequence descriptors or structure-dependent features. Prior approaches often use these representations either as inputs to discriminative models for ranking candidates or as the internal state of generative models for masked or autoregressive sequence decoding. Pepti-drift takes a different approach: we use ESM-2 embeddings not as a direct generator, but as a common latent coordinate system in which antigens and peptides can be represented, compared, and controlled. This enables us to learn a drift process over peptide latent states conditioned on the antigen embedding. By operating in this shared representation space, Pepti-drift can exploit the biological information encoded by protein language models while maintaining explicit control over the direction of peptide movement with respect to binding and toxicity-related regions. 
+
+4.4 Toxicity- and hemolysis-aware peptide design 
+
+Safety-aware design is a critical requirement for therapeutic peptide development. Many peptides, particularly antimicrobial or membrane-active peptides, can exhibit undesirable hemolytic or cytotoxic effects, making toxicity assessment an essential part of candidate selection. A large body of prior work has therefore focused on computational prediction of peptide toxicity and hemolysis. Examples include machine-learning predictors for hemolytic peptides, 15 Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation toxicity classifiers for antimicrobial peptides, and structure-aware models that combine sequence and predicted structural features to improve toxicity prediction [Chaudhary et al., 2016, Timmons and Hewage, 2020, Ebrahimikondori et al., 2024, Rathore et al., 2025]. These methods are valuable for screening and prioritization, but they are typically used as post-generation filters or downstream evaluation tools. More recent models have begun to incorporate peptide properties such as hemolysis, solubility, and non-fouling into the design pipeline. PeptideBERT introduced a transformer-based peptide property prediction framework by fine-tuning ProtBERT for sequence-level prediction of hemolysis, solubility, and non-fouling, demonstrating that protein language models can capture safety- and developability-relevant peptide properties from amino-acid sequences alone [Guntuboina et al., 2023]. Building on this line of property-aware modeling, PeptideGPT fine-tunes generative protein language models for property-specific peptide generation and evaluates generated sequences using task-specific classifiers, including PeptideBERT and HAPPENN, together with structural filters [Shah et al., 2024]. PepTune further extends this direction by integrating hemolysis and other therapeutic properties directly into a multi-objective guided discrete diffusion framework [Tang et al., 2025]. Notably, the results reported in Table 2 of PepTune show that PepTune achieves stronger performance than PeptideBERT-based baselines on hemolysis-related and other therapeutic property objectives, highlighting the advantage of optimizing these constraints during generation rather than using property predictors only as post-generation evaluators [Tang et al., 2025]. These works indicate a growing recognition that peptide generation should account for safety and developability during design rather than after synthesis. Nevertheless, toxicity-aware generation remains relatively underexplored compared with post-hoc toxicity prediction. In particular, few methods explicitly use toxicity or hemolysis as a repulsive signal in a target-conditioned peptide latent space. Pepti-drift addresses this gap by incorporating toxicity-associated regions directly into the latent control mechanism. During generation, peptide representations are encouraged to drift toward antigen-specific attractive binding neighborhoods while being repelled from regions associated with toxic or hemolytic peptides. This design makes toxicity awareness an intrinsic component of the generative trajectory, rather than a downstream filtering criterion. Consequently, Pepti-drift provides a unified framework for antigen-conditioned peptide design that jointly accounts for binding compatibility and safety-oriented latent avoidance. 
+
+# 5 Conclusion 
+
+We proposed Pepti-drift, a fast antigen-conditioned peptide generation framework that formulates peptide design as a one-step latent drift process. Pepti-drift integrates attractive supervision from antigen–peptide binding pairs with repulsive supervision from toxicity-associated peptides, thereby explicitly defining both the binding-compatible direction to approach and the undesirable regions to avoid during generation. Our results show that warm-up negative repulsion is important for stable toxicity-aware latent drifting. When binding-associated and toxicity-associated peptide distributions are close in the learned representation space, applying attraction and repulsion simultaneously from the beginning can introduce competing signals and destabilize learning. Visualization and quantitative analyses confirmed that the learned drift moved generated latent states closer to matched binding peptide representations while increasing their separation from nearby toxicity-associated peptide regions. Pepti-drift also achieved substantial computational efficiency. In an end-to-end benchmark including antigen embedding, generation, sampling, and decoding, Pepti-drift generated peptide candidates markedly faster than PepMLM and PepTune, supporting its practical utility for large-scale peptide screening across many antigen targets. In addition, Pepti-drift preserved favorable sequence-level properties. The generated peptides showed complete validity, high uniqueness, high sequence diversity, and extremely low cross-antigen reuse, indicating that Pepti-drift generates diverse and antigen-specific candidates rather than redundant or generic sequences. Although Pepti-drift did not achieve the highest predicted binding-affinity score among the evaluated models, it retained target-related predictive binding signal and outperformed PepTune in this metric. External predictor-based evaluations further suggested that the toxicity-repulsive drifting mechanism improved sequence-level safety profiles. Pepti-drift reduced predicted toxicity scores compared with PepMLM and showed lower or comparable predicted hemolysis risk across most peptide-length ranges. Independent HemoPI2 evaluation supported this trend by showing lower mean predicted hemolysis scores for Pepti-drift. Several limitations remain. Although Pepti-drift reduced predicted toxicity and hemolysis risk in multiple in silico evalu-ations, the actual binding activity, toxicity, and biological safety of generated peptides must be validated experimentally. In addition, Pepti-drift relies on the ESM-2 embedding space to represent antigen and peptide sequences; future protein language models with more task-relevant representations may further improve antigen-conditioned peptide generation. 16 Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation Together, these findings demonstrate that antigen-conditioned latent drift provides an efficient and controllable strategy for generating valid, diverse, antigen-specific, and lower-risk peptide candidates. Pepti-drift therefore represents a promising computational framework for scalable peptide design that balances predicted target compatibility with safety-aware avoidance. 
+
+# References 
+
+Zeming Lin, Halil Akin, Roshan Rao, Brian Hie, Zhongkai Zhu, Wenting Lu, Nikita Smetanin, Robert Verkuil, Ori Kabeli, Yaniv Shmueli, Allan dos Santos Costa, Maryam Fazel-Zarandi, Tom Sercu, Salvatore Candido, and Alexander Rives. Evolutionary-scale prediction of atomic-level protein structure with a language model. Science ,379(6637):1123–1130, 2023. Robert E. W. Hancock and Hans-Georg Sahl. Antimicrobial and host-defense peptides as new anti-infective therapeutic strategies. Nature Biotechnology , 24(12):1551–1557, 2006. Christopher D. Fjell, Jan A. Hiss, Robert E. W. Hancock, and Gisbert Schneider. Designing antimicrobial peptides: form follows function. Nature Reviews Drug Discovery , 11(1):37–51, 2012. Leo Tianlai Chen, Zachary Quinn, Madeleine Dumas, Christina Peng, Lauren Hong, Moises Lopez-Gonzalez, Alexander Mestre, Rio Watson, Sophia Vincoff, Lin Zhao, Jianli Wu, Audrey Stavrand, Mayumi Schaepers-Cheu, Tian Zi Wang, Divya Srijay, Connor Monticello, Pranay Vure, Rishab Pulugurta, Sarah Pertsemlidis, Kseniia Kholina, Shrey Goel, Matthew P. DeLisa, Jen-Tsan Ashley Chi, Ray Truant, Hector C. Aguilar, and Pranam Chatterjee. Target sequence-conditioned design of peptide binders using masked language modeling. Nature Biotechnology , 2025. Sophia Tang, Yinuo Zhang, and Pranam Chatterjee. PepTune: De novo generation of therapeutic peptides with multi-objective-guided discrete diffusion. In International Conference on Machine Learning , 2025. Mingyang Deng, He Li, Tianhong Li, Yilun Du, and Kaiming He. Generative modeling via drifting. arXiv preprint arXiv:2602.04770 , 2026. Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matthew Le. Flow matching for generative modeling. In International Conference on Learning Representations , 2023. Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. In International Conference on Learning Representations , 2023. Jiatao Gu, James Bradbury, Caiming Xiong, Victor O. K. Li, and Richard Socher. Non-autoregressive neural machine translation. In International Conference on Learning Representations , 2018. Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. In NeurIPS Workshop on Deep Generative Models and Downstream Applications , 2021. Felix Koulischer, Johannes Deleu, Gabriel Raya, Thomas Demeester, and Luca Ambrogioni. Dynamic negative guidance of diffusion models. In International Conference on Learning Representations , volume 2025, pages 34892–34921, 2025. Ning Zhu, Yanyu Ming, Chengyun Zhang, Sen Cao, Chongyang Li, Jingjing Guo, and Hongliang Duan. PPIKB: a comprehensive knowledge base and analysis platform for protein-peptide interactions based on literature and patents. 
+
+bioRxiv preprint , 2025. Jun Zhang, Yangyang Zhou, Tiantian Zhu, and Zexuan Zhu. PepCCD: a contrastive conditioned diffusion framework for target-specific peptide generation. In AAAI Conference on Artificial Intelligence , 2026a. Tianyue Ma, Yanchao Liu, Bingxin Yu, Xin Sun, Huiyuan Yao, Chen Hao, Jianhui Li, Maryam Nawaz, Xun Jiang, Xingzhen Lao, and Heng Zheng. Dramp 4.0: an open-access data repository dedicated to the clinical translation of antimicrobial peptides. Nucleic Acids Research , 53(D1):D403–D410, 2025. Anand Singh Rathore, Shubham Choudhury, Akanksha Arora, P. A. Tijare, and Gajendra P. S. Raghava. ToxinPred 3.0: an improved method for predicting the toxicity of peptides. Computers in Biology and Medicine , 179:108926, 2024. Ankur Gautam, Kumardeep Chaudhary, Sandeep Singh, Anshika Joshi, Priya Anand, Abhishek Tuknait, Deepika Mathur, Grish C Varshney, and Gajendra PS Raghava. Hemolytik: a database of experimentally determined hemolytic and non-hemolytic peptides. Nucleic acids research , 42(D1):D444–D449, 2014. Weizhong Li and Adam Godzik. Cd-hit: a fast program for clustering and comparing large sets of protein or nucleotide sequences. Bioinformatics , 22(13):1658–1659, 2006. Yinuo Zhang, Sophia Tang, Tong Chen, Elizabeth Mahood, Sophia Vincoff, and Pranam Chatterjee. Peptiverse: A unified platform for therapeutic peptide property prediction. bioRxiv , 2026b. 17 Pepti-drift: Toxicity-Repulsive Drifting for Antigen-Conditioned Discrete Peptide Generation Anand Singh Rathore, Nishant Kumar, Shubham Choudhury, Naman Kumar Mehta, and Gajendra P. S. Raghava. Prediction of hemolytic peptides and their hemolytic concentration. Communications Biology , 8:176, 2025. Kumardeep Chaudhary, Ritesh Kumar, Sandeep Singh, Abhishek Tuknait, Ankur Gautam, Deepika Mathur, Priya Anand, Grish C Varshney, and Gajendra PS Raghava. A web server and mobile app for computing hemolytic potency of peptides. Scientific Reports , 6(1):22843, 2016. Patrick B. Timmons and Chandralal M. Hewage. HAPPENN is a novel tool for hemolytic activity prediction for therapeutic peptides which employs neural networks. Scientific Reports , 10:10869, 2020. Hossein Ebrahimikondori, Darcy Sutherland, Anat Yanai, Amelia Richter, Ali Salehi, Chenkai Li, Lauren Coombe, Monica Kotkoff, René L. Warren, and Inanc Birol. Structure-aware deep learning model for peptide toxicity prediction. Protein Science , 33(7):e5076, 2024. Chakradhar Guntuboina, Adrita Das, Parisa Mollaei, Seongwon Kim, and Amir Barati Farimani. Peptidebert: A language model based on transformers for peptide property prediction. The Journal of Physical Chemistry Letters ,14(46):10427–10434, 2023. Aayush Shah, Chakradhar Guntuboina, and Amir Barati Farimani. Peptide-GPT: Generative design of peptides using generative pre-trained transformers and bio-informatic supervision. arXiv preprint arXiv:2410.19222 , 2024. 18

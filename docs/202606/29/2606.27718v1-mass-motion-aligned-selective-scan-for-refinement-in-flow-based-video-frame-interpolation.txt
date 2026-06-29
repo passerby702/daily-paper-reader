@@ -1,0 +1,409 @@
+Title: MASS: Motion-Aligned Selective Scan for Refinement in Flow-Based Video Frame Interpolation
+
+URL Source: https://arxiv.org/pdf/2606.27718v1
+
+Published Time: Mon, 29 Jun 2026 00:31:40 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# MASS: Motion-Aligned Selective Scan for Refinement in Flow-Based Video Frame Interpolation 
+
+Jun-Sang Yoo and Seung-Won Jung ⋆
+
+Department of Electrical Engineering, Korea University, Seoul, Korea 
+
+{junsang7777,swjung83}@korea.ac.kr 
+
+Abstract. Video frame interpolation (VFI) remains a challenging task, particularly when dealing with large, non-linear motions and complex occlusions. While flow-based methods are prevalent, they often struggle with ambiguous correspondences. Recent VFI methods based on selective State Space Models (SSMs) are still limited by static grid-based scanning that misaligns with physical motion. In this paper, we propose Motion-Aligned Selective Scan (MASS), a novel framework that reformulates fea-ture scanning from static spatial grids to dynamic motion trajectories. MASS builds a feature sequence along each pixel’s flow-guided trajectory and aggregates it with an SSM. Specifically, we introduce a learnable non-linear path integration to approximate complex curved trajectories via residual velocity updates, and a velocity-aware SSM that dynamically adjusts the sampling budget and step size based on motion magnitude. This adaptive strategy allocates denser sampling to fast-motion regions while keeping static regions efficient. Furthermore, the aggregated states guide a refinement module to rectify intermediate flows and masks in an end-to-end manner. Extensive experiments indicate that MASS achieves highly competitive overall performance on standard benchmarks, estab-lishing state-of-the-art results particularly in challenging scenarios with large displacements and complex dynamics. 
+
+Keywords: Video Frame Interpolation · Selective State Space Models 
+
+· Trajectory-wise Modeling · Motion-Guided Refinement 
+
+1 Introduction 
+
+Video frame interpolation (VFI) aims to synthesize an intermediate frame It
+
+at time t ∈ (0 , 1) from two consecutive frames I0 and I1, enabling applications such as slow-motion generation [12, 29, 37], video compression [33, 36], and novel view synthesis [5, 14, 22]. While recent works [4, 39, 42] also explore diffusion or higher-level object/foreground cues to improve the perceptual fidelity, flow-based approaches [2, 10, 15, 16, 28] remain a prevalent paradigm for enforcing temporal alignment by explicitly modeling inter-frame motion. They estimate  
+
+> ⋆
+
+Corresponding author.   
+
+> arXiv:2606.27718v1 [cs.CV] 26 Jun 2026 2J.-S Yoo and S.-W. Jung
+> Fig. 1: Comparison of feature serialization strategies for VFI. (a) Static raster scanning flattens unaligned grids into mixed sequences, causing ghosting artifacts. (b) MASS extracts features along surrogate trajectories forming motion-consistent sequences and reducing misalignment in dynamic regions.
+
+intermediate flows toward time t, warp the input frames, and reconstruct It by blending the warped frames with a synthesis network. Despite their success, estimating intermediate flow is inherently challenging because the intermediate frame is unobserved. Even with multi-scale or iterative estimators [32, 34], large displacement, occlusion/disocclusion, thin structures, and repetitive textures often lead to ambiguous correspondences, which degrade warping-based reconstruction. To address this, recent methods [19, 29] such as SGM-VFI explicitly strengthen the correspondence stage by introducing global matching cues. By establishing sparse global correspondences between I0 and 
+
+I1 and converting them into intermediate-flow compensation, these methods improve robustness under large motion. However, correspondence-centric ap-proaches remain insufficient in regions where reliable matches are fundamentally unavailable, such as disocclusions and motion boundaries, forcing the interpola-tion pipeline to operate with only approximate flow estimates. In parallel, another line of work explores global modeling architectures, in-cluding Transformers [35] and selective state space models (SSMs) [6] for VFI [11, 17, 23, 40, 41]. These models offer an efficient mechanism for long-range con-text aggregation. However, such designs still depend on the reliability of the underlying motion hypothesis and typically constrain aggregation to spatially defined windows for efficiency, which can be challenged by occlusion and highly non-linear motion. Furthermore, most existing SSM-based VFI methods [11, 40] serialize features using scan orders defined on static grids (e.g., raster or lo-cal windows). For VFI, the most informative context for a target pixel often lies along its physical motion path rather than in a static spatial neighborhood. This mismatch motivates us to replace grid-defined serialization with flow-guided trajectory serialization, better matching the continuous, motion-driven nature of the task. In this paper, we introduce Motion-Aligned Selective Scan (MASS) ,which shifts the scan order from static spatial grids to dynamic motion trajec-tories, turning per-pixel interpolation into trajectory-wise sequence modeling as illustrated in Fig. 1. Given coarse intermediate flows, MASS constructs a flow-guided surrogate trajectory for each pixel. Features sampled along this trajec-tory are flattened into a one-dimensional sequence. By aligning serialization with MASS: Motion-Aligned Selective Scan for Refinement in VFI 3
+
+the motion hypothesis, MASS aggregates context along flow-guided trajectories rather than a fixed spatial grid, reducing interference from motion-inconsistent neighbors. Specifically, MASS incorporates two mechanisms to overcome the limita-tions of linear interpolation: learnable velocity and adaptive sequence length. Real-world motion is rarely perfectly linear. To address this, MASS updates the trajectory state at each step using a learnable residual, enabling the model to approximate complex, curved paths. We vary the number of sampled points with motion magnitude, so longer trajectories are sampled more densely. To pre-vent temporal aliasing and preserve transient details in fast-moving regions, our model assigns longer sequence lengths (i.e., denser sampling along the trajec-tory) to pixels with large displacements, while static areas are processed with shorter sequences for efficiency. To demonstrate the effectiveness of our framework, we evaluate its perfor-mance on various standard benchmarks. The results show that MASS achieves state-of-the-art performance, particularly exhibiting superior robustness in com-plex scenarios with large displacements and occlusions without incurring signif-icant computational overhead. Our contributions are summarized as follows: 
+
+– We propose Motion-Aligned Selective Scan (MASS), which replaces static grid serialization with flow-guided, learnable non-linear trajectories to better capture the continuous dynamics of frame interpolation. 
+
+– We introduce a motion-adaptive discretization strategy that dynamically adjusts sequence sampling and SSM step sizes, alongside a refinement module that uses forward-backward context discrepancies to correct intermediate motions. 
+
+– Extensive experiments show MASS is highly competitive across standard benchmarks, achieving the most significant gains in challenging scenarios with large displacements and high-resolution inputs. 
+
+2 Related Work 
+
+2.1 Flow-based Video Frame Interpolation 
+
+Flow-based VFI synthesizes an intermediate frame by estimating intermediate-time correspondences and visibility cues (e.g., blending/occlusion masks), and reconstructing It via warping and fusion [2, 12]. A major line of work derives these flows from bidirectional estimations [20, 26], while another line directly predicts them via dedicated supervision [10, 13, 15]. Representative models like RIFE [10] establish highly efficient warp-and-merge paradigms, whereas IFR-Net [15] emphasizes the intrinsic difficulty of intermediate flow estimation due to the absence of the target frame. To strengthen inter-frame interaction and capture broader context, attention-augmented methods [23, 41] have been widely adopted. VFIFormer [23] and EMA-VFI [41] demonstrate that cross-frame attention effectively balances detail 4 J.-S Yoo and S.-W. Jung 
+
+preservation and global reasoning. TTVFI [18] introduces endpoint-conditioned linear motion modeling in Transformers to mitigate warping inconsistencies; however, it models trajectories simply as linear displacements between two end-points and constrains its attention mechanism to static spatial windows. Nevertheless, large displacement and high-resolution scenarios remain chal-lenging, as correspondence errors can be amplified by warping and become dif-ficult to correct. Several works address this through scalable training strate-gies (e.g., XVFI [30]), scale-robust estimation (e.g., FILM [29]), or stronger correlation-and-refinement schemes (e.g., AMT [17]). Other approaches expand the effective matching range by incorporating bilateral correlation modeling [27, 28] or sparse global matching compensation [19]. Rather than introducing additional matching branches or relying on fixed in-teraction patterns, we revisit refinement from the perspective of motion-consistent aggregation. Our goal is to construct representations that remain informative even under local correspondence uncertainties by explicitly aggregating features along non-linear motion trajectories. 
+
+2.2 State Space Models for Vision and VFI 
+
+SSMs [6, 7] have emerged as an efficient, linear-time alternative to attention for sequence modeling. To apply SSMs to images, Vision Mamba variants serialize 2D feature maps into 1D token sequences. Early designs explore bidirectional and cross-axis scanning to mitigate the loss of 2D spatial structure [21,43], while subsequent works further optimize scan-order designs to better preserve locality and continuity [8, 25]. SSM-based approaches for VFI remain relatively underexplored. VFIMamba [40] adapts selective scanning to two-frame modeling by arranging tokens from I0
+
+and I1 into an interleaved sequence for efficient multi-directional mixing. LC-Mamba [11] emphasizes locality by introducing shifted-window and Hilbert curve-based scan orders, further extending scanning to spatiotemporal tokens. While these methods demonstrate that SSMs can serve as highly efficient feature mix-ers for VFI, their scan orders remain defined over predetermined token traversals on static grids (spatial or spatiotemporal). Unlike prior SSM-based VFI methods, we avoid serializing tokens along fixed spatial traversals. Instead, we sample features along flow-guided trajectories and use the resulting forward and backward contexts for both frame synthesis and intermediate motion refinement. This trajectory-aligned aggregation helps mit-igate alignment errors in large-displacement and occlusion-heavy scenarios. 
+
+3 Method 
+
+3.1 Overview 
+
+Our goal is to synthesize an intermediate frame ˆIt at time t ∈ (0 , 1) (default 
+
+t = 0 .5) from two consecutive frames I0 and I1. As illustrated in Fig. 2, the MASS: Motion-Aligned Selective Scan for Refinement in VFI 5      
+
+> Fig. 2: Overall pipeline of our framework. Features extracted from I0and I1are pro-cessed through a cascade of MASS refinement units in a coarse-to-fine manner, pro-ducing refined motion and context to synthesize the target frame ˆIt.
+
+overall pipeline follows a coarse-to-fine design to robustly handle large non-linear motions and complex occlusions. We first extract feature maps C0 and C1 from 
+
+I0 and I1 using a shared feature extractor. At each scale, the model repeats three steps: trajectory construction, trajectory-wise scan, and motion refinement. Specifically, we start from coarse bidirectional flows F = {Ft→0, F t→1} (and an occlusion/blending mask M ) estimated by a lightweight estimator [15]. These coarse motions provide a baseline for building pixel-wise trajectories P0→t and 
+
+P1→t. Unlike standard VFI methods that aggregate features on a static grid (e.g., via regular convolutions or window attention), our MASS aggregates features along these trajectories. As a result, MASS produces forward and backward motion-aligned contexts Z0→t and Z1→t, which are later fused into ˆZt for frame synthesis. Crucially, the aggregated features serve two roles in our framework. First, they provide rich semantic context for frame synthesis. By gathering information along the motion trajectory, they preserve complex structures and fine textures that pure flow-based warping often misses. For synthesis, the forward and back-ward contexts are fused into ˆZt and combined with the refined motion in the synthesis module to generate the target frame ˆIt.Second, the aggregated features provide a cue for motion reliability. In non-occluded regions, forward and backward trajectories should trace the same phys-ical content, so their aggregated contexts should be consistent. We use the dis-crepancy between these contexts in the refinement module to identify trajectory errors and occlusions, and to update the coarse flow and mask, producing re-fined estimates ˆF and ˆM . These updated motion estimates are then fed into the next stage to reconstruct more accurate trajectories, forming an iterative coarse-to-fine update loop. 
+
+3.2 Motion-Aligned Selective Scan 
+
+To overcome the limitations of static grid aggregation, MASS reformulates VFI as a trajectory-wise sequence modeling task. For a target pixel p, instead of restricting the receptive field to a spatial window, we utilize the initial coarse motion to trace a continuous flow-guided path. We then sequentially sample fea-tures along this trajectory and aggregate them using an SSM , explicitly align-6 J.-S Yoo and S.-W. Jung         
+
+> Fig. 3: Detailed illustration of the MASS refinement unit. (a) Non-linear trajectories are constructed from coarse flows through motion-adaptive sampling and learnable residual updates ( δvk). (b) Trajectory-aligned feature sequences are aggregated with a velocity-aware scan, which adaptively modulates the discretization step according to the trajectory velocity ( |F|/K ). (c) The resulting forward and backward contexts are fused into ˆZtfor frame synthesis, while their discrepancy is used to refine the intermediate motion estimates ( ˆF , ˆM).
+
+ing the context with physical motion and avoiding interference from misaligned neighbors. This process involves two coupled mechanisms. First, we construct non-linear trajectories from coarse motion estimates, allowing the sampling process to follow complex motion paths rather than relying on a straight-line assumption. Second, we aggregate the resulting trajectory-aligned feature sequences using a velocity-aware selective SSM (VA-SSM) to obtain motion-aligned contexts. We apply this process symmetrically to both forward ( 0 → t) and backward ( 1 → t) directions, producing Z0→t and Z1→t. These contexts are then used not only for synthesis but also to guide motion refinement, as summarized in Fig. 5. 
+
+3.2.1 Learnable Non-Linear Path Integration. Linear interpolation as-sumes constant velocity, approximating motion as a straight line. However, com-plex real-world dynamics (e.g., rotation, acceleration) require curved trajectories. We construct such trajectories via an iterative integration process that progres-sively refines sampling coordinates starting from the coarse flow. We first determine how densely to sample the trajectory. We assign a dy-namic sampling budget K(p) based on the motion magnitude. Intuitively, pixels with larger flow magnitude require denser sampling to avoid undersampling long trajectories. If we sample these long paths with too few points, sparse sampling can under-approximate curved motion and may lead to aliasing artifacts. Con-versely, static regions require fewer steps. Therefore, we dynamically set the sampling budget K(p) by scaling the av-erage magnitude of the bidirectional flows, defined as ∥F (p)∥ = 12 (∥Ft→0(p)∥ +
+
+∥Ft→1(p)∥). Using a scaling factor α, we round the scaled magnitude to the nearest integer and restrict it to a predefined range [Kmin , K max ]:
+
+K(p) = clip (⌊α · ∥ F (p)∥⌉ , K min , K max ) (1) MASS: Motion-Aligned Selective Scan for Refinement in VFI 7
+
+Given the sampling budget K(p), we define the trajectory by iteratively up-dating sampling coordinates relative to the fixed target pixel. Let u denote the coordinate of pixel p in the target frame. We aim to trace a sequence of points 
+
+{u + dk}K(p) 
+
+> k=0
+
+towards the source frame, so that sampling follows the underlying motion. We initialize the accumulated displacement as zero ( d0 = 0). At each step k, we first sample a local feature vector from the source feature map at the current traced coordinate u + dk via the backward warping operation [15], de-noted as ←−W(C0, u + dk). We then feed this motion-aligned feature together with the coarse flow Ft→0(p) and the normalized progress indicator rk = k/K (p) into two convolutional layers ϕ0→t, which predict a residual velocity δvk. This resid-ual term serves as a learnable correction to the constant-velocity assumption; it lets the trajectory deviate from linear interpolation when local appearance indicates curved motion. For the forward direction ( 0 → t), this is written as: 
+
+δvk = ϕ0→t
+
+←−W(C0, u + dk), F t→0(p), r k
+
+
+
+, with rk = kK(p) . (2) The displacement is then updated by taking one coarse-flow step (a constant increment of Ft→0(p)/K (p)) and adding the predicted residual: 
+
+dk+1 = dk + Ft→0(p)
+
+K(p) + δvk. (3) In other words, each step advances the trajectory by a coarse-flow increment plus a learned residual offset, allowing the path to bend when local appearance deviates from the straight-line assumption. Repeating this process yields a non-linear trajectory and a trajectory-aligned feature sequence. We apply the same construction to the backward direction ( 1 → t) using C1 and Ft→1, producing 
+
+P1→t. To enable efficient batched computation, we implement variable-length trajectories using a fixed-length buffer with a masking strategy. More details are provided in the supplementary material. 
+
+3.2.2 Velocity-Aware Selective Scan. Given the extracted feature sequence, the subsequent step is to aggregate these observations into a unified context vector Z(p). Rather than relying on a aggregation mechanism, we introduce a Velocity-Aware SSM (VA-SSM) to adaptively modulate the internal state transi-tion dynamics based on the underlying per-step motion along the trajectory. In-tuitively, larger displacements per step correspond to faster appearance changes along the sequence. A fixed discretization may under-resolve rapid appearance variation along high-velocity trajectories, which can reduce the fidelity of fine textures. To address this, we modulate the discretization step size according to the trajectory’s average velocity. In discretized SSMs, the system evolution depends on a step size ∆. While K(p) controls how densely we sample points in space along the trajectory, ∆ controls how finely the SSM evolves along the result-ing token sequence. Since the trajectory spans an approximate displacement of 8 J.-S Yoo and S.-W. Jung 
+
+∥F (p)∥ with K(p) steps in total, we define the average trajectory velocity as 
+
+v(p) = ∥F (p)∥/K (p), where ∥F (p)∥ is the average flow magnitude introduced above. Because K(p) is discretized to a bounded range, the resulting step veloc-ity still varies across pixels. We then adjust the trajectory-specific step size ∆(p)
+
+inversely with v(p), which changes the effective transition used in the scan: 
+
+A(p) = exp( ∆(p)A), with ∆(p) = 11 + β · v(p) , v(p) = ∥F (p)∥
+
+K(p) (4) By reducing ∆(p) for trajectories with large average velocities, the model up-dates its internal state with finer temporal granularity, preserving high-frequency details such as edges and textures during context aggregation. Applying the se-lective scan on the forward and backward trajectories yields the motion-aligned contexts Z0→t and Z1→t.
+
+3.3 MASS-Guided Refinement and Synthesis. 
+
+The MASS operation yields two motion-aligned contexts, Z0→t and Z1→t. We utilize these features simultaneously to correct geometric errors and to synthesize the final frame. We first identify trajectory errors by checking the consistency between the forward and backward contexts. Ideally, for non-occluded regions, the semantic context aggregated along the underlying motion path should be similar regardless of the scanning direction. We compute a discrepancy map D(p) = |Z0→t −Z1→t|,where a large difference indicates trajectory misalignment or occlusion. We use the discrepancy between forward and backward contexts as a refinement cue. A two convolutional layer head takes this cue, together with the aggregated contexts and the current motion estimates, and predicts residual updates to produce the refined flow ˆF and mask ˆM . In this way, visual consistency directly guides geometric correction, and the refined motion is reused in the subsequent iteration to improve trajectory construction. Meanwhile, frame synthesis requires a unified semantic representation. A two convolutional layer fusion head merges Z0→t and Z1→t into a single context ˆZt.This head employs a softmax-based gating operation to effectively down-weight unreliable information from occluded regions. Using the refined motion and fused context, we generate the target frame by combining motion-compensated warp-ing with residual synthesis. We first compute a structural baseline Ibase by warp-ing the input frames using the refined flow ˆF and mask ˆM :
+
+Ibase = ˆM ⊙ ←−W(I0, ˆFt→0) + (1 − ˆM ) ⊙ ←−W(I1, ˆFt→1). (5) Here, ⊙ represents the Hadamard product. Subsequently, the generator G syn-thesizes the final image by integrating the global motion context ˆZt with the local source features ( C0, C 1) to restore fine-grained details: 
+
+ˆIt = Ibase + G( ˆZt, C 0, C 1). (6) MASS: Motion-Aligned Selective Scan for Refinement in VFI 9
+
+In this formulation, Ibase provides the structural foundation based on corrected motion, handling large displacements. For the generator G, we adopt a U-Net-shaped architecture [10]. By feeding both the aligned MASS context and raw local features into this architecture, G effectively recovers complex textures and edges that simple warping might miss. More details are provided in the supple-mentary material. 
+
+4 Experimental Results 
+
+4.1 Datasets 
+
+We evaluate our proposed method on comprehensive benchmark datasets cov-ering a wide range of resolutions and motion complexities. Vimeo90K [38] is our primary training set. It contains 51,312 triplets for training and 3,782 frame triplets for testing, with a resolution of 448 × 256 . This dataset is widely recog-nized for its diversity in scene content and realistic motion patterns. UCF101 [31] includes a test set of 379 frame triplets at 256 × 256 . Middlebury [1] uses the OTHER set at about 640 × 480 resolution. SNU-FILM [3] includes 1,240 frame triplets at 1280 × 720 , categorized by motion difficulty (Easy, Medium, Hard, Extreme). Lastly, Xiph [24] is tested in two versions to evaluate high-resolution performance: Xiph-2K, with images down-sampled to 2K, and Xiph-4K, with centrally cropped 4K images. 
+
+4.2 Implementation Details 
+
+Our framework is implemented in PyTorch. We train our model using the AdamW optimizer with a weight decay of 1 × 10 −4. The training is conducted on two NVIDIA RTX 3090 GPUs with a total batch size of 32. The feature extrac-tor adopts the SGM-VFI [19] architecture, where the deepest features are at 
+
+H/ 8 × W/ 8 resolution. The refinement is performed progressively, with the 1/8
+
+and 1/4 scales serving as the coarse and fine stages, respectively, via upsampling. For the MASS module, we set the dynamic sampling budget range [Kmin , K max ]
+
+to [2 , 8] . The discretization step size ∆ for the Velocity-Aware SSM is adap-tively modulated within the range of [0 .25 , 1.0] based on motion magnitude. The scaling parameters α and β in Eq. 1 and Eq. 4 are dynamically computed by normalizing local motion magnitude and velocity against their frame-level av-erages. For the SSM configuration, we balance efficiency and performance by setting the internal state dimension to 16 and the expansion factor to 2. For the objective function, we utilize the Laplacian pyramid loss [26] to guide the network in reconstructing multi-scale structures and fine details. Further details are provided in the supplementary material. 
+
+4.3 Comparison with Previous Methods 
+
+To evaluate the proposed MASS framework, we compare it against recent VFI methods across five standard benchmarks, as summarized in Table 1. For a fair 10 J.-S Yoo and S.-W. Jung 
+
+Table 1: Quantitative comparison across benchmarks (IE for Middlebury (M.B.); PSNR/SSIM for Vimeo90K, UCF101, Xiph, and SNU-FILM). The best and second-best results are in bold and underlined, respectively. † indicates models originally trained with additional datasets, which we re-trained exclusively on Vimeo90K for fair comparison. Other results are derived from [9–11, 15, 17, 23, 29]. Evaluation procedures follow [31] for Vimeo90K, UCF101, and Middlebury, [26] for Xiph, and [15] for SNU-FILM, with test-time augmentation disabled. FLOPs are measured at a resolution of 1280 ×720. Method M.B. Vimeo90K UCF101 Xiph SNU-FILM FLOPs (T) 2K 4K Easy Medium Hard Extreme IFRNet-B [15] 1.95 35.80/0.9794 35.29/0.9693 36.00/0.936 33.99/0.893 40.03/0.9905 35.94/0.9793 30.41/0.9358 25.05/0.8587 0.21 RIFE [10] 1.96 35.61/0.9779 35.28/0.9690 36.19/0.938 33.76/0.894 39.80/0.9903 35.76/0.9787 30.36/0.9351 25.27/0.8601 0.20 AdaCoF [16] 2.24 34.47/0.9730 34.90/0.9680 34.86/0.928 31.68/0.870 39.80/0.9900 35.05/0.9754 29.46/0.9244 24.31/0.8439 0.36 ABME [28] 2.01 36.18/0.9805 35.38/0.9698 36.53/0.944 33.73/0.901 39.59/0.9901 35.77/0.9789 30.58/0.9364 25.42/0.8639 1.30 DAIN [2] 2.04 34.71/0.9756 34.99/0.9683 35.95/0.940 33.49/0.895 39.73/0.9902 35.46/0.9780 30.17/0.9335 25.09/0.8584 5.51 VFIFormer [23] 1.82 36.50/0.9815 35.42/0.9699 36.89/0.945 34.50/0.906 40.12/0.9907 36.09/0.9798 30.67/0.9378 25.43/0.8643 47.71 AMT-L [17] 1.86 36.34/0.9813 35.39/0.9697 36.27/0.940 34.48/0.903 39.95/0.9904 36.09/0.9797 30.75/0.9377 25.41/0.8633 0.68 AMT-G [17] 1.83 36.53 /0.9816 35.41/0.9698 36.38/0.940 34.63/0.903 39.88/ 0.9912 36.12/ 0.9805 30.77/0.9384 25.42/0.8644 2.2 EMA-S [41] 1.94 36.07/0.9794 35.34/0.9696 36.54/0.942 34.24/0.902 39.81/0.9903 35.88/0.9792 30.68/0.9371 25.47/0.8627 0.39 EMA [41] 1.84 36.50/0.9814 35.38/0.9697 36.74/0.944 34.54/0.905 39.57/0.9905 35.85/0.9797 30.80/0.9389 25.59/0.8650 1.64 SGM-VFI-S-1/2 † [19] 1.96 35.98/0.9796 35.32/0.9695 36.58/0.942 34.23/0.901 40.06/0.9908 36.02/0.9796 30.58/0.9364 25.25/0.8590 1.96 VFIMamba-S † [40] 1.98 35.87/0.9793 35.32/0.9697 36.26/0.940 33.52/0.890 40.00/0.9907 35.81/0.9791 30.58/0.9378 25.30/0.8620 0.39 VFIMamba † [40] 1.90 36.46/0.9814 35.42/0.9700 36.82/0.944 34.12/0.898 40.20 /0.9911 36.11/0.9800 30.79/0.9389 25.66/0.8657 1.54 LC-Mamba-B [11] 1.89 36.43/0.9813 35.39/0.9698 36.90/0.945 34.26/0.904 40.07/0.9909 36.08/0.9801 30.59/0.9375 25.35/0.8630 1.06 LC-Mamba-P [11] 1.92 36.53 /0.9816 35.42/0.9699 36.99/ 0.946 34.49/0.906 40.16/0.9909 36.17/0.9802 30.72/0.9382 25.48/0.8645 2.70 Ours-S 1.90 36.32/0.9805 35.44/0.9699 36.84/0.944 34.65/0.907 40.05/0.9908 36.10/0.9800 30.90/0.9387 25.73/0.8668 0.50 Ours 1.79 36.53 /0.9816 35.48 /0.9703 37.05 /0.946 34.83 /0.908 40.17/0.9909 36.23 /0.9802 31.09 /0.9407 26.04 /0.8681 2.06 
+
+comparison, we evaluate all models under the same training data constraint. Since some recent methods utilize additional datasets (e.g., X4K1000FPS [30]) for fine-tuning, we re-trained them from scratch exclusively on the standard Vimeo90K dataset using their official codebases (denoted by †). More detailed analyses are provided in the supplementary material. While MASS delivers highly competitive performance on standard bench-marks such as Vimeo90K and UCF101, it shows the clearest gains in challenging scenarios characterized by large, non-linear motions and complex occlusions. This is particularly noticeable on the SNU-FILM dataset, which categorizes videos by motion magnitude. As motion complexity increases, performance de-grades as large motion and occlusion make alignment increasingly difficult. In contrast, MASS demonstrates clear performance improvements on both the Hard and Extreme subsets. Notably, on the Extreme split, our method yields 26.04 dB in PSNR, outperforming the previous best approach, VFIMamba [40], by 0.38 dB. This gain is consistent with the benefit of modeling non-linear, trajectory-aligned context under complex motion. Furthermore, the proposed model maintains consistent performance in high-resolution scenarios. On the Xiph-2K and Xiph-4K benchmarks, MASS compares favorably against all competing methods, recording 37.05 dB and 34.83 dB in PSNR, respectively, outperforming recent state-of-the-art methods such as LC-Mamba. These results suggest that the velocity-aware scan helps preserve details in demanding high-resolution, large-displacement scenarios. Additionally, our lightweight variant, MASS-S, maintains competitive restoration quality with a reduced computational cost of 0.50 TFLOPs, demonstrating its applicability in resource-constrained environments. MASS: Motion-Aligned Selective Scan for Refinement in VFI 11  
+
+> Fig. 4: Visual comparison on SNU-FILM [3]. The red arrows highlight regions with large motions and fine details.
+
+Finally, visual comparisons in Fig. 4 support the quantitative results. While prior methods frequently exhibit ghosting or severe blurring under large displace-ments, MASS reconstructs structurally coherent frames with sharper edges. This highlights the advantage of our trajectory-wise modeling. By tracking non-linear motion paths, MASS explicitly ensures semantic continuity, successfully mitigat-ing the feature misalignment that typically degrades performance in dynamic scenes. 
+
+4.4 Ablation Study 
+
+To validate the effectiveness of the proposed MASS framework, we conduct component-wise ablation studies using the lightweight variant of our model (Ours-S). We report PSNR and SSIM on the SNU-FILM and Xiph datasets, alongside FLOPs measured at 720p resolution, computed using the mean adap-tive K on the SNU-FILM Hard split. Additional ablation results are provided in the supplementary material. 
+
+4.4.1 MASS Components and Integrator Variants. Table 2 investigates the contribution of each component within our MASS framework, alongside an ablation of the integrator design. Since MASS constructs token sequences along motion trajectories rather than a predefined spatial order, directly replacing the trajectory construction with a static grid scan is not straightforward within the same architecture. To validate the effectiveness of our motion-aligned design, the upper part of Table 2 begins with a trajectory-based baseline using a linear path, 12 J.-S Yoo and S.-W. Jung 
+
+Table 2: Ablation study on different configurations of the MASS module and integrator variants. Performance is reported in PSNR/SSIM. Settings Learnable Path Adpt.                                                                         
+
+> KVel. ∆SNU-FILM Xiph FLOPs (T) Hard Extreme 2K 4K
+> MASS components
+> Baseline (Linear + Vanilla SSM) –––30.66/0.937 25.49/0.863 36.54/0.941 34.40/0.904 0.53 + Non-linear Traj. ✓––30.81/0.938 25.60/0.865 36.69/0.942 34.54/0.905 0.54 + Adpt. Sampling ✓✓–30.85/0.938 25.65/0.865 36.76/0.943 34.58/0.905 0.49
+> + MASS (Ours) ✓✓✓30.90 /0.939 25.73 /0.867 36.84 /0.944 34.65 /0.907 0.50
+> Integrator component
+> 1D Conv ✓✓–30.68/0.938 25.53/0.864 36.39/0.941 34.07/0.900 0.50 LSTM ✓✓–30.80/0.938 25.56/0.865 36.30/0.940 34.10/0.900 0.54 Self-Attention ✓✓–30.83/0.938 25.68/0.866 36.60/0.938 34.20/0.902 0.52
+> VA-SSM (Ours) ✓✓✓30.90 /0.939 25.73 /0.867 36.84 /0.944 34.65 /0.907 0.50
+
+a fixed sampling budget ( K(p) = 8 ), and a vanilla SSM, and then incrementally adds each proposed component. Transitioning to a learnable non-linear path yields consistent gains, as learnable residual offsets effectively model complex, continuous motion dynamics. Furthermore, our adaptive sampling strategy dy-namically allocates points based on motion magnitude. Beyond lowering FLOPs, it yields higher accuracy than using a fixed maximum sampling budget, suggest-ing that sequence simplification is actively beneficial for static or small motions. Finally, integrating the velocity-aware step size (Vel. ∆) converts the baseline SSM into our VA-SSM. By dynamically modulating the discretization step, the model adjusts its internal state transitions based on the trajectory velocity. This suggests that fast-moving trajectories are aggregated with appropriately fine granularity, while static or slow-moving regions maintain stable state represen-tations. Next, we evaluate the integrator component using the optimized trajectory sampling. As shown in the lower section of Table 2, standard sequence models such as 1D convolutions, LSTMs, and self-attention yield sub-optimal perfor-mance or incur higher computational costs. In contrast, our VA-SSM adaptively modulates its internal state transitions based on trajectory velocity. This dy-namic aggregation achieves the highest accuracy across all benchmarks while matching the low FLOPs of a simple 1D convolution, demonstrating an optimal accuracy-efficiency balance uniquely suited for trajectory-wise modeling. 
+
+4.4.2 Scale Iterations and MASS-Guided Refinement. Table 3 ana-lyzes the trade-off between restoration accuracy and computational efficiency regarding the number of scale iterations ( S). A single MASS refinement unit (S = 1 ) provides insufficient refinement and feature aggregation, resulting in limited performance. Increasing the iterations to S = 2 significantly improves accuracy, suggesting that iterative processing enables finer refinement and boosts performance in scenarios with complex motion. However, adding a third iteration (S = 3 ) yields only marginal performance gains while substantially increasing the computational overhead. Therefore, we adopt S = 2 as the default configu-ration to maximize performance while maintaining practical efficiency. MASS: Motion-Aligned Selective Scan for Refinement in VFI 13 
+
+Table 3: Ablation study on the number of scale iterations and the MASS-guided refinement heads. Performance is reported in PSNR/SSIM. Settings SNU-FILM Xiph Params (M) FLOPs (T) Hard Extreme 2K 4K                                          
+
+> Scale iterations
+> S= 1 30.82/0.938 25.64/0.864 36.60/0.942 34.40/0.905 15.7 0.45
+> S=2(Ours) 30.90/0.938 25.73/0.866 36.84/0.944 34.65/0.907 16.5 0.50
+> S= 3 30.92/0.939 25.75/0.867 36.84/0.944 34.69 /0.907 17.2 0.68
+> MASS-guided refinement
+> w/o Fusion Head 30.63/0.937 25.50/0.860 36.49/0.941 34.26/0.904 16.4 0.49 w/o Refinement Head 30.56/0.936 25.44/0.864 36.46/0.940 34.20/0.903 16.4 0.49
+> Full Model (Ours) 30.90 /0.938 25.73 /0.866 36.84 /0.944 34.65 /0.907 16.5 0.50
+
+In the lower section of Table 3, we further validate the necessity of the MASS-guided fusion and refinement heads. First, when the fusion head is removed, we observe that a naive aggregation of MASS features (e.g., simple element-wise addition) is insufficient. This result shows that our gating mechanism is necessary to effectively integrate the results from bidirectional contexts. Furthermore, the absence of the refinement head leads to a significant performance degradation. This suggests that leveraging the discrepancies between bidirectional contexts is essential for correcting geometric errors in the intermediate flow and occlusion mask. 
+
+4.5 In-Depth Analysis 4.5.1 Motion-Aligned Trajectory Controls. To examine the role of motion-aligned trajectory serialization in MASS, we conduct controlled experiments (Ta-ble 4) while keeping network weights and inference settings fixed.We first evalu-ate the impact of trajectory direction. The default aligned trajectory consistently achieves the best performance. Rotating the flow by ±90 ◦ (perpendicular to the motion) causes the most significant performance drop. This suggests that the model benefits from gathering context along the actual motion path rather than merely expanding the spatial sampling area. Negating or swapping flows results in smaller drops, likely because these paths still align with the underlying motion axis. Furthermore, altering the token serialization order via random permutation or reversal degrades quality, particularly on high-resolution sequences. Replacing the trajectory-guided scan with a static 3 × 3 spatial grid also leads to a large performance drop. This indicates that MASS relies on the sequential, motion-consistent ordering of features rather than just an unordered set of local points. We also analyze the role of residual-velocity integration ( δv k). While disabling it causes a modest performance drop, the gap between aligned and perpendicular trajectories persists. This implies that motion alignment itself is a key factor in the observed improvements. Finally, Fig. 5 visualizes the learned trajectory correction. The overlays show how residual velocity updates bend the initial linear flow, allowing the sam-pling path to flexibly follow complex motions such as acceleration, rotation, and boundary movements. 14 J.-S Yoo and S.-W. Jung 
+
+Table 4: Controlled perturbations of motion alignment in MASS. (A) the trajectory direction, (B) the serialization order, and (C) the residual-velocity integration while keeping all other settings fixed. Settings SNU-FILM Xiph Hard Extreme 2K 4K                                                                     
+
+> (A) Trajectory direction perturbation
+> Aligned (default) 30.90 /0.939 25.73 /0.867 36.84 /0.944 34.65 /0.907
+> Rotated +90 ◦(perpendicular) 30.61/0.937 25.52/0.866 36.44/0.941 34.34/0.902 Rotated −90 ◦(perpendicular) 30.63/0.937 25.51/0.866 36.45/0.941 34.38/0.903 Negated flow ( −Ft→0,−Ft→1)30.69/0.938 25.55/0.866 36.54/0.942 34.40/0.903 Swapped flows ( Ft→1,Ft→0)30.68/0.938 25.54/0.866 36.52/0.942 34.39/0.903
+> (B) Serialization order perturbation
+> Trajectory order (default) 30.90 /0.939 25.73 /0.867 36.84 /0.944 34.65 /0.907
+> Random permutation 29.77/0.927 25.43/0.865 34.86/0.928 32.91/0.880 Reverse order 29.30/0.921 25.23/0.860 33.44/0.916 32.02/0.872 Static grid order (3 ×3) 26.75/0.885 24.06/0.837 28.92/0.826 29.44/0.855
+> (C) Residual-velocity integration ( δv k)
+> Aligned ( δv kON) 30.90 /0.939 25.73 /0.867 36.84 /0.944 34.65 /0.907
+> Aligned ( δv kOFF) 30.86/0.938 25.69/0.866 36.76/0.943 34.59/0.905 Rotated +90 °(δv kON) 30.61/0.937 25.52/0.866 36.44/0.941 34.34/0.902 Rotated +90 °(δv kOFF) 30.50/0.937 25.44/0.865 36.34/0.940 34.30/0.902
+
+Fig. 5: Visualization of the learned trajectory correction. 
+
+4.5.2 MASS-Guided Refinement. Fig. 6 illustrates the internal mecha-nisms of MASS-guided refinement. Quantitatively, as shown in Fig. 6(a), the refinement consistently reduces initial coarse warping errors across progressive feature scales (from the coarse 1/8 scale to the fine 1/4 scale). The most sub-stantial corrections occur at the 1/8 scale, where severe initial motion errors are resolved, while finer geometric adjustments are left to the 1/4 scale. To further investigate performance in regions with complex motion, we further isolate the top 20% of pixels with the highest motion magnitude. In these challenging re-gions, the error reduction is greater at the 1/8 scale, whereas it drops at the 1/4 scale. These results indicate that the 1/8 scale effectively resolves the majority of large-displacement errors, leaving less residual misalignment for the 1/4 scale to correct. Qualitatively, Fig. 6(b) visualizes this refinement process at the coarse 1/8 scale. A larger sampling budget K is allocated to the fast-moving foreground subject based on its motion magnitude. Correspondingly, the velocity-aware step size ∆ is adjusted to smaller values in these regions, enabling finer state updates along the dynamic path. The discrepancy map D highlights local geometric misalignments. Guided by this map, the model refines the initial coarse motion, resulting in reduced errors compared to the coarse warping result. For a better MASS: Motion-Aligned Selective Scan for Refinement in VFI 15      
+
+> Fig. 6: In-depth analysis of MASS-guided refinement. (a) Average warp error reduction at the coarse 1/8scale and the fine 1/4scale for all pixels versus the top 20% high-motion regions on the SNU-FILM [3] Hard and Extreme splits. (b) Visualizations of internal representations at the coarse 1/8 scale: The input overlay is shown for spatial reference.
+
+comparison between the two warp error maps, we visualize the error reduction. The observed reduction suggests that the overall MASS mechanism effectively handles dynamic motions, leading to notable performance improvements. 
+
+5 Conclusion 
+
+In this paper, we presented MASS, a novel framework that redefines the appli-cation of SSMs for VFI. By shifting the feature scanning paradigm from static spatial grids to dynamic motion trajectories, MASS effectively captures com-plex, non-linear motion dynamics that conventional serialization fails to resolve. Our key innovations—learnable non-linear path integration and velocity-aware adaptive sampling—efficiently allocate computational resources while preserv-ing high-frequency details in fast-moving regions. Moreover, by exploiting for-ward/backward trajectory consistency, MASS refines intermediate flows and oc-clusion masks in a robust coarse-to-fine manner. Extensive experiments demon-strate that MASS establishes new state-of-the-art results, exhibiting particular superiority in challenging scenarios with large displacements and complex dy-namics. Despite its robustness, MASS inherently relies on the guidance of the initial coarse flow. In extreme cases where this initial estimation fails catas-trophically (e.g., due to chaotic motion of tiny objects or severe motion blur), the trajectory-guided scanning may struggle to recover the correct semantic con-text. Future work will address this dependency by exploring joint optimization strategies, training the flow estimator and the SSM in a fully coupled manner to allow the SSM to correct flow guidance dynamically from the earliest stages. 
+
+Acknowledgements 
+
+This work was supported by the National Reasearch Foundation of Koread (NRF) grant funded by the Korea government (MSIT) (No. RS-2025-16068196). 16 J.-S Yoo and S.-W. Jung 
+
+References 
+
+1. Baker, S., Scharstein, D., Lewis, J.P., Roth, S., Black, M.J., Szeliski, R.: A database and evaluation methodology for optical flow. International Journal of Computer Vision 92 (1), 1–31 (2011) 2. Bao, W., Lai, W.S., Ma, C., Zhang, X., Gao, Z., Yang, M.H.: Depth-aware video frame interpolation. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 3703–3712 (2019) 3. Choi, M., Kim, H., Han, B., Xu, N., Lee, K.M.: Channel attention is all you need for video frame interpolation. In: Proceedings of the AAAI Conference on Artificial Intelligence. vol. 34, pp. 10663–10671 (2020) 4. Danier, D., Zhang, F., Bull, D.: Ldmvfi: Video frame interpolation with latent diffusion models. In: Proceedings of the AAAI Conference on Artificial Intelligence. vol. 38, pp. 1472–1480 (2024) 5. Flynn, J., Neulander, I., Philbin, J., Snavely, N.: Deep stereo: Learning to predict new views from the world’s imagery. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 5515–5524 (2016). https://doi. org/10.1109/CVPR.2016.595 
+
+6. Gu, A., Dao, T.: Mamba: Linear-time sequence modeling with selective state spaces. In: First Conference on Language Modeling (2024) 7. Gu, A., Goel, K., Ré, C.: Efficiently modeling long sequences with structured state spaces. arXiv preprint arXiv:2111.00396 (2021) 8. Hatamizadeh, A., Kautz, J.: Mambavision: A hybrid mamba-transformer vision backbone. In: Proceedings of the Computer Vision and Pattern Recognition Con-ference. pp. 25261–25270 (2025) 9. Hu, P., Niklaus, S., Sclaroff, S., Saenko, K.: Many-to-many splatting for efficient video frame interpolation. In: Proceedings of the IEEE/CVF Conference on Com-puter Vision and Pattern Recognition. pp. 3553–3562 (2022) 10. Huang, Z., Zhang, T., Heng, W., Shi, B., Zhou, S.: Real-time intermediate flow estimation for video frame interpolation. In: European Conference on Computer Vision. pp. 624–642. Springer (2022) 11. Jeong, M.W., Rhee, C.E.: Lc-mamba: Local and continuous mamba with shifted windows for frame interpolation. In: Proceedings of the Computer Vision and Pat-tern Recognition Conference. pp. 17671–17681 (2025) 12. Jiang, H., Sun, D., Jampani, V., Yang, M.H., Learned-Miller, E., Kautz, J.: Super slomo: High quality estimation of multiple intermediate frames for video interpo-lation. In: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. pp. 9000–9008 (2018) 13. Jin, X., Wu, L., Chen, J., Chen, Y., Koo, J., Hahm, C.h.: A unified pyramid recurrent network for video frame interpolation. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 1578–1587 (2023) 14. Kalantari, N.K., Wang, T.C., Ramamoorthi, R.: Learning-based view synthesis for light field cameras. ACM Transactions on Graphics 35 (6) (2016) 15. Kong, L., Jiang, B., Luo, D., Chu, W., Huang, X., Tai, Y., Wang, C., Yang, J.: Ifrnet: Intermediate feature refine network for efficient frame interpolation. In: Pro-ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recogni-tion. pp. 1969–1978 (2022) 16. Lee, H., Kim, T., Chung, T.y., Pak, D., Ban, Y., Lee, S.: Adacof: Adaptive collab-oration of flows for video frame interpolation. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 5316–5325 (2020) MASS: Motion-Aligned Selective Scan for Refinement in VFI 17 17. Li, Z., Zhu, Z.L., Han, L.H., Hou, Q., Guo, C.L., Cheng, M.M.: Amt: All-pairs multi-field transforms for efficient frame interpolation. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 9801– 9810 (2023) 18. Liu, C., Yang, H., Fu, J., Qian, X.: Ttvfi: Learning trajectory-aware transformer for video frame interpolation. IEEE Transactions on Image Processing 32 , 4728–4741 (2023). https://doi.org/10.1109/TIP.2023.3302990 
+
+19. Liu, C., Zhang, G., Zhao, R., Wang, L.: Sparse global matching for video frame interpolation with large motion. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 19125–19134 (2024) 20. Liu, Y., Xie, L., Siyao, L., Sun, W., Qiao, Y., Dong, C.: Enhanced quadratic video interpolation. In: European Conference on Computer Vision. pp. 41–56. Springer (2020) 21. Liu, Y., Tian, Y., Zhao, Y., Yu, H., Xie, L., Wang, Y., Ye, Q., Jiao, J., Liu, Y.: Vmamba: Visual state space model. Advances in Neural Information Processing Systems 37 , 103031–103063 (2024) 22. Liu, Y., Deng, Y., Chen, H., Yang, Z.: Video frame interpolation via direct synthesis with the event-based reference. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 8477–8487 (2024) 23. Lu, L., Wu, R., Lin, H., Lu, J., Jia, J.: Video frame interpolation with transformer. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 3532–3542 (2022) 24. Montgomery, C., Lars, H.: Xiph.org video test media (derf’s collection). Online, 
+
+https://media.xiph.org/video/derf (1994) 25. Munir, M., Zhang, A., Marculescu, R.: Vcmamba: Bridging convolutions with multi-directional mamba for efficient visual representation. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 3037–3046 (2025) 26. Niklaus, S., Liu, F.: Softmax splatting for video frame interpolation. In: Proceed-ings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 5437–5446 (2020) 27. Park, J., Kim, J., Kim, C.S.: Biformer: Learning bilateral motion estimation via bilateral transformer for 4k video frame interpolation. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 1568– 1577 (2023) 28. Park, J., Lee, C., Kim, C.S.: Asymmetric bilateral motion estimation for video frame interpolation. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 14539–14548 (2021) 29. Reda, F., Kontkanen, J., Tabellion, E., Sun, D., Pantofaru, C., Curless, B.: Film: Frame interpolation for large motion. In: European Conference on Computer Vi-sion. pp. 250–266. Springer (2022) 30. Sim, H., Oh, J., Kim, M.: Xvfi: extreme video frame interpolation. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 14489–14498 (2021) 31. Soomro, K., Zamir, A.R., Shah, M.: Ucf101: A dataset of 101 human actions classes from videos in the wild. arXiv preprint arXiv:1212.0402 (2012) 32. Sun, D., Yang, X., Liu, M.Y., Kautz, J.: Pwc-net: Cnns for optical flow using pyramid, warping, and cost volume. In: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. pp. 8934–8943 (2018) 33. Tan, P., Feng, W.c.: Hint-guided video frame interpolation for video compression. In: Proceedings of the 7th ACM International Conference on Multimedia in Asia. pp. 1–7 (2025) 18 J.-S Yoo and S.-W. Jung 34. Teed, Z., Deng, J.: Raft: Recurrent all-pairs field transforms for optical flow. In: European Conference on Computer Vision. pp. 402–419. Springer (2020) 35. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, Ł., Polosukhin, I.: Attention is all you need. Advances in Neural Information Pro-cessing Systems 30 (2017) 36. Wu, C.Y., Singhal, N., Krähenbühl, P.: Video compression through image interpo-lation. In: Proceedings of the European Conference on Computer Vision (2018) 37. Xiang, X., Tian, Y., Zhang, Y., Fu, Y., Allebach, J.P., Xu, C.: Zooming slow-mo: Fast and accurate one-stage space-time video super-resolution. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 3370–3379 (2020) 38. Xue, T., Chen, B., Wu, J., Wei, D., Freeman, W.T.: Video enhancement with task-oriented flow. International Journal of Computer Vision 127 (8), 1106–1125 (2019) 39. Yoo, J.S., Lee, H., Jung, S.W.: Video object segmentation-aware video frame inter-polation. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 12322–12333 (2023) 40. Zhang, G., Liu, C., Cui, Y., Zhao, X., Ma, K., Wang, L.: Vfimamba: Video frame interpolation with state space models. Advances in Neural Information Processing Systems 37 , 107225–107248 (2024) 41. Zhang, G., Zhu, Y., Wang, H., Chen, Y., Wu, G., Wang, L.: Extracting motion and appearance via inter-frame attention for efficient video frame interpolation. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 5682–5692 (2023) 42. Zhang, Z., Chen, H., Zhao, H., Lu, G., Fu, Y., Xu, H., Wu, Z.: Eden: Enhanced diffusion for high-quality large-motion video frame interpolation. In: Proceedings of the Computer Vision and Pattern Recognition Conference. pp. 2105–2115 (2025) 43. Zhu, L., Liao, B., Zhang, Q., Wang, X., Liu, W., Wang, X.: Vision mamba: Efficient visual representation learning with bidirectional state space model. arXiv preprint arXiv:2401.09417 (2024) MASS: Motion-Aligned Selective Scan for Refinement in Flow-Based Video Frame Interpolation 
+
+# -Supplementary Material-
+
+Jun-Sang Yoo and Seung-Won Jung ⋆
+
+Department of Electrical Engineering, Korea University, Seoul, Korea 
+
+{junsang7777,swjung83}@korea.ac.kr 
+
+This supplementary is organized as follows. 
+
+– Sec. A provides additional in-depth diagnostics of MASS to clarify where the gains arise across stages and regions. 
+
+– Sec. B evaluates the plug-and-play capability of MASS on external VFI backbones. 
+
+– Sec. C reports quantitative comparisons under an additional training-data proto-col. 
+
+– Sec. D analyzes runtime and GPU memory usage. 
+
+– Sec. E studies the sensitivity to the adaptive trajectory budget and the velocity-aware step size. 
+
+– Sec. F presents more qualitative results including failure cases and additional com-parisons. 
+
+– Sec. G details the implementation, including the adaptive controller, variable-length trajectory buffering, refinement modules, and the synthesis network. 
+
+A Additional In-Depth Analysis of MASS 
+
+We further analyze where MASS helps on SNU-FILM Hard and Extreme , which are dominated by large-motion cases. The main finding is that MASS plays different roles across scales: at the 1/8 stage, it mainly corrects gross motion misalignment, whereas at the 1/4 stage, it provides smaller but still consistent improvements around ambiguous blending regions such as occlusion boundaries. For compact notation, let F = ( Ft→0, F t→1) and M denote the intermediate bidirectional flow and blending mask before MASS-guided refinement, and let 
+
+ˆF = ( ˆFt→0, ˆFt→1) and ˆM denote the corresponding refined outputs. We use three diagnostics. WarpErr measures the ℓ1 alignment error after backward warping 
+
+I0 to time t. MergedErr measures the ℓ1 error of the coarse blended frame before the final synthesis network. ∆PSNR merged measures the PSNR gain of the coarse blended frame after MASS-guided refinement. We additionally report the mean controller outputs ¯K and ¯∆, together with their Pearson correlations with the flow magnitude ∥F ∥. 
+
+> ⋆
+
+Corresponding author. 2 J.-S Yoo and S.-W. Jung 
+
+Table S-1: Stage-wise diagnostics of MASS on the SNU-FILM Hard and Extreme 
+
+splits. We report the reductions in alignment and merged errors, PSNR gains, and adaptive controller statistics ( K, ∆) across different scales.                                                                         
+
+> Stage Subset WarpErr (F →ˆF)MergedErr (F, M →ˆF , ˆM)∆PSNR merged K(Mean) ∆(Mean) Corr( ∥F∥, K ) Corr( ∥F∥,∆)
+> 1/8 (Coarse) Hard 0.0372 →0.0211 (39.1% ↓)0.0297 →0.0174 (39.0% ↓)+4.19 dB 4.47 0.620 0.620 -0.653 Extreme 0.0519 →0.0363 (27.4% ↓)0.0429 →0.0320 (25.0% ↓)+2.11 dB 4.38 0.611 0.691 -0.715 1/4 (Fine) Hard 0.0226 →0.0204 (12.5% ↓)0.0198 →0.0171 (17.2% ↓)+1.35 dB 4.57 0.547 0.826 -0.878 Extreme 0.0369 →0.0356 (6.2% ↓)0.0333 →0.0315 (9.1% ↓)+0.51 dB 4.53 0.554 0.816 -0.891
+
+Table S-2: Region-sliced diagnostics on difficult pixels. We evaluate the reductions in merged error specifically on the Top-20% highest motion and Top-20% highest uncer-tainty region across different scales.                                              
+
+> Stage Subset Top-20% Motion Top-20% Uncertainty MergedErr ( F, M →ˆF , ˆM)MergedErr ( F, M →ˆF , ˆM)
+> 1/8 (Coarse) Hard 0.0414 →0.0221 (41.9% ↓)0.0284 →0.0164 (39.0% ↓)Extreme 0.0573 →0.0399 (26.7% ↓)0.0403 →0.0295 (18.3% ↓)1/4 (Fine) Hard 0.0232 →0.0215 (7.5% ↓)0.0205 →0.0173 (18.3% ↓)Extreme 0.0400 →0.0389 (2.7% ↓)0.0322 →0.0300 (11.3% ↓)
+
+WarpErr( F ) = Ep
+
+h ←−W(I0, F t→0)( p) − It(p) 1
+
+i
+
+, (1) 
+
+Ibase (F, M ) = M ⊙ ←−W(I0, F t→0) + (1 − M ) ⊙ ←−W(I1, F t→1), (2) 
+
+MergedErr( F, M ) = Ep [∥Ibase (F, M )( p) − It(p)∥1] , (3) 
+
+∆PSNR merged = PSNR 
+
+
+
+Ibase ( ˆF , ˆM ), I t
+
+
+
+− PSNR( Ibase (F, M ), I t) . (4) Table S-1 shows that MASS is most effective at the coarse 1/8 stage, where it reduces both WarpErr and MergedErr and improves the coarse-frame PSNR. This indicates that MASS primarily corrects severe motion misalignment be-fore the final synthesis stage. At the 1/4 stage, the remaining gains are smaller but still consistently positive, suggesting that MASS continues to refine already improved intermediate predictions rather than correcting gross motion errors again. The controller statistics also support the intended adaptive behavior. Larger motion is associated with larger trajectory budgets and smaller step sizes, as reflected by the positive correlation between ∥F ∥ = 12 (∥Ft→0∥2 + ∥Ft→1∥2) and 
+
+K and the negative correlation between ∥F ∥ and ∆.To localize these gains, we further evaluate two challenging pixel subsets. The Top-20% Motion subset contains the 20% of pixels with the largest flow magnitude ∥F ∥. The Top-20% Uncertainty subset contains the 20% of pixels with the largest mask ambiguity, where the uncertainty score is defined as 
+
+U (m) = 4 M (1 − M ). (5) Table S-2 shows the distinct roles of each scale. At the coarse 1/8 stage, MASS produces its largest error reduction on the Top-20% Motion regions, showing MASS: Motion-Aligned Selective Scan for Refinement in VFI 3
+
+Table S-3: Quantitative evaluation of MASS as a modular replacement for the in-termediate motion aggregation/refinement branch in existing flow-based architectures (EMA-VFI-S and VFIMamba-S). Model Training SNU-FILM Xiph FLOPs (T) dataset Easy Medium Hard Extreme 2K 4K EMA-VFI-S V 39.81/0.9903 35.88/0.9792 30.68/0.9371 25.47/0.8627 36.54/0.942 34.24/0.902 0.39 + MASS V 39.99/0.9907 35.92/0.9795 30.79/0.9385 25.61/0.8639 36.63/0.942 34.36/0.903 0.57 VFIMamba-S V 40.00/0.9907 35.81/0.9791 30.58/0.9378 25.30/0.8620 36.26/0.940 33.52/0.890 0.39 + MASS V 39.96/0.9906 35.80/0.9791 30.69/0.9381 25.58/0.8635 36.54/0.942 34.04/0.899 0.54 
+
+Table S-4: Quantitative comparison across benchmarks using the expanded V+X (Vimeo90K + X4K1000FPS) training dataset. The results for the baseline methods are taken directly from their original papers [2,5]. (IE for Middlebury (M.B.); PSNR/SSIM for Vimeo90K, UCF101, Xiph, and SNU-FILM). Method Training M.B. Vimeo90K UCF101 Xiph SNU-FILM Params (M) Dataset 2K 4K Easy Medium Hard Extreme VFIMamba-S [5] V+X 1.97 36.09/0.9800 35.35/0.9696 36.71/0.942 34.26/0.902 40.21/0.9912 36.17/0.9802 30.80/0.9382 25.59/0.8655 16.8 SGM-VFI [2] V+X 1.87 35.81/0.9785 35.33/0.9692 36.06/0.940 33.26/0.897 40.36/0.9900 36.12/0.9787 30.62/0.9351 25.38/0.8615 20.8 VFIMamba [5] V+X 1.89 36.45/0.9807 35.37/0.9699 37.02/0.944 34.39/0.904 40.41/0.9903 36.30/0.9794 30.89/0.9387 25.68/0.8661 66.1 Ours-S V+X 1.90 36.30/0.9805 35.45/0.9700 36.90/0.944 34.72/0.908 40.25/0.9909 36.21/0.9803 30.96/0.9391 25.79/0.8671 16.5 Ours V+X 1.78 36.54/0.9817 35.49/0.9703 37.11/0.947 34.87/0.908 40.36/0.9911 36.33/0.9808 31.16/0.9410 26.08/0.8663 67.4 
+
+that it first corrects fast and severely misaligned motion. At the fine 1/4 stage, the relative gain becomes larger on the Top-20% Uncertainty regions than on the Top-20% Motion regions, indicating that the later stage is more useful for stabilizing ambiguous blending regions, such as occlusion boundaries. 
+
+B Plug-and-Play Capability of MASS 
+
+To assess the modular compatibility of MASS, we replace the intermediate motion aggregation/refinement branch in EMA-VFI-S and VFIMamba-S with MASS while keeping the original synthesis networks unchanged. We then retrain the modified models from scratch on Vimeo90K. The refined intermediate flows, occlusion masks, and motion-aligned aggregated features generated by MASS are directly fed into the original synthesis networks of the respective baselines. As shown in Table S-3, integrating MASS provides consistent improvements in high-resolution and large-displacement scenarios, while maintaining baseline performance on easier subsets. This suggests that the proposed module helps mitigate intermediate flow uncertainties and alignment errors, which frequently degrade reconstruction quality under complex dynamics. Overall, these results indicate that MASS can serve as a flexible plug-and-play component, allowing existing flow-based architectures to better handle challenging motions. 4 J.-S Yoo and S.-W. Jung 
+
+C Quantitative Comparison with Additional Training Data 
+
+In the main paper, we constrained all evaluated models to be trained exclusively on the Vimeo90K [4] dataset to ensure a fair comparison. Since several recent methods [2, 5] were originally trained or fine-tuned with an additional dataset (X4K1000FPS [3]), we re-trained them from scratch using only Vimeo90K for our primary evaluations. In this section, to provide a direct and fair comparison against the official numbers reported in those recent papers, we adopt their expanded training pro-tocol [2]. Specifically, we fine-tune our models using the additional dataset and denote this training setting as V+X in Table S-4. As shown in the table, our models outperform recent state-of-the-art ap-proaches under the same V+X training protocol. Notably, MASS exhibits dis-tinct performance gains on datasets characterized by large motions and high resolutions. This indicates that our proposed architecture effectively leverages richer training data to further enhance its robustness in challenging scenarios. 
+
+D Efficiency and Memory Analysis 
+
+We evaluate the inference runtime and GPU memory footprint of our models against recent VFI models on a single NVIDIA RTX 3090 GPU. To ensure accurate measurement, inference times are averaged over 100 iterations following 20 warm-up runs. All timings are recorded with torch.cuda.synchronize() to capture pure model execution time, excluding data loading overhead. As shown in Table S-5, Although Ours-S is not the lowest-latency model, it maintains a reasonable runtime/memory footprint while offering its clearest accuracy gains in the large-motion and high-resolution regime. Scaling to the full-capacity model (Ours) naturally increases the computational overhead due to the expanded channel dimensions. While the pixel-wise scanning mechanism introduces a slight runtime overhead relative to its low GPU memory footprint, the full model still demonstrates comparable overall efficiency. To address hidden trajectory-construction overhead, we further detail the 720p module-wise runtime breakdown as follows: Extractor (14.9%), Construc-tion (9.5%), VA-SSM (64.8%), Refine (1.5%), and Synthesis (9.3%). Trajectory construction accounts for only 9.5% of the total runtime, whereas the domi-nant cost comes from VA-SSM aggregation. These results show that iterative motion-aligned sampling is not a major computational bottleneck and clarify the primary computational cost of MASS. 
+
+E Ablation on Adaptive Trajectory Budget and Velocity-Aware Step Size 
+
+To validate our hyperparameter choices for the motion-adaptive discretization strategy, we analyze the impact of the adaptive trajectory budget ( K) and the MASS: Motion-Aligned Selective Scan for Refinement in VFI 5
+
+Table S-5: Comparison of inference time (ms) and GPU memory usage (GB) across different resolutions. All measurements were conducted on a single NVIDIA RTX 3090 GPU. OOM is out of memory. Method Runtime (ms) GPU Memory (GB) 640 × 480 1280 × 720 2048 × 1024 640 × 480 1280 × 720 2048 × 1024 EMA-VFI-S 19 42 96 0.9 2.0 4.2 VFIMamba-S 40 109 282 1.0 2.2 4.2 SGM-VFI-1/2-S 67 368 1661 1.4 5.0 19.0 LC-Mamba-B 82 228 509 2.3 6.1 14.8 Ours-S 66 175 424 1.2 3.0 5.6 EMA-VFI 47 126 288 1.6 3.7 7.6 VFIMamba 106 302 801 1.6 4.3 9.0 SGM-VFI-1/2 91 442 – 1.6 5.3 OOM LC-Mamba-P 139 388 877 2.4 6.3 14.8 Ours 128 376 871 2.0 4.8 10.6 
+
+Table S-6: Ablation study for adaptive trajectory budget K and velocity-aware ∆.FLOPs are computed using the SNU-FILM-Hard (1280 × 720) dataset-average K.Settings Training SNU-FILM Xiph FLOPs (T) dataset Hard Extreme 2K 4K                                                           
+
+> (A) K-range sweep (keep Vel-∆fixed to [0.25,1.0])
+> Adaptive K[2,4] V30.74/0.937 25.45/0.863 36.60/0.942 34.36/0.903 0.49 Adaptive K[2,12] V30.89/0.938 25.73/0.866 36.84/0.944 34.65/0.907 0.55 Adaptive K[4,8] V30.87/0.938 25.70/0.866 36.84/0.944 34.62/0.906 0.52 Adaptive K[2,8] (default) V30.90 /0.939 25.73 /0.867 36.84 /0.944 34.65 /0.907 0.50
+> (B) ∆-range sweep (keep adaptive Kfixed to [2,8])
+> Vel-∆[0.50,1.0] V30.84/0.938 25.68/0.866 36.84/0.944 34.64/0.907 0.50 Vel-∆[0.10,1.0] V30.88/0.938 25.70/0.866 36.78/0.944 34.62/0.906 0.50 Vel-∆[0.25,1.0] (default) V30.90 /0.939 25.73 /0.867 36.84 /0.944 34.65 /0.907 0.50
+
+velocity-aware step size ( ∆). As shown in Table S-6, limiting the maximum sam-pling budget leads to noticeable performance degradation in scenarios with large displacements and high resolutions, demonstrating that under-sampling trajec-tories in fast-moving regions impairs the model’s ability to capture continuous dynamics. Conversely, expanding the upper bound yields negligible performance gains while noticeably increasing computational cost. Furthermore, raising the minimum budget results in a slight performance penalty despite the increased compute, indicating that forcing unnecessarily dense scans in simple or static regions is counterproductive. Regarding the velocity-aware step size, maintaining a relatively high mini-mum step size degrades performance in fast-motion scenarios, implying that large motions require finer state updates during the scan to properly preserve high-frequency details. On the other hand, lowering the minimum step size further does not provide additional gains and can slightly hurt some settings. Among the tested settings, the proposed ranges provide the best accuracy-efficiency trade-off. 6 J.-S Yoo and S.-W. Jung  
+
+> Fig. S-1: Failure cases of MASS on challenging motion patterns. (a) In Case 1, despite meaningful responses from the adaptive control maps around the main subject, warp error reduction is limited, and the thin structure is partially lost. (b) In Case 2, while MASS improves the overall base warp error, scene-wide camera motion leads to a broad
+> K-map activation, making the budget allocation less selective and leaving residual blur on fast-moving boundaries.
+
+F More Qualitative Results 
+
+Fig. S-1 shows two representative failure cases. In Case 1, the adaptive controller produces meaningful K and ∆ responses around the dominant moving body, indicating that the mechanism itself is active. Nevertheless, the reduction in warp error remains limited, and the thin structure inside the highlighted region is weakly reconstructed in the final prediction. This suggests a failure mode where extremely thin, short-lived structures remain difficult to recover even when motion-adaptive control is functioning. In Case 2, MASS substantially reduces the base warp error across most of the frame, demonstrating effective correction for large portions of the scene. How-ever, residual blur persists around the skateboard and lower-body boundaries. The broadly activated K-map indicates that under scene-wide motion—such as camera panning or strong parallax—the trajectory-budget allocation can become less spatially selective than ideal. Fig. S-2 provides further visual comparisons of MASS-S against recent state-of-the-art methods across various resolutions. The results show that MASS re-duces ghosting artifacts and preserves structural details compared to the other methods. 
+
+G Implementation Details 
+
+We employ a Cosine Annealing scheduler, where the learning rate is linearly warmed up to 2 × 10 −4 for the first 2,000 steps and then gradually decayed to 1 × 10 −6 over 300 epochs. During training, we apply comprehensive data augmentation, including random horizontal/vertical flips and temporal reversal. Input frames are randomly cropped to patches of size 256 × 256 . We instantiate two variants: the standard MASS ( C = 32 ) and the lightweight MASS-S ( C =16 ), where C denotes the base channel dimension of the initial feature extractor. All other architectural configurations are shared. MASS: Motion-Aligned Selective Scan for Refinement in VFI 7 
+
+> Fig. S-2: Additional qualitative comparisons on the SNU-FILM, Xiph, and Vimeo90K datasets.
+
+G.1 Adaptive K and velocity-aware ∆
+
+In the main paper, we conceptually defined the dynamic sampling budget K(p)
+
+using a scaling factor α. In practice, to ensure numerical stability and reduce sensitivity to outlier flow magnitudes, we instantiate this scaling dynamically via mean-normalization and a rational squashing function.Given the average bidirectional flow magnitude m(p) = ∥F (p)∥ (as defined in the main text), we first compute its frame-wise mean μm = Ep[m(p)] (treated as a stop-gradient). We then normalize the magnitude: 
+
+mnorm (p) = m(p)
+
+μm + ϵ . (6) The continuous sampling budget is then calculated by scaling within our predefined bounds: 
+
+Kfloat (p) = Kmin + ( Kmax − Kmin ) mnorm (p)
+
+mnorm (p) + 1 . (7) Finally, we obtain the integer budget via K(p) = clip (⌊Kfloat (p)⌉, K min , K max ).We set [Kmin , K max ] = [2 , 8] . This formulation preserves the proportional rela-tionship intended by α while strictly bounding the behavior in edge cases. Similarly, for the velocity-aware discretization introduced in the main paper, the normalization parameter β is implemented adaptively based on the frame-wise mean velocity. Defining the trajectory’s average step velocity as v(p) = 8 J.-S Yoo and S.-W. Jung  
+
+> Fig. S-3: Detailed architectures of the Fusion Head, Refinement Head, and Frame Synthesis network.
+
+m(p)/K (p) and its spatial mean as μv = Ep[v(p)] (stop-gradient), we compute a normalized velocity vnorm (p) = v(p)/(μv + ϵ). The trajectory-specific step size is then: 
+
+∆(p) = clip 
+
+ 11 + vnorm (p) , ∆ min , ∆ max 
+
+
+
+, (8) where [∆min , ∆ max ] = [0 .25 , 1.0] . Since ∆(p) is a spatial map defined per-pixel, we broadcast it along the trajectory length and apply it as a uniform multiplier to the dt pre-activation in the Mamba selective scan. 
+
+G.2 Variable-length trajectories via fixed-length buffering and masking 
+
+Each pixel corresponds to a trajectory sequence of variable length K(p) + 1 . To enable efficient batched computation, we allocate a fixed-length buffer of size 
+
+L = Kmax + 1 and define a validity mask: 
+
+V (p, k ) = I[k ≤ K(p)] , k ∈ { 0, . . . , L − 1}. (9) To avoid convolutional bleeding, we first zero out padded tokens using V (p, k )
+
+before applying the depth-wise 1D convolution. Furthermore, we force the padded steps to approximate ∆ ≈ 0 by setting their ∆ pre-activation to a large negative value (e.g., −10 4). Finally, we gather the output at the last valid index k = K(p).
+
+G.3 MASS-guided Refinement 
+
+At each scale, we utilize two dedicated heads for context fusion and motion correction. The fusion head (Fig. S-3, top left) merges the bidirectional motion-aligned contexts ( Z0→t, Z 1→t) into a unified representation ˆZt via a gating mech-anism. Concurrently, a lightweight refinement head (Fig. S-3, bottom left) cor-rects the intermediate flow and mask. It consumes the bidirectional contexts, MASS: Motion-Aligned Selective Scan for Refinement in VFI 9
+
+their absolute discrepancy ( |Z0→t − Z1→t|), and the current estimates ( F, M ) to predict residual updates ( ∆F, ∆M ) and a sigmoid gate u ∈ (0 , 1) . The refined estimates are updated via residual addition: 
+
+ˆF = F + u · ∆F, ˆM = M + u · ∆M.  (10) The final convolutional layers of the Refinement Head are zero-initialized to ensure the update initially acts as an identity mapping. 
+
+G.4 Frame synthesis network G
+
+As illustrated in Fig. S-3 (right), we adopt a coarse-to-fine synthesis strategy. We first warp and blend the input frames ( I0, I 1) using the refined flow and mask ( ˆF , ˆM ) to form a structural base image Ibase . Concurrently, the fused context 
+
+ˆZt from the fusion head is spatially upsampled, processed via shallow convolu-tions, and added to Ibase to inject high-frequency details. Finally, a RefineNet [1] takes this intermediate representation alongside the source inputs, local features (C0, C 1), and refined motions to predict the final RGB residual, yielding the interpolated frame ˆIt.
+
+References 
+
+1. Zhewei Huang, Tianyuan Zhang, Wen Heng, Boxin Shi, and Shuchang Zhou. Real-time intermediate flow estimation for video frame interpolation. In European Con-ference on Computer Vision , pages 624–642. Springer, 2022. 2. Chunxu Liu, Guozhen Zhang, Rui Zhao, and Limin Wang. Sparse global matching for video frame interpolation with large motion. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 19125–19134, 2024. 3. Hyeonjun Sim, Jihyong Oh, and Munchurl Kim. Xvfi: extreme video frame inter-polation. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 14489–14498, 2021. 4. Tianfan Xue, Baian Chen, Jiajun Wu, Donglai Wei, and William T Freeman. Video enhancement with task-oriented flow. International Journal of Computer Vision ,127(8):1106–1125, 2019. 5. Guozhen Zhang, Chunxu Liu, Yutao Cui, Xiaotong Zhao, Kai Ma, and Limin Wang. Vfimamba: Video frame interpolation with state space models. Advances in Neural Information Processing Systems , 37:107225–107248, 2024.
