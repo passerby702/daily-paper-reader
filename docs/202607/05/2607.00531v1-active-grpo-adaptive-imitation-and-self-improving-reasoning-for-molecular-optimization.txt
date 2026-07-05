@@ -1,0 +1,918 @@
+Title: Active-GRPO: Adaptive Imitation and Self-Improving Reasoning for Molecular Optimization
+
+URL Source: https://arxiv.org/pdf/2607.00531v1
+
+Published Time: Thu, 02 Jul 2026 00:45:37 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# Active-GRPO: Adaptive Imitation and Self-Improving Reasoning for Molecular Optimization 
+
+Xuefeng Liu 1∗
+
+, Mingxuan Cao 2∗, Qinan Huang 3, Thomas Brettin 5, Rick L. Stevens 4,5 , Le Cong 1
+
+> 1
+
+School of Medicine, Stanford University 
+
+> 2
+
+Data Science Institute, University of Chicago 
+
+> 3
+
+Pritzker School of Molecular Engineering, University of Chicago 
+
+> 4
+
+Department of Computer Science, University of Chicago 
+
+> 5
+
+Argonne National Laboratory 
+
+## Abstract 
+
+Scientific reasoning is an increasingly important capability of large language mod-els, yet improving the robustness and efficiency of training such reasoning remains a key open challenge. We study this problem in instruction-based molecular op-timization, where answer-only supervised fine-tuning (SFT) collapses multi-step reasoning and reinforcement learning with verifiable rewards (RLVR) suffers from sparse feedback. Reference-guided Policy Optimization (RePO) mitigates both by anchoring policy updates to dataset-provided references, but its effectiveness is tightly coupled to reference quality: weak or misaligned references impose a performance ceiling. To overcome this ceiling, we propose active reasoning, a paradigm in which the policy actively decides, on a per-instance basis, when to imitate a reference and when to reinforce its own discoveries, while continuously upgrading what it imitates. We instantiate this paradigm as Active Group Relative Policy Optimization (Active-GRPO), realized through two coupled mechanisms: 
+
+active imitate-reinforce and active referencing . The former performs imitation learning when the reference still outperforms the policy’s own candidates, and shifts to self-improvement via reinforcement learning once the policy has gener-ated molecules that surpass the reference. The latter continuously upgrades the reference itself by replacing it with the best policy-generated candidate discovered so far, progressively raising the imitation target and ensuring that reference guid-ance remains informative—rather than restrictive—throughout training. Across TOMG-Bench M OL OPT , Active-GRPO improves average SR ×Sim from 0.0959 for GRPO and 0.1665 for RePO to 0.1773 under matched three-seed evaluation, with statistically significant gains on LogP, MR, and QED. 
+
+## 1 Introduction 
+
+Large language models (LLMs) have rapidly emerged as general-purpose reasoning engines, demon-strating strong performance on tasks that demand multi-step deliberation rather than surface pattern matching [ 17 , 38 ]. Through advances in chain-of-thought prompting [ 52 ], supervised fine-tuning (SFT) on reasoning traces [ 36 , 56 ], and reinforcement learning with verifiable rewards (RLVR) [ 19 , 28 ], modern LLMs can now solve competition-level mathematics [ 11 , 20 ], write and debug complex code [ 9, 24 ], and conduct structured analyses across diverse domains. This progress has mo-tivated a growing line of work that brings LLM reasoning to bear on scientific discovery [ 1 , 51 ], where success often hinges on navigating combinatorially large hypothesis spaces under domain-specific constraints. From hypothesis generation and experimental design to candidate screening in chemistry, biology, and materials science [ 7, 23 , 49 ], LLMs are increasingly positioned not as passive question 
+
+> ∗Equal Contribution. Correspondence to: Xuefeng Liu <xfl@stanford.edu>, Mingxuan Cao <mcao@uchicago.edu>
+> arXiv:2607.00531v1 [cs.LG] 1 Jul 2026
+
+answerers but as active reasoners that propose, evaluate, and refine scientific artifacts. Yet making such reasoning robust and sample-efficient to train remains a central open challenge—particularly in scientific domains where outputs must satisfy strict, programmatically verifiable constraints. Among these scientific reasoning tasks, instruction-based molecular optimization has emerged as a particularly demanding testbed [ 29 , 31 ]. Given a source molecule and a natural-language instruction specifying desired property changes—for example, improving aqueous solubility while preserving binding affinity—the model must propose a structurally similar yet property-improved candidate [25 , 26 ]. This task lies at the heart of drug discovery [ 34 , 49 ], agrochemical design[ 12 ], and materials development [ 7, 45 ], while imposing tightly coupled constraints. Outputs must be syntactically valid molecules [ 53 ], retain a high degree of structural similarity to the input scaffold [ 4, 6], achieve measurable improvements across one or more—often competing—property objectives [ 8, 22 ], and faithfully follow the user’s instruction [ 14 , 30 ]. Unlike open-ended generation, molecular optimization therefore requires constrained, multi-objective reasoning over structured chemical objects, with every candidate verifiable against programmatic property predictors and similarity metrics [15, 41]. Existing training paradigms for this setting exhibit characteristic failure. Answer-only SFT [ 39 ,50 ] forces the model to memorize input–output mappings without articulating chemical rationale, collapsing multi-step reasoning [ 10 , 33 ] and limiting generalization to unseen instruction styles. RLVR [ 19 , 28 ], which optimizes directly against programmatic property checkers, in principle preserves reasoning, but in practice suffers from sparse feedback [ 2 , 43 ]: under tight similarity constraints, most sampled molecules fail validity or similarity gates and receive zero reward, starving the policy of learning signal. Reference-guided Policy Optimization (RePO) [ 32 ] mitigates both pathologies by anchoring policy updates to dataset-provided reference molecules [ 25 , 29 ], blending imitation and reward-based learning to densify the training signal and inherit the stability benefits of demonstration-based learning [ 21 , 37 , 40 , 42 ]. However, RePO’s effectiveness is tied to the static quality of its references. When references are weak, noisy, or misaligned with the instruction [ 5, 16 ], the imitation signal actively pulls the policy away from better solutions it might otherwise discover, creating a performance ceiling bounded by the dataset rather than by the policy’s true capability. To overcome this ceiling, we propose active reasoning , a training paradigm where active refers to actively deciding when to imitate a reference, when to reinforce its own discoveries, and what target to imitate; and reasoning refers to the deliberative <think> ... </think><answer> ... </answer> gener-ation. We instantiate this paradigm as Active Group Relative Policy Optimization (Active-GRPO), which couples active reasoning with two mechanisms: active imitate-reinforce and active referencing .The active imitate-reinforce mechanism performs imitation learning when the reference still outper-forms the policy’s own candidates, and shifts to self-improvement via reinforcement learning once the policy has generated molecules that surpass the reference. The active referencing mechanism continuously upgrades the reference itself by replacing it with the best policy-generated candidate discovered so far, progressively raising the imitation target as training proceeds. Together, these mechanisms ensure that reference guidance remains informative rather than restrictive , transitioning the policy from learning from references to learning beyond them. By construction, this makes reference guidance robust across the spectrum of reference quality. We evaluate Active-GRPO across a suite of molecular optimization benchmarks spanning diverse property objectives, instruction styles, and reference-quality regimes. Our contributions are threefold: • We identify and formally characterize the static-reference ceiling in reference-guided policy optimization, showing that fixed dataset references can systematically mislead training when they fall below the policy’s own capability. • We introduce active reasoning as a paradigm for reference-guided training, and instantiate it as Active-GRPO, which couples active imitate-reinforce and active referencing to make reference guidance robust to reference quality and self-improving over time. • We show empirically that Active-GRPO consistently outperforms RePO and GRPO base-lines, delivers more robust optimization across varying reference-quality regimes, and achieves a better balance across competing chemical objectives—establishing adaptive reference guidance as a principled path beyond the limits of static supervision. 2From fixed guidance to active guidance ✦      
+
+> selected target fixed reference memory bank medium reward high reward low reward
+> Early (policy < ref) Middle (policy ≈ref) Late (policy > ref)
+> Early
+> Middle
+> Late
+
+RePO 
+
+> fixed guidance
+
+active -GRPO       
+
+> active guidance
+> Stale -target pullback Adapts and keeps improving ✦
+> Fixed
+> imitation
+> Same
+> reference
+> Strong
+> imitation reference
+> Stale
+> memory
+> bank policy samples
+> dynamic β
+> use reference
+> promote
+> to bank lower β
+> select target
+> dataset
+> reference
+> bank
+> candidate ✓
+> memory bank
+> best -so -far
+> target
+> tiny β
+> dataset
+> reference
+> dataset
+> reference
+> dataset
+> reference
+> ✓
+
+Figure 1: Conceptual motivation for Active-GRPO. RePO continues to imitate a fixed reference, which can become stale as the policy improves. Active-GRPO instead adapts both imitation strength and the guidance target, enabling a transition from reference imitation to active self-improvement. 
+
+## 2 Preliminaries 
+
+2.1 Problem Formulation: Instruction-Conditioned Molecular Generation 
+
+We study instruction-conditioned molecular generation with reference guidance. The model receives a natural-language specification with task-dependent molecular context (typically an input molecule and optimization constraints), and produces a candidate molecule SMILES [ 53 ] satisfying the specification. SMILES is a string representation of molecular graphs widely used in chemical language modeling and cheminformatics. Each training instance pairs a conditioning context ci with a dataset-provided reference molecule mref ,i providing answer-level guidance during training. 
+
+Data and prompts. Let D = {zi}Ni=1 be a training set, where each instance is zi = ( ci, m ref ,i ).
+
+Here ci is a task-dependent conditioning context, and mref ,i is a dataset-provided reference molecule. The two play different roles: ci specifies the optimization problem and conditions reward evaluation, whereas mref ,i serves as an answer-level guidance target during training. 
+
+Reasoning-augmented generation. The policy πθ is trained to produce a structured output inter-leaves a reasoning trace with a final answer: o = <think> τ </think> <answer> bm </answer> .
+
+Here τ is a free-form natural-language reasoning trace and bm is the candidate molecule SMILES. This format follows recent reasoning-trained LLMs [ 19 ] and is well suited to molecular optimization: the trace gives the model space to identify editable substructures, weigh modifications, and check constraints before committing to a final molecule. We do not supervise τ directly; only the final answer span carries explicit answer-level guidance (Section 2.2). 
+
+Reward. We assume a verifiable reward R( bm; c) defined on (candidate, context) pairs, with invalid or constraint-violating molecules receiving zero reward. In M OL OPT , R combines the requested property improvement with structural preservation; exact components are task-dependent. We also define the reference reward vref (zi) = R(mref ,i ; ci), used as a per-instance baseline and as the anchor against which the policy’s best candidates are compared in our method. 
+
+2.2 GRPO-based Reasoning Optimization GRPO. Group Relative Policy Optimization (GRPO) [ 47 ] is an actor-only variant of PPO [ 46 ]that replaces the learned value baseline with within-group reward normalization. For each prompt 
+
+xi, GRPO samples G rollouts {oi,j }Gj=1 from the old policy πθold , extracts candidate molecules 
+
+{ bmi,j }Gj=1 , and evaluates rewards ri,j = R( bmi,j ; ci), ¯ri = 1
+
+> G
+
+PGj=1 ri,j . GRPO then forms the group-normalized advantage bAi,j = ri,j −¯ri 
+
+> σr,i +ε
+
+, where σr,i is the within-group reward standard deviation. 3At the objective level, GRPO can be written as 
+
+JGRPO (θ) = E xi∼D ,  
+
+> {oi,j }Gj=1 ∼πθold (·| xi)
+
+"
+
+1
+
+G
+
+> G
+
+X
+
+> j=1
+
+1
+
+|oi,j | 
+
+> |oi,j |
+
+X
+
+> t=1
+
+
+
+min 
+
+h
+
+ρi,j,t (θ) bAi,j , clip  ρi,j,t (θ), 1 − ϵ, 1 + ϵ bAi,j 
+
+i
+
+− βKL DKL 
+
+> i,j,t
+
+#
+
+,
+
+(1) where ρi,j,t (θ) = πθ (oi,j,t |xi,o i,j,<t )  
+
+> πθold (oi,j,t |xi,o i,j,<t )
+
+. In implementation, we optimize the negative empirical counterpart of this objective. For clarity, we denote the resulting minibatch loss by 
+
+LRL = − 1
+
+P 
+
+> i,j,t
+
+mcmp 
+
+> i,j,t
+
+X
+
+> i,j,t
+
+h
+
+ρi,j,t bAi,j − βKL DKL 
+
+> i,j,t
+
+i
+
+mcmp  
+
+> i,j,t
+
+,
+
+where mcmp  
+
+> i,j,t
+
+is the completion mask, ρi,j,t is the per-token policy ratio, and DKL  
+
+> i,j,t
+
+is the per-token KL penalty against the frozen reference policy πref . Because GRPO learns from within-prompt relative reward differences, its signal can weaken when all sampled rollouts for a prompt receive similar rewards. This motivates adding answer-level guidance in reference-guided molecular optimization. 
+
+GRPO with reference-molecule guidance. RePO [ 32 ] augments GRPO with an answer-level imitation loss that pulls the policy toward the dataset reference molecule, adding supervised signal to relative reward optimization. Given a target molecule m, RePO defines 
+
+L(i)guide (m) = −
+
+P 
+
+> t
+
+log πθ (mt | xi, m <t ) mans 
+
+> i,t
+
+P 
+
+> t
+
+mans  
+
+> i,t
+
++ ε ,
+
+where mans  
+
+> i,t
+
+masks only the answer span; the reasoning trace τ is not supervised. In vanilla RePO, the guidance target is fixed to the dataset reference, m∗ 
+
+> i
+
+= mref ,i , and the objective is 
+
+LRePO = LRL + 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+L(i)guide (mref ,i ).
+
+Limitation: The Static-Reference Ceiling. RePO’s design tacitly assumes that the dataset refer-ence is consistently a useful target. This assumption breaks down in two practically common regimes. 
+
+(i) Reference saturation: once the policy starts generating molecules whose reward matches or exceeds vref (zi), continuing to imitate mref ,i pulls the policy back toward a strictly worse target. (ii) Weak references: when the dataset reference is itself far from optimal — for example, when references are automatically curated or noisy — guidance toward mref ,i caps achievable performance well below what the policy could otherwise reach. In both regimes, two design choices that fixed-reference guidance cannot make become first-class degrees of freedom: when to imitate at all, and what to imitate. Our method (Section 3) makes both choices adaptive and per-instance. 
+
+## 3 Algorithm: Active-GRPO 
+
+We now instantiate the active reasoning paradigm — letting the policy decide, per instance, when to imitate a reference and when to reinforce its own discoveries, while continuously upgrading what it imitates — as Active Group Relative Policy Optimization (Active-GRPO). Active-GRPO augments the RePO objective with two coupled mechanisms: • Active imitate-reinforce decides when to imitate via a smooth, context-dependent guidance weight that compares the policy’s current best samples against the reference. • Active referencing decides what to imitate via a per-instance memory bank that promotes policy-generated candidates once they outperform the dataset reference. 
+
+Active Imitate-Reinforce. We adaptively blend imitation and reinforcement learning to achieve robust policy improvement, allowing the learner to switch between imitating an oracle and improving via RL based on online relative performance. In our setting, the dataset reference serves as the initial 4Figure 2: Overview of Active-GRPO. The method augments reference-guided policy optimization with two active decisions: when to imitate, through a dynamic guidance weight, and what to imitate, through active reference selection over promoted policy-discovered candidates. oracle, and policy-generated candidates can themselves become improved oracles once they surpass it. Rather than enforcing a hard switch, we implement this idea as a smooth, per-instance guidance weight. For each context ci, let 
+
+vtop (ci) = 1
+
+k
+
+X
+
+> j∈Top -k
+
+R( bmi,j ; ci)
+
+be the mean reward of the top-k sampled candidates from the current rollout group. Setting k = 1 
+
+recovers the best sampled candidate; larger k yields a smoother top-k average. We define the context-dependent guidance weight 
+
+βguide (ci) = βmin + ( βmax − βmin ) σ −α vtop (ci) − vref (zi) ,
+
+where σ(·) is the logistic sigmoid and α > 0 controls sharpness of the transition. The semantics are: • Policy lags the reference ( vtop < v ref ): βguide is large, and the update is imitation-dominant. • Policy surpasses the reference ( vtop > v ref ): βguide shrinks, and the update shifts toward reinforce-ment learning. The bounds βmin and βmax control, respectively, the residual imitation pressure once the policy has surpassed the reference and the maximum imitation weight when it lags. The choice of βmin 
+
+in particular determines the late-training regime: βmin = 0 recovers pure RL in the limit, while 
+
+βmin > 0 retains a residual self-distillation signal toward the current best target Appendix A.6. 
+
+Active referencing. Active referencing replaces the static dataset reference with the best policy-discovered candidate available so far. For each context ci, Active-GRPO maintains a capacity-limited memory bank 
+
+B(ci) = {(mℓ, r ℓ)}|B (ci)| 
+
+> ℓ=1
+
+, |B (ci)| ≤ K, 
+
+initialized with the dataset-provided reference molecule, 
+
+B(ci) ← { (mref ,i , v ref (zi)) },
+
+and is subsequently augmented with policy-generated molecules that are promoted during training. Thus, each bank entry consists of a candidate guidance molecule mℓ and its reward rℓ = R(mℓ; ci)
+
+under the same conditioning context. The bank is keyed by a deterministic per-example identifier and persists across training steps and epochs, thus each example accumulates a best-so-far set over the course of training. We store up to K candidates rather than only the current best one so that the bank represents a small per-instance candidate set. Although our main implementation selects the 5maximum-reward candidate as the active target, the same bank can support more robust reference statistics, such as top-k averaging or diversity-aware target selection. 
+
+Promotion and eviction. A generated molecule bm is promoted into the bank when it improves on the current reference reward by a margin δ and satisfies a task-specific admissibility predicate: 
+
+Promote( bm | ci) = 1
+
+h
+
+R( bm; ci) > v ref (zi) + δ ∧ Q( bm; ci) ∧ Valid( bm)
+
+i
+
+.
+
+The margin δ guards against promoting near-tie noise; the predicate Q( bm; ci) enforces task-specific hard constraints (in our experiments, a minimum Tanimoto similarity to the input molecule) that are kept separate from the scalar reward to prevent structurally invalid candidates from entering the bank merely because they score high on one reward component. When the bank is full, the lowest-reward entry is evicted. Promoted molecules are canonicalized before insertion so that supervision targets a deterministic SMILES surface form (Appendix A.3, A.4). 
+
+Active guidance target. The target supplied to Lguide is the highest-reward entry currently in the bank, 
+
+m∗(ci) = arg max  
+
+> (m,r )∈B (ci)
+
+r. 
+
+Thus, once the policy discovers a molecule better than the original dataset reference, subsequent guidance distills from the best available candidate rather than from the static reference. 
+
+Optimization Objective. For a minibatch of size B, Active-GRPO optimizes 
+
+LActive −GRP O = LRL + 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+βguide (ci) L(i)guide 
+
+ m∗(ci).
+
+Crucially, the guidance loss is weighted per instance rather than by a batch-averaged coefficient. This preserves the intended adaptive behavior: different examples within the same minibatch may simultaneously operate in different regimes of imitation versus self-improvement, depending on how their current top-k rollouts compare to their respective references. Together, the two mechanisms make reference guidance robust by construction across the spectrum of reference quality. Relative to RePO [ 32 ], Active-GRPO introduces two essential changes: a dynamic, context-dependent guidance coefficient that decides when and how strongly to imitate, and an active referencing mechanism that replaces static reference guidance with the best available target discovered during training. Algorithm 1 in Appendix A.8 summarizes the complete training procedure; additional implementation, synchronization, reproducibility, and hyperparameter details are provided in Appendix A. 
+
+## 4 Experiments 
+
+We evaluate Active-GRPO on instruction-conditioned molecular optimization benchmarks and compare it against RePO [32] and related baselines. Our experiments address four questions: • Q1. Does Active-GRPO improve molecular optimization performance over fixed-reference guid-ance? (Section 4.2) • Q2. Are the gains explained by simpler alternatives such as iterative self-distillation or stronger fixed references? (Sections 4.2; ablations in Sections 4.3) • Q3. Does Active-GRPO’s advantage grow with the optimization headroom of each instance, as the static-reference ceiling argument predicts? (Section 4.4) • Q4. Do training-time dynamics match the intended adaptive mechanism? (Section 4.5) 
+
+4.1 Experimental Setup Benchmarks and metrics. We evaluate on TOMG-Bench [ 29 ], focusing on the M OL OPT subtasks LogP, MR, and QED. These tasks provide a controlled setting for reference-guided, instruction-conditioned molecular optimization. Following RePO [ 32 ], we report Success Rate (SR), Tanimoto Similarity (Sim) with Morgan fingerprints, and the composite metric SR ×Sim, which summarizes the trade-off between task success and structural preservation. Additional evaluations on TOMG-Bench MOL EDIT , hard-example splits, and longer-horizon settings are reported in Appendix C. 6Table 1: Main results on TOMG-Bench M OL OPT . We report SR ×Sim, the standard composite metric balancing task success and structural preservation. All trained methods are reported as mean 
+
+± standard error over three seeds; zero-shot is evaluated once. Active-GRPO achieves the best performance on all three subtasks and the highest average score. All trained methods are run under the same matched 40GB-A100 configuration. Method LogP SR ×Sim ↑ MR SR ×Sim ↑ QED SR ×Sim ↑ Avg SR ×Sim ↑                                                      
+
+> Zero-shot 0.1700 0.1314 0.1114 0.1376 GRPO-only 0.1222 ±0.0112 0.0956 ±0.0132 0.0699 ±0.0061 0.0959 Iterative SFT 0.1888 ±0.0266 0.1736 ±0.0200 0.1257 ±0.0116 0.1627 Offline-strengthened RePO 0.1974 ±0.0076 0.1853 ±0.0045 0.1130 ±0.0108 0.1652 RePO 0.1877 ±0.0076 0.1860 ±0.0089 0.1258 ±0.0033 0.1665
+> Active-GRPO (ours) 0.1977 ±0.0104 0.1904 ±0.0100 0.1440 ±0.0081 0.1773
+
+Baselines and variants. We compare against zero-shot inference, GRPO-only training without answer-level guidance, RePO as the fixed-reference baseline, and two alternatives that test simpler explanations: Iterative SFT, which captures self-distillation without active policy improvement, and Offline-strengthened RePO, which replaces the dataset reference with a stronger fixed target before training. We also include two ablations of Active-GRPO: β-only, which uses active imitate-reinforce without active referencing, and bank-only, which uses active referencing with a fixed guidance weight. 
+
+Training and reporting protocol. All trained methods share the same backbone, reward family, rollout budget, decoding rule, and evaluation pipeline under a matched 40GB-A100 configuration, which may differ from prior RePO reports [ 32 ]; we therefore interpret results as matched relative comparisons. We report mean ± standard error over three seeds (zero-shot once), with significance as-sessed via per-example paired bootstrap (10,000 resamples). Implementation details, hyperparameters, and timing are in Appendix A and C.4. 
+
+4.2 Main Results on TOMG-Bench MolOpt 
+
+Table 1 reports the main results on TOMG-Bench M OL OPT . Active-GRPO obtains the highest SR ×Sim on all three subtasks and the best overall average. Relative to RePO, the gains are +0.0148 on LogP, +0.0090 on MR, and +0.0206 on QED, all significant under paired bootstrap testing ( p < 0.001 ;Appendix C.2). The comparison rules out two simpler explanations. Iterative SFT improves over GRPO-only but stays below both RePO and Active-GRPO, showing that self-distillation alone is insufficient. Offline-strengthened RePO is the strongest non-adaptive alternative, yet still falls below Active-GRPO, indicating the gain is not explained by replacing the reference with a stronger fixed target. The advantage comes from making guidance adaptive and per-instance, not merely stronger. 
+
+Success–similarity trade-off. Active-GRPO’s improvement comes primarily from higher success rates. Averaged across the three subtasks, SR rises from 0.2017 (RePO) to 0.2249, while average similarity decreases from 0.8281 to 0.7906. This is consistent with the design: active imitate-reinforce reduces unnecessary imitation pressure, and active referencing lets the policy move beyond the local neighborhood of the fixed reference when doing so improves reward. As we show in Section 4.6, much of RePO’s higher similarity reflects no-op behavior — copying the source molecule — rather than successful structural preservation under a real edit. Full per-metric results are in Appendix C.1. 
+
+4.3 Ablation: Active Imitate-Reinforce and Active Referencing Are Complementary 
+
+Table 2 isolates the two core mechanisms in Active-GRPO. On average SR ×Sim, neither component alone improves over RePO: the active-imitate-reinforce-only variant underperforms RePO, while the active-referencing-only variant is approximately tied. The full method, however, improves over all variants by a clear margin, indicating that active imitate-reinforce and active referencing are complementary rather than redundant. This pattern supports the design. Active imitate-reinforce controls when and how strongly the model should imitate, while active referencing controls what target to imitate. Using only one mechanism leaves coordination incomplete: active-imitate-reinforce only can reduce imitation pressure but still imitates a fixed target, whereas active-referencing only can update the target but cannot adapt 7Table 2: Ablation results on TOMG-Bench M OL OPT . Neither active imitate-reinforce nor active referencing alone explains the gain. The full method achieves the best score, indicating that the two mechanisms play complementary roles and are most effective when coupled. Variant LogP SR ×Sim ↑ MR SR ×Sim ↑ QED SR ×Sim ↑ Avg SR ×Sim ↑ ∆ vs Full RePO 0.1877 ± 0.0076 0.1860 ± 0.0089 0.1258 ± 0.0033 0.1665 −0.0108                                        
+
+> Active-GRPO (active-imitate-reinforce only) 0.1861 ±0.0099 0.1791 ±0.0101 0.1220 ±0.0098 0.1624 −0.0149
+> Active-GRPO (active-referencing only) 0.1920 ±0.0078 0.1781 ±0.0046 0.1275 ±0.0072 0.1659 −0.0114
+> Active-GRPO (full) 0.1977 ±0.0104 0.1904 ±0.0100 0.1440 ±0.0081 0.1773 —Q1 Q2 Q3 Q4 Q5
+> Headroom quintile
+> 0.01
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> Active-GRPO - RePO SR x Sim
+> Headroom-conditioned gain by subtask
+> LogP MR QED
+
+LogP headroom breakdown                        
+
+> Bin Range ∆SR ∆SR ×Sim Q1 (−3.91 ,1.30] +0.007 +0.002 Q2 (1 .30 ,2.25] +0.014 +0.007 Q3 (2 .25 ,2.94] +0.024 +0.013 Q4 (2 .94 ,3.63] +0.032 +0.022 Q5 (3 .63 ,7.36] +0.045 +0.031
+
+Figure 3: Optimization-headroom conditional analysis. Left: Active-GRPO–RePO gain in SR ×Sim across headroom quintiles for all three M OL OPT subtasks. Right: the LogP numerical breakdown, where the gain increases monotonically from the lowest-headroom bin to the highest-headroom bin. Full per-subtask numerical tables are reported in Appendix C.3. guidance strength. The full method combines both, allowing the policy to reduce stale-reference pressure while distilling from stronger policy-discovered targets. 
+
+4.4 Optimization-Headroom Conditional Analysis 
+
+The static-reference ceiling argument predicts a specific empirical pattern: Active-GRPO should help most on instances where the static source-reference offers the weakest guidance toward the requested edit — that is, where there is more optimization headroom beyond the reference. We test this directly. For each test example, we compute an optimization-headroom score from the source molecule’s original property value: larger original LogP/MR for the decrease tasks, and 1 − QED for increase-QED. We partition test examples into quintiles and compare Active-GRPO against RePO within each bin. (This measures optimization headroom rather than an independent reference-quality gap; here the source molecule also serves as the static anchor.) The results support the central mechanism of Active-GRPO. The trend is clearest for LogP, where the Active-GRPO –RePO gain in SR×Sim grows monotonically from +0.002 in Q1 to +0.031 in Q5. MR and QED show positive but noisier patterns, with QED gaining in both low- and high-headroom regimes. Active-GRPO is most useful precisely where the static reference is least informative: as headroom grows, active imitate-reinforce reduces unnecessary imitation pressure, and active referencing supplies stronger policy-discovered targets. Full per-subtask tables are in Appendix C.3. 
+
+4.5 Training Dynamics Match the Intended Mechanism 
+
+We verify that Active-GRPO behaves as designed by inspecting training-time statistics. Figure 4 reports raw training reward, training loss, average guidance weight, and memory-bank usage. Three patterns are consistent with the intended adaptive mechanism: • Guidance shifts from imitation toward RL. The average guidance weight βguide starts around 1.1 — above the midpoint, indicating early-training imitation dominance — and decreases to about 0.93, indicating the policy has caught up to or surpassed references on a substantial fraction of examples. • The memory bank fills steadily. Active-GRPO accumulates 160–190 promoted entries by the end of training, confirming the policy regularly produces molecules superior to their dataset references. • Self-distillation activates meaningfully. Roughly 17–22% of examples receive guidance from a policy-promoted target rather than the dataset reference, confirming that active referencing is a substantive contributor to training. Together, these dynamics show that Active-GRPO is not merely reweighting the RePO loss: it actively changes both the strength and the target of guidance during training, as predicted by the active reasoning paradigm. 8Figure 4: Active-GRPO training dynamics over three seeds, with mean ± standard deviation. Panel (a) shows the raw training reward signal logged by the trainer, rather than evaluation SR ×Sim; panels (b)–(d) show training loss, average guidance weight, and memory-bank/self-distillation activity. 
+
+4.6 Qualitative Case Studies 
+
+We inspect representative examples in which Active-GRPO succeeds and RePO fails. Across LogP, MR, and QED, two characteristic failure modes of fixed-reference guidance recur: RePO often (i) returns the source molecule essentially unchanged or (ii) makes a structural modification that moves the property in the worse direction. Active-GRPO instead tends to make targeted edits that satisfy the property objective while preserving most of the input structure. For example, Active-GRPO expands a ring to increase LogP, shortens a ring system to decrease MR, and introduces a small heteroatom change to decrease QED. These patterns help explain Active-GRPO’s success–similarity trade-off: much of RePO’s higher average similarity comes from no-op outputs that satisfy the similarity term because no edit was made. We quantify this directly via a no-op failure rate — the fraction of outputs with Sim ( bm, m src ) ≥ 0.98 
+
+that nevertheless fail the property objective. Across all three subtasks, Active-GRPO reduces no-op failures relative to RePO (Appendix C.5, Figure 6), confirming that its slightly lower similarity reflects more frequent successful editing rather than excessive structural deviation. 
+
+4.7 Additional Evaluations 
+
+We report additional evaluations in Appendix C, including qualitative case studies and visible reasoning-trace examples (Appendix C.5), hyperparameter sensitivity (Appendix C.6), hard-example stress tests (Appendix C.7), matched M OL EDIT structural optimization (Appendix C.9), and longer-horizon single-seed evaluation (Appendix C.8). These results support the main finding while clarifying the method’s scope. On a ZINC-derived hard subset, Active-GRPO maintains a small but consistent advantage over RePO. On M OL EDIT , Active-GRPO improves average SR ×Sim over RePO and performs best on AddComponent and SubComponent, suggesting that the adaptive mechanisms transfer beyond property-only optimization. The longer-horizon evaluation further shows competitive average performance under shared-policy training. Broader discovery-leaning and strongly multi-objective settings remain important directions for future work. 95 Conclusion 
+
+We introduced Active-GRPO, an active extension of reference-guided policy optimization that adapts both when to imitate through a context-dependent guidance weight and what to imitate through active referencing over policy-discovered candidates. On TOMG-Bench M OL OPT , Active-GRPO achieves the best average SR ×Sim and improves over RePO on all three subtasks under matched multi-seed evaluation, with ablations showing that dynamic guidance and active referencing play complementary roles. Our results suggest that fixed-reference guidance is most limiting when the source molecule leaves substantial optimization headroom, while adaptive guidance better supports continued policy improvement. A current limitation is that our evaluation remains centered on reference-guided molecular optimization; extending the framework to broader discovery settings with weak or absent references may require stronger candidate proposal and exploration mechanisms. One promising direction is to combine Active-GRPO with active sampling or curriculum construction, focusing training compute on prompts where the policy, reference, and reward signal disagree most. 
+
+Acknowledgements 
+
+We thank Xuan Li, Bo Han for their helpful discussion. This work is supported by Donald and Delia Baxter Foundation Faculty Scholar award, the Weintz family foundation and AI4Biomedicine fund. 
+
+## References 
+
+[1] Microsoft Research AI4Science and Microsoft Azure Quantum. The impact of large lan-guage models on scientific discovery: a preliminary study using gpt-4. arXiv preprint arXiv:2311.07361 , 2023. 1, 16 [2] Marcin Andrychowicz, Filip Wolski, Alex Ray, Jonas Schneider, Rachel Fong, Peter Welinder, Bob McGrew, Josh Tobin, OpenAI Pieter Abbeel, and Wojciech Zaremba. Hindsight experience replay. Advances in neural information processing systems , 30, 2017. 2, 16 [3] Thomas Anthony, Zheng Tian, and David Barber. Thinking fast and slow with deep learning and tree search. Advances in neural information processing systems , 30, 2017. 17 [4] Dávid Bajusz, Anita Rácz, and Károly Héberger. Why is tanimoto index an appropriate choice for fingerprint-based similarity calculations? Journal of cheminformatics , 7(1):20, 2015. 2 [5] Suneel Belkhale, Yuchen Cui, and Dorsa Sadigh. Data quality in imitation learning. Advances in neural information processing systems , 36:80375–80395, 2023. 2, 17 [6] Guy W Bemis and Mark A Murcko. The properties of known drugs. 1. molecular frameworks. 
+
+Journal of medicinal chemistry , 39(15):2887–2893, 1996. 2 [7] Daniil A Boiko, Robert MacKnight, Ben Kline, and Gabe Gomes. Autonomous chemical research with large language models. Nature , 624(7992):570–578, 2023. 1, 2, 16 [8] Nathan Brown, Marco Fiscato, Marwin HS Segler, and Alain C Vaucher. Guacamol: bench-marking models for de novo molecular design. Journal of chemical information and modeling ,59(3):1096–1108, 2019. 2, 16 [9] Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde De Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, et al. Evaluating large language models trained on code. arXiv preprint arXiv:2107.03374 , 2021. 1 [10] Tianzhe Chu, Yuexiang Zhai, Jihan Yang, Shengbang Tong, Saining Xie, Dale Schuurmans, Quoc V Le, Sergey Levine, and Yi Ma. Sft memorizes, rl generalizes: A comparative study of foundation model post-training. arXiv preprint arXiv:2501.17161 , 2025. 2, 16 [11] Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et al. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168 , 2021. 1 10 [12] Yannick Djoumbou-Feunang, Jeremy Wilmot, John Kinney, Pritam Chanda, Pulan Yu, Avery Sader, Max Sharifi, Scott Smith, Junjun Ou, Jie Hu, Elizabeth Shipp, Dirk Tomandl, and Siva P. Kumpatla. Cheminformatics and artificial intelligence for accelerating agrochemical discovery. 
+
+Frontiers in Chemistry , 11:1292027, 2023. doi: 10.3389/fchem.2023.1292027. 2 [13] Hanze Dong, Wei Xiong, Deepanshu Goyal, Yihan Zhang, Winnie Chow, Rui Pan, Shizhe Diao, Jipeng Zhang, Kashun Shum, and Tong Zhang. Raft: Reward ranked finetuning for generative foundation model alignment. arXiv preprint arXiv:2304.06767 , 2023. 17 [14] Carl Edwards, Tuan Lai, Kevin Ros, Garrett Honke, Kyunghyun Cho, and Heng Ji. Translation between molecules and natural language. In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing , pages 375–413, 2022. 2, 16 [15] Wenhao Gao, Tianfan Fu, Jimeng Sun, and Connor Coley. Sample efficiency matters: a benchmark for practical molecular optimization. Advances in neural information processing systems , 35:21342–21357, 2022. 2, 16 [16] Yang Gao, Dana Alon, and Donald Metzler. Impact of preference noise on the alignment performance of generative language models. arXiv preprint arXiv:2404.09824 , 2024. 2, 17 [17] Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Alex Vaughan, et al. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 , 2024. 1 [18] Caglar Gulcehre, Tom Le Paine, Srivatsan Srinivasan, Ksenia Konyushkova, Lotte Weerts, Abhishek Sharma, Aditya Siddhant, Alex Ahern, Miaosen Wang, Chenjie Gu, et al. Reinforced self-training (rest) for language modeling. arXiv preprint arXiv:2308.08998 , 2023. 17 [19] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 , 2025. 1, 2, 3, 16 [20] Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt. Measuring mathematical problem solving with the math dataset. 
+
+arXiv preprint arXiv:2103.03874 , 2021. 1 [21] Todd Hester, Matej Vecerik, Olivier Pietquin, Marc Lanctot, Tom Schaul, Bilal Piot, Dan Horgan, John Quan, Andrew Sendonaris, Ian Osband, et al. Deep Q-learning from demonstrations. In 
+
+Proceedings of the National Conference on Artificial Intelligence (AAAI) , 2018. 2, 16 [22] Kexin Huang, Tianfan Fu, Wenhao Gao, Yue Zhao, Yusuf Roohani, Jure Leskovec, Connor W Coley, Cao Xiao, Jimeng Sun, and Marinka Zitnik. Therapeutics data commons: Machine learn-ing datasets and tasks for drug discovery and development. arXiv preprint arXiv:2102.09548 ,2021. 2, 16 [23] Kevin Maik Jablonka, Philippe Schwaller, Andres Ortega-Guerrero, and Berend Smit. Leverag-ing large language models for predictive chemistry. Nature Machine Intelligence , 6:161–169, 2024. doi: 10.1038/s42256-023-00788-1. 1 [24] Carlos E Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir Press, and Karthik Narasimhan. Swe-bench: Can language models resolve real-world github issues? arXiv preprint arXiv:2310.06770 , 2023. 1 [25] Wengong Jin, Kevin Yang, Regina Barzilay, and Tommi Jaakkola. Learning multimodal graph-to-graph translation for molecular optimization. arXiv preprint arXiv:1812.01070 , 2018. 2, 16 [26] Wengong Jin, Regina Barzilay, and Tommi Jaakkola. Hierarchical generation of molecular graphs using structural motifs. In International conference on machine learning , pages 4839– 4848. PMLR, 2020. 2, 16 [27] Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. Large language models are zero-shot reasoners. Advances in neural information processing systems ,35:22199–22213, 2022. 16 11 [28] Nathan Lambert, Jacob Morrison, Valentina Pyatkin, Shengyi Huang, Hamish Ivison, Faeze Brahman, Lester James V Miranda, Alisa Liu, Nouha Dziri, Shane Lyu, et al. Tulu 3: Pushing frontiers in open language model post-training. arXiv preprint arXiv:2411.15124 , 2024. 1, 2, 16 [29] Jiatong Li, Junxian Li, Yunqing Liu, Dongzhan Zhou, and Qing Li. Tomg-bench: Evaluating llms on text-based open molecule generation. arXiv preprint arXiv:2412.14642 , 2024. 2, 6, 16 [30] Jiatong Li, Yunqing Liu, Wenqi Fan, Xiao-Yong Wei, Hui Liu, Jiliang Tang, and Qing Li. Empowering molecule discovery for molecule-caption translation with large language models: A chatgpt perspective. IEEE transactions on knowledge and data engineering , 36(11):6071– 6083, 2024. 2, 16 [31] Xuan Li, Zhanke Zhou, Zongze Li, Jiangchao Yao, Yu Rong, Lu Zhang, and Bo Han. Reference-guided policy optimization for molecular optimization via llm reasoning. arXiv preprint arXiv:2603.05900 , 2026. 2 [32] Xuan Li, Zhanke Zhou, Zongze Li, Jiangchao Yao, Yu Rong, Lu Zhang, and Bo Han. Repo: Reference-guided policy optimization for molecular optimization via llm reasoning. In Interna-tional Conference on Learning Representations (ICLR) , 2026. 2, 4, 6, 7, 17 [33] Bill Yuchen Lin, Abhilasha Ravichander, Ximing Lu, Nouha Dziri, Melanie Sclar, Khyathi Chandu, Chandra Bhagavatula, and Yejin Choi. The unlocking spell on base llms: Rethinking alignment via in-context learning. arXiv preprint arXiv:2312.01552 , 2023. 2, 16 [34] Christopher Lipinski and Andrew Hopkins. Navigating chemical space for biology and medicine. 
+
+Nature , 432(7019):855–861, 2004. 2 [35] Xuefeng Liu, Takuma Yoneda, Rick L Stevens, Matthew R Walter, and Yuxin Chen. Blend-ing imitation and reinforcement learning for robust policy improvement. arXiv preprint arXiv:2310.01737 , 2023. 17 [36] Niklas Muennighoff, Zitong Yang, Weijia Shi, Xiang Lisa Li, Li Fei-Fei, Hannaneh Hajishirzi, Luke Zettlemoyer, Percy Liang, Emmanuel Candès, and Tatsunori B Hashimoto. s1: Simple test-time scaling. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 20286–20332, 2025. 1, 16 [37] Ashvin Nair, Bob McGrew, Marcin Andrychowicz, Wojciech Zaremba, and Pieter Abbeel. Overcoming exploration in reinforcement learning with demonstrations. In Proceedings of the IEEE International Conference on Robotics and Automation (ICRA) , pages 6292–6299, 2018. 2, 17 [38] R OpenAI. Gpt-4 technical report. arxiv 2303.08774. View in Article , 2(5):1, 2023. 1 [39] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. Training language models to follow instructions with human feedback. Advances in neural information processing systems ,35:27730–27744, 2022. 2 [40] Xue Bin Peng, Aviral Kumar, Grace Zhang, and Sergey Levine. Advantage-weighted regression: Simple and scalable off-policy reinforcement learning. arXiv preprint arXiv:1910.00177 , 2019. 2, 17 [41] Daniil Polykovskiy, Alexander Zhebrak, Benjamin Sanchez-Lengeling, Sergey Golovanov, Oktai Tatanov, Stanislav Belyaev, Rauf Kurbanov, Aleksey Artamonov, Vladimir Aladinskiy, Mark Veselov, et al. Molecular sets (moses): a benchmarking platform for molecular generation models. Frontiers in pharmacology , 11:565644, 2020. 2, 16 [42] Aravind Rajeswaran, Vikash Kumar, Abhishek Gupta, Giulia Vezzani, John Schulman, Emanuel Todorov, and Sergey Levine. Learning complex dexterous manipulation with deep reinforcement learning and demonstrations. arXiv preprint arXiv:1709.10087 , 2017. 2, 16 [43] Martin Riedmiller, Roland Hafner, Thomas Lampe, Michael Neunert, Jonas Degrave, Tom Wiele, Vlad Mnih, Nicolas Heess, and Jost Tobias Springenberg. Learning by playing solving sparse reward tasks from scratch. In International conference on machine learning , pages 4344–4353. PMLR, 2018. 2, 16 12 [44] Stéphane Ross, Geoffrey Gordon, and Drew Bagnell. A reduction of imitation learning and structured prediction to no-regret online learning. In Proceedings of the fourteenth international conference on artificial intelligence and statistics , pages 627–635, 2011. 17 [45] Benjamin Sanchez-Lengeling and Alán Aspuru-Guzik. Inverse molecular design using machine learning: Generative models for matter engineering. Science , 361(6400):360–365, 2018. 2 [46] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. 3 [47] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. 3, 16 [48] Avi Singh, John D Co-Reyes, Rishabh Agarwal, Ankesh Anand, Piyush Patil, Xavier Garcia, Peter J Liu, James Harrison, Jaehoon Lee, Kelvin Xu, et al. Beyond human data: Scaling self-training for problem-solving with language models. arXiv preprint arXiv:2312.06585 ,2023. 17 [49] Jonathan M Stokes, Kevin Yang, Kyle Swanson, Wengong Jin, Andres Cubillos-Ruiz, Nina M Donghia, Craig R MacNair, Shawn French, Lindsey A Carfrae, Zohar Bloom-Ackermann, et al. A deep learning approach to antibiotic discovery. Cell , 180(4):688–702, 2020. 1, 2, 16 [50] Rohan Taori, Ishaan Gulrajani, Tianyi Zhang, Yann Dubois, Xuechen Li, Carlos Guestrin, Percy Liang, and Tatsunori B Hashimoto. Stanford alpaca: An instruction-following llama model, 2023. 2 [51] Ross Taylor, Marcin Kardas, Guillem Cucurull, Thomas Scialom, Anthony Hartshorn, Elvis Saravia, Andrew Poulton, Viktor Kerkez, and Robert Stojnic. Galactica: A large language model for science. arXiv preprint arXiv:2211.09085 , 2022. 1, 16 [52] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. 
+
+Advances in neural information processing systems , 35:24824–24837, 2022. 1, 16 [53] David Weininger. Smiles, a chemical language and information system. 1. introduction to methodology and encoding rules. Journal of chemical information and computer sciences , 28 (1):31–36, 1988. 2, 3 [54] Longhui Yu, Weisen Jiang, Han Shi, Jincheng Yu, Zhengying Liu, Yu Zhang, James T Kwok, Zhenguo Li, Adrian Weller, and Weiyang Liu. Metamath: Bootstrap your own mathematical questions for large language models. arXiv preprint arXiv:2309.12284 , 2023. 16 [55] Weizhe Yuan, Richard Yuanzhe Pang, Kyunghyun Cho, Xian Li, Sainbayar Sukhbaatar, Jing Xu, and Jason Weston. Self-rewarding language models. arXiv preprint arXiv:2401.10020 ,2024. 17 [56] Eric Zelikman, Yuhuai Wu, Jesse Mu, and Noah Goodman. Star: Bootstrapping reasoning with reasoning. Advances in Neural Information Processing Systems , 35:15476–15488, 2022. 1, 16, 17 13 A Implementation and Reproducibility Details 
+
+This appendix provides implementation details omitted from the main algorithmic presentation, including the precise RL objective, rollout synchronization, memory bank semantics, canonicalization of guidance targets, and hyperparameter settings. 
+
+A.1 RL Objective and KL Regularization 
+
+The RL term in Active-GRPO follows the same GRPO-style objective used in our RePO baseline. For a minibatch of prompt groups, we compute group-relative advantages 
+
+bAi,j = ri,j − ¯ri
+
+σr,i + ε , ¯ri = 1
+
+G
+
+> G
+
+X
+
+> j=1
+
+ri,j ,
+
+and optimize 
+
+LRL = − 1
+
+P 
+
+> i,j,t
+
+mcmp 
+
+> i,j,t
+
+X
+
+> i,j,t
+
+h
+
+ρi,j,t bAi,j − βKL DKL 
+
+> i,j,t
+
+i
+
+mcmp  
+
+> i,j,t
+
+.
+
+Here ρi,j,t denotes the usual token-level policy ratio term used in GRPO-style updates, and DKL  
+
+> i,j,t
+
+is the KL regularizer to a frozen reference model πref .
+
+KL estimator. In our implementation, we use the same KL estimator as in the RePO/GRPO training stack used for all baselines and variants. This choice is held fixed across RePO and Active-GRPO so that all comparisons differ only in the adaptive guidance and active reference mechanisms. 
+
+A.2 Rollout Policy, Reference Model, and Synchronization 
+
+Rollouts are generated from a rollout policy corresponding to the current training policy at the beginning of each rollout phase. This rollout policy is kept fixed while computing rewards, advantages, and losses for the resulting minibatch, and is then refreshed for the next rollout phase after the model update. This is the standard lagged-policy setup used in policy optimization. The KL reference model πref is frozen throughout training. It is not periodically refreshed, and serves only as a stabilizing reference for KL regularization. All methods in our comparisons use the same reference-model treatment. In the actual implementation, rollout generation is performed through the same inference backend for RePO and Active-GRPO, with identical decoding settings except where explicitly varied in ablations. 
+
+A.3 Memory Bank Semantics and Persistence 
+
+For each training instance, Active-GRPO maintains a memory bank 
+
+B(ci) = {(mℓ, r ℓ)}|B (ci)| 
+
+> ℓ=1
+
+, |B (ci)| ≤ K. 
+
+The bank persists across training steps and across epochs: when the same training example reappears, the previously accumulated bank is reused rather than reinitialized. Algorithmically, this means Active-GRPO performs persistent best-so-far self-distillation rather than purely local within-step imitation. 
+
+Keying semantics. The memory bank is indexed by a deterministic identifier of the training instance. In our experiments, this effectively means one bank per example, rather than matching free-form instructions by textual similarity. This avoids ambiguity arising from paraphrased instructions and makes the active reference mechanism well-defined across repeated visits to the same example. 
+
+Promotion and eviction. A generated molecule bm is promoted when it exceeds the current reference reward by margin δ and satisfies the admissibility predicate Q( bm; ci). If the bank is already full, the lowest-reward entry is evicted. This yields a capacity-limited best-so-far memory bank for each example. 14 Age-based eviction. Unless otherwise stated, the main experiments use persistent capacity-based storage only: entries are removed only through reward-based eviction when the bank is full. 
+
+A.4 Guidance Targets, Canonicalization, and Answer Masking 
+
+The active guidance target for instance i is 
+
+m∗ 
+
+> i
+
+= arg max  
+
+> m∈{ mref ,i }∪B (ci)
+
+R(m; ci).
+
+All molecules inserted into the memory bank are canonicalized before storage, and the selected active target is canonicalized again before constructing the teacher-forced answer sequence. This ensures that the guidance loss is applied to a deterministic SMILES representation for each promoted molecule. Answer-level supervision is implemented by masking only the token span corresponding to the final answer molecule: 
+
+L(i)guide (m) = −
+
+P 
+
+> t
+
+log πθ (mt | xi, m <t ) mans 
+
+> i,t
+
+P 
+
+> t
+
+mans  
+
+> i,t
+
++ ε .
+
+Thus, the reasoning trace is preserved as model-generated context, while supervision is applied only to the answer molecule itself. 
+
+A.5 Task-Specific Admissibility Predicate Q( bm; c)
+
+The admissibility predicate Q( bm; c) is separated from the scalar reward for conceptual and practical reasons. The reward R( bm; c) ranks candidates among admissible outputs, whereas Q( bm; c) enforces task-specific hard constraints that define whether a candidate is eligible for promotion into the memory bank. In the molecule editing experiments, Q( bm; c) is instantiated as a hard minimum-similarity constraint to the input molecule, computed using Tanimoto similarity between Morgan fingerprints. The purpose of this separation is to prevent structurally invalid or semantically off-task candidates from entering the bank merely because they achieve a high scalar reward under one component of R. In other task settings, Q( bm; c) may instead encode scaffold preservation, substructure constraints, synthesizability filters, or other admissibility conditions. 
+
+A.6 Adaptive Guidance Regimes 
+
+The adaptive guidance coefficient is 
+
+βguide (ci) = βmin + ( βmax − βmin ) σ −α vtop (ci) − vref (zi) .
+
+The value of βmin determines the asymptotic behavior of the algorithm. If βmin = 0 , then once the policy reliably outperforms the current reference, the algorithm transitions to pure RL in the limit. If βmin > 0, then Active-GRPO retains a residual self-distillation signal toward the current best-so-far target, even in late training. We keep this parameter fixed within each experiment and report its value in the hyperparameter table below. 
+
+A.7 Sampling and Training Hyperparameters 
+
+Unless otherwise noted, all methods compared in the main text share the same backbone model, optimizer, rollout budget, reward function, and initialization. Active-GRPO differs from RePO only in the addition of the adaptive guidance coefficient and the active reference update mechanism. The main hyperparameters introduced by Active-GRPO are: • k: number of top samples used in vtop (c);• α: sharpness of the sigmoid switching rule; • βmin , β max : lower and upper bounds for the guidance coefficient; • δ: promotion margin over the current reference reward; • K: memory-bank capacity per training instance. For reproducibility, we report the exact values used in the main experiments in Table 3. 15 Table 3: Main hyperparameters used in the matched Active-GRPO experiments.                          
+
+> Hyperparameter Value
+> Shared sampling/training parameters
+> Number of sampled outputs G3KL coefficient βKL 0.04 Sampling temperature (base / high) 0.9 / 1.3 Maximum completion length 1024
+> Active-GRPO-specific parameters
+> Top-ksize for vtop k=⌈0.33 G⌉= 1
+> Guidance lower bound βmin 0.3 Guidance upper bound βmax 1.5 Sigmoid sharpness α3.0 Promotion margin δ0.05 Memory-bank capacity K5Similarity threshold in Q0.2
+
+A.8 Training Algorithm 
+
+## B Related Work 
+
+LLM Reasoning via SFT and Reinforcement Learning. Eliciting structured, multi-step reasoning from large language models has become a central research thread. Early work showed that simple prompting strategies such as chain-of-thought [ 52 , 27 ] can substantially improve performance on tasks requiring deliberation. Building on this, supervised fine-tuning on curated reasoning traces [ 56 , 54 , 36 ] further internalizes step-by-step problem solving, while reinforcement learning with verifiable rewards (RLVR)—using programmatic checkers as the reward signal—has driven recent advances in mathematical and code reasoning [ 19 , 28 , 47 ]. Group Relative Policy Optimization (GRPO) [ 47 ] has in particular become a default RLVR algorithm, replacing PPO’s value network with group-relative advantage estimation. However, both paradigms exhibit characteristic failure modes that motivate our work: answer-only SFT can suppress intermediate reasoning and harm generalization [ 10 , 33 ], while RLVR struggles with sparse feedback in domains where most samples fail verification gates [ 2, 43 ]—a pathology that is especially acute in instruction-based molecular optimization, where tight similarity and validity constraints make zero-reward batches the norm rather than the exception. Active-GRPO inherits the RLVR formulation but addresses the sparse-reward pathology through reference guidance that adapts on a per-instance basis to the policy’s current capability. 
+
+LLMs for Scientific Discovery and Molecular Optimization. A growing body of work applies LLMs to scientific reasoning, ranging from domain-specialized pretraining [ 51 ] and surveys of LLM-driven discovery [ 1] to autonomous experimental agents in chemistry [ 7] and drug discovery [ 49 ]. Within this landscape, instruction-based molecular optimization has emerged as a uniquely demanding testbed: given a source molecule and a natural-language instruction, the model must propose a structurally similar yet property-improved candidate [ 25 , 26 , 14 , 30 ]. The TOMG-Bench suite [ 29 ] formalized this task across editing, optimization, and customized-generation subtasks, and subsequent work has explored prompting [ 30 ], surrogate-model integration, and tool-augmented agents. A separate line of research evaluates molecular generation against multi-property oracles using benchmarks such as GuacaMol [ 8], MOSES [ 41 ], the Therapeutics Data Commons [ 22 ], and PMO [ 15 ]. Unlike these oracle-driven settings, our work targets the instruction-conditional regime in which reference molecules are provided alongside the instruction, similarity constraints are tight, and the central challenge is leveraging —rather than simply imitating—the supplied references. This regime is precisely where the static-reference ceiling we identify becomes consequential: a fixed reference is simultaneously the most natural form of guidance and the most direct source of brittleness when its quality varies across instances. 
+
+Reference-Guided and Demonstration-Augmented Policy Optimization. Anchoring reinforce-ment learning to expert demonstrations has a long history. Behavior cloning provides a pure im-itation baseline, while methods that combine demonstrations with RL—DAPG [ 42 ], DQfD [ 21 ], 16 Algorithm 1 Active-GRPO Training 
+
+Require: Dataset D = {(ci, m ref ,i )}Ni=1 , system prompt psys , policy πθ , frozen reference model 
+
+πref  
+
+> 1:
+
+for each training step do  
+
+> 2:
+
+Sample minibatch {(ci, m ref ,i )}Bi=1 from D 
+
+> 3:
+
+for i = 1 , . . . , B do  
+
+> 4:
+
+If B(ci) is uninitialized, set B(ci) ← { (mref ,i , v ref (zi)) } 
+
+> 5:
+
+Construct prompt xi ← [psys ; ci] 
+
+> 6:
+
+Sample G outputs {oi,j }Gj=1 ∼ πθ (· | xi) 
+
+> 7:
+
+Extract candidate molecules { bmi,j }Gj=1  
+
+> 8:
+
+Compute rewards ri,j ← R( bmi,j ; ci) 
+
+> 9:
+
+Compute group-relative advantages bAi,j  
+
+> 10:
+
+Compute vtop (ci) from the top-k rewards  
+
+> 11:
+
+Compute 
+
+βguide (ci) ← βmin + ( βmax − βmin )σ −α vtop (ci) − vref (zi)  
+
+> 12:
+
+for j = 1 , . . . , G do  
+
+> 13:
+
+if Promote( bmi,j | ci) = 1 then  
+
+> 14:
+
+Insert (canon( bmi,j ), r i,j ) into B(ci), evicting the lowest-reward entry if necessary  
+
+> 15:
+
+end if  
+
+> 16:
+
+end for  
+
+> 17:
+
+Set m∗ 
+
+> i
+
+to the molecule with highest stored reward in B(ci) 
+
+> 18:
+
+Compute answer mask mans  
+
+> i,t
+
+and guidance loss L(i)guide (m∗ 
+
+> i
+
+) 
+
+> 19:
+
+end for  
+
+> 20:
+
+Compute minibatch RL loss LRL  
+
+> 21:
+
+Compute total loss 
+
+LActive −GRP O ← L RL + 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+βguide (ci) L(i)guide (m∗ 
+
+> i
+
+) 
+
+> 22:
+
+Update θ by gradient descent on LActive −GRP O  
+
+> 23:
+
+end for 
+
+demonstration-augmented PPO [ 37 ], and advantage-weighted regression [ 40 ]—use demonstrations to densify reward signal and stabilize exploration in sparse-reward settings, while DAgger [ 44 ] addresses distribution shift in pure imitation. In the LLM setting, Reference-guided Policy Optimization (RePO) [32 ]—our most direct prior work—adapts the demonstration-augmented RL idea to instruction-based molecular optimization by combining a GRPO-style RL term with a reference-guidance term that fixes the reasoning trajectory and supervises only the final answer. A common assumption underlies all of these methods: demonstrations are treated as fixed targets , with the policy implicitly assumed never to surpass them. This assumption is the source of the static-reference ceiling we characterize in this paper: when references are weak, noisy, or misaligned with the instruction [ 16 , 5 ], the imitation signal actively pulls the policy away from better solutions it would otherwise discover. The closest conceptual precedent for our approach is robust policy improvement [ 35 ], which adaptively blends imitation and RL based on online relative performance against a fixed oracle. Active-GRPO departs from this entire family in two key respects, both motivated by our active-reasoning paradigm: it makes the choice of when to imitate per-instance and policy-conditional, and—uniquely—it makes 
+
+what to imitate adaptive by replacing the reference itself once the policy surpasses it. 
+
+Self-Improvement and Iterative Refinement in LLMs. A complementary line of work trains LLMs to improve themselves by generating, filtering, and re-training on their own outputs. Expert Iteration [ 3] formalized this loop in the RL-with-tree-search setting; STaR [ 56 ] adapted it to reasoning by bootstrapping on self-generated rationales filtered by answer correctness. Reinforced Self-Training (ReST) [ 18 ] and ReST-EM [ 48 ] alternate between sampling, reward-based filtering, and supervised fine-tuning on filtered outputs. RAFT [ 13 ] similarly fine-tunes on top-ranked samples under a reward model, and Self-Rewarding Language Models [ 55 ] let the model serve as its own reward source. 17 Table 4: Full per-metric results on TOMG-Bench M OL OPT . Trained methods are reported as mean 
+
+± standard error over three seeds; zero-shot is evaluated once. Method LogP SR ↑ LogP Sim ↑ MR SR ↑ MR Sim ↑ QED SR ↑ QED Sim ↑                                                                                                
+
+> Zero-shot 0.2308 0.7368 0.1666 0.7885 0.1396 0.7980 GRPO-only 0.1405 ±0.0150 0.8728 ±0.0149 0.1069 ±0.0163 0.8974 ±0.0152 0.0779 ±0.0079 0.8997 ±0.0143 Iterative SFT 0.2509 ±0.0318 0.7493 ±0.0127 0.2114 ±0.0244 0.8213 ±0.0030 0.1539 ±0.0130 0.8158 ±0.0090 Offline-strengthened RePO 0.2526 ±0.0018 0.7814 ±0.0291 0.2206 ±0.0072 0.8412 ±0.0250 0.1336 ±0.0172 0.8524 ±0.0268 RePO 0.2368 ±0.0096 0.7925 ±0.0023 0.2181 ±0.0120 0.8534 ±0.0058 0.1501 ±0.0044 0.8383 ±0.0030
+> Active-GRPO 0.2613 ±0.0139 0.7565 ±0.0126 0.2314 ±0.0098 0.8221 ±0.0104 0.1820 ±0.0134 0.7932 ±0.0184
+
+These methods share a key insight: the policy’s own best outputs can serve as a stronger training target than fixed external data, provided the filtering signal is reliable. Active-GRPO builds on this insight but contributes a distinct mechanism that bridges this line of work with the reference-guided one above. Rather than discarding external references in favor of self-generated ones—or preserving 
+
+them as fixed targets—Active-GRPO integrates the two through an explicit per-instance comparison: when the dataset reference still outperforms the policy’s own samples, it imitates the reference; when its samples surpass the reference, it self-improves and promotes its own discovery into the imitation target. This is the operational form of our active-reasoning paradigm: the policy actively decides 
+
+when to imitate versus reinforce, and continuously upgrades what it imitates. To our knowledge, Active-GRPO is the first method to apply adaptive, policy-conditional reference replacement to instruction-based molecular optimization, where tight similarity constraints and competing property objectives make the choice between imitation and self-improvement particularly consequential. 
+
+## C Additional Experimental Details 
+
+This appendix provides additional experimental details and extended results for Section 4. We include the full per-metric breakdown, statistical tests, headroom-conditioned analyses for all M OL OPT 
+
+subtasks, computational overhead, qualitative case studies, hyperparameter sensitivity, hard-example stress tests, and longer-horizon single-seed evaluations. 
+
+C.1 Full Per-Metric Results on TOMG-Bench MolOpt 
+
+Table 4 reports the full per-metric breakdown for the main TOMG-Bench M OL OPT results. The main text emphasizes SR ×Sim as the standard composite metric, while this table separates the success and similarity terms to expose the optimization–preservation trade-off. Table 4 shows that Active-GRPO’s gain comes primarily from higher success rates. RePO and GRPO-only often preserve higher similarity, but this similarity can reflect conservative or no-op behavior rather than successful optimization. This motivates the qualitative analysis in Section 4.6. 
+
+C.2 Statistical Significance 
+
+We assess statistical significance using a paired bootstrap over per-example SR ×Sim differences. For each method and subtask, we compute SR ×Sim for every evaluation example in each seed, pool the matched per-example observations across the three seeds, and bootstrap paired indices with 10,000 resamples. For each resample, we compute the mean difference between Active-GRPO and the comparison method. The reported one-sided p-value is the fraction of bootstrap resamples for which this mean difference is non-positive. Table 5 reports the resulting SR ×Sim differences and p-values. 
+
+C.3 Headroom-Conditional Analysis on All Subtasks 
+
+In Section 4.4, we report the headroom-conditioned analysis in the main text, with the LogP break-down shown alongside the curve. Here we provide the complete protocol and the corresponding extended analysis for all three M OL OPT subtasks. Tables 6, 7, and 8 report the per-bin results for LogP, MR, and QED, respectively. For each test example, we compute an optimization-headroom score from the source molecule’s original property value. For decrease-LogP and decrease-MR tasks, larger original LogP/MR values indicate more room for improvement. For increase-QED, we define headroom as 1 − QED . We 18 Table 5: Paired-bootstrap significance tests for SR ×Sim. Differences are Active-GRPO minus the comparison method. Bootstrap resampling is performed over matched per-example observations pooled across the three seeds. Comparison LogP ∆ LogP p MR ∆ MR p QED ∆ QED p                                                       
+
+> Active-GRPO vs RePO +0.0148 <0.001 +0.0090 <0.001 +0.0206 <0.001
+> Active-GRPO vs Offline-strengthened RePO +0.0115 <0.001 +0.0126 <0.001 +0.0357 <0.001
+> Active-GRPO vs Iterative SFT +0.0105 <0.001 +0.0168 <0.001 +0.0204 <0.001
+> Active-GRPO vs GRPO-only +0.0895 <0.001 +0.0953 <0.001 +0.0792 <0.001
+> Active-GRPO vs β-only +0.0169 <0.001 +0.0142 <0.001 +0.0235 <0.001
+> Active-GRPO vs bank-only +0.0113 <0.001 +0.0134 <0.001 +0.0188 <0.001
+
+Table 6: Headroom-conditioned analysis on LogP. The Active-GRPO–RePO gap increases with optimization headroom. Quintile Gap range ∆ SR APIAR SR ×Sim RePO SR ×Sim ∆ SR ×Sim Q1 (−3.91 , 1.30] +0.007 0.168 0.167 +0.002 Q2 (1 .30 , 2.25] +0.014 0.173 0.160 +0.007 Q3 (2 .25 , 2.94] +0.024 0.175 0.159 +0.013 Q4 (2 .94 , 3.63] +0.032 0.183 0.161 +0.022 Q5 (3 .63 , 7.36] +0.045 0.189 0.157 +0.031 then partition test examples into quintiles and report the Active-GRPO–RePO gap within each bin. These bins measure optimization headroom rather than an independent reference-quality gap; in this benchmark, the source molecule is the static anchor against which optimization is requested. Because the test split does not provide a separate gold reference molecule for each example, we do not construct a separate reference-quality stratification; source-property headroom is the relevant task-level proxy for how informative the static source-reference is for the requested edit. 
+
+C.4 Computational Overhead 
+
+Table 9 reports matched wall-clock measurements for RePO and Active-GRPO. Both methods use the same model architecture and rollout setup; the additional computations in Active-GRPO, including dynamic guidance weighting and memory-bank operations, are lightweight relative to online generation and model optimization. 
+
+C.5 Qualitative Case Studies 
+
+Figure 5 shows representative examples where Active-GRPO succeeds and RePO fails across LogP, MR, and QED tasks. Each row contains the source molecule, the RePO output, and the Active-GRPO output, together with similarity and property-change annotations. 
+
+No-op failure analysis. To quantify the copy-like failure mode observed in the qualitative examples, we measure the no-op failure rate: 
+
+NoOpFail = 1{Sim( bm, m src ) ≥ 0.98 ∧ Success = 0 }.
+
+Figure 6 reports this rate by method and subtask. Across M OL OPT subtasks, Active-GRPO reduces no-op failures relative to RePO, supporting the qualitative observation that active imitation and RL with active referencing encourages more effective edits rather than simply preserving the source molecule. 
+
+Visible reasoning traces. We further inspect visible rationales emitted before the final SMILES answer. These are model-generated text outputs, not hidden chain-of-thought. The examples below show a recurring pattern: RePO often states a plausible chemical strategy, but the final extracted SMILES is unchanged, invalid, or inconsistent with the stated objective. In contrast, Active-GRPO more often converts the stated optimization direction into a valid targeted edit. 19 Table 7: Headroom-conditioned analysis on MR. We bucket test examples by the original MR value of the source molecule; larger values indicate more room for improvement under the decrease-MR objective. Quintile Gap range ∆ SR APIAR SR ×Sim RePO SR ×Sim ∆ SR ×Sim Q1 (19 .97 , 74 .51] +0.013 0.137 0.129 +0.008 Q2 (74 .51 , 84 .89] +0.003 0.152 0.149 +0.003 Q3 (84 .89 , 93 .59] +0.014 0.158 0.148 +0.010 Q4 (93 .59 , 102 .92] +0.014 0.164 0.156 +0.008 Q5 (102 .92 , 142 .84] +0.022 0.176 0.161 +0.015 Table 8: Headroom-conditioned analysis on QED. We bucket test examples by 1 − QED of the source molecule; larger values indicate more room for improvement under the increase-QED objective. Quintile Gap range ∆ SR APIAR SR ×Sim RePO SR ×Sim ∆ SR ×Sim Q1 (0 .05 , 0.15] +0.041 0.129 0.102 +0.027 Q2 (0 .15 , 0.20] +0.016 0.118 0.109 +0.009 Q3 (0 .20 , 0.27] +0.035 0.129 0.107 +0.022 Q4 (0 .27 , 0.38] +0.020 0.113 0.102 +0.012 Q5 (0 .38 , 0.82] +0.047 0.130 0.096 +0.034 
+
+Example 1: Increasing LogP via hydrophobic substitution 
+
+Instruction. Optimize FC(F)(F)c1cccc(Nc2scc(-c3ccc(Cl)cc3)[n+]2CCc2ccccc2)c1 to have a higher LogP value. 
+
+Active-GRPO RePO 
+
+Output FC(Cl)(Cl)c1cccc(...)c1 FC(F)(F)c1cccc(...C(=O)[OH]... )c1 
+
+Eval. Success, sim = 0 .873 Failure, sim = 0 .780 
+
+Visible rationale “replace the fluorine atoms with chlo-rine atoms” to increase hydrophobicity states that a larger hydrophobic sub-stituent should be introduced, but re-turns a carboxylic-acid-containing edit 
+
+Interpretation. Active-GRPO’s rationale and edit are directionally aligned with the target property. RePO identifies the need for higher hydrophobicity, but the generated molecule introduces a polar acid group and fails the objective. 
+
+Example 2: Decreasing LogP by adding polarity 
+
+Instruction. Modify N#Cc1cc(F)ccc1NC(=O)c1ccnc(OCC(F)F)c1 to decrease its LogP value. 
+
+Active-GRPO RePO 
+
+Output N#Cc1cc(F)ccc1NC(=O)c1ccnc(OC C(F)O)c1 \(N#Cc1cc(F)ccc1NC(=O)c1ccnc( OCC(F)F)c1\) 
+
+Eval. Success, sim = 0 .865 Invalid, sim = 0 .000 
+
+Visible rationale introduces a hydroxyl group to increase hydrophilicity and reduce LogP describes removing/replacing fluorine atoms, but the final extracted answer re-tains formatting delimiters and is invalid 
+
+Interpretation. Active-GRPO maps the property direction to a valid polar substitution. RePO’s rationale is broadly plausible, but the final answer is not a valid molecule. 
+
+Example 3: Decreasing MR by simplifying a ring system 
+
+Instruction. Modify CCN(CC)S(=O)(=O)c1ccc(OC)c(C(=O)N2CCC3(CCCCC3)CC2)c1 to decrease its MR value. 
+
+20 Table 9: Wall-clock comparison between RePO and Active-GRPO. Timing is measured over matched 30-step runs on 4 ×A100-SXM4-40GB with DeepSpeed ZeRO-3.                    
+
+> Method Total time Sec./step Samples/sec. Overhead RePO 4720.8s 157.4 0.61 baseline Active-GRPO 4657.5s 155.3 0.62 −1.3%
+> Active-GRPO RePO
+> Output CCN(CC)S(=O)(=O)c1ccc(OC)c(C( =O)N2CCC3(CCC3)CC2)c1 CCN(CC)S(=O)(=O)c1ccc(OC)c(C( =O)N2CCC3(CCCCC3)CC2)c1
+> Eval. Success, sim = 0 .940 Failure, sim = 1 .000
+> Visible rationale reduces the bulky fused ring component to lower MR states that the ring should be simplified, but returns the original molecule
+> Interpretation. This example illustrates a no-op failure. RePO’s natural-language strategy is reasonable, but the final SMILES is unchanged. Active-GRPO makes a conservative structural simplification that satisfies the target.
+
+Example 4: Lowering QED while avoiding a no-op           
+
+> Instruction. Optimize CCc1nc2ccc(C(=O)N(C)[C@@H](C)c3nc4ccccc4s3)cc2nc1CC to have a lower QED value.
+> Active-GRPO RePO
+> Output CCc1nc2ccc(C(=O)N(C)[C@@H](C) c3nc4ccccc4s3)cc2nc1CCS CCc1nc2ccc(C(=O)N(C)[C@@H](C) c3nc4ccccc4s3)cc2nc1CC
+> Eval. Success, sim = 0 .889 Failure, sim = 1 .000
+> Visible rationale proposes a sulfur-containing modifica-tion and returns a non-trivial edit describes simplifying the molecule, but returns the original SMILES
+> Interpretation. Active-GRPO preserves high similarity while changing the molecule enough to alter the property. RePO again produces a no-op despite describing an intended edit.
+
+Overall, these examples suggest that Active-GRPO improves not merely by changing output distribu-tions, but by making the final molecular action more consistent with the model’s stated property-level reasoning. This qualitative pattern matches the quantitative no-op analysis: RePO more frequently emits unchanged or invalid molecules on examples where a small targeted edit is required. 
+
+C.6 Hyperparameter Sensitivity 
+
+We evaluate the sensitivity of Active-GRPO to three key hyperparameters: the sigmoid sharpness α,the memory-bank capacity K, and the promotion margin δ. We use MolOpt-LogP as the test bed and vary one parameter at a time while holding the others at their default values: α = 3 .0, K = 5 , and 
+
+δ = 0 .05 . Table 10 reports the single-seed sweep results. The sweep suggests that Active-GRPO is not highly sensitive to a single carefully tuned hyperparam-eter. Across all configurations, SR ×Sim remains in the range 0.1731–0.2030. The default setting is near the top of the sweep, while several nearby settings, especially alternative promotion margins, match or slightly exceed the default. The lowest score occurs at K = 3 , but even this setting remains close to the main RePO baseline, indicating that the method is reasonably robust across plausible hyperparameter choices. 
+
+C.7 Hard-Example Stress Test 
+
+We further evaluate RePO and Active-GRPO on a hard-example subset derived from ZINC, containing molecules whose initial properties leave substantially larger room for optimization. Table 11 reports results on this subset. This stress test probes whether active imitation and RL with active referencing remains beneficial when successful edits are rarer and the optimization problem is more difficult. On this hard subset, both methods become more conservative: success rates are substantially lower than on the standard M OL OPT split, while similarities remain high. Nevertheless, Active-GRPO 21 Table 10: Hyperparameter sensitivity on MolOpt-LogP. We vary one parameter at a time around the default setting α = 3 .0, K = 5 , δ = 0 .05 .                                                         
+
+> Configuration SR ↑Sim ↑SR ×Sim ↑
+> α= 1 .00.2350 0.7911 0.1859
+> α= 3 .0(default) 0.2613 0.7565 0.1977
+> α= 5 .00.2390 0.8004 0.1913
+> α= 10 .00.2476 0.7851 0.1944
+> K= 1 0.2336 0.8207 0.1917
+> K= 3 0.2112 0.8194 0.1731
+> K= 5 (default) 0.2613 0.7565 0.1977
+> K= 10 0.2372 0.7974 0.1891
+> δ= 0 .01 0.2522 0.8050 0.2030
+> δ= 0 .05 (default) 0.2613 0.7565 0.1977
+> δ= 0 .10 0.2244 0.8198 0.1840
+> δ= 0 .20 0.2534 0.8012 0.2030
+
+Table 11: Hard-example stress test on a ZINC-derived difficult subset. Results are mean ± standard error over three seeds. Subtask Method SR ↑ Sim ↑ SR ×Sim ↑
+
+LogP RePO 0.1011 ± 0.0097 0.9207 ± 0.0037 0.0930 ± 0.0085 LogP Active-GRPO 0.1204 ± 0.0134 0.8859 ± 0.0242 0.1061 ± 0.0089 
+
+MR RePO 0.0757 ± 0.0091 0.9479 ± 0.0061 0.0716 ± 0.0081 MR Active-GRPO 0.0807 ± 0.0115 0.9257 ± 0.0209 0.0742 ± 0.0089 
+
+QED RePO 0.0468 ± 0.0069 0.9538 ± 0.0058 0.0446 ± 0.0063 QED Active-GRPO 0.0545 ± 0.0142 0.9299 ± 0.0329 0.0504 ± 0.0113 
+
+improves SR and SR ×Sim over RePO on all three subtasks, suggesting that adaptive guidance remains useful when the optimization problem is more difficult. 
+
+C.8 Longer-Horizon Single-Seed Evaluation 
+
+We additionally evaluate RePO and Active-GRPO in a longer-horizon single-seed setting using Qwen2.5-3B-Instruct on A100-80GB GPUs. We train for 4 epochs on OpenMolIns-light, with 1500 training examples per task group, and evaluate on TOMG-Bench using Success Rate (SR), Similarity (Sim), and SR ×Sim. Table 12 reports the complete results. To evaluate transfer across related objectives, we train one shared policy for the property-based objectives (LogP, MR, and QED) and one shared policy for the structure-based objectives (AddComponent, DelComponent, and SubComponent), rather than training a separate policy for each objective. We report this evaluation as complementary evidence to the main multi-seed comparison. The longer-horizon evaluation also reveals a limitation: under the shared property-policy setting, Active-GRPO underperforms RePO on QED in SR ×Sim. Since LogP, MR, and QED are optimized by a single shared policy in this experiment, per-objective trade-offs may differ from those obtained under separate per-property training. At the same time, Active-GRPO achieves the best average SR ×Sim across the three property objectives in this longer-horizon setting. Because this evaluation is single-seed, we use it as complementary evidence about transfer across related objectives, while relying on the main multi-seed M OL OPT comparison for the primary statistical claim. 
+
+C.9 Matched MolEdit Structural Optimization 
+
+We further evaluate RePO and Active-GRPO on TOMG-Bench M OL EDIT , which tests structure-based molecular editing through AddComponent, DelComponent, and SubComponent objectives. Both methods are trained under the same matched 4 ×A100-40GB configuration for three seeds, 22 Table 12: Longer-horizon single-seed evaluation on TOMG-Bench. We train one shared policy for structure-based objectives and one shared policy for property-based objectives. We report Success Rate (SR), Similarity (Sim), and SR ×Sim; higher is better. 
+
+Task type Objective Metric Zero-shot RePO Active-GRPO Structure-based optimization AddComponent SR 0.123 0.408 0.458 
+
+Sim 0.573 0.722 0.718 SR ×Sim 0.071 0.295 0.329 
+
+DelComponent SR 0.250 0.339 0.389 
+
+Sim 0.601 0.752 0.754 
+
+SR ×Sim 0.150 0.255 0.293 
+
+SubComponent SR 0.151 0.502 0.600 
+
+Sim 0.657 0.752 0.760 
+
+SR ×Sim 0.099 0.377 0.456 
+
+Avg SR ×Sim 0.107 0.309 0.359 
+
+Property-based optimization LogP SR 0.309 0.443 0.669 
+
+Sim 0.628 0.711 0.609 SR ×Sim 0.194 0.315 0.408 
+
+MR SR 0.249 0.505 0.574 
+
+Sim 0.630 0.709 0.600 SR ×Sim 0.157 0.358 0.345 QED SR 0.222 0.348 0.330 Sim 0.613 0.722 0.635 SR ×Sim 0.136 0.251 0.210 Avg SR ×Sim 0.162 0.308 0.321 
+
+Table 13: Matched 3-seed M OL EDIT structural-optimization results. We train one shared structure-editing policy over AddComponent, DelComponent, and SubComponent, and report mean ± standard error over three seeds. 
+
+Subtask Method SR ↑ Sim ↑ SR ×Sim ↑
+
+AddComponent RePO 0.2003 ± 0.0176 0.7579 ± 0.0054 0.1517 ± 0.0125 Active-GRPO 0.2282 ± 0.0104 0.7515 ± 0.0128 0.1716 ± 0.0098 
+
+DelComponent RePO 0.1393 ± 0.0064 0.8661 ± 0.0106 0.1205 ± 0.0041 
+
+Active-GRPO 0.1142 ± 0.0184 0.8927 ± 0.0219 0.1012 ± 0.0137 SubComponent RePO 0.3067 ± 0.0046 0.7901 ± 0.0027 0.2423 ± 0.0042 Active-GRPO 0.3245 ± 0.0151 0.8056 ± 0.0102 0.2615 ± 0.0139 
+
+Avg RePO 0.2154 0.8047 0.1715 Avg Active-GRPO 0.2223 0.8166 0.1781 
+
+using the same backbone, rollout budget, reward functions, decoding setup, and evaluation pipeline. We train one shared structure-editing policy over the three M OL EDIT objectives and evaluate each subtask separately. Table 13 reports the full SR, Sim, and SR ×Sim breakdown. 23 Figure 5: Qualitative case studies across LogP, MR, and QED. Active-GRPO makes targeted structural edits that satisfy the requested property objective while preserving much of the input structure. RePO often either copies the source molecule, yielding high similarity but no property improvement, or produces an invalid or wrong-direction edit. 24 LogP MR QED 
+
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> No-op failure rate
+
+No-op failures by method and subtask 
+
+> RePO
+> APIAR
+
+Figure 6: No-op failure rate by method and subtask. A no-op failure is defined as an output with high similarity to the source molecule, Sim( bm, m src ) ≥ 0.98 , that nevertheless fails the requested property objective. Lower is better. 25

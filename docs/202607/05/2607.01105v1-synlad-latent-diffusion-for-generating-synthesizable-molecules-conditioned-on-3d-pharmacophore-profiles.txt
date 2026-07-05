@@ -1,0 +1,814 @@
+Title: SynLaD: Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles
+
+URL Source: https://arxiv.org/pdf/2607.01105v1
+
+Published Time: Thu, 02 Jul 2026 01:27:38 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# SynLaD: Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+Miruna Cretu 1 2 * John Bradshaw 2 Patricia Suriana 2 Saeed Saremi 2 Omar Mahmood 2 Kirill Shmilovich 2
+
+Kangway Chuang 2 Vishnu Sresht 2 Colin Grambow 2
+
+## Abstract 
+
+We present SynLaD, a latent diffusion frame-work for small-molecule generation that unifies ligand-based drug design objectives (what to make) with synthetic accessibility (how to make it). Current models typically optimize one objec-tive at the expense of the other, creating a bot-tleneck for discovering high-scoring and synthe-sizable molecules. SynLaD combines reaction-constrained generation with pharmacophore-conditioned 3D design by learning a latent space that decodes to both 3D structures and synthesis pathways. An encoder maps molecules to a latent representation used by two decoder heads: (i) a geometric head that reconstructs atom types and coordinates and (ii) an autoregressive synthesis head that outputs synthetic routes in a serialized, reaction-based notation. A diffusion transformer generates novel latents in the learned space, con-ditioned on pharmacophore profiles. Across ana-logue generation tasks for bioactive ligands, Syn-LaD outperforms existing baselines in synthesiz-able and diverse hit generation, demonstrating that a single model can produce shape-aligned molecules with feasible synthesis plans. 
+
+## 1. Introduction 
+
+Ligand-based drug design (LBDD) uses known bioactive compounds to guide the design of new molecules with sim-ilar three-dimensional (3D) shapes and physicochemical properties (Acharya et al., 2011). In contrast to structure-based drug design (SBDD), which relies on accurate protein 
+
+> *
+
+Work done during an internship at Prescient Design. 
+
+> 1
+
+University of Cambridge, Cambridge, UK 2Prescient Design (AI for Drug Discovery), Genentech, South San Francisco, USA. Correspondence to: Miruna Cretu <mtc49@cam.ac.uk>, John Bradshaw <bradshaw.john@gene.com>, Colin Grambow <gram-bow.colin@gene.com>. 
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 
+
+structures and is often more computationally demanding, LBDD remains effective when target structures are unavail-able and is therefore widely used for hit discovery and hit diversification (Grebner et al., 2020). Central to LBDD is the pharmacophore, which specifies the spatial arrangement of interaction features—such as hydrogen bond donors or ac-ceptors, charged groups, and aromatic centers—responsible for protein-ligand complementarity. A common LBDD strategy extracts pharmacophores from known ligands and uses them in virtual screening to identify molecules with similar shapes and features (Goodnow & Gillespie, 2007). Methods such as ROCS follow this ap-proach and have shown competitive or better performance than structure-based methods (OpenEye Scientific Software, 2025; Hawkins et al., 2007; Sheridan et al., 2008). However, the rapid expansion of accessible chemical space (Kuan et al., 2023) renders exhaustive screening increasingly com-putationally prohibitive. Generative modeling has emerged as a promising alternative to brute-force search, allowing for faster inference times and the proposing of molecules outside of predefined spaces. Conditional generative models for 3D small molecule design span a range of families, from autoregressive (Peng et al., 2022) to diffusion (Luo et al., 2021; Schneuing et al., 2024; Guan et al., 2023; Cremer et al., 2024), flow matching (Schneuing et al., 2025; Cre-mer et al., 2025), and variational autoencoders (Zhu et al., 2023). While performing well at capturing distributions of desired molecular motifs, these models often produce synthetically inaccessible molecules (Gao & Coley, 2020; Stanley & Segler, 2023). Synthesis-aware generative methods for designing new molecules have typically either treated synthesizability as an additional property to optimize (Liu et al., 2022; Guo & Schwaller, 2025; Gómez-Bombarelli et al., 2018) or enforced it by generating molecules via synthetic path-ways/reactions rather than as unconstrained molecular graphs (Hartenfeller et al., 2012; Vinkers et al., 2003; Hor-wood & Noutahi, 2020; Bradshaw et al., 2019b; Gao et al., 2022; Swanson et al., 2024; Cretu et al., 2025). However, these approaches are not conditioned on three-dimensional chemical features, which are critical for protein-ligand bind-1
+
+> arXiv:2607.01105v1 [cs.LG] 1 Jul 2026
+
+SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles ① multi-headed autoencoder trained to map to/from continuous latent space   
+
+> 3D
+> Decoder
+> x
+> y
+> zOH
+> OOH O
+> O
+> OO
+> O
+> OOH
+> Synthesis
+> Decoder
+
+Encoder Multi-Headed 
+
+Decoder 
+
+Diffusion 
+
+Module 
+
+Z
+
+> Conditional
+> Diffusion
+> Transformer
+> pharmacophore
+> x
+> y
+> z
+
+② diffusion module trained to learn relevant latent space 
+
+> +
+> Z(0)
+
+Z(1) 
+
+> 3D Molecular
+> Representation
+> x
+> y
+> z
+
+# A, SynLaD B, 3D Decoder 
+
+# C, Synthesis Decoder 
+
+> positional
+> embedding
+> token
+> embedding
+> Learned token
+> type
+> embedding
+> Molecule
+> embedding
+
++OH  
+
+> OOH
+> Autoregressive
+> Transformer
+> Bidirectional
+> mask
+> (cross-attention)
+> Causal
+> mask
+
+Z
+
+S
+
+++
+
+... ... 
+
+... 
+
+B B POH  
+
+> OOH
+
+B SOH  
+
+> OOH O
+> O
+> O
+
+Transformer  
+
+> atom type
+> 3D position x
+> y
+> z
+
+Z
+
+## ... 
+
+## ... 
+
+## + Bidirectional 
+
+mask 
+
+> one output per
+> atom
+
+Figure 1. A, Overview of SynLaD: a multi-head generative model that jointly produces 3D molecular structures and synthesis plans. SynLaD is trained in two stages: ① an autoencoder learns a latent representation of 3D molecules, with an auxiliary decoder that generates a synthesis plan for each structure. ② a pharmacophore-conditioned diffusion model learns to sample latents that decode to molecules containing a desired pharmacophore. B, 3D Decoder: a transformer with a bidirectional mask maps latent representations to atom types and 3D coordinates. C, Synthesis Decoder: an autoregressive transformer maps latent representations to serialized synthesis plans. At inference time, the synthesis decoder is conditioned on the 3D-informed latent via cross-attention, enabling SynLaD to generate outputs that inherit pharmacophore-aware structural information while remaining directly tied to a synthesizable route. 
+
+ing. As a result, bioactive ligand generation is typically framed either as a reward-based problem using binding-affinity proxies (Horwood & Noutahi, 2020; Cretu et al., 2025) or as conditioning on known ligands via chemical space projection (Luo et al., 2024). We bridge the gap between 3D chemical feature condition-ing and synthesizable molecule generation with SynLaD (Syn thesis-aware Latent Diffusion ), a conditional latent dif-fusion model that decodes latents to molecules in both 3D and synthesizable space. An overview of SynLaD is shown in Figure 1. At its core, SynLaD employs a molecular varia-tional autoencoder with a dual-decoder architecture: a single encoder maps a 3D molecule to the latent space, from which one decoder reconstructs the 3D atomic coordinates and corresponding atom types, while a second autoregressive decoder generates an associated synthesis pathway. Joint training of these decoders couples spatial fidelity and syn-thesizability in the learned latent representation. Conditional generation is then performed in the learned la-tent space using a Diffusion Transformer (DiT) (Rombach et al., 2022; Joshi et al., 2025). The compressed, seman-tically rich latent space enables efficient sampling and im-proved conditional control (Rombach et al., 2022; Liu et al., 2023), while also allowing SynLaD to generate structure-informed embeddings that the synthesis head decodes into synthesis pathways. This also introduces variability in the synthesis decoder conditioning input, which we demonstrate is essential for ensuring sample diversity. Contrary to recent synthesis-constrained generative models (Swanson et al., 2024; Cretu et al., 2025; Koziarski et al., 2024; Gao et al., 2025; Lee et al., 2026) which rely on reaction templates, SynLaD uses a reaction prediction model trained on diverse, complementary chemical transformations to infer products. By removing the reliance on fixed templates, our approach mitigates the template bottleneck that can restrict designs to a narrow, predefined chemical space, and supports broader exploration via more general molecular-graph edits, and the possibility of extrapolation. We evaluate SynLaD using standard molecule quality met-rics, including pose validity and synthesizability, under both unconditional and pharmacophore-conditioned generation. We further assess its practical utility on bioactive analogue 2SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+generation for ligands from the Lit-PCBA benchmark (Tran-Nguyen et al., 2020). Across settings, SynLaD matches the molecule-quality profile of its separately trained counter-parts while consistently improving the fraction of samples with plausible synthetic routes, and it outperforms exist-ing baselines in producing synthesizable, diverse hits under pharmacophore-guided sampling. The contributions of this work are thus: (1) a dual-constrained latent space that couples two complementary but often competing representations—3D molecular structure and synthesis plans—encouraging latents to remain simul-taneously decodable into valid geometries and executable routes; (2) a pharmacophore-conditional latent generative model that enables targeted, 3D-aware design; and (3) an end-to-end evaluation protocol that jointly reports diver-sity, synthesizability, and target-conditioned hit discovery trade-offs—explicitly contrasting our conditional genera-tion method with library screening and other amortized and non-amortized generative baselines. We release the code for SynLaD at https://github.com/prescient-design/synlad. 
+
+## 2. Background and related work 
+
+Structure- and ligand-based drug design. Many genera-tive models have been proposed to sample small molecules in sequence (Gupta et al., 2018; Blaschke et al., 2020; Segler et al., 2018), 2D (Jensen, 2019; Jin et al., 2017; QIN et al., 2025), 3D (Le et al., 2024; Dunn & Koes, 2024; Huang et al., 2025; Irwin et al., 2025; Vonessen et al., 2025), and voxel spaces (O. Pinheiro et al., 2023). Conditional gen-eration for protein binders can be broadly categorized into pocket-conditioned approaches, which condition on binding-site representations and implicitly capture protein-ligand interactions, and interaction-conditioned approaches, which condition directly on desired interaction cues such as 3D shape, pharmacophores, or electrostatic potential surfaces. The latter is most relevant to our work. Several methods gen-erate SMILES strings or molecular graphs conditioned on 3D pharmacophore representations (Imrie et al., 2021; Zhu et al., 2023; Xie et al., 2025; Mahmood et al., 2025). Mol-Snapper (Ziv et al., 2025) and, more recently, ShEPhERD (Adams et al., 2025) instead condition on richer interaction profiles and generate molecules directly in 3D space. How-ever, MolSnapper supports a limited set of pharmacophore types, and neither method explicitly constrains generation to synthesizable chemical space. 
+
+Synthesis-aware generation. Parallel work has focused on enhancing synthesizability by generating molecules via reaction pathways. Composing these reaction pathways into full synthesis plans is a challenging discrete search problem, and existing methods span diverse paradigms, including reinforcement learning (Gottipati et al., 2020; Horwood & Noutahi, 2020), search (Swanson et al., 2025), surrogate-guided optimization (Korovina et al., 2020), genetic algo-rithms (Lo et al., 2025), and GFlowNets (Cretu et al., 2025; Koziarski et al., 2024; Seo et al., 2025). One particularly effective strategy is to cast synthesis plans as sequences and learn serialized pathway representations autoregressively (Bradshaw et al., 2020; Gao et al., 2022; Lee et al., 2026; Luo et al., 2024; Gao et al., 2025), analogous to next-token prediction in language modeling (Vaswani et al., 2017; Ben-gio et al., 2003; Sutskever et al., 2014). By amortizing the cost of discrete search, such models learn mappings from continuous representations to synthesis plans and can be integrated into larger frameworks (e.g., encoder-decoder architectures) for tasks such as molecular optimization or retrosynthesis (i.e., predicting a route for a given target molecule). While these approaches enforce viable synthesis routes, they do not directly control final 3D geometry. Luo & Coley (2025) recently proposed a framework to train an autoregressive synthesis pathway generator conditioned on composite properties, including pharmacophore-encoding fingerprints (Gobbi & Poppinger, 1998) and molecular sub-structures. However, the model does not condition on raw 3D pharmacophore features. Recently, CGFlow (Shen et al., 2025) and SynCoGen (Rekesh et al., 2025) jointly design synthesis pathways and 3D poses, but they rely on fixed reaction template libraries and work in ambient space. 
+
+Latent diffusion models. Latent diffusion models (Vah-dat et al., 2021; Rombach et al., 2022) perform diffusion (Sohl-Dickstein et al., 2015; Song & Ermon, 2019) in the learned latent space of an autoencoder rather than directly in the high-dimensional input space, enabling more efficient training and sampling. This paradigm has been highly effec-tive in image, audio, and video generation, especially when combined with Diffusion Transformers (DiTs) (Peebles & Xie, 2023), which show that standard transformer backbones scale effectively as denoisers. In molecular modeling, Xu et al. (2023) introduced latent diffusion in the space of an equivariant autoencoder, while Joshi et al. (2025) proposed a (non-equivariant) latent diffusion model for small molecules and periodic materials. However, these approaches do not demonstrate latent generation conditioned on rich, chemi-cally grounded features. We address this gap by enabling pharmacophore-conditioned latent generation and augment-ing our autoencoder with an auxiliary synthesis-decoder head that produces explicit reaction pathways, jointly target-ing native-3D conditional generation and synthesizability. 
+
+## 3. Methods 
+
+We present S YN LAD—a latent diffusion (Rombach et al., 2022) model for de novo small molecule generation condi-tioned on pharmacophore features (see Figure 1). S YN LADis trained in two stages: In stage 1, a variational autoencoder (Kingma & Welling, 2013; Rezende & Mohamed, 2015) en-codes molecules into a shared latent space and a two-headed decoder reconstructs both the 3D molecular structure and a 3SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+synthesis pathway. In stage 2, we train a Diffusion Trans-former (Peebles & Xie, 2023) to generate new samples from the latent space, which are decoded into both 3D molecules and synthesis pathways. The two decoders are trained to reconstruct the same molecule under two different represen-tations and at inference time the synthesis decoder is used to ensure the synthesizability of generated designs. We hypothesize that this two-stage learning process offers two advantages. First, the shared latent space aligns the two modalities—molecular conformations and synthesis pathways—by requiring both decoders to reconstruct the same molecule from a single latent representation. Second, as shown in Joshi et al. (2025), operating in a latent space reduces the complexity of generation and enables explicit pharmacophore conditioning by decoupling discrete and continuous spaces. 
+
+3.1. Multi-headed autoencoder for multi-modal reconstruction 
+
+Our autoencoder consists of one encoder and two decoders trained using a combined reconstruction loss with a reg-ularization term. We base our implementation of the 3D encoder and decoder on Joshi et al. (2025) and represent molecules using discrete atom types A = {ai}Ni=1 ∈ Z1×N
+
+and continuous coordinates X = {xi}Ni=1 ∈ R3×N , where 
+
+N is the number of atoms. 3.1.1. 3D E NCODER AND DECODER 
+
+Given a molecule represented as above, the encoder f
+
+projects A and X into a per-atom latent representation 
+
+Z = f (A, X), and the 3D decoder g3D reconstructs the molecule from the latent, giving A′, X′ = g3D (Z), where 
+
+Z = {zi}Ni=1 ∈ Rd×N . We use a standard transformer (Vaswani et al., 2017) and learn molecular symmetries via random rotations; further details on how atoms and dimen-sions are sampled at training/inference time is provided in Appendix C.1. 3.1.2. S YNTHESIS DECODER 
+
+We define an auxiliary decoder gsyn (Z), which, given a la-tent Z, generates a synthesis pathway for the molecule rep-resented in 3D by (A, X) = g3D (Z). A synthesis pathway can be represented using a directed acyclic graph (DAG), where nodes represent molecules and edges represent re-actions (see Figure 1). Such a DAG shows how parent building block molecules (source nodes) react to first form more complex intermediate products and eventually a final product (a single sink node). To model such a DAG we can serialize it, in a bottom-up manner similar to Bradshaw et al. (2020), into a linear sequence of tokens following the recipe in Appendix B.2. Once we have such a synthesis sequence S = ( s1, . . . , s L), we train a causal transformer model to generate it by autoregressively modeling the con-ditional probability p(si|S<i , Z). We embed each token in the sequence using a custom embedding scheme (see Ap-pendix B.3) and train the transformer using teacher forcing conditioned with cross-attention on the latents. 
+
+Product identity. In our serialized synthesis plan repre-sentation, the identity of each product node is determined by the identities of the corresponding reactant molecules. During training, we use a dataset containing full synthesis plans (see Section 4), allowing the correct reaction prod-ucts to be inserted directly. At test time, however, product information is not available and must be inferred. We there-fore employ a reaction-prediction oracle that can predict the most likely product given a set of reactants. The ora-cle is a transformer-based encoder-decoder model built off the BART architecture (Lewis et al., 2020), closely related to the Molecular Transformer of Schwaller et al. (2019). Details of its training are provided in Appendix B.7. 3.1.3. T RAINING OBJECTIVE 
+
+The two decoders are jointly trained with a weighted loss: the 3D decoder uses cross-entropy and MSE losses to re-construct atom types and coordinates, while the synthesis decoder is optimized with a cross-entropy loss between its output logits and the ground-truth token sequence: 
+
+L = λL3D + (1 − λ)Lsynthesis 
+
++ β D KL 
+
+
+
+N (μZ, σ Z) N (0 , I d)
+
+ (1) where: 
+
+L3D = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+H(ai, ˆai) + 13N
+
+> N
+
+X
+
+> i=1
+
+∥˜xi − ˆ˜xi∥2
+
+σ2 , (2) 
+
+Lsynthesis = 1
+
+L
+
+> L
+
+X
+
+> i=1
+
+H(si, ˆsi). (3) Here, ˜x represents zero-centered coordinates, σ2 is 1.0,
+
+0 ≤ λ ≤ 1 is the linear interpolation parameter between 
+
+Lsynthesis and L3D , L is the total sequence length, and si is the ground-truth synthesis token at step i. Following Hig-gins et al. (2017), Rombach et al. (2022), and Joshi et al. (2025) we introduce a per-channel KL-penalty weighted by β that regularizes the learned latent toward a standard normal distribution. 
+
+3.2. Conditional generative modeling of latent representations 
+
+We train a flow matching model (Lipman et al., 2023; Song & Ermon, 2019; Ho et al., 2020; Joshi et al., 2025) on the latent space learned by our autoencoder, by denoising latent samples from a base Gaussian distribution towards a target distribution represented by latents of ground-truth molecules. 4SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+Pharmacophore embeddings. A pharmacophore ab-stracts components of a molecule into pre-defined key in-teraction features, providing a compact representation of interaction-relevant moieties and their spatial coordinates. We represent pharmacophores using six discrete pharma-cophore types P = {pi}Np 
+
+> i=1
+
+∈ Z1×Np (hydrogen bond donor, hydrogen bond acceptor, cation, anion, aromatic ring and hydrophobe) and coordinates for each pharmacophore feature present in the molecule: Xph = {xph  
+
+> i
+
+}Np 
+
+> i=1
+
+∈ R3×Np .These are extracted from the molecule conformation through a deterministic mapping of the pharmacophore’s atom po-sitions. The features are embedded into a unified learned representation using a standard transformer (see Appendix B.6), and this embedding serves as conditioning for the diffusion model via cross-attention. The parameters of the pharmacophore transformer encoder and those of the DiT are jointly optimized via the conditional flow matching loss: 
+
+LCFM = E (P ,Xph ,Z1)∼pdata ,t∼U (0 ,1) , Z0∼N (0 ,I )
+
+h
+
+∥uθ(Zt, t, τ θ (P , Xph )) 
+
+− vt(Zt | Z0, Z1)∥22
+
+i
+
+, (4) where uθ is the denoiser backbone, which predicts the vector field based on the current state zt, the time step t,and the pharmacophore conditional embedding τθ (P , Xph ).
+
+vt is the ground-truth vector field and the state Zt =(1 − t)Z0 + tZ1 is a linear interpolation between a clean latent sample Z1 and a noise sample Z0 drawn from a standard normal distribution N (0 , I ). The time step t is sampled uniformly from U(0 , 1) . Leveraging the equiv-alence between the velocity and endpoint flow matching formulations (Lipman et al., 2023), the model receives Zt
+
+as input and predicts the terminal points of the trajectory during training. Following Joshi et al. (2025), we use a Diffusion Trans-former (DiT) (Peebles & Xie, 2023) as our denoiser archi-tecture with self-conditioning (Yim et al., 2023) and adap-tive layer norm for time-step t modulation. We additionally introduce a cross-attention conditioning mechanism (trained with a conditioning dropout probability of 20%) to sam-ple using classifier-free guidance during inference (Ho & Salimans, 2021): 
+
+ˆuθ (Zt, t, τ θ (P , Xph )) = (1 + w)uθ (Zt, t, τ θ (P , Xph )) 
+
+− wu θ (Zt, t, ∅) (5) where ˆuθ is the final vector field prediction. This is a linear combination of the conditional and unconditional predic-tions, where ∅ represents the null token used for the dropped-out condition. The guidance scale w controls the strength of the conditioning signal and we experiment with both w = 0 
+
+and w > 0.
+
+## 4. Experiments 
+
+Dataset. We train SynLaD on a set of reaction pathways extracted from the USPTO dataset (Lowe, 2017). We de-tail the construction of the dataset in Appendix B.1. Our dataset contains 67,512 synthesis pathways, each with 1 to 6 intermediary reactions. For each final product of the pathways, we compute 10 low-energy conformers using OpenEye’s conformer generation software Omega (Hawkins et al., 2010; Friedrich et al., 2017). Our dataset contains synthesis products with 10 to 40 heavy atoms. 
+
+Metrics. We evaluate SynLaD on its ability to generate valid, novel, and realistic molecules. Sampled molecules generated by SynLaD are assessed using validity and inter-nal diversity (Polykovskiy et al., 2020) (definitions pro-vided in Appendix B.8). Diversity is further measured by the number of unique Bemis-Murcko scaffolds (Be-mis & Murcko, 1996), defined as the molecule’s ring systems and connecting linkers with all side chains re-moved. Synthesizability is additionally evaluated using AiZynthFinder (Genheden et al., 2020), and pose quality is assessed with the PoseBusters benchmark (Buttenschoen et al., 2024) for molecules generated by our 3D decoder. For pharmacophore-conditioned experiments, we use Open-Eye’s ROCS scoring functions (Hawkins et al., 2007) to evaluate shape and pharmacophore overlap via Tanimoto Shape and Tanimoto Color scores, each ranging from 0 to 1 (with 0 representing no overlap and 1 representing perfect overlap), whose sum defines the Tanimoto Combo score. Following Grebner et al. (2020), we define a hit as a molecule with a Tanimoto Combo score of at least 1.2 relative to a query. As described in Section 3.1.2, we use a reaction-prediction oracle to infer product information from sets of reactant tokens sampled by our decoder. The oracle is trained sep-arately; implementation details and accuracy results are provided in Appendix B.7, where it achieves a top-1 product prediction accuracy of 84.6%. 
+
+4.1. Joint conformer and synthesis latent space 
+
+We first investigate reconstruction performance of the joint autoencoder. We randomly select 1000 molecules from the test set, encode them into our latent space, and decode each latent using both decoders. For the 3D decoder, we report match rate and RMSD between ground-truth and predicted coordinates (see Appendix B.8); for the synthesis decoder, we report match rate and 2D fingerprint Tanimoto similar-ity between the predicted end product and the ground-truth synthesis outcome. We ablate the latent dimension during training and compare inference strategies for the synthe-sis decoder (see Appendix B.4). Results are summarized in Table 1 for both sampling and beam search decoding. 
+
+Sampling generates N independent candidate sequences by temperature-scaled stochastic sampling at each step, option-ally using top-k truncation by setting logits of tokens outside of the top k to −∞ . In contrast, beam search deterministi-5SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+cally expands the b (number of beams) most probable partial sequences. In our experiments, we set N = 1 and k = 10 
+
+for sampling and compare against beam search with b = 5 .Beam search consistently outperforms top-k sampling and is therefore used for latent-space sampling in subsequent experiments. 
+
+Table 1. Autoencoder reconstruction accuracies. Results are reported for two synthesis-decoder inference strategies, with syn-thesis match rate and RDKit fingerprint Tanimoto similarity com-puted between the final products of predicted and ground-truth synthesis sequences.           
+
+> 3D metrics Synthesis metrics
+> Inference method RMSD (Å) ↓Match Rate (%) ↑
+> Match Rate (%) ↑
+> Tanimoto similarity ↑
+> Sampling 0.05 98.5 43.4 0.73 Beam search 0.05 98.5 63.4 0.84
+
+4.2. Unconditional generation 
+
+We next train an unconditional latent DiT denoiser using latents produced by our joint VAE (variational autoencoder) described in Section 4.1; model parameters and training details are provided in Appendix B.5. We sample using 
+
+T = 100 ODE integration steps and decode the resulting latent with both decoders. Results are reported in Table 2, where we compare against (1) a latent diffusion model trained without a synthesis decoder head (equivalent to Joshi et al. (2025)) and (2) an unconditional autoregressive synthesis-decoder-only head. The results show that jointly training the two decoders does not degrade synthesizabil-ity or PoseBusters performance, and yields good validity, diversity, and novelty overall. Interestingly, joint training improves the synthesizability of molecules decoded by the 3D decoder, suggesting that the synthesis decoder steers generation toward latent regions more likely to decode to synthesizable molecules. Both SynLaD decoders signifi-cantly outperform the synthesis-unconstrained baseline in synthesizability although trained on the same data. 
+
+Consistency analysis. To enable pharmacophore-conditioned sampling of synthesizable molecules that also match a desired 3D profile, we evaluate how well the two decoders remain aligned on generated samples. Starting from a latent Z sampled from the trained diffusion model, we decode both a 3D molecule and a synthesis pathway and quantify how often these outputs correspond to the same, or closely matching, chemical features. We report cross-decoder agreement via exact identity and chemical/shape similarity in Figure 2. The synthesis-decoded products preserve the 3D shape and pharmacophore characteristics implied by the 3D-decoded structures. We show examples of output pairs in Appendix 7. 
+
+4.3. Pharmacophore-conditioned molecule generation In-distribution pharmacophore conditioning. We eval-uate the conditional generation performance of SynLaD by selecting 50 random query molecules from the test set and extracting their pharmacophores. For each query, we gen-erate 100 candidate molecules with SynLaD conditioned on the extracted pharmacophore, and, as a baseline, com-pare against 5,000 randomly selected molecules from the training set. All candidates—whether sampled from the training set or generated by SynLaD—are evaluated using conformer enumeration with Omega, followed by shape and pharmacophore overlay scoring against the query molecule (see Appendix B.9). For consistency, we apply the same conformer enumeration to 3D-decoded outputs, even though these samples already exhibit good conformer alignment to the query (see Appendix Figure 10). For each molecule, we retain the highest scoring conformer and assess whether it is a hit or not (i.e., with a Tanimoto combo score ≥ 1.2 to the query). We report the median number of hits and unique scaffold hits in Figure 3 and distributions of Tanimoto shape and color scores, as well as synthesizability scores assessed using AiZynthFinder (further metrics in Appendix Table 12). Results show that SynLaD generates samples with signifi-cantly higher 3D pharmacophore and shape similarities to the query than the baseline, while the synthesis decoder yields molecules with high synthesizability. 
+
+Screening case study. To assess SynLaD in a practi-cal drug-discovery setting, we compare it against brute-force ROCS screening over our dataset, which serves as a proxy for a molecular library and reflects standard but time-consuming ligand-based screening. We randomly se-lect 10 query molecules with more than 15 heavy atoms from our test set and calculate ROCS scores against all other molecules in the dataset ( ∼67k molecules), excluding the query molecules themselves. In parallel, we perform pharmacophore-conditional generation with SynLaD, gen-erating 1000 samples per query. For this experiment, we consider only outputs of the synthesis decoder of SynLaD, ensuring that outputs are synthesizable and directly appli-cable for experimental testing. We report hit counts for     
+
+> Metric Value
+> Exact match rate (%) 33.1 Scaffold match rate (%) 54.9 ROCS Shape ROCS Color
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Score
+> (random pairs)
+> (random pairs)
+> Similarity between 3D and synthesis-decoded outputs
+
+Figure 2. Cross-decoder agreement on generated samples. We evaluate similarities between synthesis- and 3D-decoded molecules obtained from the same latent. As a control, we also report ROCS Tanimoto Shape/Color scores for randomly paired synthesis- and 3D-decoded molecules, illustrating the similarity expected in the absence of cross-decoder coupling. 
+
+6SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+Table 2. Unconditional generation results. ↑/↓ indicate that higher/lower is better. All metrics (see Appendix B.8) are evaluated over 
+
+1000 samples, except for AiZynthFinder (100 samples). 
+
+Method Valid. ↑ IntDiv. ↑ Nov. ↑ PB ↑ SA ↓ AiZynth. ↑
+
+separately-trained heads 3D Decoder 88.5 86.0 100 0.89 2.78 0.59 Synthesis Decoder 100 89.8 87.6 - 2.35 0.81 
+
+jointly-trained heads SynLaD (3D outputs) 90.0 86.0 100 0.89 2.65 0.72 SynLaD (synthesis outputs) 100 88.2 84.6 - 2.30 0.87                    
+
+> Method Hits Unique scaff. hits Max score AiZynth. Synthesizable hits
+> Dataset baseline 001.14 0.90 0SynLaD (3D out) 36.5 13.5 1.92 0.44 18.5 SynLaD (syn out) 29 9.5 1.88 0.80 25.0
+
+Figure 3. Pharmacophore conditioned generation. Metrics are evaluated for 50 random conditioning queries from a held-out set and 100 samples from SynLaD for each conditioning pharmacophore. Left : Values for hits, unique scaffold hits, and max score are medians across the 50 query molecules, while AiZynth is a mean (higher is better). Max score represents the maximum Tanimoto combo score for generated samples. Right : Distributions of ROCS shape and color (pharmacophore) similarity scores to query molecules (higher better). 
+
+both methods in Table 3, and per-query results in Appendix Figure 8. SynLaD achieves higher hit counts than the typ-ical brute-force baseline in ligand-based screening, while using nearly two orders of magnitude fewer samples (1k molecules) than the size of the screened library ( ∼67k). 
+
+Table 3. Comparison to library screen. Number of hits averaged over 10 queries from the test set. Here, we compare against the synthesis decoder of SynLaD as hits are more likely to be synthe-sizable and therefore able to be experimentally tested. 
+
+Method Hits (avg.) 
+
+Dataset screen 49.7 SynLaD 59.4 
+
+Bioactive hit diversification. We next investigate the out-of-distribution performance of SynLaD on a bioactive hit di-versification task, which aims to find structural analogues of known bioactive compounds. This mirrors real-world drug discovery practices, where diverse candidates are needed to iteratively optimize activity while satisfying synthesiz-ability, developability, and other constraints. We select ten targets from the Lit-PCBA benchmark (Tran-Nguyen et al., 2020) (see Appendix C.2) and compare against ShEPhERD (Adams et al., 2025), SynFormer (Gao et al., 2022), and REINVENT (Blaschke et al., 2020; Loeffler et al., 2024). ShEPhERD is an SE(3)-equivariant diffusion model that jointly denoises 3D molecular graphs and representations of their shapes and interaction profiles; we compare against their inpainting setting which conditions on electrostatic potential surfaces and pharmacophores. SynFormer is a transformer-based encoder-decoder framework that gener-ates synthesizable 2D molecules in reaction-template and building-block space; we specifically compare against their SynFormerED variants for amortized analogue generation. As an orthogonal baseline, following Papadopoulos et al. (2021), we fine-tune REINVENT (Blaschke et al., 2020) using a ROCS Tanimoto color score as reward function. Unlike SynLaD and the other baselines, REINVENT does not perform amortized sampling and instead requires rein-forcement learning-based optimization per query, making the comparison methodologically orthogonal (similar tech-niques can also be applied to autoencoders (Tripp et al., 2020)). REINVENT is also substantially more computa-tionally expensive, requiring approximately 6 hours per query to generate the optimized samples here, compared to 
+
+∼1 min for SynLaD, ≤1 min for SynFormer, and ∼28 min 
+
+for ShEPhERD (Appendix C.4) per 100 samples, but we include it as it is a strong baseline in molecular generation. For each query, we generate 500 molecules by condition-ing on the pharmacophore profile of the native ligand in its bound conformation. We apply the same evaluation pipeline as in the previous section and report distributions of aggre-gated Tanimoto shape and color scores across all ten queries, along with averaged molecule validity, synthesizability, and hit counts, in Figure 4 and Table 4. Note that AiZynthFinder is reported for subsets (100 samples due to compute cost) of all generated molecules, not just hits. SynLaD achieves a strong overall balance, producing a high number of synthe-sizable hits, succeeding on a large fraction of queries, and maintaining high validity. Compared to the other synthesis-constrained baseline, SynFormer, SynLaD’s synthesis de-coder produces candidates with consistently higher ROCS shape and color overlap, suggesting that the explicit 3D rep-resentation our model learns improves conditional design; it also yields more hits and higher retrosynthesis success. The 3D outputs of SynLaD outperform ShEPhERD on most queries in terms of pharmacophore overlap, hit count, and synthesizability, while achieving comparable shape overlap. The synthesis-decoder output also outperforms ShEPhERD 7SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+Table 4. Bioactive hit diversification. We sample 500 samples per query for all methods. We report averaged metrics over all ten queries and AiZynthFinder success rate for a random subset of 100 generated molecules. Amortized methods do not require retraining for each target. Max score refers to the maximum Tanimoto combo score registered. 
+
+Method Validity Hits (avg.) Unique scaff. hits (avg.) Max score AiZynth. Num. queries w/ ≥1 hit Amortized Synthesizable hits (avg.) 
+
+REINVENT 0.98 21.1 3.7 1.15 0.75 3 ✗ 16.3 
+
+ShEPhERD 0.55 15.7 13.0 1.23 0.18 6 ✓ 6.3 SynFormer 1.0 13.8 6.7 1.31 0.50 8 ✓ 6.7 SynLaD (3D out) 0.49 38.1 18.8 1.45 0.22 8 ✓ 12.7 SynLaD (syn out) 1.0 17.9 6.9 1.30 0.75 5 ✓ 14.6 
+
+Figure 4. Bioactive hit diversification. Structural analogues are generated for 10 Lit-PCBA ligands using SynLaD and baseline methods. We report (1) the distribution of aggregated Tanimoto shape and color similarity scores to the query, and (2) the number of hits per query for each method, highlighting the fraction of synthesizable hits. 
+
+in average number of synthesizable hits. Although REINVENT achieves the highest average number of synthesizable hits, this result is dominated by a single query with an unusually large hit count; across the bench-mark, it generates synthesizable hits for only three queries and shows limited scaffold diversity. We show examples of query-generated molecule pairs with highlighted pharma-cophore and shape overlap in Figure 5 and further examples of synthesis and 3D decoder outputs in Appendix Figure 9. While we report results for both decoders for completeness, the key strength of our approach lies in the synthesis decoder, which—despite operating on linear synthesis trajectories— learns to satisfy shape and pharmacophore constraints more effectively than baselines that do not learn 3D informa-tion. This highlights the benefit of our strategy: learning latent representations that encode rich 3D conditioning sig-nals and using them to condition synthesis generation. We further support this claim in Appendix C.3, where we per-form two ablations: 1) we remove the structure-aware latent component (3D reconstruction heads and diffusion mod-ule) from SynLaD and keep the synthesis architecture and pharmacophore-conditioning fixed and 2) we switch the 3D reconstruction task for SMILES reconstruction, and keep the rest of the framework identical. We see that both abla-tions lead to a substantial performance drop, demonstrating that the structure-aware latent component is critical. PDB: 5fv7           
+
+> Reference Shape overlap Pharmacophore overlap Docked pose overlap
+> ROCS Shape: 0.909 | Color : 0.577
+> ROCS Shape: 0.899 | Color : 0.469
+> PDB: 4zzn
+> PDB: 2v3d
+> PDB: 4ldo
+> ROCS Shape: 0.908 | Color : 0.700
+> ROCS Shape: 0.945 | Color : 0.503
+> acceptor Pharmacophores: donor rings hydrophobe
+
+Figure 5. Bioactive hit diversification experiment . Examples of molecules generated by our model with annotated shape and phar-macophore overlap. The right-hand side shows the native ligand (gray) overlaid with the docked generated molecule (orange). 
+
+8SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+## 5. Conclusion 
+
+In this work, we introduce a conditional latent diffusion framework that decodes latent representations into both 3D molecular structures and reaction-based synthesis pathways. We show that jointly training these two decoders is mutually beneficial at sampling time: it increases the synthesizability of molecules produced by the 3D decoder and improves the synthesis decoder’s ability to satisfy shape/pharmacophore constraints under conditioning, while also enhancing sam-ple diversity compared to a synthesis decoder conditioned directly on pharmacophores. Overall, our results demon-strate that conditioning an autoregressive synthesis decoder through a 3D-informed latent representation yields high numbers of diverse, synthesizable, pharmacophore-aligned hits. Looking ahead, an exciting direction is to scale our method to larger datasets (e.g., Pistachio, NextMove Soft-ware, 2025), which would enable access to more novel transformations and more combinatorially complex regions of chemical space. 
+
+## Impact Statement 
+
+This paper presents a generative modeling approach aimed at advancing small-molecule drug discovery by jointly ad-dressing 3D design objectives and synthetic feasibility. By enabling the generation of molecules that are both pharmacophore-consistent and synthesizable, our work has the potential to accelerate early-stage drug discovery and reduce reliance on costly and time-consuming experimental screening pipelines. At the same time, we acknowledge that generative models for molecular design could, in principle, be misused to propose harmful or toxic compounds. While our work does not explicitly target such applications and is focused on drug discovery settings, the underlying methodology could be adapted in unintended ways. We emphasize that our approach operates within standard drug discovery pipelines, where generated candidates are subject to extensive downstream validation, including safety, synthesizability, and biological evaluation. As such, we believe the primary impact of this work is to support respon-sible and beneficial applications in medicinal chemistry. 
+
+## References 
+
+Acharya, C., Coop, A., Polli, J. E., and Mackerell, Jr., A. D. Recent advances in ligand-based drug design: Relevance and utility of the conformationally sampled pharmacophore approach. Current Computer-Aided Drug Design , 7(1):10–22, 2011. URL https://doi.org/ 10.2174/157340911793743547 .Adams, K., Abeywardane, K., Fromer, J., and Coley, C. W. ShEPhERD: Diffusing shape, electrostatics, and pharma-cophores for bioisosteric drug design. In The Thirteenth International Conference on Learning Representations ,2025. URL https://openreview.net/forum ?id=KSLkFYHlYg .Bemis, G. W. and Murcko, M. A. The properties of known drugs. 1. Molecular frameworks. Journal of Medicinal Chemistry , 39(15):2887–2893, 1996. URL https:// doi.org/10.1021/jm9602928 .Bengio, Y., Ducharme, R., Vincent, P., and Jauvin, C. A neural probabilistic language model. Journal of Machine Learning Research , 3:1137–1155, 2003. URL https: //dl.acm.org/doi/10.5555/944919.9449 66 .Bi, H., Wang, H., Shi, C., Coley, C., Tang, J., and Guo, H. Non-autoregressive electron redistribution modeling for reaction prediction. In Meila, M. and Zhang, T. (eds.), 
+
+Proceedings of the 38th International Conference on Ma-chine Learning , volume 139 of Proceedings of Machine Learning Research , pp. 904–913. PMLR, 18–24 Jul 2021. URL https://proceedings.mlr.press/v1 39/bi21a.html .Blaschke, T., Arús-Pous, J., Chen, H., Margreitter, C., Tyr-chan, C., Engkvist, O., Papadopoulos, K., and Patronov, A. REINVENT 2.0: An AI tool for de novo drug design. 
+
+Journal of Chemical Information and Modeling , 60(12): 5918–5922, 2020. URL https://doi.org/10.1 021/acs.jcim.0c00915 .Bradshaw, J., Kusner, M. J., Paige, B., Segler, M. H. S., and Hernández-Lobato, J. M. A generative model for electron paths. In International Conference on Learning Representations , 2019a. URL https://openrevi ew.net/forum?id=r1x4BnCqKX .Bradshaw, J., Paige, B., Kusner, M. J., Segler, M., and Hernández-Lobato, J. M. A model to search for syn-thesizable molecules. In Wallach, H., Larochelle, H., Beygelzimer, A., d'Alché-Buc, F., Fox, E., and Garnett, R. (eds.), Advances in Neural Information Processing Sys-tems , volume 32. Curran Associates, Inc., 2019b. URL 
+
+https://proceedings.neurips.cc/paper _files/paper/2019/file/46d0671dd4117 ea366031f87f3aa0093-Paper.pdf .Bradshaw, J., Paige, B., Kusner, M. J., Segler, M., and Hernández-Lobato, J. M. Barking up the right tree: An approach to search over molecule synthesis DAGs. In Larochelle, H., Ranzato, M., Hadsell, R., Balcan, M., and Lin, H. (eds.), Advances in Neural Information Process-ing Systems , volume 33, pp. 6852–6866. Curran Asso-ciates, Inc., 2020. URL https://proceedings. neurips.cc/paper_files/paper/2020/fi 
+
+9SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+le/4cc05b35c2f937c5bd9e7d41d3686fff-P aper.pdf .Bradshaw, J., Zhang, A., Mahjour, B., Graff, D. E., Segler, M. H., and Coley, C. W. Challenging reaction prediction models to generalize to novel chemistry. ACS Central Science , 11(4):539–549, 2025. URL https://doi. org/10.1021/acscentsci.5c00055 .Buttenschoen, M., Morris, G. M., and Deane, C. M. Pose-Busters: AI-based docking methods fail to generate physically valid poses or generalise to novel sequences. 
+
+Chemical Science , 15:3130–3139, 2024. URL http: //dx.doi.org/10.1039/D3SC04185A .Cremer, J., Le, T., Noé, F., Clevert, D.-A., and Schütt, K. T. PILOT: Equivariant diffusion for pocket-conditioned de novo ligand generation with multi-objective guidance via importance sampling. Chemical Science , 15:14954– 14967, 2024. URL http://dx.doi.org/10.10 39/D4SC03523B .Cremer, J., Irwin, R., Tibo, A., Janet, J. P., Olsson, S., and Clevert, D.-A. FLOWR: Flow matching for structure-aware de novo, interaction- and fragment-based ligand generation, 2025. URL https://arxiv.org/abs/ 2504.10564 .Cretu, M., Harris, C., Igashov, I., Schneuing, A., Segler, M., Correia, B., Roy, J., Bengio, E., and Lio, P. SynFlowNet: Design of diverse and novel molecules with synthesis constraints. In The Thirteenth International Conference on Learning Representations , 2025. URL https://op enreview.net/forum?id=uvHmnahyp1 .Do, K., Tran, T., and Venkatesh, S. Graph transforma-tion policy network for chemical reaction prediction. In 
+
+Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining ,KDD ’19, pp. 750–760, New York, NY, USA, 2019. Association for Computing Machinery. URL https: //doi.org/10.1145/3292500.3330958 .Dunn, I. and Koes, D. R. Mixed continuous and categorical flow matching for 3D de novo molecule generation, 2024. URL https://arxiv.org/abs/2404.19739 .Ertl, P. and Schuffenhauer, A. Estimation of synthetic ac-cessibility score of drug-like molecules based on molec-ular complexity and fragment contributions. Journal of Cheminformatics , 1(8):1–11, 2009. URL https: //doi.org/10.1186/1758-2946-1-8 .Fooshee, D., Mood, A., Gutman, E., Tavakoli, M., Urban, G., Liu, F., Huynh, N., Van Vranken, D., and Baldi, P. Deep learning for chemical reaction prediction. Molecu-lar Systems Design & Engineering , 3(3):442–452, 2018. URL https://doi.org/10.1039/C7ME0010 7J .Friedrich, N.-O., de Bruyn Kops, C., Flachsenberg, F., Som-mer, K., Rarey, M., and Kirchmair, J. Benchmarking commercial conformer ensemble generators. Journal of Chemical Information and Modeling , 57(11):2719–2728, 2017. URL https://doi.org/10.1021/acs. jcim.7b00505 .Gao, W. and Coley, C. W. The synthesizability of molecules proposed by generative models. Journal of Chemical In-formation and Modeling , 60(12):5714–5723, 2020. URL 
+
+https://doi.org/10.1021/acs.jcim.0c0 0174 .Gao, W., Mercado, R., and Coley, C. W. Amortized tree generation for bottom-up synthesis planning and syn-thesizable molecular design. In International Confer-ence on Learning Representations , 2022. URL https: //openreview.net/forum?id=FRxhHdnxt1 .Gao, W., Luo, S., and Coley, C. W. Generative AI for navigating synthesizable chemical space. Proceedings of the National Academy of Sciences , 122(41):e2415665122, 2025. URL https://www.pnas.org/doi/abs /10.1073/pnas.2415665122 .Genheden, S., Thakkar, A., Chadimová, V., Reymond, J. L., Engkvist, O., and Bjerrum, E. AiZynthFinder: a fast, ro-bust and flexible open-source software for retrosynthetic planning. Journal of Cheminformatics , 12:70, 2020. URL 
+
+https://doi.org/10.1186/s13321-020-0 0472-1 .Gobbi, A. and Poppinger, D. Genetic optimization of com-binatorial libraries. Biotechnology and Bioengineering ,61(1):47–54, 1998. doi: 10.1002/(sici)1097-0290(1998 24)61:1<47::aid-bit9>3.0.co;2-z. Goodfellow, I., Bengio, Y., and Courville, A. Deep Learning .MIT Press, 2016. URL http://www.deeplearni ngbook.org .Goodnow, Jr., R. and Gillespie, P. 1 Hit and lead identifica-tion: Efficient practices for drug discovery. volume 45 of Progress in Medicinal Chemistry , pp. 1–61. Elsevier, 2007. URL https://doi.org/10.1016/S007 9-6468(06)45501-6 .Gottipati, S. K., Sattarov, B., Niu, S., Pathak, Y., Wei, H., Liu, S., Liu, S., Blackburn, S., Thomas, K., Coley, C., Tang, J., Chandar, S., and Bengio, Y. Learning to nav-igate the synthetically accessible chemical space using reinforcement learning. In Daumé III, H. and Singh, A. (eds.), Proceedings of the 37th International Conference on Machine Learning , volume 119 of Proceedings of Ma-chine Learning Research , pp. 3668–3679. PMLR, 13–18 10 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+Jul 2020. URL https://proceedings.mlr.pr ess/v119/gottipati20a.html .Grebner, C., Malmerberg, E., Shewmaker, A., Batista, J., Nicholls, A., and Sadowski, J. Virtual screening in the cloud: How big is big enough? Journal of Chemical Information and Modeling , 60(9):4274–4282, 2020. URL 
+
+https://doi.org/10.1021/acs.jcim.9b0 0779 .Guan, J., Qian, W. W., Peng, X., Su, Y., Peng, J., and Ma, J. 3D equivariant diffusion for target-aware molecule generation and affinity prediction. In The Eleventh Inter-national Conference on Learning Representations , 2023. URL https://openreview.net/forum?id= kJqXEPXMsE0 .Guo, J. and Schwaller, P. Directly optimizing for synthesiz-ability in generative molecular design using retrosynthe-sis models. Chemical Science , 16:6943–6956, 2025. URL 
+
+https://doi.org/10.1039/d5sc01476j .Gupta, A., Müller, A. T., Huisman, B. J. H., Fuchs, J. A., Schneider, P., and Schneider, G. Generative recurrent networks for de novo drug design. Molecular Informatics ,37(1–2):1700111, 2018. URL https://doi.org/ 10.1002/minf.201700111 .Gómez-Bombarelli, R., Wei, J. N., Duvenaud, D., Hernández-Lobato, J. M., Sánchez-Lengeling, B., She-berla, D., Aguilera-Iparraguirre, J., Hirzel, T. D., Adams, R. P., and Aspuru-Guzik, A. Automatic chemical de-sign using a data-driven continuous representation of molecules. ACS Central Science , 4(2):268–276, 2018. URL https://doi.org/10.1021/acscents ci.7b00572 .Hartenfeller, M., Zettl, H., Walter, M., Rupp, M., Reisen, F., Proschak, E., Weggen, S., Stark, H., and Schneider, G. DOGS: Reaction-driven de novo design of bioactive com-pounds. PLoS Computational Biology , 8(2):e1002380, 2012. URL https://doi.org/10.1371/jour nal.pcbi.1002380 .Hawkins, P. C. D., Skillman, A. G., and Nicholls, A. Com-parison of shape-matching and docking as virtual screen-ing tools. Journal of Medicinal Chemistry , 50(1):74–82, 2007. URL https://doi.org/10.1021/jm06 03365 .Hawkins, P. C. D., Skillman, A. G., Warren, G. L., Elling-son, B. A., and Stahl, M. T. Conformer generation with OMEGA: Algorithm and validation using high quality structures from the protein databank and cam-bridge structural database. Journal of Chemical In-formation and Modeling , 50(4):572–584, 2010. URL 
+
+https://doi.org/10.1021/ci100031x .Higgins, I., Matthey, L., Pal, A., Burgess, C. P., Glorot, X., Botvinick, M. M., Mohamed, S., and Lerchner, A. beta-VAE: Learning basic visual concepts with a constrained variational framework. In International Conference on Learning Representations , 2017. URL https://open review.net/forum?id=Sy2fzU9gl .Ho, J. and Salimans, T. Classifier-free diffusion guidance. In NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications , 2021. URL https: //openreview.net/forum?id=qw8AKxfYbI .Ho, J., Jain, A., and Abbeel, P. Denoising diffusion probabilistic models. In Larochelle, H., Ranzato, M., Hadsell, R., Balcan, M., and Lin, H. (eds.), Advances in Neural Information Processing Systems , volume 33, pp. 6840–6851. Curran Associates, Inc., 2020. URL 
+
+https://proceedings.neurips.cc/paper _files/paper/2020/file/4c5bcfec8584a f0d967f1ab10179ca4b-Paper.pdf .Horwood, J. and Noutahi, E. Molecular design in syntheti-cally accessible chemical space via deep reinforcement learning. ACS Omega , 5(51):32984–32994, 2020. URL 
+
+https://doi.org/10.1021/acsomega.0c0 4153 .Huang, Z., Guo, Y.-C., An, X., Yang, Y., Li, Y., Zou, Z.-X., Liang, D., Liu, X., Cao, Y.-P., and Sheng, L. MIDI: Multi-instance diffusion for single image to 3D scene generation. In Proceedings of the Computer Vision and Pattern Recognition Conference , pp. 23646–23657, June 2025. URL https://openaccess.thecvf.co m/content/CVPR2025/papers/Huang_MIDI _Multi-Instance_Diffusion_for_Single _Image_to_3D_Scene_Generation_CVPR_2 025_paper.pdf .Imrie, F., Hadfield, T. E., Bradley, A. R., and Deane, C. M. Deep generative design with 3D pharmacophoric con-straints. Chemical Science , 12:14577–14589, 2021. URL 
+
+http://dx.doi.org/10.1039/D1SC02436A .Irwin, R., Dimitriadis, S., He, J., and Bjerrum, E. J. Chem-former: a pre-trained transformer for computational chemistry. Machine Learning: Science and Technology ,3(1):015022, 2022. URL https://doi.org/10.1 088/2632-2153/ac3ffb .Irwin, R., Tibo, A., Janet, J. P., and Olsson, S. SemlaFlow – Efficient 3D molecular generation with latent attention and equivariant flow matching. In The 28th International Conference on Artificial Intelligence and Statistics , 2025. URL https://openreview.net/forum?id= bee2G6pEh0 .11 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+Jensen, J. H. A graph-based genetic algorithm and genera-tive model/Monte Carlo tree search for the exploration of chemical space. Chemical Science , 10:3567–3572, 2019. URL http://dx.doi.org/10.1039/C8SC053 72C .Jin, W., Coley, C., Barzilay, R., and Jaakkola, T. Predict-ing organic reaction outcomes with Weisfeiler-Lehman network. In Guyon, I., Luxburg, U. V., Bengio, S., Wal-lach, H., Fergus, R., Vishwanathan, S., and Garnett, R. (eds.), Advances in Neural Information Processing Sys-tems , volume 30. Curran Associates, Inc., 2017. URL 
+
+https://proceedings.neurips.cc/paper _files/paper/2017/file/ced556cd9f9c0 c8315cfbe0744a3baf0-Paper.pdf .Joshi, C. K., Fu, X., Liao, Y.-L., Gharakhanyan, V., Miller, B. K., Sriram, A., and Ulissi, Z. W. All-atom diffusion transformers: Unified generative modelling of molecules and materials. In International Conference on Machine Learning , 2025. URL https://openreview.net /forum?id=89QPmZjIhv .Joung, J. F., Fong, M. H., Casetti, N., Liles, J. P., Das-sanayake, N. S., and Coley, C. W. Electron flow matching for generative reaction mechanism prediction. Nature ,645(8079):115–123, 2025. URL https://doi.org/ 10.1038/s41586-025-09426-9 .Kayala, M. A., Azencott, C.-A., Chen, J. H., and Baldi, P. Learning to predict chemical reactions. Journal of Chemical Information and Modeling , 51(9):2209–2222, 2011. URL https://doi.org/10.1021/ci20 0207y .Kingma, D. P. and Welling, M. Auto-encoding variational Bayes, 2013. URL https://arxiv.org/abs/13 12.6114 .Korovina, K., Xu, S., Kandasamy, K., Neiswanger, W., Poc-zos, B., Schneider, J., and Xing, E. ChemBO: Bayesian optimization of small organic molecules with synthe-sizable recommendations. In Chiappa, S. and Calan-dra, R. (eds.), Proceedings of the Twenty Third Interna-tional Conference on Artificial Intelligence and Statistics ,volume 108 of Proceedings of Machine Learning Re-search , pp. 3393–3403. PMLR, 26–28 Aug 2020. URL 
+
+https://proceedings.mlr.press/v108/k orovina20a.html .Koziarski, M., Rekesh, A., Shevchuk, D., van der Sloot, A., Gai´ nski, P., Bengio, Y., Liu, C.-H., Tyers, M., and Batey, R. A. RGFN: Synthesizable molecular generation using GFlowNets. In Globerson, A., Mackey, L., Belgrave, D., Fan, A., Paquet, U., Tomczak, J., and Zhang, C. (eds.), 
+
+Advances in Neural Information Processing Systems , vol-ume 37, pp. 46908–46955. Curran Associates, Inc., 2024. URL https://doi.org/10.52202/079017-1 488 .Kuan, J., Radaeva, M., Avenido, A., Cherkasov, A., and Gentile, F. Keeping pace with the explosive growth of chemical libraries with structure-based virtual screening. 
+
+WIREs Computational Molecular Science , 13(6):e1678, 2023. URL https://doi.org/10.1002/wcms .1678 .Le, T., Cremer, J., Noe, F., Clevert, D.-A., and Schütt, K. T. Navigating the design space of equivariant diffusion-based generative models for de novo 3D molecule gener-ation. In The Twelfth International Conference on Learn-ing Representations , 2024. URL https://openre view.net/forum?id=kzGuiRXZrQ .Lee, S., Kreis, K., Veccham, S. P., Liu, M., Reidenbach, D., Paliwal, S. G., Nie, W., and Vahdat, A. Explor-ing synthesizable chemical space with iterative pathway refinements. In The Fourteenth International Confer-ence on Learning Representations , 2026. URL https: //openreview.net/forum?id=aQKVfKOkR5 .Lewis, M., Liu, Y., Goyal, N., Ghazvininejad, M., Mo-hamed, A., Levy, O., Stoyanov, V., and Zettlemoyer, L. BART: Denoising sequence-to-sequence pre-training for natural language generation, translation, and com-prehension. In Jurafsky, D., Chai, J., Schluter, N., and Tetreault, J. (eds.), Proceedings of the 58th Annual Meet-ing of the Association for Computational Linguistics , pp. 7871–7880, Online, July 2020. Association for Compu-tational Linguistics. URL https://aclanthology .org/2020.acl-main.703/ .Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., and Le, M. Flow matching for generative modeling. In The Eleventh International Conference on Learning Repre-sentations , 2023. URL https://openreview.net /forum?id=PqvMRDCJT9t .Liu, B., Ramsundar, B., Kawthekar, P., Shi, J., Gomes, J., Luu Nguyen, Q., Ho, S., Sloane, J., Wender, P., and Pande, V. Retrosynthetic reaction prediction using neural sequence-to-sequence models. ACS Central Science , 3 (10):1103–1113, 2017. URL https://doi.org/10 .1021/acscentsci.7b00303 .Liu, C.-H., Korablyov, M., Jastrzebski, S., Włodarczyk-Pruszy´ nski, P., Bengio, Y., and Segler, M. RetroGNN: Fast estimation of synthesizability for virtual screening and de novo design by learning from slow retrosynthesis software. Journal of Chemical Information and Modeling ,62(10):2293–2300, 2022. URL https://doi.org/ 10.1021/acs.jcim.1c01476 .12 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+Liu, H., Chen, Z., Yuan, Y., Mei, X., Liu, X., Mandic, D., Wang, W., and Plumbley, M. D. AudioLDM: Text-to-audio generation with latent diffusion models. In Krause, A., Brunskill, E., Cho, K., Engelhardt, B., Sabato, S., and Scarlett, J. (eds.), Proceedings of the 40th Interna-tional Conference on Machine Learning , volume 202 of 
+
+Proceedings of Machine Learning Research , pp. 21450– 21474. PMLR, 23–29 Jul 2023. URL https://proc eedings.mlr.press/v202/liu23f.html .Lo, A., Coley, C. W., and Matusik, W. A genetic algorithm for navigating synthesizable molecular spaces, 2025. URL https://arxiv.org/abs/2509.20719 .Loeffler, H. H., He, J., Tibo, A., Janet, J. P., Voronov, A., Mervin, L. H., and Engkvist, O. Reinvent 4: Mod-ern AI–driven generative molecule design. Journal of Cheminformatics , 16(1):20, 2024. URL https: //doi.org/10.1186/s13321-024-00812-5 .Lowe, D. Chemical reactions from US patents (1976-Sep2016). Jun 2017. URL https://doi.org/ 10.6084/m9.figshare.5104873.v1 .Luo, S. and Coley, C. W. Efficient and programmable exploration of synthesizable chemical space, 2025. URL 
+
+https://arxiv.org/abs/2512.00384 .Luo, S., Guan, J., Ma, J., and Peng, J. A 3D generative model for structure-based drug design. In Ranzato, M., Beygelzimer, A., Dauphin, Y., Liang, P., and Vaughan, J. W. (eds.), Advances in Neural Information Processing Systems , volume 34, pp. 6229–6239. Curran Associates, Inc., 2021. URL https://proceedings.neurip s.cc/paper_files/paper/2021/file/314 450613369e0ee72d0da7f6fee773c-Paper.p df .Luo, S., Gao, W., Wu, Z., Peng, J., Coley, C. W., and Ma, J. Projecting molecules into synthesizable chemical spaces. In Salakhutdinov, R., Kolter, Z., Heller, K., Weller, A., Oliver, N., Scarlett, J., and Berkenkamp, F. (eds.), Pro-ceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learn-ing Research , pp. 33289–33304. PMLR, 21–27 Jul 2024. URL https://proceedings.mlr.press/v2 35/luo24a.html .Mahmood, O., Pinheiro, P. O., Bonneau, R., Saremi, S., and Sresht, V. Pharmacophore-based design by learning on voxel grids, 2025. URL https://arxiv.org/ab s/2512.02031 .Maziarz, K., Liu, G., Tripp, A., Li, J., Gai´ nski, P., and Segler, M. Chemist-aligned retrosynthesis by ensembling diverse inductive bias models. In NeurIPS 2025 AI for Science Workshop , 2025. URL https://openrevi ew.net/forum?id=F05pziBqOg .Mendez, D., Gaulton, A., Bento, A. P., Chambers, J., Veij, M. D., Félix, E., Magariños, M. P., Mosquera, J. F., Mu-towo, P., Nowotka, M., Gordillo-Marañón, M., Hunter, F., Junco, L., Mugumbate, G., Rodriguez-Lopez, M., Atkin-son, F., Bosc, N., Radoux, C. J., Segura-Cabrera, A., Hersey, A., and Leach, A. R. ChEMBL: towards direct deposition of bioassay data. Nucleic Acids Research , 47 (D1):D930–D940, 2019. URL https://doi.org/ 10.1093/nar/gky1075 .Nam, J. and Kim, J. Linking the neural machine translation and the prediction of organic chemistry reactions, 2016. URL https://arxiv.org/abs/1612.09529 .NextMove Software. Pistachio: Reaction data, querying and analytics. https://www.nextmovesoftware.c om/pistachio.html , 2025. Accessed 2025-09-11. O. Pinheiro, P. O., Rackers, J., Kleinhenz, J., Maser, M., Mahmood, O., Watkins, A., Ra, S., Sresht, V., and Saremi, S. 3D molecule generation by denoising voxel grids. In Oh, A., Naumann, T., Globerson, A., Saenko, K., Hardt, M., and Levine, S. (eds.), Advances in Neural Information Processing Systems , volume 36, pp. 69077– 69097. Curran Associates, Inc., 2023. URL https: //proceedings.neurips.cc/paper_files /paper/2023/file/da1131a86ac3c70e0b7 cae89c3d4df22-Paper-Conference.pdf .Olivecrona, M., Blaschke, T., Engkvist, O., and Chen, H. Molecular de-novo design through deep reinforcement learning. Journal of Cheminformatics , 9(1):48, 2017. URL https://doi.org/10.1186/s13321-0 17-0235-x .Ong, S. P., Richards, W. D., Jain, A., Hautier, G., Kocher, M., Cholia, S., Gunter, D., Chevrier, V. L., Persson, K. A., and Ceder, G. Python Materials Genomics (pymatgen): A robust, open-source python library for materials analy-sis. Computational Materials Science , 68:314–319, 2013. URL https://doi.org/10.1016/j.commat sci.2012.10.028 .OpenEye Scientific Software. ROCS: Shape similarity. 
+
+https://www.eyesopen.com/rocs , 2025. Ac-cessed 2025-01-20. Papadopoulos, K., Giblin, K. A., Janet, J. P., Patronov, A., and Engkvist, O. De novo design with deep generative models based on 3D similarity scoring. Bioorganic & Medicinal Chemistry , 44:116308, 2021. URL https: //doi.org/10.1016/j.bmc.2021.116308 .Peebles, W. and Xie, S. Scalable diffusion models with transformers. In 2023 IEEE/CVF International Confer-ence on Computer Vision (ICCV) , pp. 4172–4182, Los 13 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+Alamitos, CA, USA, October 2023. IEEE Computer So-ciety. URL https://doi.ieeecomputersoci ety.org/10.1109/ICCV51070.2023.00387 .Peng, X., Luo, S., Guan, J., Xie, Q., Peng, J., and Ma, J. Pocket2Mol: Efficient molecular sampling based on 3D protein pockets. In Chaudhuri, K., Jegelka, S., Song, L., Szepesvari, C., Niu, G., and Sabato, S. (eds.), Proceed-ings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learn-ing Research , pp. 17644–17655. PMLR, 17–23 Jul 2022. URL https://proceedings.mlr.press/v1 62/peng22b.html .Polykovskiy, D., Zhebrak, A., Sanchez-Lengeling, B., Golo-vanov, S., Tatanov, O., Belyaev, S., Kurbanov, R., Ar-tamonov, A., Aladinskiy, V., Veselov, M., Kadurin, A., Johansson, S., Chen, H., Nikolenko, S., Aspuru-Guzik, A., and Zhavoronkov, A. Molecular Sets (MOSES): A benchmarking platform for molecular generation mod-els. Frontiers in Pharmacology , 11, 2020. URL https: //doi.org/10.3389/fphar.2020.565644 .QIN, Y., Madeira, M., Thanou, D., and Frossard, P. DeFoG: Discrete flow matching for graph generation. In Forty-second International Conference on Machine Learning ,2025. URL https://openreview.net/forum ?id=KPRIwWhqAZ .Rekesh, A., Cretu, M., Shevchuk, D., Somnath, V. R., Liò, P., Batey, R. A., Tyers, M., Koziarski, M., and Liu, C.-H. SynCoGen: Synthesizable 3D molecule generation via joint reaction and coordinate modeling, 2025. URL 
+
+https://arxiv.org/abs/2507.11818 .Rezende, D. and Mohamed, S. Variational inference with normalizing flows. In Bach, F. and Blei, D. (eds.), Pro-ceedings of the 32nd International Conference on Ma-chine Learning , volume 37 of Proceedings of Machine Learning Research , pp. 1530–1538, Lille, France, 07–09 Jul 2015. PMLR. URL https://proceedings.ml r.press/v37/rezende15.html .Rombach, R., Blattmann, A., Lorenz, D., Esser, P., and Ommer, B. High-resolution image synthesis with latent diffusion models. In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 10674–10685, Los Alamitos, CA, USA, June 2022. IEEE Computer Society. URL https://doi.ieeecomp utersociety.org/10.1109/CVPR52688.20 22.01042 .Sacha, M., Błaz, M., Byrski, P., Dabrowski-Tumanski, P., Chrominski, M., Loska, R., Włodarczyk-Pruszynski, P., and Jastrzebski, S. Molecule edit graph attention network: Modeling chemical reactions as sequences of graph edits. 
+
+Journal of Chemical Information and Modeling , 61(7): 3273–3284, 2021. URL https://doi.org/10.1 021/acs.jcim.1c00537 .Sagawa, T. and Kojima, R. ReactionT5: a pre-trained trans-former model for accurate chemical reaction prediction with limited data. Journal of Cheminformatics , 17(1): 126, 2025. URL https://doi.org/10.1186/s1 3321-025-01075-4 .Schneuing, A., Harris, C., Du, Y., Didi, K., Jamasb, A., Igashov, I., Du, W., Gomes, C., Blundell, T. L., Lio, P., Welling, M., Bronstein, M., and Correia, B. Structure-based drug design with equivariant diffusion models. Na-ture Computational Science , 4(12):899–909, 2024. URL 
+
+https://doi.org/10.1038/s43588-024-0 0737-x .Schneuing, A., Igashov, I., Dobbelstein, A. W., Castiglione, T., Bronstein, M. M., and Correia, B. Multi-domain distri-bution learning for de novo drug design. In The Thirteenth International Conference on Learning Representations ,2025. URL https://openreview.net/forum ?id=g3VCIM94ke .Schwaller, P., Gaudin, T., Lanyi, D., Bekas, C., and Laino, T. “Found in Translation”: predicting outcomes of complex organic chemistry reactions using neural sequence-to-sequence models. Chemical Science , 9(28):6091–6098, 2018. URL https://doi.org/10.1039/C8SC 02339E .Schwaller, P., Laino, T., Gaudin, T., Bolgar, P., Hunter, C. A., Bekas, C., and Lee, A. A. Molecular Transformer: A model for uncertainty-calibrated chemical reaction pre-diction. ACS Central Science , 5(9):1572–1583, 2019. URL https://doi.org/10.1021/acscents ci.9b00576 .Segler, M. H., Kogej, T., Tyrchan, C., and Waller, M. P. Generating focused molecule libraries for drug discovery with recurrent neural networks. ACS Central Science , 4 (1):120–131, 2018. URL https://doi.org/10.1 021/acscentsci.7b00512 .Seidl, P., Renz, P., Dyubankova, N., Neves, P., Verhoeven, J., Wegner, J. K., Segler, M., Hochreiter, S., and Klam-bauer, G. Improving few-and zero-shot reaction template prediction using modern hopfield networks. Journal of Chemical Information and Modeling , 62(9):2111–2120, 2022. URL https://doi.org/10.1021/acs. jcim.1c01065 .Seo, S., Kim, M., Shen, T., Ester, M., Park, J., Ahn, S., and Kim, W. Y. Generative flows on synthetic pathway for drug design. In The Thirteenth International Conference on Learning Representations , 2025. URL https://op enreview.net/forum?id=pB1XSj2y4X .14 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+Shen, T., Seo, S., Irwin, R., Didi, K., Olsson, S., Kim, W. Y., and Ester, M. Compositional flows for 3D molecule and synthesis pathway co-design. In Forty-second Interna-tional Conference on Machine Learning , 2025. URL 
+
+https://openreview.net/forum?id=4aXf SLfM0Z .Sheridan, R. P., McGaughey, G. B., and Cornell, W. D. Multiple protein structures and multiple ligands: effects on the apparent goodness of virtual screening results. 
+
+Journal of Computer-Aided Molecular Design , 22(3):257– 265, 2008. URL https://doi.org/10.1007/s1 0822-008-9168-9 .Sohl-Dickstein, J., Weiss, E., Maheswaranathan, N., and Ganguli, S. Deep unsupervised learning using nonequi-librium thermodynamics. In Bach, F. and Blei, D. (eds.), 
+
+Proceedings of the 32nd International Conference on Ma-chine Learning , volume 37 of Proceedings of Machine Learning Research , pp. 2256–2265, Lille, France, 07–09 Jul 2015. PMLR. URL https://proceedings.ml r.press/v37/sohl-dickstein15.html .Song, Y. and Ermon, S. Generative modeling by estimat-ing gradients of the data distribution. In Wallach, H., Larochelle, H., Beygelzimer, A., d'Alché-Buc, F., Fox, E., and Garnett, R. (eds.), Advances in Neural Informa-tion Processing Systems , volume 32. Curran Associates, Inc., 2019. URL https://proceedings.neurip s.cc/paper_files/paper/2019/file/300 1ef257407d5a371a96dcd947c7d93-Paper.p df .Stanley, M. and Segler, M. Fake it until you make it? Genera-tive de novo design and virtual screening of synthesizable molecules. Current Opinion in Structural Biology , 82: 102658, 2023. URL https://doi.org/10.1016/ j.sbi.2023.102658 .Sutskever, I., Vinyals, O., and Le, Q. V. Sequence to se-quence learning with neural networks. In Ghahramani, Z., Welling, M., Cortes, C., Lawrence, N., and Weinberger, K. (eds.), Advances in Neural Information Processing Systems , volume 27. Curran Associates, Inc., 2014. URL 
+
+https://proceedings.neurips.cc/paper _files/paper/2014/file/5a18e133cbf9f 257297f410bb7eca942-Paper.pdf .Swanson, K., Liu, G., Catacutan, D. B., Arnold, A., Zou, J., and Stokes, J. M. Generative AI for designing and validat-ing easily synthesizable and structurally novel antibiotics. 
+
+Nature Machine Intelligence , 6(3):338–353, 2024. URL 
+
+https://doi.org/10.1038/s42256-024-0 0809-7 .Swanson, K., Liu, G., Catacutan, D. B., McLellan, S., Arnold, A., Tu, M. M., Brown, E. D., Zou, J., and Stokes, J. M. SyntheMol-RL: a flexible reinforcement learning framework for designing novel and synthesizable antibi-otics. bioRxiv , 2025. URL https://doi.org/10 .1101/2025.05.17.654017 .Tran-Nguyen, V.-K., Jacquemard, C., and Rognan, D. LIT-PCBA: An unbiased data set for machine learning and virtual screening. Journal of Chemical Information and Modeling , 60(9):4263–4273, 2020. URL https://do i.org/10.1021/acs.jcim.0c00155 .Tripp, A., Daxberger, E., and Hernández-Lobato, J. M. Sample-efficient optimization in the latent space of deep generative models via weighted retraining. In Larochelle, H., Ranzato, M., Hadsell, R., Balcan, M., and Lin, H. (eds.), Advances in Neural Information Processing Sys-tems , volume 33, pp. 11259–11272. Curran Associates, Inc., 2020. URL https://proceedings.neurip s.cc/paper_files/paper/2020/file/81e 3225c6ad49623167a4309eb4b2e75-Paper.p df .Tu, Z. and Coley, C. W. Permutation invariant graph-to-sequence model for template-free retrosynthesis and reaction prediction. Journal of Chemical Information and Modeling , 62(15):3503–3513, 2022. URL https: //doi.org/10.1021/acs.jcim.2c00321 .Vahdat, A., Kreis, K., and Kautz, J. Score-based generative modeling in latent space. In Ranzato, M., Beygelzimer, A., Dauphin, Y., Liang, P., and Vaughan, J. W. (eds.), 
+
+Advances in Neural Information Processing Systems , vol-ume 34, pp. 11287–11302. Curran Associates, Inc., 2021. URL https://proceedings.neurips.cc/p aper_files/paper/2021/file/5dca4c6b9 e244d24a30b4c45601d9720-Paper.pdf .Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, L., and Polosukhin, I. Attention is all you need. In Guyon, I., Luxburg, U. V., Bengio, S., Wallach, H., Fergus, R., Vishwanathan, S., and Garnett, R. (eds.), Advances in Neural Information Processing Systems , volume 30. Curran Associates, Inc., 2017. URL 
+
+https://proceedings.neurips.cc/paper _files/paper/2017/file/3f5ee243547de e91fbd053c1c4a845aa-Paper.pdf .Vinkers, H. M., Jonge, M. R. d., Daeyaert, F. F. D., Heeres, J., Koymans, L. M. H., Lenthe, J. H. v., Lewi, P. J., Tim-merman, H., Aken, K. V., and Janssen, P. A. J. SYNOP-SIS: SYNthesize and OPtimize system in silico. Journal of Medicinal Chemistry , 46(13):2765–2773, 2003. URL 
+
+https://doi.org/10.1021/jm030809x .Vonessen, C., Harris, C., Cretu, M., and Liò, P. Tabasco: A fast, simplified model for molecular generation with 15 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+improved physical quality, 2025. URL https://ar xiv.org/abs/2507.00899 .Wei, J. N., Duvenaud, D., and Aspuru-Guzik, A. Neural networks for the prediction of organic chemistry reactions. 
+
+ACS Central Science , 2(10):725–732, 2016. URL http s://doi.org/10.1021/acscentsci.6b002 19 .Wolf, T., Debut, L., Sanh, V., Chaumond, J., Delangue, C., Moi, A., Cistac, P., Rault, T., Louf, R., Funtowicz, M., Davison, J., Shleifer, S., von Platen, P., Ma, C., Jernite, Y., Plu, J., Xu, C., Le Scao, T., Gugger, S., Drame, M., Lhoest, Q., and Rush, A. Transformers: State-of-the-art natural language processing. In Liu, Q. and Schlangen, D. (eds.), Proceedings of the 2020 Conference on Empir-ical Methods in Natural Language Processing: System Demonstrations , pp. 38–45, Online, October 2020. Asso-ciation for Computational Linguistics. URL https:// aclanthology.org/2020.emnlp-demos.6/ .Xie, W., Zhang, J., Xie, Q., Gong, C., Ren, Y., Xie, J., Sun, Q., Xu, Y., Lai, L., and Pei, J. Accelerating discovery of bioactive ligands with pharmacophore-informed genera-tive models. Nature Communications , 16(1):2391, 2025. URL https://doi.org/10.1038/s41467-0 25-56349-0 .Xu, M., Powers, A., Dror, R., Ermon, S., and Leskovec, J. Geometric latent diffusion models for 3D molecule generation, 2023. URL https://arxiv.org/abs/ 2305.01140 .Yim, J., Trippe, B. L., De Bortoli, V., Mathieu, E., Doucet, A., Barzilay, R., and Jaakkola, T. SE(3) diffusion model with application to protein backbone generation. In 
+
+Proceedings of the 40th International Conference on Machine Learning , ICML’23. JMLR.org, 2023. URL 
+
+https://dl.acm.org/doi/10.5555/36184 08.3620080 .Yu, K., Roh, J., Li, Z., Gao, W., Wang, R., and Coley, C. W. Double-ended synthesis planning with goal-constrained bidirectional search. In Globerson, A., Mackey, L., Bel-grave, D., Fan, A., Paquet, U., Tomczak, J., and Zhang, C. (eds.), Advances in Neural Information Processing Sys-tems , volume 37, pp. 112919–112949. Curran Associates, Inc., 2024. URL https://doi.org/10.52202/0 79017-3588 .Zhu, H., Zhou, R., Cao, D., Tang, J., and Li, M. Apharmacophore-guided deep learning approach for bioac-tive molecular generation. Nature Communications , 14 (1):6234, 2023. URL https://doi.org/10.103 8/s41467-023-41454-9 .Ziv, Y., Imrie, F., Marsden, B., and Deane, C. M. Mol-Snapper: Conditioning diffusion for structure-based drug design. Journal of Chemical Information and Modeling ,65(9):4263–4273, 2025. URL https://doi.org/ 10.1021/acs.jcim.4c02008 .16 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+## A. Limitations and Future Work 
+
+The focus of this work is to introduce and validate SynLaD’s ability to generate small molecules that preserve key phramacophore interactions of ligands and have high synthesizability. To this end, we restrict our methodology and experiments to ligand-based pharmacophore conditioning, reaction-constrained synthesis-pathway generation, and evaluation on small-molecule analogue generation tasks, as well as evaluation of our method’s core modules. A current limitation of our framework is that it relies on external reaction predicitons, and its performance is therefore affected by predictor bias or failure models. Future work could evaluate alternative predictors or ensembles of predictors. Second, our experiments here are limited to the USPTO dataset, and scaling to larger and more diverse reaction datasets may further test the generality of the approach. Additionally, further work could also focus on improving cross-decoder agreement (e.g., perhaps via considering techniques from contrastive learning), as stronger consistency across decoding heads may lead to better molecule feature alignment. 
+
+## B. Methods 
+
+B.1. Dataset 
+
+For our dataset, we make use of the provided synthesis DAGs from Bradshaw et al. (2020). Briefly, these DAGs were obtained from a cleaned version of the USPTO reaction dataset after stripping out reagents (Jin et al., 2017; Lowe, 2017); first, by building up a reaction network from the USPTO reactions and an initial set of “building block” nodes (picked by frequency), before extracting a possible synthesis plan for each non-building block node by tracing reactions backward to a loop-free subgraph that terminates in building blocks (selecting a single route when multiple alternatives exist). Using this data, we first filter the reactions such that the final products contain between 10 and 40 heavy atoms, and obtain 67 512 
+
+synthesis DAGs, 90% of which we keep as our training set and use the remaining data for our validation and test sets. Note that we randomly split by final molecule (i.e., the different train, validation, and test sets lead to different final molecules but may share reactions/sub-networks); analyzing SynLaD’s ability to extrapolate to different data splits (for instance, a “Reachable” vs “Hard” split akin to Yu et al., 2024, p.7) is an interesting future direction to explore. For each final product of the synthesis DAGs we compute a maximum of 10 low-energy conformers using Omega (Hawkins et al., 2010), which results in a total of 584 896 3D molecules. 
+
+B.2. Reaction network serialization 
+
+A synthesis pathway here is defined as a directed acyclic graph (DAG), where nodes represent molecules (each unique molecule maps to a unique node) and the edges represent reactions. In order to describe these pathways using an autoregressive language model we need to serialize them into a linear sequence of tokens. Our proposed approach follows (Bradshaw et al., 2020) (alternative serialization schemes have also been proposed, Gao et al., 2025; Lee et al., 2026; Luo et al., 2024) and is shown in Figure 6. The scheme relies on two kinds of tokens: action tokens and molecular tokens . Action tokens define a new operation to take with respect to the graph and are generally followed by a series of molecular nodes that specify the arguments required to define the action’s effect. There are three types of action tokens: • ‘B’ adds a building block node to the network (these are easily purchasable compounds and the token is followed by a single molecule token defining the identity of the chosen building block). • ‘F’ adds a reaction edge (and a product node if the molecule does not yet exist in the network) to our network through a single forward reaction. This action is followed by selecting one or more molecule nodes (representing the existing molecules in the network) to use as reactants, a sub-action ‘F_r’ (which indicates the reaction should be run) and a final product node (followed by ‘P’ ) that represents the product of the reaction. • ‘S’ is the stop action, which halts the prediction. 
+
+B.3. Synthesis action embeddings 
+
+The input tokens to the transformer are obtained via summing a series of embeddings as shown in Figure 1C: a learned embedding which specifies the token type, a molecule embedding (if the action involves a molecule) which is a projection of the molecule’s 2048-bit Morgan fingerprint, and a learned positional embedding. 17 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles OH   
+
+> OOH O
+> O
+> OO
+> O
+> OOH
+
+# B B P SF FrO   
+
+> O
+> OO
+> O
+> OOH O
+> O
+> OOH
+> OOH OH
+> OOH
+
+A, Example 
+
+Synthesis Plan B, Serialized 
+
+Representation 
+
+Figure 6. A tokenization scheme for describing synthesis plans in a bottom-up manner similar to Bradshaw et al. (2020). The synthesis plan, depicted as a DAG in A can be serialized as shown in B into a series of tokens. In B, the four dotted circles above the sequence indicate the state of the synthesis plan at that stage of decoding—empty nodes indicate the identity of the molecule corresponding to that node has yet to be defined. Note that this scheme can be used to describe complex, multi-step synthesis plans in a bottom-up manner. 
+
+Table 5. Autoencoder loss weights ablation study. We report 3D molecule match rate (computed with MoleculeMatcher from PyMatGen) and invariant building block match rate in the synthesis sequence. 3D molecule Building block 
+
+λ β match rate match rate 
+
+0.50 10 −5 82.1 83.3 
+
+0.70 10 −5 90.2 83.1 
+
+0.92 10 −5 98.5 82.5 
+
+0.98 10 −5 98.7 80.6 
+
+0.92 10 −4 80.6 67.4 
+
+B.4. VAE training Autoencoder ablations We report ablations for autoencoder hyperparameters in Tables 5 and 6. Increasing the weight on the synthesis decoder loss (see Eq. (1) ) harms 3D coordinate reconstruction and adds little benefit for the synthesis sequence reconstruction. Note that we report the accuracy of builiding block prediction in its order-invariant form (i.e., building blocks might be added earlier or later on in the sequence, with the end product being the same); this differs during training in which we randomly pick an order (for building blocks at the same level) and train on this fixed sequence using teacher forcing. We use λ = 0 .92 in our experiments and β = 10 −5, as larger KL weight harms reconstruction accuracy for both decoders. We use a latent dimension d = 16 which shows the best molecule and synthesis reconstruction. B.4.1. S YNTHESIS DECODER TRAINING 
+
+The synthesis decoder is implemented as a decoder-only transformer. Each input token is embedded by summing (i) a learned embedding for special tokens or retrieved molecular embeddings, (ii) a learned token-type embedding, and (iii) a learned positional embedding. Graph-level information is provided via a fingerprint encoder. The embedded sequence is processed by transformer blocks with RMSNorm pre-normalization, multi-head self-attention, and a SwiGLU feed-forward network (further details can be found in our attached code). When conditioning is enabled, each block additionally applies a cross-attention sublayer over an external conditioning vector. During training, we use teacher forcing (Goodfellow et al., 2016, §10.2.1), i.e., for each prediction step the decoder is conditioned on the ground-truth previous tokens. We compute the cross-entropy loss only on positions where the model is expected to generate tokens, and mask out product tokens (and any padded positions) so they do not contribute to the loss. We report ablations for synthesis decoder inference in Tables 7 and 8. 18 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles                                                             
+
+> Table 6. Autoencoder reconstruction accuracies. The synthesis match rate and Morgan fingerprint Tanimoto similarity are calculated between the final product of the predicted and the ground truth synthesis sequences. We report performance with two different inference strategies for the synthesis decoder.
+> Autoencoder hyperparameters 3D metrics Synthesis metrics
+> Inference method Latent dim. Match Rate (%) ↑RMSD (Å) ↓Match Rate (%) ↑Tanimoto similarity ↑
+> Beam search 898.9 0.05 58.4 0.82 Beam search 16 98.5 0.05 63.4 0.84 Beam search 32 98.9 0.04 62.7 0.83 Sampling 898.9 0.05 42.8 0.73 Sampling 16 98.5 0.05 49.0 0.76 Sampling 32 98.5 0.04 51.4 0.77
+> Table 7. Synthesis decoder ablations (beam search).
+> Beam width Synthesis Match Rate (%) ↑
+> Tanimoto similarity ↑
+> 147.6 0.75 563.4 0.84 10 59.5 0.82
+> Table 8. Synthesis decoder ablations (sampling).
+> N Top-kSynthesis Match Rate (%) ↑Tanimoto similarity ↑
+> 1143.9 0.73 1544.1 0.73 110 43.4 0.73
+
+B.5. DiT training Sampling ablations. We investigate the effect of the number of sampling steps used during inference on molecule quality and synthesis/3D decoder output match rate in Table 9. Unless otherwise stated, we use 100 sampling steps in all experiments. We additionally ablate the classifier-free guidance weight w in Eq. (5) (Table 10). Increasing w improves control over latent quality and yields more valid decoded molecules, but reduces scaffold diversity. Since our primary objective is to maximize the number of generated hits, we therefore use w = 0 (i.e., no classifier-free guidance) throughout. 
+
+B.6. Training and hyperparameters 
+
+We jointly train the VAE and synthesis decoder, then train the DiT in a second stage, using AdamW with a constant learning rate of 10 −4, zero weight decay, and a batch size of 256. We maintain an exponential moving average of the DiT parameters with decay 0.9999 . Each stage is run to convergence, for up to 3000 epochs or 3 days on a single B200 GPU. For the VAE, we use standard transformers for both the encoder and 3D decoder with hidden dimension dmodel = 256 , 4 attention heads and 6 layers. For the synthesis decoder we used dmodel = 384 , 8 attention heads, and 8 layers with causal self-attention, cross-attention conditioning to the latents, and SwigLU FFNs. For the second stage training, the pharmacophore encoder is a standard transformer with dmodel = 256 , 4 heads, and 4 layers, and the DiT denoiser has dmodel = 768 , 12 attention heads, and 12 layers. 
+
+Molecule and pharmacophore embeddings. Molecules and pharmacophores are represented by their respective atom or pharmacophore types together with 3D coordinates (see Sections 3.1 and 3.2). We use separate embedding layers for atom / pharmacophore types and atomic positions, following Joshi et al. (2025). Atom types are embedded via a learned embedding                     
+
+> Table 9. Number of sampling steps ablation. We performed the ablation in the unconditional setting. #Steps Validity ↑PoseBusters ↑Synthesis/3D exact match rate ↑
+> 50 0.85 0.85 0.28 100 0.89 0.89 0.33 200 0.89 0.89 0.32 300 0.90 0.89 0.33 500 0.91 0.89 0.33
+
+19 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles                                                             
+
+> Table 10. Classifier free guidance ablation. We performed the ablation for the Lit-PCBA ligands conditioning experiment and generated 100 samples per conditioning input. cfg. setting Validity ↑Diversity ↑Hits ↑Uniq. scaff. hits ↑
+> (syn out) (3D out) (syn out) (3D out) (syn out) (3D out) w/o cfg. 0.49 0.86 0.86 17.9 38.1 6.9 18.8
+> w= 0 .50.56 0.85 0.85 14.2 34.7 3.8 12.1
+> w= 1 .00.46 0.85 0.84 14.3 38.0 4.8 15.2
+> w= 2 .00.45 0.85 0.84 13.1 34.7 5.0 15.7
+> w= 4 .00.36 0.85 0.84 11.7 23.4 5.2 12.6
+> Table 11. Reaction predictor test accuracy. Top-k accuracy (%) on the held-out test set for product outcome prediction.
+> Checkpoint Top-1 Top-2 Top-3 Top-5
+> Final (1M iters) 84.6 91.4 93.3 94.8
+
+lookup, while positions are projected using a linear layer. The resulting representations are combined by summation. 
+
+B.7. Reaction predictor oracle training 
+
+As explained in the main text, when running our synthesis decoder at inference time we require access to a reaction predictor oracle to predict the molecular identity of the product molecule given the set of reactants (we ignore conditions and reagents in this current work). For this, we use a model based around the BART architecture (Lewis et al., 2020), using an implementation adapted from the transformers library (Wolf et al., 2020) for use in reaction prediction (Bradshaw et al., 2025). This is similar in spirit to other encoder-decoder models used for reaction prediction/one-step retrosynthesis (Nam & Kim, 2016; Schwaller et al., 2019; 2018; Liu et al., 2017). We train our reaction prediction oracle on reactant-product pairs from the same USPTO dataset we extract the synthesis plans from for training SynLaD; teacher forcing is used at training time and beam search is used during inference for making predictions. We leave to future work the exploration of using alternative reaction predictors (Tu & Coley, 2022; Jin et al., 2017; Bradshaw et al., 2019a; Seidl et al., 2022; Joung et al., 2025; Fooshee et al., 2018; Kayala et al., 2011; Sacha et al., 2021; Wei et al., 2016; Do et al., 2019; Bi et al., 2021; Irwin et al., 2022; Sagawa & Kojima, 2025), or even multiple at a time (Maziarz et al., 2025) for more robust predictions. We report accuracy results from training on a train/validation/test split of approximately 409k/30k/40k data points extracted from the USPTO dataset in Table 11. 
+
+B.8. Evaluation metrics 
+
+We define the metrics used thoroughout the paper as follows: • Validity (Valid.) : % of molecules that can be processed by RDKit. • Internal diversity (IntDiv.) : One minus the value of the averaged pairwise Tanimoto similarities of the Morgan fingerprints (size 2048, radius 2) of the molecules in the generated set. • Murcko Scaffold count : number of unique Murcko scaffolds in a generated set. • Novelty (Nov.) : % of valid molecules not present in the training set. • PoseBusters (PB) : % of molecules passing all PoseBusters filters (Buttenschoen et al., 2024). This was only evaluated for models that generated 3D poses. • SA : Averaged synthetic accessibility score from Ertl & Schuffenhauer (2009). • AiZynthFinder (AiZynth.) : % of molecules (out of 100) for which AiZynthFinder finds valid synthetic pathways given its default set of reactions and ZINC building blocks. • RMSD and match rate : For 3D molecule reconstruction we report RMSD and match rate computed using MoleculeMatcher from PyMatGen (Ong et al., 2013). 20 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+• Hit rate : We compute hit rate by counting the number of unique molecules with ROCS Tanimoto Combo score ≥ 1.2.
+
+B.9. ROCS evaluation pipeline 
+
+We scored 3D similarity with OpenEye ROCS (Hawkins et al., 2007) using a standard OMEGA →ROCS workflow. We kept the query conformation intact (from our test set or Lit-PCBA benchmark pose) and for each candidate molecule, we first generated an ensemble of 100 low-energy 3D conformations with OMEGA (Hawkins et al., 2010), which constructs initial geometries from fragment conformers and then samples torsions using a knowledge-based torsion library, retaining a pruned set of energetically and geometrically reasonable conformers. We then used ROCS to perform fast rigid overlays between all query-candidate conformer pairs, representing molecular shape as a sum of atom-centered Gaussian functions and maximizing shared volume and pharmacophoric (“color”) feature overlap. For each candidate, we reported the best overlay across conformers, and computed ShapeTanimoto, ColorTanimoto, and their sum (TanimotoCombo) as the final shape, color, and combined similarity scores. The same pipeline was applied for SynLaD and all baselines, regardless of the methods’ output types. 
+
+## C. Experiments 
+
+C.1. Pharmacophore conditioned generation 
+
+During training, we load the pharmacophore features for a conformer and randomly drop k features, where k is sampled uniformly from [0 , max(0 , N ph − 3)] , and Nph denotes the number of pharmacophore features in the sample. During sampling, we set the latent to contain M atoms, with M sampled uniformly from [max(1 , N − 3) , N + 3] , where N is the number of heavy atoms in the query (i.e., excluding hydrogens).            
+
+> Table 12. Molecule quality metrics for in-distribution pharmacophore conditioning. Higher is better for all.
+> Method Validity Uniqueness Diversity
+> SynLaD (3D out) 0.78 0.60 0.72 SynLaD (syn out) 1.0 0.63 0.75
+
+C.2. Bioactive hit diversification experiment 
+
+We used ten PDB targets from Tran-Nguyen et al. (2020), with PDB IDs 4LDO, 5L2M, 2P15, 2IOK, 5FV7, 2V3D, 4ZZN, 6B73, 3ZME, 3A2I. We extracted the corresponding ligand for each of these as the ‘query’. We show examples of decoded outputs, together with the conditioning query in Figure 9. We show additional results (including the per-query number of hits for the 3D decoder) in Figure 11. For the hit diversification experiment, we quantify the extent to which molecules are out-of-distribution from the training set by plotting Tanimoto distances of the Lit-PCBA ligands to all training molecules in Figure 12 (computed using 2048-bit Morgan fingerprints). In addition to the results in Table 4, we provide a ranking table that summarizes the relative performance of each method across all evaluated metrics. For each metric, methods are ranked per task and the average rank is reported, using a joint ranking scheme. This view highlights the consistency of each method across objectives, rather than emphasizing performance on any single metric. As shown in Table 13, SynLaD achieves the best or tied-best average rank for validity, unique scaffold hits, and synthesizable hits.   
+
+> Table 13. Ranking table for hit diversification (OOD) task. We report mean ranks using a joint ranking scheme. Lower is better.
+
+Method Validity ↓ Hits (avg.) ↓ Unique scaff. hits (avg.) ↓ Max score ↓ Synthesizable hits ↓
+
+SynLaD 1.10 2.10 1.90 2.20 2.00 
+
+SynFormer 1.10 2.20 1.90 2.00 2.10 REINVENT 1.20 2.10 3.00 1.70 2.10 ShePHERD 4.00 2.60 2.20 3.10 2.30 21 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+Figure 7. Unconditional generation: synthesis- vs. 3D-decoded outputs. Examples of decoded outputs from the synthesis decoder, followed by outputs of the 3D decoder, from the same latent. 
+
+Figure 8. Dataset screen vs. SynLaD sampling . We report the number of unique hits for randomly selected queries from the test set. See the “Screening case study” section in the main text for further details. 
+
+22 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 3D decoder output Synthesis decoder output   
+
+> +
+> +
+> +
+> Synthesis decoder output (entire pathway) Query
+> +
+> +
+> ++
+> +
+> +
+> +
+> +
+> ++
+> +
+> +
+> +
+
+Figure 9. SynLaD outputs for the Lit-PCBA conditioning task. We visualize the Lit-PCBA ligand used as the conditioning Query (via its pharmacophore), together with the corresponding 3D decoder output and the synthesis decoder output (final product and entire pathway ). For readability, the query and 3D-decoded molecules are shown in 2D, although both are modeled in 3D coordinate space. We intentionally select examples where the synthesis- and 3D-decoder outputs do not coincide. 
+
+23 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+Figure 10. Examples of query (reference) and sampled molecules conditioned on pharmacophores. Samples were decoded using the 3D decoder, and we show the molecules in their predicted conformation. 
+
+24 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 4ldo 5l2m 2p15 2iok 5fv7 2v3d 4zzn 6b73 3zme 3a2i 
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+> Number of Hits
+
+Distribution of number of hits (ROCS Tanimoto combo 1.2) 
+
+ShEPhERD 
+
+SynFormer 
+
+REINVENT 
+
+SynLad (syn out) 
+
+SynLad (3D out) 
+
+Synthesizable 
+
+Figure 11. Bioactive hit difersification experiment. We add to the results in Figure 4 the performance of the 3D decoder. 0.75 0.80 0.85 0.90 0.95 1.00 
+
+> Tanimoto distance
+> 0
+> 10000
+> 20000
+> 30000
+> 40000
+> 50000
+> Count
+
+Figure 12. Bioactive hit difersification experiment. Tanimoto distances of Lit-PCBA ligands to our training set. 
+
+25 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles OH   
+
+> OOH O
+> O
+> OO
+> O
+> OOH
+
+# Synthesis 
+
+# Decoder 
+
+# Pharmacophore 
+
+# Embedder 
+
+pharmacophore hidden representation synthesis plan 
+
+> x
+> y
+> z
+
+Z＇        
+
+> Figure 13. Removing the 3D VAE and diffusion module. To assess the importance of our model’s autoencoder structure and 3D components, we run an ablation where we remove these. Here, as shown, we instead train a model to map directly from a pharmacophore to a synthesis plan via a deterministic hidden representation, Z′. For consistency with SynLaD, we keep the pharmacophore embedding network the same as that used as part of the conditional diffusion transformer, and we also ensure that the hidden representation Z′has the same dimensionality as the previously used stochastic latent variable, Z. The synthesis decoder also decodes from Z′in the same way as before, using cross-attention (see Figure 1, C).
+
+C.3. Ablations Removing the 3D VAE and diffusion module. In principle one could condition a synthesis decoder like the one in SynLaD, or equivalently others from the literature (Gao et al., 2025; Lee et al., 2026) on pharmacophores, to have the model learn to generate synthesizable molecules that preserve those pharmacophores. To see whether there is benefit in modeling the conditioning input to the synthesis decoder using a latent diffusion framework as we do in SynLaD, we perform an ablation where we remove the 3D latent component from SynLaD and condition the synthesis decoder directly on the pharmacophore. We preserve the pharmacophore embedder described in Section 3.2 and use the resulting embedding to condition on with an otherwise identical synthesis decoder via cross-attention. This yields a simplified pipeline, pharmacophore → pharmacophore embedding → synthesis pathway (see Figure 13), which isolates the contribution of the 3D branch while keeping the synthesis decoder architecture and training procedure unchanged. We run the ablation on the in-distribution (ID) and out-of-distribution (OOD) conditioning tasks reported in Section 4 and show in Table 14 that although the Tanimoto Combo scores do not suffer a drastic drop, the ablated version of the model appears to have collapsed to generating few samples per input (see Figure 14), showing that the entire framework is crucial to generating diverse hits. 
+
+Using a SMILES VAE. We further investigate the effects of learning a conditional diffusion model for phramacophore-conditioned generation in a less expressive latent space. We replace the 3D autoencoder with a transformer VAE that operates on SMILES strings, to remove the 3D-reasoning component of SynLaD, while keeping the latent-conditioning component. SMILES strings are tokenized at the atom level using a regular-expression tokenizer adapted from Schwaller et al. (2018). The SMILES VAE preserves the encoder-decoder architecture of the 3D autoencoder, and the same per-token diagonal-Gaussian latent. L3D in Eq. (1) is replaced by a cross-entropy loss over tokens, and λ is set to 0.5. We keep an identical synthesis decoder, and train a second-stage latent diffusion model conditioned on pharmacophore embeddings. We run the ablation on both the ID and OOD conditioning tasks in Section 4 and report results in Table 14. We note that the diversity and uniqueness advantages of SynLaD are preserved, supporting our hypothesis that learning a pharmacophore-conditional distribution over latents via the diffusion module helps, promoting variability in the synthesis decoder’s conditioning. In contrast, the number of hits and Tanimoto scores decrease, suggesting that 3D information helps better capture the latent space for the pharmacophore-conditioning task. 
+
+C.4. Comparison to baselines ShEPhERD We used the official implementation at https://github.com/coleygroup/shepherd (Adams et al., 2025) and use the p(x1|x3, x 4) conditional setting provided in the repository where x1 denotes molecular structure, x3
+
+is the query electrostatic potential surface, and x4 is the query’s pharmacophore. We generate 500 analogues with number of atoms uniformly sampled from the interval [max(3 , N − 6) , N + 6] , where N is the number of atoms in the query molecule (including hydrogens), to best match SynLaD’s settings. 
+
+SynFormer We used the official implementation at https://github.com/wenhao-gao/synformer and changed the following inference settings to allow for higher quality designs compared to the default: search_width=32, exhaustiveness=128, time_limit=300 . We generate and evaluate 500 molecules per query. 26 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 
+
+Table 14. Ablations. We report metrics for our in-distribution (ID) and hit diversification / out-of-distribution (OOD) experiments. 
+
+SynLaD (syn out) refers to synthesis output of the baseline SynLaD model, w/o 3D VAE & DM refers to an ablation where we remove the 3D heads and diffusion module and condition the synthesis decoder directly on pharmacophore embeddings, and w/ SMILES VAE refers to a model where we switch the 3D VAE for a SMILES VAE. Metrics are averages over all conditioning inputs. 
+
+Setting Method Div. ↑ Uniq. ↑ Tanimoto Combo ↑ #Hits ↑ #Scaff. hits ↑
+
+ID SynLaD (syn out) 0.75 0.63 1.18 27.5 11.6 ID w/o 3D VAE & DM 0.49 0.17 1.12 5.9 3.5 ID w/ SMILES VAE 0.72 0.55 1.07 20.7 8.9 OOD SynLaD (syn out) 0.86 0.79 1.29 17.9 6.9 OOD w/o 3D VAE & DM 0.76 0.18 1.11 4.4 1.5 ID w/ SMILES VAE 0.86 0.77 1.19 10.4 3.2 0 1 2 3 4 5 6 7 8 9
+
+> 10
+> 11
+> 12
+> 13
+> 14
+> 15
+> 16
+> 17
+> 18
+> 19
+> 20
+> 21
+> 22
+> 23
+> 24
+> 25
+> 26
+> 27
+> 28
+> 29
+> 30
+> 31
+> 32
+> 33
+> 34
+> 35
+> 36
+> 37
+> 38
+> 39
+> 40
+> 41
+> 42
+> 43
+> 44
+> 45
+> 46
+> 47
+> 48
+> 49
+> Index
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Num Hits
+> Num Hits per Index: Ablation vs SynLAD
+> w/o 3D latent
+> SynLAD (syn out)
+
+Figure 14. Effect of removing the 3D branch on the number of hits. We generate molecules conditioned on a pharmacophore with 1) SynLaD and a 2) synthesis decoder directly conditioned on the pharmacophore embedding. 
+
+REINVENT We used the official implementation of REINVENT 4 available at https://github.com/Molec ularAI/REINVENT4 (Loeffler et al., 2024; Blaschke et al., 2020; Olivecrona et al., 2017). We start from the default REINVENT prior (from https://zenodo.org/records/15641297 ), which was trained on ChEMBL (Mendez et al., 2019) to cover a broad region of chemical space. We followed the repository’s example reinforcement learning configuration (including hyperparameters), using a Tanimoto color scorer (with up to 5 conformers for computational speed) and a maximum of 300 steps (we do not include any other scoring components). We use the final 500 sampled molecules for evaluation. Although additional steps and hyperparameter tuning may further improve results, each target run already takes approximately 6 hours and can involve scoring up to 30 000 proposed molecules; therefore, we defer a comprehensive hyperparameter study (for both REINVENT and SynLaD) to future work. 27 SynLaD : Latent Diffusion for Generating Synthesizable Molecules Conditioned on 3D Pharmacophore Profiles 0 1 2 3 4 5 6 7 8 9
+
+> Index
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Num Hits
+
+Num Hits per Index: Ablation vs SynLAD 
+
+> w/o 3D latent
+> SynLAD (syn out)
+
+Figure 15. Effect of removing the 3D branch on the number of hits, for our OOD hit diversification experiment. 
+
+We replicate the setting in Figure 14. 28
