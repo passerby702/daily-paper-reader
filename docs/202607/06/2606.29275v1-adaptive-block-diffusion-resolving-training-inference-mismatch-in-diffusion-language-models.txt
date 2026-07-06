@@ -1,0 +1,690 @@
+Title: Adaptive Block Diffusion: Resolving Training-Inference Mismatch in Diffusion Language Models
+
+URL Source: https://arxiv.org/pdf/2606.29275v1
+
+Published Time: Tue, 30 Jun 2026 01:03:15 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+Preprint. 
+
+# Adaptive Block Diffusion: Resolving Training–Inference Mismatch in Diffusion Language Models 
+
+Gagan Jain ∗
+
+## Abstract 
+
+Diffusion Language Models (DLMs) are typically trained under fixed con-text structures, restricting denoising to predetermined token subsets. This creates a mismatch between training and inference, where models must operate over arbitrary configurations, leading to degradation off the train-ing grid. We propose Adaptive Block Diffusion (ABD) , which resolves this mismatch by optimizing denoising risk over a distribution of pre-fix–window configurations. By treating the configuration as a stochastic variable, ABD trains a single model over the full configuration space with-out architectural changes. We show that generalization across decoding strategies is governed by the support of the training distribution, and that ABD guarantees denoising optimality for any inference policy whose config-urations are covered during training. Empirically, ABD exhibits structural invariance across decoding scales, avoiding off-grid collapse and recov-ering a monotonic relationship between block size and perplexity, while matching or outperforming fixed-block specialists at their target scales. 
+
+## 1 Introduction 
+
+Autoregressive (AR) language models (Radford & Narasimhan, 2018) gen-erate text sequentially and achieve strong perplexity, but their infer-ence latency scales linearly with sequence length, limiting parallelism. Diffusion-based approaches, originally developed for continuous domains 20 21 22 23 24 25 26 27
+
+> 26
+> 28
+> 30
+> 32
+> 34
+> 36
+> 38
+> 40
+> Block Size
+> Perplexity (PPLX)
+> BD3LM (BS=4)
+> BD3LM (BS=16)
+> MDLM (BS=128)
+
+Figure 1: The Generalization Gap in Fixed-Block Diffusion: 
+
+> Eval Perplexity as a function of inference block size on LM1B for models trained at fixed block sizes. Fixed-block specialists exhibit optimal performance only near their training support (circled), with sharp perplexity spikes occurring when evaluated at off-grid scales, demonstrating the lack of structural invariance, where models fail to generalize to configurations unseen during training.
+
+(Sohl-Dickstein et al., 2015; Ho et al., 2020; Song et al., 2022; Dhariwal & Nichol, 2021), have recently been adapted to discrete text generation (Austin et al., 2023; Hoogeboom et al., 2021), offering a complementary paradigm that enables parallel decoding. To bridge the gap between global paral-lelism and local precision, recent work has introduced structured diffusion schemes such as Masked Discrete Diffusion Lan-guage Models (MDLM) (Sahoo et al., 2024) and Block Diffusion (Arriola et al., 2025), which restrict denoising to subsets of pre-fix conditioned tokens. However, these approaches rely on fixed context structures ,where the set of denoised tokens follows a predetermined pattern throughout training. This design introduces a fundamental limi-tation: the model is trained to denoise under a narrow set of configurations, while inference often requires operating over arbitrary prefix lengths and window sizes. This induces a 
+
+support mismatch between training and inference. When evaluated outside their training support, fixed-block models exhibit sharp degradation in perplexity and unstable generation 
+
+> ∗
+
+Work done while at Microsoft AI. Email: gaganjain1582@gmail.com 
+
+1
+
+> arXiv:2606.29275v1 [cs.LG] 28 Jun 2026
+
+Preprint. Autoregression: ✓ High quality ✓ Arbitrary-length ✓ KV caching × Not Parallelizable ✓ Focused Denoising 
+
+> There are three categories of the average There are three categories of the average rate There are three categories of the average rate of loss ...
+
+Diffusion: × Lower quality × Fixed-length × No KV caching ✓ Parallelizable × Uniform Denoising   
+
+> the will continue to Repeat the reusability cuts and the law will continue to reduce the Repeat the reusability cuts and prove the law will continue to reduce the deficit.
+
+Block Diffusion: ✓ High quality ✓ Arbitrary-length ✓ KV caching ✓ Parallelizable × Uniform Denoising      
+
+> On September 17, we be On September 17, 2016, we will be giving the release of On September 17, 2016, we will be giving the beta-release of the to our server testing
+
+Adaptive Block Diffusion: ✓ High quality ✓ Arbitrary-length ✓ KV caching ✓ Parallelizable ✓ Focused Denoising    
+
+> The was prepared using reagents with The solution was prepared using common reagents with The solution was prepared using common reagents with phosphatidylcholine after inspection steps.
+
+Figure 2: Comparison of Text Generation Paradigms: Autoregressive models generate tokens sequen-tially, while Standard Diffusion treats sequences globally. Block Diffusion introduces structure but remains restricted to fixed-length, grid-aligned windows. Adaptive Block Diffusion generalizes these frameworks by training on a stochastic distribution of prefix lengths and window sizes, enabling high-quality, parallel generation across arbitrary boundaries while maintaining KV caching compatibility. 
+
+behavior, as shown in Figure 1. These models do not learn a general denoising procedure, but rather specialize to configurations seen during training, leaving their behavior on unseen configurations effectively unconstrained. This motivates us to raise a fundamental question: 
+
+Can a single diffusion language model be trained to eliminate the mismatch between training and inference, remaining invariant to decoding configurations? 
+
+In this paper, we propose Adaptive Block Diffusion (ABD) , a framework that resolves this mismatch by training over the full configuration space of prefix–window pairs. Rather than restricting training to a fixed set of denoising patterns, ABD treats the configuration as a stochastic variable and optimizes denoising risk across a distribution of configurations. Unlike inference-time approaches (Lu et al., 2026a), which adapt block size post-hoc without training-time guarantees, ABD ensures that the support of inference-time configurations is covered during training, yielding a single model that is structurally invariant to decoding scale and boundary choices. Our contributions are as follows: • The Adaptive Block Diffusion Framework: We introduce a training framework that treats denoising configurations as stochastic variables, enabling optimization over the full configuration space of prefix–window pairs. • Training–Inference Alignment: We show that ABD guarantees denoising optimality for any inference policy whose configuration distribution is supported during training, formalizing alignment via a Radon–Nikodym argument. • Structural Invariance: We demonstrate that ABD eliminates off-grid degradation and recovers a monotonic relationship between block size and perplexity, in contrast to fixed-block specialists. • Unified Model Across Scales: A single ABD model matches or outperforms fixed-block models at their target configurations while maintaining strong performance across all decoding scales. 
+
+## 2 Preliminaries 
+
+Masked Discrete Diffusion Language Models : Let V be a finite vocabulary, D denote the training data distribution, and xt = ( x1
+
+t , . . . , xLt ) ∈ V L denote a length-L sequence of discrete tokens at diffusion timestep t. Masked discrete diffusion language models (MDLMs) define a Markov forward process q where xt ∈ (V ∪ { MASK })L denotes a corrupted version of x0 at timestep t. The forward transition kernels are typically chosen to factorize across token positions, with corruption strength increasing in t, q(x1: T | x0) = ∏Tt=1 qt(xt | xt−1) = 
+
+∏Tt=1 ∏Li=1 qt(xit | xit−1). The conditional distribution qt(· | x0) is assumed to have full 2Preprint. support over the masked token for all t. The reverse process is parameterized by a neural model pθ , which defines conditional distributions of the form pθ (x0 | xt, t). Training minimizes an expected denoising objective that can be written as a sum of Kullback–Leibler divergences between the true reverse conditionals induced by the forward process and the model distributions: 
+
+Ex0∼D , t∼U ({1,..., T}), xt ∼qt (·| x0)
+
+> L
+
+# ∑
+
+> i=1
+
+KL 
+
+
+
+q(xi 
+
+> 0
+
+| xit, t) pθ (xi 
+
+> 0
+
+| xit, t)
+
+
+
+where q(xi 
+
+> 0
+
+| xit, t) denotes the true reverse conditional associated with the forward diffusion process. This objective is equivalent to minimizing the denoising cross-entropy loss up to an additive constant independent of θ. A key property of this formulation is that, for any fixed diffusion timestep t, denoising is performed in parallel over a fixed set of token positions. While token values are iteratively refined across timesteps, the index set of positions being denoised remains unchanged within a diffusion run. 
+
+Configuration Space Notation : To formalize the space of denoising configurations, we introduce a prefix length k and a denoising window length ℓ, and define the configuration space as Ω := {(k, ℓ) | 0 ≤ k ≤ L − 1, 1 ≤ ℓ ≤ L − k}. For any configuration (k, ℓ) ∈ Ω, we define the set of noised positions as S(k, ℓ) := {k + 1, . . . , k + ℓ}. A binary noise mask is defined as mk,ℓ(i) := 1{i ∈ S(k, ℓ)} , i = 1, . . . , L, where 1{·} denotes the indicator function. This formulation makes explicit that each diffusion objective corresponds to optimizing denoising performance over a subset of the configuration space Ω during training. Given a configuration (k, ℓ), tokens indexed by S(k, ℓ) are corrupted by the forward diffusion process, while tokens outside this set remain clean and serve as conditioning context. The diffusion denoising process is therefore fully specified by the tuple (x0, k, ℓ, t). This formulation subsumes a broad class of structured diffusion procedures in which denoising is restricted to a contiguous suffix conditioned on a clean prefix. Specific instantiations correspond to imposing additional constraints on the configuration space Ω.
+
+Block Diffusion and Semi-Autoregressive Decoding : Block diffusion corresponds to a particular restriction of the configuration space defined above. Specifically, training is performed on configurations of the form ΩBD = {(k, ℓ) ∈ Ω | ℓ = L′, k ∈ bL ′, b ∈ Z+},where the denoising window length is fixed to a block size L′ and the prefix length advances in increments of L′. Each diffusion run denoises a fixed-length window following a block-aligned prefix. As a result, the model is only trained to denoise under configurations in 
+
+ΩBD , leaving its behavior on the remainder of Ω unconstrained by the training objective. This perspective motivates training objectives that optimize denoising risk over broader subsets of Ω, which we develop in the following section as Adaptive Block Diffusion. 
+
+## 3 Methodology: Adaptive Block Diffusion 
+
+We now introduce Adaptive Block Diffusion (ABD), which resolves the training–inference mismatch by optimizing denoising risk over the full configuration space of prefix-window pairs. Rather than restricting training to a fixed block-aligned subset, ABD treats the configuration (k, ℓ) ∈ Ω as a stochastic variable and directly optimizes denoising risk over this space. To this end, we define a training distribution π over the configuration space 
+
+Ω. Given a configuration (k, ℓ) ∼ π, diffusion is applied only to tokens indexed by S(k, ℓ),while tokens outside this set remain clean and serve as conditioning context. Formally, the ABD training objective is defined as 
+
+LABD (θ) = E(k,ℓ)∼π, x0∼D , t∼U ({1,..., T}), xt ∼qt (·| x0) ∑
+
+> i∈S(k,ℓ)
+
+KL 
+
+
+
+q(xi 
+
+> 0
+
+| xit, t) pθ (xi 
+
+> 0
+
+| xit, x1: k 
+
+> 0
+
+, t)
+
+
+
+This objective can be interpreted as minimizing expected denoising risk over the configura-tion space Ω during training under the distribution π. Thus, existing diffusion objectives can be viewed as special cases of LABD , corresponding to restricted choices of π with limited support over Ω. This objective reduces to the standard masked diffusion objective when 3Preprint. 
+
+Algorithm 1 Adaptive Block Diffusion Training   
+
+> Require: Training data dist.
+
+D, block config dist. π over (k, ℓ) pairs, model parameters θ      
+
+> 1: while not converged do
+> 2: Sample a training sequence x0
+
+∼ D   
+
+> 3: Sample a block configuration
+
+(k, ℓ) ∼ π defining the active block S(k, ℓ)   
+
+> 4: Sample a diffusion timestep t
+
+∼ U ({1, . . . , T}) and corrupt the sequence to obtain xt ∼ qt(· | x0)   
+
+> 5: Compute ABD loss, denoising positions in active block while conditioning on prefix x1: k
+> 0:
+
+LABD (θ) = ∑
+
+> i∈S(k,ℓ)
+> KL
+> 
+> q
+
+(xi 
+
+> 0
+
+| xit, t) pθ (xi 
+
+> 0
+
+| xit, x1: k  
+
+> 0,t
+
+)    
+
+> 
+> 6: Update θby taking a gradient step on
+
+LABD (θ) 
+
+> 7: end while
+
+ℓ = L and to block diffusion when π is supported only on configurations with fixed window length ℓ = L′ and block-aligned prefix lengths k ∈ { 0, L′, 2 L′, . . . }. Importantly, ABD does not require any architectural changes to the diffusion model; it modifies only the distribution over configurations encountered during training. By training over configurations with varying prefix lengths and denoising window sizes, ABD exposes the model to the full range of contexts that may arise under adaptive or sliding-window decoding strategies. This enables the model to learn denoising behavior that generalizes across arbitrary inference-time policies that select (k, ℓ) dynamically. Any distribution π with support over Ω is valid in principle. In our experiments, we consider simple choices that factorize over prefix length and window length, sampling k and ℓ
+
+independently. Algorithm 1 summarizes the resulting training procedure, which is identical to standard diffusion except for the distribution over configurations. Importantly, the theoretical properties of ABD derived in the following section do not depend on a specific choice of π, but rather on its support. As long as π assigns nonzero probability to configurations encountered at inference time, the corresponding denoising risks are optimized during training, ensuring that inference-time configurations are not out-of-distribution. 
+
+## 4 Theoretical Analysis 
+
+We analyze the Adaptive Block Diffusion (ABD) objective introduced in Section 3 and establish formal guarantees regarding denoising optimality and training–inference align-ment. Our analysis treats diffusion as a conditional risk minimization problem over the configuration space Ω, revealing that the generalization behavior of diffusion models is governed by the support of the training distribution over configurations. 
+
+4.1 Risk over Configuration Space 
+
+We formalize diffusion training as risk minimization over the configuration space Ω. For a given configuration (k, ℓ) ∈ Ω, recall that denoising is performed over the index set 
+
+S(k, ℓ) = {k + 1, . . . , k + ℓ}, conditioned on the clean prefix x1: k 
+
+> 0
+
+. We define the conditional denoising risk of a model pθ at configuration (k, ℓ) as 
+
+R(θ; k, ℓ) = Ex0∼D , t∼U ({1,..., T}), xt ∼qt (·| x0)
+
+"
+
+# ∑
+
+> i∈S(k,ℓ)
+
+KL 
+
+
+
+q(xi 
+
+> 0
+
+| xit, t) pθ (xi 
+
+> 0
+
+| xit, x1: k 
+
+> 0
+
+, t)
+
+ #
+
+.Given a training distribution π over the configuration space Ω, the expected denoising risk is defined as 
+
+Rπ (θ) = E(k,ℓ)∼π
+
+R(θ; k, ℓ).By construction, minimizing Rπ (θ) is equivalent to minimizing the Adaptive Block Dif-fusion objective defined in Section 3. Thus, training a diffusion model corresponds to 4Preprint. minimizing expected denoising risk over configurations sampled from π, making the support of π the key factor governing generalization across configurations. 
+
+4.2 Consistency of Adaptive Block Diffusion 
+
+We first establish that ABD is statistically consistent over the support of the training config-uration distribution. 
+
+Theorem 1 (Optimality of ABD over Configuration Space) . Let H = {pθ : θ ∈ Θ} be a hypothesis class of conditional distributions. Then any global minimizer θ⋆ ∈ arg min θ∈Θ Rπ (θ)
+
+satisfies 
+
+R(θ⋆; k, ℓ) = inf  
+
+> θ∈Θ
+
+R(θ; k, ℓ) for π-almost every (k, ℓ) ∈ Ω.
+
+This result shows that ABD achieves optimal denoising performance on all configurations within the support of the training distribution. Configurations outside this support are not constrained by the objective, highlighting the central role of support coverage in determining generalization. 
+
+4.3 Training–Inference Alignment 
+
+We now formalize inference-time configuration policies and show that ABD guarantees denoising optimality under arbitrary such policies, provided their support is covered during training. 
+
+Definition 4.1 (Inference Policy) . An inference policy induces a (possibly stochastic) se-quence of configurations {(kt, ℓt)}t≥0 during generation. Let Πinf denote the distribution over configurations induced by this policy. 
+
+Theorem 2 (Training–Inference Alignment) . Let π be the training configuration distribution and Πinf be the configuration distribution induced by an inference policy. Suppose that Πinf ≪ π.Then, over the same hypothesis class H, any global minimizer θ⋆ ∈ arg min θ∈Θ Rπ (θ) is also a global minimizer of the inference risk 
+
+Rinf (θ) = E(k,ℓ)∼Πinf 
+
+R(θ; k, ℓ)
+
+Theorem 2 shows that as long as the support of the inference distribution is contained within the support of the training distribution, denoising optimality transfers from training to inference. This result shows that generalization across decoding configurations is not a property of the model architecture, but of the support of the training distribution over Ω.
+
+Remark 1 (Support mismatch and density effects) . If Πinf ̸ ≪ π, the inference risk decom-poses into in-distribution and out-of-distribution components, where the latter corresponds to configurations unseen during training and is unconstrained by the objective. When 
+
+Πinf ≪ π, the inference risk can be written as a reweighted expectation under π, where large density ratios amplify errors in configurations that are underrepresented during training. This highlights the importance of balanced configuration coverage. 
+
+4.4 Limitation of Block Diffusion 
+
+We contrast the above guarantees with those of standard block diffusion, which restricts training to a strict subset of the configuration space Ω.
+
+Proposition 1 (Limitation of Block Diffusion) . Let πBD be the training configuration distribu-tion for block diffusion, supported on a strict subset ΩBD ⊊ Ω. Let θ⋆ ∈ arg min θ∈Θ RπBD (θ)
+
+be a global minimizer of the block diffusion objective. Then, for any configuration (k, ℓ) /∈ ΩBD , the value of R(θ⋆; k, ℓ) is unconstrained by the training objective. Consequently, if Πinf ̸ ≪ πBD , block diffusion provides no guarantee of denoising optimality under the inference policy. Proposition 1 formalizes the failure mode of fixed-block diffusion: by restricting training to ΩBD , these models leave denoising behavior on unseen configurations unconstrained. 5Preprint. When inference procedures induce configurations outside this support, performance can degrade significantly, explaining the empirical instability observed off the training grid. 
+
+Remark 2. The condition Πinf ≪ πBD requires that inference induce only block-aligned con-figurations with fixed window length. In practice, common decoding strategies, including sliding-window generation, streaming decoding, and adaptive window schedules, violate this condition, motivating the use of training objectives with broader configuration support. 
+
+## 5 Experiments 
+
+We evaluate ABD on two standard language modeling benchmarks: the One Billion Word corpus (LM1B; Chelba et al. (2014)) and OpenWebText (OWT; Gokaslan & Cohen (2019)). We use a transformer-based architecture of identical size and configuration to MDLM (Sahoo et al., 2024) and BD3LM (Arriola et al., 2025), which share the same underlying architecture. This ensures that differences in performance are attributable to training objective and configuration distribution rather than model capacity. Our primary ABD model is initialized from a checkpoint pretrained with the full sequence length MDLM objective for 250k gradient steps, followed by finetuning for 750k steps under the categorical exponential configuration distribution, with probability proportional to 2 −k for the kth 
+
+block size in {1, 2, 4, . . . 128 }, normalized to sum to 1. We compare against autoregressive (AR), MDLM, SEDD, and BD3LM at block sizes 4 and 16 as baselines. Our experiments are designed to test the central theoretical prediction: that generalization across decoding configurations is governed by the support of the training distribution over Ω.
+
+5.1 Structural Invariance 
+
+Table 1 reports perplexity across all inference block sizes for all models on LM1B and OWT. The results reveal a direct consequence of training on restricted configuration support. Fixed-block models optimize denoising performance only on a narrow subset of Ω, and therefore fail to generalize to configurations outside their training support. A well-behaved generative model should exhibit monotonically improving perplexity as block size decreases, reflecting increasing conditional precision. This monotonic relation-ship is a structural property of the underlying language modeling task, and should hold independently of the training configuration. Smaller blocks denoise fewer tokens in parallel, approaching the precision of autoregressive generation. Fixed-block specialists violate this structure outside their training support, collapsing in both directions: BD3LM degrades sharply at block sizes larger than its training configuration, while MDLM collapses at small block sizes. Proposition 1 explains this: configurations not seen during training are unconstrained by the objective, leading to degraded performance when evaluated off-grid. ABD, by contrast, recovers the correct monotonic relationship across the full configuration range, without any off-grid degradation. This behavior is consistent with Theorem 2: by training over a distribution with broad support, ABD ensures that all inference-time configurations are optimized during training. Crucially, this structural invariance does not                                                                                        
+
+> Table 1: Perplexity across inference block sizes on LM1B and OWT. BD3LM specialists exhibit sharp degradation at off-grid configurations. In parity with BD3LM, ABD is trained on 65B tokens on LM1B and 524B tokens on OWT. Bold : best result per column, underline: second best.
+> LM1B OWT Model 124816 32 64 128 1416 1024
+> AR 22.88 -------17.54 ---SEDD -------32.68 ---24.10 MDLM 106.56 74.16 52.48 42.35 37.21 34.49 32.82 31.92 ---22.98
+> BD3LM (BS=4) 28.13 27.34 28.15 30.06 32.65 35.20 37.15 38.64 -20.73 --BD3LM (BS=16) 33.09 31.09 30.33 30.25 30.56 31.16 31.78 32.28 --22.27 -ABD (ours) 24.76 25.86 27.50 29.30 31.04 32.46 33.31 33.73 19.57 21.03 22.56 25.48
+
+6Preprint.  
+
+> Table 2: Zero-shot perplexity (
+
+↓) on held-out benchmarks. All models are trained on OWT. Baseline numbers are taken from Arriola et al. (2025). Bold : best result per column, underline: second best.                                                  
+
+> Model PTB Wikitext LM1B Lambada AG News Pubmed Arxiv
+> AR 81.07 25.32 51.14 52.13 52.11 48.59 41.22 SEDD 96.33 35.98 68.14 48.93 67.82 45.39 40.03 MDLM 90.96 33.22 64.94 48.29 62.78 43.13 37.89 BD3LM (BS=4) 96.81 31.31 60.88 50.03 61.67 42.52 39.20 ABD (BS=1, ours) 90.08 29.69 58.34 51.00 61.25 43.50 39.11 ABD (BS=4, ours) 94.34 30.16 62.07 51.38 62.46 40.65 37.11
+
+come at the cost of per-scale quality: ABD matches or outperforms fixed-block specialists at their home configurations, demonstrating that multi-scale training regularizes rather than compromises performance. On OWT, ABD remains within 0.3 perplexity points of specialists at their home configurations while maintaining the correct monotonic trend across the full range. Across both benchmarks, ABD is the only model that jointly achieves competitive quality at every individual scale and correctly captures the structural relationship between block size and generation difficulty. 
+
+5.2 Zero-Shot Generalization 
+
+Having established cross-scale robustness on in-distribution benchmarks, we ask whether ABD generalizes beyond its training distribution. Table 2 reports zero-shot perplexity on Penn Treebank (Marcus et al., 1993), Wikitext (Merity et al., 2018), LM1B, Lambada (Paperno et al., 2016), AG News (Zhang et al., 2016), and Scientific Papers (Cohan et al., 2018), following the evaluation protocol of Arriola et al. (2025). We report ABD at BS=1 and BS=4, representing the quality ceiling and a moderately parallel operating point respectively. ABD at BS=1 outperforms BD3LM across five of seven benchmarks, with marginal differ-ences on the remaining two, despite BD3LM being evaluated at its optimal fixed block size. At BS=4, ABD remains competitive while enabling parallel generation, and notably outper-forms BD3LM on scientific domains (Pubmed, Arxiv), suggesting that multi-scale training improves generalization to domain-shifted text. Taken together, these results confirm that ABD learns a configuration-invariant language representation rather than overfitting to a specific denoising structure, consistent with training over a broad support in Ω.
+
+5.3 Generative Perplexity 
+
+Table 3 reports generative perplexity and number of function evaluations (NFEs) for 300 samples at sequence lengths L = 1024 and L = 2048, following the evaluation protocol of Arriola et al. (2025). Generative perplexity is measured using GPT2-Large and reflects the quality of generated samples rather than the model’s denoising ability, providing a complementary view to evaluation perplexity.   
+
+> Table 3: Generative perplexity (Gen. PPL
+
+↓) and number of function evaluations (NFEs ↓) for 300 samples at sequence lengths L = 1024, 2048. All models are trained on OWT. Baseline numbers taken from Arriola et al. (2025). Bold : best diffusion result, underline: second best diffusion result.  
+
+> L
+
+= 1024 L = 2048                      
+
+> Category Model Gen. PPL NFEs Gen. PPL NFEs
+> AR AR 14.1 1K 13.2 2K Diffusion SEDD 52.0 1K ––MDLM 46.8 1K 41.3 2K Block Diffusion SSD-LM ( L′
+
+= 25) 37.2 40K 35.3 80K BD3LM ( L′ = 4) 25.7 1K 23.6 2K ABD (ours) BS=4 25.22 1K 24.46 2K 
+
+7Preprint. 1 2 4 8 16 32 64 128               
+
+> Block Size
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> Probability Mass
+> (a) Sampling Distributions
+> 124816 32 64 128
+> Inference Block Size
+> 24
+> 26
+> 28
+> 30
+> 32
+> 34
+> Eval Perplexity
+> (b) Perplexity by Distribution
+> Exponential
+> Uniform
+> LogNormal
+> 124816 32 64 128
+> Inference Block Size
+> 26
+> 28
+> 30
+> 32
+> 34
+> 36
+> Perplexity
+> BS=4
+> more training
+> (c) Training Dynamics
+> 150k steps
+> 300k steps
+> 450k steps
+> 600k steps
+> 750k steps (final)
+
+Figure 3: Effect of block-size distribution π and training dynamics on inference-time perplexity (LM1B, 750k steps from MDLM). (a) The three candidate distributions over block sizes. (b) π controls the quality-granularity tradeoff: exponential weighting achieves lowest perplexity at small block sizes, lognormal balances the tradeoff, and uniform favors large blocks. (c) Perplexity improves across all block sizes throughout training, confirming multi-scale training acts as a stable regularizer. 
+
+ABD matches the generative quality of the strongest fixed-block specialist at equivalent computational cost, despite never being trained at a fixed block size. This demonstrates that training over a broad configuration distribution does not degrade sample quality. Unlike BD3LM, which requires separate specialist checkpoints for each operating point, a single ABD model achieves competitive performance across all block sizes, reflecting its invariance to configuration. 
+
+5.4 Ablations 
+
+All ablations are conducted on LM1B using the same architecture and finetuning protocol as the primary model unless otherwise stated. 
+
+5.4.1 Effect of Configuration Distribution 
+
+The ABD objective is defined with respect to a training distribution π over the configuration space Ω. We compare three choices: categorical exponential, categorical uniform, and categorical lognormal, each over block sizes {1, 2, 4, . . . , 128 }. Figure 3 shows perplexity as a function of inference block size for all three distributions. The results reveal a clean and interpretable pattern that follows directly from the support-weighting effects described in Section 4: the training distribution π determines how de-noising errors are weighted across configurations. The categorical exponential distribution, which concentrates mass on small block sizes, achieves the best perplexity at BS=1 at the cost of degraded quality at large block sizes. The categorical uniform distribution exhibits the opposite behavior, performing best at BS=128 while sacrificing small-block quality. The categorical lognormal distribution occupies a middle ground, performing competitively across the full range without excelling at either extreme. The choice of π therefore provides a principled mechanism for practitioners to optimize for their target inference regime at training time, without any architectural changes. 
+
+5.4.2 Training Dynamics 
+
+Figure 3 shows eval perplexity as a function of training steps at various block sizes 
+
+{1, 2, 4, . . . 128 } for the categorical exponential distribution based ABD model. The regularization effect of multi-scale training emerges early and strengthens throughout training: the model simultaneously improves across all block sizes rather than specializing toward any single scale. Perplexity at small block sizes improves most rapidly in early training, consistent with the exponential distribution placing higher probability mass on small block configurations. Across all block sizes, the model converges smoothly without instability, confirming that optimizing over a broad configuration distribution does not destabilize training dynamics. 8Preprint. 
+
+## 6 Discussion and Related Work 
+
+Discrete Diffusion Language Models. Discrete diffusion for text generation was intro-duced by D3PM (Austin et al., 2023), which formalized denoising over discrete state spaces and established the masking-based formulation. Subsequent work improved performance and training efficiency, including SEDD (Lou et al., 2024), MDLM (Sahoo et al., 2024; Shi et al., 2025), and related approaches that improve training objectives and likelihood esti-mation. Structured extensions such as SSD-LM (Han et al., 2023), block diffusion models including BD3LM (Arriola et al., 2025), and Eso-LMs (Sahoo et al., 2026) introduce prefix-conditioned generation by denoising token subsets, interpolating between autoregressive and fully parallel decoding. A number of these ideas have been scaled to larger model sizes (Nie et al., 2025; Wu et al., 2025; Wang et al., 2025), and adapted commercially (Song et al., 2025; Labs et al., 2025). While these methods improve efficiency and controllability, they are typically trained over restricted subsets of the configuration space (e.g., fixed masking patterns or block-structured regimes), limiting their ability to generalize across decoding strategies without additional heuristics or architectural changes. In contrast, ABD treats the configuration as part of the learning problem, training over a distribution of configurations to enable a single model to generalize across decoding scales. 
+
+Diffusion Learning Dynamics and Inference-Time Techniques. Recent work has studied the scaling behavior, data efficiency, and learning dynamics of diffusion language models (von R ¨utte et al., 2026; Ni et al., 2025; Prabhudesai et al., 2025). These works provide insight into how diffusion models learn at the token and distribution level, but do not consider how training over restricted configuration subsets impacts generalization across decoding strategies. A complementary line of work focuses on improving performance through inference-time adaptation, including adaptive scheduling, semantic-aware decoding, and test-time scaling (Lu et al., 2026a;b; Lee et al., 2025; Huang & Tang, 2025). Other approaches explore flexible generation orders or hybrid autoregressive–diffusion schemes (Kim et al., 2025a; Liu et al., 2025; Kim et al., 2025b). In contrast, our work addresses this during training by identifying configuration support as the key factor governing cross-scale generalization, enabling native support for arbitrary decoding strategies without test-time heuristics. 
+
+Limitations. A key limitation of ABD is its dependence on the choice of configuration distribution π, which determines the tradeoff between performance across decoding regimes. While broad support over Ω enables generalization, suboptimal weighting can bias the model toward frequently sampled configurations, leading to uneven performance across scales. Additionally, ABD does not directly address inference efficiency: although it enables flexible decoding, selecting optimal inference-time policies remains an open problem. Finally, while our theoretical analysis characterizes optimality under support coverage, it does not provide finite-sample guarantees, and results may depend on training coverage quality. 
+
+## 7 Conclusion 
+
+We introduced Adaptive Block Diffusion (ABD), a training framework that resolves the mismatch between training and inference in diffusion language models by optimizing denoising risk over a distribution of configurations. By viewing diffusion training as risk minimization over configuration space, we showed that generalization across decoding strategies is governed by the support of the training distribution. This perspective explains the failure of fixed-structure approaches, which restrict training to a limited subset of configurations and degrade when evaluated off-grid. Empirically, ABD demonstrates structural invariance across decoding scales, recovering the expected monotonic relationship between block size and perplexity while matching or outperforming fixed-block specialists. These results show that training over a broad configuration distribution enables robust generalization across inference regimes. Overall, our work identifies configuration support as the central factor governing general-ization in diffusion language models and establishes adaptive configuration training as a principled alternative to fixed-structure objectives. 9Preprint. 
+
+## References 
+
+Marianne Arriola, Aaron Gokaslan, Justin T. Chiu, Zhihan Yang, Zhixuan Qi, Jiaqi Han, Subham Sekhar Sahoo, and Volodymyr Kuleshov. Block diffusion: Interpolating between autoregressive and diffusion language models, 2025. URL https://arxiv.org/abs/2503. 09573 .Jacob Austin, Daniel D. Johnson, Jonathan Ho, Daniel Tarlow, and Rianne van den Berg. Structured denoising diffusion models in discrete state-spaces, 2023. URL https://arxiv. org/abs/2107.03006 .Ciprian Chelba, Tomas Mikolov, Mike Schuster, Qi Ge, Thorsten Brants, Phillipp Koehn, and Tony Robinson. One billion word benchmark for measuring progress in statistical language modeling, 2014. URL https://arxiv.org/abs/1312.3005 .Arman Cohan, Franck Dernoncourt, Doo Soon Kim, Trung Bui, Seokhwan Kim, Walter Chang, and Nazli Goharian. A discourse-aware attention model for abstractive summa-rization of long documents, 2018. URL https://arxiv.org/abs/1804.05685 .Prafulla Dhariwal and Alex Nichol. Diffusion models beat gans on image synthesis, 2021. URL https://arxiv.org/abs/2105.05233 .Aaron Gokaslan and Vanya Cohen. Openwebtext corpus. http://Skylion007.github.io/ OpenWebTextCorpus , 2019. Xiaochuang Han, Sachin Kumar, and Yulia Tsvetkov. Ssd-lm: Semi-autoregressive simplex-based diffusion language model for text generation and modular control, 2023. URL 
+
+https://arxiv.org/abs/2210.17432 .Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models, 2020. URL https://arxiv.org/abs/2006.11239 .Emiel Hoogeboom, Didrik Nielsen, Priyank Jaini, Patrick Forr ´e, and Max Welling. Argmax flows and multinomial diffusion: Learning categorical distributions, 2021. URL https: //arxiv.org/abs/2102.05379 .Chihan Huang and Hao Tang. Ctrldiff: Boosting large diffusion language models with dynamic block prediction and controllable generation, 2025. URL https://arxiv.org/ abs/2505.14455 .Jaeyeon Kim, Lee Cheuk-Kit, Carles Domingo-Enrich, Yilun Du, Sham Kakade, Timothy Ngotiaoco, Sitan Chen, and Michael Albergo. Any-order flexible length masked diffusion, 2025a. URL https://arxiv.org/abs/2509.01025 .Jaeyeon Kim, Kulin Shah, Vasilis Kontonis, Sham Kakade, and Sitan Chen. Train for the worst, plan for the best: Understanding token ordering in masked diffusions, 2025b. URL 
+
+https://arxiv.org/abs/2502.06768 .Inception Labs, Samar Khanna, Siddhant Kharbanda, Shufan Li, Harshit Varma, Eric Wang, Sawyer Birnbaum, Ziyang Luo, Yanis Miraoui, Akash Palrecha, Stefano Ermon, Aditya Grover, and Volodymyr Kuleshov. Mercury: Ultra-fast language models based on diffu-sion, 2025. URL https://arxiv.org/abs/2506.17298 .Jihoon Lee, Hoyeon Moon, Kevin Zhai, Arun Kumar Chithanar, Anit Kumar Sahu, Soummya Kar, Chul Lee, Souradip Chakraborty, and Amrit Singh Bedi. Test-time scaling in diffusion llms via hidden semi-autoregressive experts, 2025. URL https: //arxiv.org/abs/2510.05040 .Jingyu Liu, Xin Dong, Zhifan Ye, Rishabh Mehta, Yonggan Fu, Vartika Singh, Jan Kautz, Ce Zhang, and Pavlo Molchanov. Tidar: Think in diffusion, talk in autoregression, 2025. URL https://arxiv.org/abs/2511.08923 .Aaron Lou, Chenlin Meng, and Stefano Ermon. Discrete diffusion modeling by estimating the ratios of the data distribution, 2024. URL https://arxiv.org/abs/2310.16834 .10 Preprint. Guanxi Lu, Hao Mark Chen, Yuto Karashima, Zhican Wang, Daichi Fujiki, and Hongxiang Fan. Adablock-dllm: Semantic-aware diffusion llm inference via adaptive block size, 2026a. URL https://arxiv.org/abs/2509.26432 .Yi Lu, Deyang Kong, Jianing Wang, Linsen Guo, Xue Wang, Qi Guo, Tao Gui, Xuanjing Huang, Wei Ye, Shikun Zhang, and Wei Wang. Advancing block diffusion language models for test-time scaling, 2026b. URL https://arxiv.org/abs/2602.09555 .Mitchell P. Marcus, Beatrice Santorini, and Mary Ann Marcinkiewicz. Building a large annotated corpus of English: The Penn Treebank. Computational Linguistics , 19(2):313–330, 1993. URL https://aclanthology.org/J93-2004/ .Stephen Merity, Nitish Shirish Keskar, and Richard Socher. An analysis of neural language modeling at multiple scales, 2018. URL https://arxiv.org/abs/1803.08240 .Jinjie Ni, Qian Liu, Longxu Dou, Chao Du, Zili Wang, Hang Yan, Tianyu Pang, and Michael Qizhe Shieh. Diffusion language models are super data learners, 2025. URL 
+
+https://arxiv.org/abs/2511.03276 .Shen Nie, Fengqi Zhu, Zebin You, Xiaolu Zhang, Jingyang Ou, Jun Hu, Jun Zhou, Yankai Lin, Ji-Rong Wen, and Chongxuan Li. Large language diffusion models, 2025. URL 
+
+https://arxiv.org/abs/2502.09992 .Denis Paperno, Germ ´an Kruszewski, Angeliki Lazaridou, Quan Ngoc Pham, Raffaella Bernardi, Sandro Pezzelle, Marco Baroni, Gemma Boleda, and Raquel Fern ´andez. The lambada dataset: Word prediction requiring a broad discourse context, 2016. URL 
+
+https://arxiv.org/abs/1606.06031 .Mihir Prabhudesai, Mengning Wu, Amir Zadeh, Katerina Fragkiadaki, and Deepak Pathak. Diffusion beats autoregressive in data-constrained settings, 2025. URL https://arxiv. org/abs/2507.15857 .Alec Radford and Karthik Narasimhan. Improving language understanding by generative pre-training. 2018. URL https://api.semanticscholar.org/CorpusID:49313245 .Subham Sekhar Sahoo, Marianne Arriola, Yair Schiff, Aaron Gokaslan, Edgar Marroquin, Justin T Chiu, Alexander Rush, and Volodymyr Kuleshov. Simple and effective masked diffusion language models, 2024. URL https://arxiv.org/abs/2406.07524 .Subham Sekhar Sahoo, Zhihan Yang, Yash Akhauri, Johnna Liu, Deepansha Singh, Zhoujun Cheng, Zhengzhong Liu, Eric Xing, John Thickstun, and Arash Vahdat. Esoteric language models: Bridging autoregressive and masked diffusion llms, 2026. URL https://arxiv. org/abs/2506.01928 .Jiaxin Shi, Kehang Han, Zhe Wang, Arnaud Doucet, and Michalis K. Titsias. Simplified and generalized masked diffusion for discrete data, 2025. URL https://arxiv.org/abs/2406. 04329 .Jascha Sohl-Dickstein, Eric A. Weiss, Niru Maheswaranathan, and Surya Ganguli. Deep unsupervised learning using nonequilibrium thermodynamics, 2015. URL https://arxiv. org/abs/1503.03585 .Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models, 2022. URL https://arxiv.org/abs/2010.02502 .Yuxuan Song, Zheng Zhang, Cheng Luo, Pengyang Gao, Fan Xia, Hao Luo, Zheng Li, Yuehang Yang, Hongli Yu, Xingwei Qu, Yuwei Fu, Jing Su, Ge Zhang, Wenhao Huang, Mingxuan Wang, Lin Yan, Xiaoying Jia, Jingjing Liu, Wei-Ying Ma, Ya-Qin Zhang, Yonghui Wu, and Hao Zhou. Seed diffusion: A large-scale diffusion language model with high-speed inference, 2025. URL https://arxiv.org/abs/2508.02193 .Dimitri von R ¨utte, Janis Fluri, Omead Pooladzandi, Bernhard Sch ¨olkopf, Thomas Hofmann, and Antonio Orvieto. Scaling behavior of discrete diffusion language models, 2026. URL 
+
+https://arxiv.org/abs/2512.10858 .11 Preprint. Xu Wang, Chenkai Xu, Yijie Jin, Jiachun Jin, Hao Zhang, and Zhijie Deng. Diffusion llms can do faster-than-ar inference via discrete diffusion forcing, 2025. URL https: //arxiv.org/abs/2508.09192 .Chengyue Wu, Hao Zhang, Shuchen Xue, Shizhe Diao, Yonggan Fu, Zhijian Liu, Pavlo Molchanov, Ping Luo, Song Han, and Enze Xie. Fast-dllm v2: Efficient block-diffusion llm, 2025. URL https://arxiv.org/abs/2509.26328 .Xiang Zhang, Junbo Zhao, and Yann LeCun. Character-level convolutional networks for text classification, 2016. URL https://arxiv.org/abs/1509.01626 .12 Preprint. 
+
+## A Theoretical Proofs 
+
+A.1 Proof of Theorem 1 
+
+Proof. Let (Ω, F , π) denote the probability space over configurations. The functional 
+
+Rπ (θ) = 
+
+> Z
+> Ω
+
+R(θ; k, ℓ) dπ(k, ℓ)
+
+is well-defined and non-negative since R(θ; k, ℓ) is a finite sum of Kullback–Leibler diver-gences. By the information inequality, for any distributions P, Q, DKL (P∥Q) ≥ 0, with equality if and only if P = Q almost everywhere. Hence R(θ; k, ℓ) ≥ 0 for all (k, ℓ).Let θ⋆ be a global minimizer of Rπ (θ). Suppose there exists a measurable set A ⊆ Ω with 
+
+π(A) > 0 such that 
+
+R(θ⋆; k, ℓ) > inf  
+
+> θ∈Θ
+
+R(θ; k, ℓ) for all (k, ℓ) ∈ A.Then there exists ε > 0 such that 
+
+R(θ⋆; k, ℓ) ≥ inf  
+
+> θ∈Θ
+
+R(θ; k, ℓ) + ε ∀(k, ℓ) ∈ A.Integrating over Ω yields 
+
+Rπ (θ⋆) ≥
+
+> Z
+> Ω
+
+inf  
+
+> θ∈Θ
+
+R(θ; k, ℓ) dπ + ε π (A),which contradicts the optimality of θ⋆. Therefore, 
+
+R(θ⋆; k, ℓ) = inf  
+
+> θ∈Θ
+
+R(θ; k, ℓ) for π-almost every (k, ℓ) ∈ Ω.
+
+A.2 Proof of Theorem 2 
+
+Proof. By the assumption Πinf ≪ π, the Radon–Nikodym theorem guarantees the existence of a non-negative measurable function f : Ω → R≥0 such that for any measurable A ⊆ Ω,
+
+Πinf (A) = 
+
+> Z
+> A
+
+f (k, ℓ) dπ(k, ℓ).Since R(θ; k, ℓ) is non-negative and measurable in (k, ℓ), the inference risk can be written as 
+
+Rinf (θ) = 
+
+> Z
+> Ω
+
+f (k, ℓ) R(θ; k, ℓ) dπ(k, ℓ).Let θ⋆ be a global minimizer of Rπ (θ). By Theorem 1, 
+
+R(θ⋆; k, ℓ) = inf  
+
+> θ∈Θ
+
+R(θ; k, ℓ) for π-almost every (k, ℓ).Define the measurable set 
+
+N := {(k, ℓ) ∈ Ω | R (θ⋆; k, ℓ) > inf  
+
+> θ∈Θ
+
+R(θ; k, ℓ)}.Then π(N) = 0, and by absolute continuity, Πinf (N) = 0. For any θ ∈ Θ, we therefore have 
+
+Rinf (θ⋆) = 
+
+> Z
+> Ω\N
+
+f (k, ℓ) R(θ⋆; k, ℓ) dπ ≤
+
+> Z
+> Ω\N
+
+f (k, ℓ) R(θ; k, ℓ) dπ = Rinf (θ),which shows that θ⋆ is a global minimizer of Rinf (θ).13 Preprint. 
+
+A.3 Proof of Proposition 1 
+
+Proof. Partition the configuration space as 
+
+Ω = ΩBD ∪ Ωc
+
+> BD
+
+.By definition of πBD , for any measurable A ⊆ Ωc 
+
+> BD
+
+we have πBD (A) = 0. The expected training risk can therefore be written as 
+
+RπBD (θ) = 
+
+> Z
+> ΩBD
+
+R(θ; k, ℓ) dπBD (k, ℓ),since the contribution from Ωc 
+
+> BD
+
+vanishes. Thus, the value of R(θ; k, ℓ) for (k, ℓ) ∈ Ωc 
+
+> BD
+
+does not affect the objective RπBD (θ) and is unconstrained by its minimization. Now suppose Πinf ̸ ≪ πBD . Then there exists a measurable set A ⊆ Ω such that πBD (A) = 0but Πinf (A) > 0. On this set A, the conditional risk R(θ⋆; k, ℓ) is not optimized by training. Since the inference risk 
+
+Rinf (θ⋆) = 
+
+> Z
+> Ω
+
+R(θ⋆; k, ℓ) dΠinf (k, ℓ)
+
+assigns positive mass to A, θ⋆ is not guaranteed to minimize Rinf (θ) over Θ.
+
+## B Implementation Details 
+
+B.1 Attention Mask Construction 
+
+The ABD attention mask is defined over a 2 L-length sequence formed by concatenating the noisy tokens zt ∈ RL and the clean tokens x0 ∈ RL as [zt | x0]. Positions 0, . . . , L−1 index the noisy half and positions L, . . . , 2 L−1 index the clean half. Given a block assignment 
+
+block ids ∈ ZL that maps each token to its block index, the mask is the union of three logical regions: • Block-diagonal (MBD ): a noisy token at position i attends to noisy token j if and only if they share the same block, i.e. bi = bj. This restricts intra-half attention to within-block pairs. • Offset block-causal (MOBC ): a noisy token at position i attends to clean token j if and only if its block strictly precedes the clean token’s block, i.e. bi > bj. This allows each block to condition on the clean prefix produced by all earlier blocks. • Block-causal (MBC ): a clean token at position i attends to clean token j if and only if bi ≥ bj. This enforces causal self-attention over the clean half at block granularity. The quadrant x0 → zt is always zero, preventing information flow from the clean half back into the noisy half. Formally, the combined mask is 
+
+M(i, j) = MBD (i, j) ∨ MOBC (i, j) ∨ MBC (i, j). (1) Figure 4 contrasts the mask structure of standard Block Diffusion (BD3LM), which uses fixed block boundaries, with that of Adaptive Block Diffusion, where block boundaries are sampled stochastically at each training step. In the fixed-block case every block in 
+
+MBD is identically sized; in the adaptive case block widths vary, reflecting the sampled configuration distribution π.The mask is implemented as a flex attention score modifier, which avoids materialising the full 2 L × 2L boolean matrix: 14 Preprint. 
+
+Figure 4: Attention mask structure. Left: Block Diffusion (BD3LM) with a fixed block size. The noisy half (top-left quadrant) exhibits a uniform block-diagonal pattern; the clean half (bottom-right quadrant) is block-causal with equal-width steps. Right: Adaptive Block Diffusion with a stochastically sampled configuration. Block boundaries are irregular, reflecting a draw from the training distribution 
+
+π over prefix–window pairs (k, ℓ) ∈ Ω. Both masks share the same three-region structure ( MBD ,
+
+MOBC , MBC ) defined in Eq. (1) ; the quadrant x0 → zt (bottom-left) is always masked. Cyan lines mark the noisy/clean boundary at position L.                                                                                                                                       
+
+> def abd_attention_mask (b , h , q_idx , kv_idx , *, block_ids , n):
+> '''
+> ABD score mask for flex_attention . The 2n - length sequence is laid out as [ z_t ( noisy ) |x_0 ( clean ) ]. Positions 0.. n -1 are noisy ; positions n ..2 n -1 are clean . Args : b , h: Batch and head indices ( required by flex_attention API ). q_idx : Query position in [0 , 2n). kv_idx : Key - value position in [0 , 2n). block_ids : LongTensor of shape (n ,) mapping token ito its block index . n: Original sequence length L. Returns : Boolean mask : True where attention is permitted .
+> '''
+> is_clean_q =q_idx >= nis_clean_kv =kv_idx >= nblock_q =block_ids [ q_idx %n] block_kv =block_ids [ kv_idx %n] #M_BD : noisy -> noisy , same block m_bd =(˜ is_clean_q ) &(˜ is_clean_kv ) &( block_q == block_kv ) #M_OBC : noisy -> clean , strictly earlier block m_obc =(˜ is_clean_q ) &is_clean_kv &( block_q >block_kv ) #M_BC : clean -> clean , current or earlier block m_bc =is_clean_q &is_clean_kv &( block_q >= block_kv )
+> return m_bd |m_obc |m_bc
+
+B.2 Configuration Distribution 
+
+Block configurations are sampled by ABDBoundaryManager , which draws a single segmen-tation per training step and broadcasts it across the batch. A sequence of block lengths is sampled from the chosen distribution π, accumulated into boundaries via cumulative sum, and mapped to per-token block indices by counting how many boundaries each token 15 Preprint. position exceeds. The implementation supports six distributions over block lengths, all parameterised by a target block size ¯ℓ; the categorical family additionally restricts support to powers of two {20, 2 1, . . . , 2 ⌊log 2 L⌋}:
+
+class ABDBoundaryManager : 
+
+''' 
+
+Samples stochastic block configurations for Adaptive Block Diffusion . A single segmentation is drawn per training step and broadcast across the batch , so all sequences share an identical block structure . Args : seq_len : Sequence length L. target_size : Scale parameter for the expected block size . 
+
+''' 
+
+def __init__ ( self , seq_len : int , target_size : int = 16) -> None : self .L = seq_len self . target_size = target_size 
+
+def get_block_ids ( self , bsz , device , dist_type = ' categorical_exponential '): 
+
+''' 
+
+Sample block lengths from pi , accumulate boundaries , and return per - token block indices of shape (L ,) . 
+
+''' 
+
+lengths = self . _sample_lengths ( device , dist_type ) # (1 , S) lengths = lengths . clamp ( min =1 , max = self .L). long () boundaries = lengths . cumsum ( dim = -1) # (1 , S) token_indices = torch . arange ( self .L , device = device ). unsqueeze (1) block_ids = ( token_indices >= boundaries ). sum ( dim = -1) # (L ,) 
+
+return block_ids 
+
+def _sample_lengths ( self , device , dist_type ): S = ( self .L // max ( self . target_size // 2, 1) ) + 5
+
+if dist_type == ' uniform ':
+
+return torch . randint ( 1, 2 * self . target_size + 1, (1 , S) , device = device ). float () 
+
+if dist_type == ' exponential ':u = torch . rand ((1 , S) , device = device ). clamp ( min =1e -7) 
+
+return - torch . log (u) * self . target_size 
+
+if dist_type == ' log_normal ':mu = torch . log ( torch . tensor ( float ( self . target_size ) , device = device )) 
+
+return torch . exp ( torch . randn ((1 , S) , device = device ) * 0.5 + mu ) # Categorical family : support restricted to powers of two max_power = int ( torch . log2 ( torch . tensor ( float ( self .L))). item () ) sizes = 2 ** torch . arange ( max_power + 1, device = device ) S_cat = self .L 
+
+if dist_type == ' categorical_exponential ':# Exponential decay : P (2ˆ k) proportional to 0.5ˆ k probs = 0.5 ** torch . arange ( len ( sizes ) , device = device ). float () 
+
+elif dist_type == ' categorical_uniform ':# Uniform over all powers of two probs = torch . ones ( len ( sizes ) , device = device ) 
+
+elif dist_type == ' categorical_log_normal ':# Gaussian bump centred at target_size on the power -of - two grid mu = torch . log2 ( torch . tensor ( float ( self . target_size ) , device = device ) )x = torch . arange ( len ( sizes ) , device = device ). float () probs = torch . exp ( -(( x - mu ) ** 2) / 2.0) 
+
+else :
+
+raise ValueError (f ' Unknown dist_type : { dist_type !r} ')idx = torch . multinomial ( probs , S_cat , replacement = True ) 
+
+return sizes [ idx ]. unsqueeze (0) . float () 
+
+16 Preprint. 
+
+B.3 Experimental Details 
+
+We use the same codebase, datasets, architecture, likelihood evaluation, and inference setup as Arriola et al. (2025), to which we refer the reader for full details. We describe only the aspects that differ. 
+
+B.3.1 Training 
+
+Our primary ABD model is initialized from a checkpoint trained with the full sequence length MDLM objective for 250k gradient steps, followed by finetuning for 750k steps under the categorical exponential configuration distribution. This differs from Arriola et al. (2025), which uses 850k MDLM pretraining steps followed by 150k block diffusion finetuning steps. The total training budget of 1000k steps is matched. We find that the diverse multi-scale objective of ABD requires a larger finetuning budget to converge across the full configuration space, motivating the reallocation toward ABD finetuning. Training translates to 65B tokens on LM1B and 524B tokens on OWT. 
+
+B.3.2 Configuration Sampling 
+
+At each training step, the best ABD model (presented in the main paper results) samples a block configuration (k, ℓ) ∼ π from the categorical exponential distribution, which assigns probability proportional to 2 −k to the k-th block size in {1, 2, 4, . . . , 128 }, normalized to sum to 1. The attention mask is constructed dynamically based on the sampled configuration, as described in Appendix B. 
+
+B.4 Design Choices: Distribution Type and Training Budget Allocation 
+
+The design of ABD involves two coupled choices: the form of the configuration distribution 
+
+π and the allocation of the training budget between MDLM pretraining and ABD finetuning. We describe the reasoning behind these choices and provide supporting evidence. 
+
+Training budget allocation. Following BD3LM (Arriola et al., 2025), we initially allocated 850k steps to MDLM pretraining and 150k steps to ABD finetuning. However, the diversity of the ABD training objective, which optimizes over a broad distribution of configurations rather than a single fixed block size, requires more ABD training steps to converge. With only 150k ABD steps, the model retains strong MDLM-style performance at large block sizes but underfits at small block sizes. Training from scratch for 1000k ABD steps avoids this underfitting but produces the opposite failure: without MDLM initialization, the model lacks a coherent language modeling foundation and collapses at large block sizes, as shown in Table 5. The continuous uniform scratch model reaches 142.69 perplexity at BS=128, worse than MDLM at BS=1 (106.56). We found that 250k steps of MDLM pretraining followed by 750k steps of ABD finetuning achieves the best balance: sufficient language modeling grounding combined with enough ABD training to converge across the full configuration space. 
+
+Discrete vs. continuous distributions. We initially trained with continuous distributions over block sizes (exponential, uniform, lognormal), which provide dense coverage of the configuration space Ω. However, continuous distributions make optimization difficult: the model must simultaneously learn to denoise at arbitrarily sized windows, leading to slower convergence and unstable performance at extreme block sizes. Restricting π
+
+to powers of two {1, 2, 4, . . . , 128 } preserves broad coverage of the parallelism spectrum while making the optimization problem more tractable. Each power-of-two block size represents a qualitatively distinct operating point from fully autoregressive ( ℓ = 1) to highly parallel ( ℓ = 128), and the discrete grid avoids the redundancy of nearby continuous configurations that contribute similar gradients. Table 4 shows that discrete distributions consistently outperform their continuous counterparts under matched total training budgets, particularly at small block sizes where continuous distributions underperform despite nominally covering those configurations. 17 Preprint. 
+
+Table 4: Perplexity on LM1B comparing discrete categorical vs. continuous configuration distributions. All models are trained for 1000k total steps: discrete models use 250k MDLM + 750k ABD; continuous models use 850k MDLM + 150k ABD. The key variable is the proportion of the budget allocated to the ABD objective.                                                    
+
+> Type Distribution 14816 32 64 128
+> Discrete (250k+750k) Exponential 24.76 27.50 29.30 31.04 32.46 33.31 33.73 Uniform 30.86 30.58 30.93 31.49 32.05 32.48 32.60 LogNormal 27.95 28.10 29.08 30.34 31.58 32.43 33.01 Continuous (850k+150k) Exponential 30.84 30.22 30.59 31.10 31.64 32.04 32.29
+> Uniform 31.41 30.27 30.54 31.04 31.61 32.07 32.39 LogNormal 32.27 30.43 30.56 31.07 31.71 32.12 32.47
+
+Table 5: Perplexity on LM1B: effect of training budget allocation for continuous distributions. All models trained for 1000k total steps. Scratch models allocate all steps to ABD; finetune models use 850k MDLM + 150k ABD. MDLM initialization prevents collapse at large block sizes but requires sufficient ABD training to generalize at small block sizes.                                                    
+
+> Init Distribution 14816 32 64 128
+> Scratch (1000k ABD) Exponential 28.50 28.95 29.77 30.68 32.70 36.88 43.05 Uniform 28.93 28.82 29.48 30.33 31.83 44.08 142.69 LogNormal 30.62 29.02 29.62 30.48 32.54 34.82 38.30 Finetune (850k+150k) Exponential 30.84 30.22 30.59 31.10 31.64 32.04 32.29
+> Uniform 31.41 30.27 30.54 31.04 31.61 32.07 32.39 LogNormal 32.27 30.43 30.56 31.07 31.71 32.12 32.47
+
+Together, these results motivate the final ABD design: discrete categorical distributions over powers of two, with 250k steps of MDLM pretraining and 750k steps of ABD finetuning. This combination provides sufficient language modeling grounding, tractable optimization over the configuration space, and enough ABD training to generalize across the full block size range. 
+
+## C Samples 
+
+18 Preprint. 
+
+Top 2 Most Powerful Internet Utilities in 2016 – How Does your Experience Affect your View of the Internet? While reading about E.T. smart meters, I thought “So the answer to all of the utilities using smart meters to monitor and analyze their network is: Put a smart meters in your closet.” So, the answer to all of the utilities using smart meters to monitor and analyze their network is: Put a smart meters in your closet. E.T. smart meters can be used for meters for your Internet access or for mobile usage. Like your home internet phone and netboard, Smart meters help users, businesses, and organizations get connected devices to their site with the Internet. Smart meters enable a lot better online education, marketing, and purchasing. But in most cases, you can buy a smart meter with your best Internet usage statistics and report all the areas covered in the meter. As we mentioned earlier, smart meter is just a form of forlier meter which that uses a unique identification and generates data by observing the Internet usage of a smart device. There are so many companies that claim to provide smart meters that in no way way relies on what you do. You are not relying on what you buy, you’re going to rely on what you do. It is a big technical problem to implement smart meters. However, how do they compare to different utilities? Even if you still use various smart utilities, you need to check out the experience of the utility? What is your Internet usage? What are the benefits in terms of data use? Somehow should your utility analyze data to make that decision?Since the Internet is a really interesting endeavor, it has been a real challenge to find the right fit for your utility and to analyze data there.How often does an outage affect your overall view of the Internet? The answer isn’t that often. Sometimes a large outage will affect your Internet usage but it also won’t affect your overall view of the Internet. For example, during a long outage, does it affect your overall view of the Internet? What does your data consumption mean to your view of the Internet or the utility? Most of the time, there’s no data you can take away from you until something happens. What would it mean if the global temperature was at 34 °C? What are your recommendations for achieving the highest levels of reliability on your utility? What if the power doesn’t go through the breakdown? What would it mean to increase your view of the Internet or your reliability? What is it about Internet usage that you want to improve more? Looking at your utility’s Internet monitoring reports, there are a number of factors that determine how the utility impacts your own view of the Internet. The three main factors vary between utility systems so there is a chance that the data on your utility may change or not have always been used. How should you determine the data on your utility? When you’re getting more and more data from your utility, you need to trust that your utility is not violating any privacy rules. As much as you want to do it, you want to be aware of what you’re doing and do not trust your utility to collect data on you any more than you want to monitor your website. At the end of the day, you use your utility settings to make a choice for you, and once you’ve used all your settings, you probably should review it and see what data it collects. Most of all, you need to make sure your utility is the right one for your needs. Not only do you need to figure out how you’re going to maximize your data use, but you need to find out about your utility and its data consumption. What your own utility has done to improve their utility over the years? In 2017, we highlighted some examples of how a utility utility has continued to improve, or enhance, their utility data. FireMapp offers a feature to share with your users their location usage. This feature has been shown to have played a big role in improving this site’s performance. SuperBuddy sells the ability to share your data usage within a building. Another example is that of ADAPT, the app that makes it easy for companies to share data. They do this by checking factors like “home minutes spent”, “work time spent, “pea time spent, “drime and cost”, “price ratio”, “cost”, “speed”, “hours”, etc. SmartGoOn provides a tool for sharing your data: you can see how you personal usage compares to your utility’s data usage. The features allow you to easily compare your different habits, by comparing your usage 
+
+Figure 5: Sample from ABD for block size L’ = 4 of length L = 1023 under T = 5K diffusion steps (trained with a context length of L = 1024). The generative perplexity of this sample under GPT2-Large is 15.3, and its entropy is 5.03. 
+
+19 Preprint. 
+
+British Prime Minister David Cameron has mocked Scotland, Wales and England in his ””surprise talk of the day”” as he lined up a spot for London ´s Olympics Summer Games. Cameron played down criticism the case raised by the USA – the city where so many of its residents live, he said – could host the Summer Games. ””These in England are no more amazing - or thrilling – than the Olympic Games in Beijing. It is going to be all the more fun to see them,”” Cameron told the London Evening Standard. ””And I ´d like to offer some favours to those responsible for bringing those Games across the lines. ””Now it is great for the people in England to not be the only ones us are thinking about being a special guest. ””A handful of cabinet ministers can come. That is the huge bonus. That ´s why it is my pleasure to put them on.”” Cameron ´s remark comes as the Summer Games begin at the start of this month, scheduled for more than £30m. Games are expected to showcase some of Britain’s best and brightest talent. In a measure of these sights, food has been offered in an area dominated by few Britons. On Thursday, the first group of chefs in Olympic Park were signing promotional contracts in silver bottles of Champagne. Later that day, the Quiet House chef known as Eastie nominated a piece of a cocktail to be the highlight of the two-day line of shows. In a bid to make a promise to all the children at the Olympics, he snapped a date of the Royal Pavilion - home to British-owned Brixton - and delivered the cocktail to the children’s playground in the Thames for several days. Other champagne favourites Chef Ray Dussosts of Corry Street, London, and Ryan Haynes of Jeref Seafood in Londonderry have also won guest spots. Joining Gillon, his stepfather and sister, are the two white boys running the Road Cocktail Kitchen from David, the Castle Tavern in Devon, and Tyrone McCray of the Wild Firestone Caf ´e in Manchester. A Bevan Beard chef by profession, Harry Harrison, will spend his $125,000 cocktail cash at a public restaurant ice-cream party next month. Additionally, three men from Southampton will also join Ian Searls of Fulham, Kent, and Mark Frost of Zappros in presenting their own cocktail at a private event in the northern city. Cameron is expected to eat at this summer’s world championships and the event is expected to be watched by the millions of spectators in London, Manchester and other cities around the world. England and Wales’ respective governments, the UK and the Commonwealth, have chosen not to host the games.¡—endoftext—¿The long-awaited Free Parking Report was finally unveiled at ””Mainline,”” Boston ´s news forum for downtown. That said, is he looking at the worst and the worst transit areas where parking is unsafe? Criments The long-awaited Free Parking Report was finally unveiled at ””Mainline,”” Boston ´s news forum for downtown. That said, is he looking at the worst and the worst transit areas where parking is unsafe? Many people are aware of the study ´s findings about how the extension to Logan Square is affecting transit accessibility, but the official recommendations on surface and subway stations were not made in a complete copy of the report. Mayor and his current administration, Mayor Marty Walsh, took a rough assessment of the preliminary study, as did the findings of the Secretary of Transportation. Now that that assessment has been broken into four parts, starting with the upper-level, like city Park South, by the time the transit department ramps up the installation of the sodas next year, the recommendations will cover the final four sections. Making a stab at business One thing to stand out from the official report is the new report ´s finding that Bostonians want a better transit system, and therefore, are concerned that certain parts of the city should be transferred to light buses rather than on light cars. ””I generally think of light buses as inefficient, in that sense. A bus is parked, with an elevator system, with people trying to get off the bus. I think it ´s a significant disadvantage to someone who can ´t afford to live in the area. I think there are more opportunities for transportation. So is the use of buses? Are people in an area where buses provide a way to go, that they look to work rather than ride the trolleybus, that is similar to what is going on in the mall or the city?”” one member asked. Trolley or tram At a meeting Monday morning, Mayor Walsh noted a concern about the final recommendation ´s focus on a ””light bus”” rather than a transit system. The report doesn ´t do that. Instead, it said it should be developed as rail-style buses. The report focuses on light light buses for riders, who are the only carless option on the network. Light Rail buses would operate on an underground line, for example. If enough people would have enough electricity to ride on a train at the line ´s stations, that would help reduce the distance to ride on a bus. Under the plan, the train route would also operate slowly, which would encourage use of the more expensive light buses. Bus Rapid transit Boston officials are actively discussing the development of a bus rapid transit, a rapid line that tracks passengers at or near bus stops, to run sometime in the future. One of the buses will be Link - the LRT line running between Boston Common and Logan Square and is projected to be out in 2015. But the study was conducted only on the MBTA, not bus rapid transit or its regional transit plans, the only map released to the public available at these locations. The light rail line would have about 120 stops, while the seven buses at each station at city Park had 30. That required a bus to provide multiple stops on three stations. As a result, the line would generate about 150,000 trips a year. Advocates want MBTA to move quickly But one of the people enthusiastic about the new light rail was a local developer who is pushing the idea. Morrow from Fairmont Plaza developer Robert Cummins, which proposed 15 years ago to pay for a bike-friendly version of the line, the new light rail project could not have been prepared for the realities of the city. In part, the project will rely heavily on maintenance. In the meantime, city officials are lining up financing money from public sources, two of them from Boston Common. Five years ago, Mayor Walsh pointed out that the city hasn ´t built a new light rail since 1981, when some investors along with the state legislature approved the Medford Line. A $390 million master plan from Massachusetts Department of Transportation would pay to replace the Medford Line, too. The MBTA has also been partnering with the American College of Bicy Cities to provide an alternate route to work on at Fairmont Plaza. The study found that a light rail route would eliminate the need for additional four stops along the route, improving bus service and allowing more people to use the system. Freightrail plan There ´s detail to the report doesn ´t cover the cost estimates, but one of the findings is that the light rail line will provide short-term employment. But it will create a considerable spur from the city of downtown Boston that has not developed very large enough. Transit Alternatives Communications, a statewide advocacy group over the past decade, has offered this economic theory in a detailed analysis of recent light rail development across Boston, and it hasn ´t been borne out by anyone. Other studies, however, don ´t provide enough details to support that conclusion. Fellow cities such as Long Beach, Athens-Oxford, Oakland, Detroit, and others with greater transit needs are developing light rail options that are useful but not nearly as impressive as the Portland rail-rail network, an alternative to light rail in Portland with many concerns. Changes made Even if the government does do enough to keep the Gold Line on the ground, it will still be agonizing to pull that plug when the official report is in place. One of the recommendations from the consultant suggested that a TTA board, at least those close to the MBTA system, consider a toll-free bikeway along the extension of the Gold Line line rather than light rail. And when considering a bikeway at the southern end of the line that would connect the Gold Line to the Extension of the Green Line, the consultant recommended that it would be safe to go the other way. That proposal, in short, might be a new proposal. But at the moment, the only deal on the Gold Line extension is the one on the bridge on the Westmead/Hudson/Green Line extension.¡—endoftext—¿The economic crisis over whether we should bring down our debt triggered a government shutdown back in September when House Speaker John Boehner (R-Ohio) attacked Democrats across party lines for refusing to reopen the government, just hours after the shutdown had already been declared. But on Tuesday, Republicans will not be giving up that fight, and it is this fight that is going to affect the party’s prospects for the House and Senate. The GOP says they are prepared to offer measures to avoid a repeat of the House shutdown. But they are hesitant to do so, and Republicans are already feeling that pressure. ””You think that the last economic downturn of this kind is here and you think the last in history is here and you think the last the entire last century and you can´ t afford to be the same before that it is,” said Rep. Pete Sessions (R-Texas 
+
+Figure 6: Sample from ABD for block size L’ = 4 of length L = 2047 under T = 5K diffusion steps (trained with a context length of L = 1024). The generative perplexity of this sample under GPT2-Large is 25.68, and its entropy is 5.65. 20
