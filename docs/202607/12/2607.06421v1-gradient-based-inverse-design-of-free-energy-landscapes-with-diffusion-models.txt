@@ -1,0 +1,390 @@
+Title: Gradient-Based Inverse Design of Free-Energy Landscapes with Diffusion Models
+
+URL Source: https://arxiv.org/pdf/2607.06421v1
+
+Published Time: Wed, 08 Jul 2026 01:27:44 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# Gradient-Based Inverse Design of Free-Energy Landscapes with Diffusion Models 
+
+Eli Zick 1 and Dan Mendels 1, ∗
+
+> 1
+
+The Wolfson Department of Chemical Engineering, Technion – Israel Institute of Technology, Haifa 32000, Israel 
+
+(Dated: July 8, 2026) Free-energy surfaces govern the populations of metastable states and the barriers that control transitions between them, making their direct optimization a central challenge in molecular and materials design. In this work, we introduce Gradient-Based Free Energy Surface Optimization (GB-FESO), an inverse design framework that uses a trained conditional diffusion model as a differentiable surrogate for the ensemble distribution. After training, the diffusion model is frozen, and the conditioning variables defining the system are optimized so that the generated ensemble reproduces a prescribed target free-energy surface. The optimization is carried out by backpropagating a distribution-level loss, based on kernel density estimates of the Kullback–Leibler divergence, through a deterministic diffusion sampling trajectory. We first validate GB-FESO on one-dimensional Gaussian ensembles, demonstrating that both continuous and relaxed discrete conditioning variables can be optimized to recover target distributions, including those outside the training domain. We then apply the method to a four-particle Lennard–Jones toy peptide exhibiting multiple metastable conformational states. In this more physically motivated setting, GB-FESO successfully optimizes the interaction parameters to reproduce target free-energy landscapes in the majority of test cases, with optimization performed either in the full internal-coordinate space or in a reduced collective-variable representation. These results establish GB-FESO as a promising first step toward an ensemble-level inverse design framework for molecular systems with prescribed thermodynamic and kinetic behavior. 
+
+I. INTRODUCTION 
+
+Recent progress in machine learning has expanded the methodological basis of molecular engineering, particu-larly through models that learn directly from large-scale sequence and structural data[ 1– 6]. Within this landscape, Denoising Diffusion Probabilistic Models (DDPMs)[ 7]have emerged as a useful generative framework for protein ensembles. Unlike classical machine learning approaches that typically produce point predictions, diffusion models are trained to learn the target ensemble distribution it-self, through reverse denoising dynamics that map noise to samples from that distribution. Landmark models such as AlphaFold have demonstrated the power of deep learning for high-accuracy protein structure prediction, while recent ensemble-oriented models such as BioEmu extend this progress toward scalable generation of protein equilibrium conformational ensembles [ 8, 9 ]. In parallel, diffusion-based protein design models such as RFdiffusion, Chroma, FoldingDiff, and FrameDiff have shown that generative denoising procedures can sample realistic and designable protein backbones, often under structural or functional constraints [10–13]. Since many properties of protein systems are governed by conformational dynamics and relative stability, the ability of DDPM to learn ensemble distributions makes them a promising approach for inverse protein engineer-ing. Representative examples from prior work include ExEnDiff[ 14 ], which guides a pretrained diffusion-based ensemble sampler with experimental observables as physi-cal priors, enabling generation of conformational ensem- 
+
+> ∗danmendels@technion.ac.il
+
+bles that better satisfy measurements while approximating the underlying Boltzmann distribution. In a related di-rection, Minimum-Excess-Work Guidance[ 15 ] formulates the guidance of pretrained score-based generative mod-els using a thermodynamic-work-inspired regularization principle, allowing sparse restraints or experimental ob-servables to steer sampling while limiting distortion of the learned ensemble. ExEnDiff was further shown to capture mutation-induced conformational changes and to help identify useful collective variables for protein en-sembles. STARLING[ 16 ], by contrast, is a latent-space DDPM for intrinsically disordered regions that generates coarse-grained conformational ensembles directly from se-quence. In addition to ensemble prediction, STARLING introduces ensemble-aware latent representations that sup-port biophysical similarity search and enable latent-space, ensemble-first sequence design, where candidate sequences are optimized to match a target conformational behavior. These studies illustrate the growing role of diffusion models as ensemble generators and inverse-design tools. At the same time, most current applications use these models primarily to produce structures, ensembles, or sequences that satisfy a prescribed condition. A com-plementary approach is to treat the trained generative model itself as a differentiable surrogate of the ensemble distribution and optimize the underlying design variables (e.g., interaction energies, chemical composition, or amino acid sequence) such that a desired ensemble distribution is achieved. This shifts the inverse-design problem from targeting individual configurations such as a protein’s native state to tuning the parameters that govern the full conformational ensemble. Such an approach is particularly relevant because the behavior of many physical systems, including proteins, arXiv:2607.06421v1 [physics.comp-ph] 7 Jul 2026 2is often governed not by a single static structure but by their underlying free-energy surface (FES), which can be expressed as: 
+
+F (s) = −kB T ln P (s) + C. (1) where P (s) is the system probability distribution at equi-librium over a set of system variables s, kB is the Boltz-mann constant, T is the temperature, and C is an ar-bitrary constant. The FES governs the population of a system’s metastable states and the energy barriers be-tween them, thus also dictating the overall transition rates. Thus, from an engineering perspective, tailoring it provides a powerful route to controlling the function of a broad class of systems for which optimization of a single native-like structure alone would be insufficient. Example applications include catalysis, ligand recognition[ 17 ], anti-body engineering[ 18 ], and allosteric regulation[ 19 ] which frequently depend on how accessible specific conforma-tions are, and on how readily the system can transition to and from them[20]. Directly sampling the FES is often a challenging and computationally demanding task because barrier-crossing configurations typically have very low Boltzmann proba-bilities. As a result, conventional simulations tend to be-come trapped in metastable basins, requiring exceedingly long simulation times to adequately sample transitions and achieve convergence of ensemble populations. [ 21 –23 ]. Enhanced-sampling methods can mitigate this limitation for example, by biasing selected collective coordinates thus modifying the effective energy landscape, but their accuracy often depends on identifying such variables that capture the relevant slow modes sufficiently well. Thus, the task of engineering the FES of systems of interest or predicting how structural or chemical changes such as mutations in the case of biomolecules reshape the FES remains a nontrivial design problem [23–28]. Motivated by this perspective, we introduce Gradient-Based FES Optimization (GB-FESO), a design framework in which the objective is not merely structural accuracy or the optimization of specific properties, but the controlled optimization of the ensemble distribution itself. For exam-ple, the relative free-energy differences between a system’s metastable states, the overall shape of these states, or the barriers separating them. GB-FESO employs a con-ditional diffusion model as a differentiable generator of conformational ensembles. By leveraging the differentia-bility of this model, it enables the optimization of system design variables such that the generated ensemble ap-proaches a prescribed target distribution. Consequently, the optimization is driven by an ensemble-level objective rather than by agreement between individual generated and target conformations.  
+
+> II. METHODS
+
+To enable FES tailoring, we employ a conditional DDPM that serves as a differentiable mapping from a design condition c, representing a set of system-defining properties (e.g., its physical structure, chemical composi-tion or amino acid sequence), to an ensemble of samples that collectively define the corresponding FES. After train-ing on a collection of state (conformational) ensembles spanning a diverse set of systems within the domain of interest, the parameters of the generative neural network are frozen. At this stage, the conditional diffusion model is no longer used only to sample ensembles for a pre-scribed condition; instead, it is treated as a differentiable surrogate for the condition-dependent ensemble distri-bution. Inverse design is then performed by optimizing the condition vector ( c) itself, with gradients obtained by backpropagating an ensemble-level loss through the deterministic sampling trajectory, so that the generated ensemble approaches the desired FES, or equivalently, the desired ensemble statistics.  
+
+> A. Diffusion Models
+
+DDPMs learn to generate samples by reversing a grad-ual noising process. Starting from a clean sample x0, the forward noising process adds Gaussian noise over T steps according to 
+
+q(xt|xt−1) = N (xt; p1 − βtxt−1, β tI) (2) where {βt}Tt=1 is a predefined variance schedule and I
+
+is the identity matrix. Defining αt = 1 − βt and ¯αt =Qts=1 αs, the marginal distribution at an arbitrary step admits the closed form 
+
+q(xt|x0) = N (xt; √¯αtx0, (1 − ¯αt)I) (3) which can be equivalently written as 
+
+xt = √¯αtx0 + √1 − ¯αtϵ, ϵ ∼ N (0, I) (4) This formulation is useful because it allows noisy sam-ples at any step to be obtained directly from x0, without explicitly simulating all previous diffusion steps. As t
+
+increases, the signal component is progressively reduced while the noise component becomes dominant, so that xT
+
+approaches an isotropic Gaussian distribution. The generative model is then trained on the reverse process, which starts from Gaussian noise and iteratively removes noise until a clean sample is obtained. Specifically, a neural network ϵθ (xt, t, c) is trained to predict the noise 
+
+ϵ that was injected into xt−1 to obtain xt. The training at each diffusion step is important also because the amount of corruption varies across the diffusion trajectory, requiring the model to adapt its denoising behavior at different noise levels. In practice, training is commonly performed using a simple mean-squared error objective on the predicted noise [7, 29]: 
+
+MSE = 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+(yi − ˆyi)2 (5) 3
+
+Figure 1: Schematic representation of the GB-FESO workflow. The diffusion model generates a large batch of samples with a given condition vector. The optimizer calculates the KL divergence loss between the generated and target ensembles and backpropagates gradients back to the condition through the entire sampler path.  
+
+> B. Gradient-Based FES Optimization
+
+As noted above, after training, the conditional diffusion model is used as a differentiable surrogate for the ensem-ble distribution. The model parameters are kept fixed, and optimization is performed over the input condition rather than over the generated samples themselves. In the context of FES design, this means that we seek a condition c whose generated ensemble has the same prob-ability distribution, and therefore the same free-energy surface, as a prescribed target ensemble. Thus, the condition c represents the design variables that control the generated distribution. These variables may be continuous, such as coefficients in a force-field parameterization, or discrete, such as bead types, chemical components, residue identities, or amino acid sequences. For a fixed condition, the diffusion sampler generates an ensemble of configurations, which can be interpreted as samples from the distribution ˆpDDPM (x | c). The inverse-design task is therefore to update c so that the generated distribution approaches the prescribed target distribution 
+
+ˆptarget (x)(Fig. 1). In the field of image and video generation, evaluation metrics are typically focused on the quality of individual samples, whereas the accuracy with which a model repro-duces the target distribution is addressed less often. For conformational ensembles, however, distributional accu-racy is a primary objective. Thus, our goal is to match the ensemble distribution by backpropagating from a distribution-level loss, rather than from a comparison of individual samples. This requires a quantitative, and ideally differentiable, metric that measures agreement between the generated and target ensemble distributions. A natural and widely used choice is the Kullback–Leibler (KL) divergence[30]: 
+
+DKL (P ∥ Q) = 
+
+Z
+
+p(x) log p(x)
+
+q(x) dx. (6) Without an explicit analytic form for the generated distribution, the KL divergence can be approximated with Gaussian kernel density estimation (KDE)[31], and can be written as a differentiable loss: 
+
+DKL (ˆ ptarget ∥ ˆpgen ) ≈ 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+log ˆptarget (xj )ˆpgen (xj ) ,
+
+xj ∼ ˆptarget .
+
+(7) Here 
+
+log p(x) ≈ log ˆ p(x)= log 
+
+"
+
+1
+
+N
+
+> N
+
+X
+
+> i=1
+
+1(2 π)d/ 2hd
+
+× exp 
+
+
+
+− ∥x − xi∥2
+
+2h2
+
+ 
+
+,
+
+(8) and h is a bandwidth of the KDE. Given an input con-dition c, the final optimization objective can be written as           
+
+> c∗= arg min
+> c∈C
+> h
+> DKL (ˆ ptarget (x)∥ˆpDDPM (x|c)) +λD KL (ˆ pDDPM (x|c)∥ˆptarget (x))
+> i
+> ,
+> (9)
+
+4
+
+Figure 2: GB-FESO applied to a family of one-dimensional Gaussian distributions, where the generated samples are scalar values along the x-axis and the generative model’s conditioning variables are the discretized mean and variance of the distribution from which the numbers are sampled. where C is the allowed domain of the design variables, and λ controls the contribution of the reverse KL term. In the simplest case, we set λ = 0 .At each optimization step, while searching for the sys-tem design parameters that yield a desired FES, a syn-thetic ensemble is generated using the current condition 
+
+c, the KL-based loss is evaluated against the target en-semble, and gradients are backpropagated through the sampling trajectory to update the condition while keeping the model parameters frozen. A potential challenge in applying the proposed method-ology with diffusion models is the need to backpropagate through dozens to hundreds of sampling steps. Never-theless, previous work has demonstrated the feasibility of such optimization by differentiating directly through the sampling process[ 32 ], or using approximate tech-niques such as adjoint ODE differentiation[ 33 ] or gra-dient reparameterization[ 34 ]. The requirement to com-pute gradients restricts the choice of sampler to differ-entiable formulations, thereby excluding certain popular stochastic samplers such as stochastic DDIM. In this work, we therefore employ a deterministic DDIM sampler, al-though other differentiable alternatives, including Euler-and Runge–Kutta-based solvers, could also be used[35] Finally, we note that continuous conditioning variables can be optimized directly using gradient-based methods. Discrete conditioning variables, however, are not differ-entiable and therefore require a continuous relaxation during optimization. One possible approach is binary logit relaxation[ 36 ], although several alternative methods for handling discrete variables have been proposed, in-cluding the Straight-Through Estimator (STE)[ 37 ] and the Gumbel–Softmax relaxation[38, 39].   
+
+> III. RESULTS AND DISCUSSION A. Applying GB-FESO to a Domain of Randomly Generated Gaussian Distributions
+
+As an initial proof of concept, we first investigate the proposed method in the context of a family of one-dimensional Gaussian distributions (Fig. 2). In this set-ting, the conditioning variables directly control the mean and variance of the generated distribution. Although in-tentionally simple, this example provides a well-controlled test case: the target distribution is known exactly, the conditioning variables have a clear interpretation, and the optimization outcome can be assessed directly. The purpose of this experiment is to verify that the conditioning input of a trained diffusion model can be optimized to generate samples from a desired target dis-tribution. As noted above, once the diffusion model has been trained, all model parameters are kept fixed. Start-ing from an initial condition associated with ensemble 
+
+I, we seek a new condition whose generated ensemble matches a target ensemble T . Because sampling is per-formed using a deterministic DDIM procedure, the entire generation trajectory remains differentiable with respect to the relaxed conditioning variables, allowing gradients to propagate from the final loss, (Eq. 9) back to the condition parameters. In the continuous version of the experiment, the mean and variance are represented directly as continuous con-ditioning variables. This provides the simplest possible setting and serves as a baseline for evaluating the op-timization procedure. Successful optimization therefore drives the generated distribution from the initial ensemble 
+
+I toward the target ensemble T by appropriately adjust-ing the corresponding to a discretized grid of mean and variance values. To demonstrate that GB-FESO is also compatible with discrete conditioning variables, we encode the condition as a pair of integer indices, (midx , v idx ), corresponding to a discretized grid over the mean and variance. These integer values are represented as bit vectors and provided to the model as conditioning inputs. During optimization, the discrete bits are replaced by relaxed continuous variables, allowing gradients to propagate through the conditioning representation while retaining a discrete interpretation after decoding or rounding. For a given condition, samples are drawn as 
+
+x = midx 
+
+100 +
+
+r vidx 
+
+100 ξ, ξ ∼ N (0 , 1) . (10) Here, midx determines the Gaussian mean, vidx deter-mines the variance, and ξ is a standard normally dis-tributed random variable. The DDPM is trained on a deliberately discontinuous set of conditions. The mean index is sampled from the integer ranges 
+
+midx ∈ [0 , 40] ∪ [60 , 100] ,5Table I: Optimization performance grouped by starting epsilon region. Values in parentheses correspond to the 2D angle-only loss; values outside parentheses correspond to the 5D geometry loss. Missing active basin counts indicate runs in which GB-FESO failed to populate all target-active basins. The ∆F error is reported only for multi-basin targets.                     
+
+> Start region Runs Missing basins 5D (2D) Median
+> ∆Ferr.
+> (kBT)
+> Avg. KL successful 5D (2D) low–low 40 0 (1) 0.20 (0.24) 0.026 (0.069) low–high 40 3 (3) 0.17 (0.21) 0.090 (0.087) high–low 40 3 (5) 0.36 (0.50) 0.053 (0.095) high–high 40 10 (11) 0.89 (1.04) 0.140 (0.078)
+
+and the variance index from 
+
+vidx ∈ [1 , 3] ∪ [6 , 10] .
+
+This split is used to test whether optimization of the con-dition vector could move the generated ensemble between distinct regions of the learned conditional distribution. This discrete formulation is important because many practical molecular or material design problems involve conditioning variables that are not naturally continuous. Examples include bead types, atom types, amino acid sequences, categorical labels, or other indexed descriptors. In such cases, directly optimizing a continuous physical parameter may not be meaningful, whereas optimizing a relaxed representation of a discrete condition provides a differentiable route toward selecting an appropriate category. The simulations show that, for this simple test case, GB-FESO is consistently able to identify the optimal con-ditioning variables corresponding to the predefined target ensembles in both the continuous and discrete settings. The optimization trajectory shown in Fig. 2 illustrates several intermediate ensembles generated throughout the optimization process. Notably, the procedure also demon-strates the ability to extrapolate beyond the training domain, with the DDPM converging to mean and vari-ance values that are not present in the training data while still generating the corresponding target distributions.  
+
+> B. Toy Peptide
+
+In a second, more challenging case study, we investi-gate the ability to engineer the FES of a two-dimensional Lennard–Jones (LJ) four-particle toy peptide consist-ing of seven degrees of freedom and three metastable states (Fig. 3a). Such a system is small enough that its equilibrium ensemble can be easily visualized, yet it still exhibits non-trivial conformational statistics due to the competition between its bonded constraints, non-bonded Lennard–Jones interactions[ 40 ] and entropy. The internal-coordinate representation of such a system is 5-dimensional and can be written as: 
+
+x = ( r12 , r 23 , r 34 , θ 123 , θ 234 ),
+
+where r denotes distances and θ denotes bond angles. Ground-truth reference ensembles have been generated using molecular dynamics simulations in LAMMPS[ 41 ]. Non-bonded interactions are modeled with the LJ poten-tial 
+
+V (r) = 4 ε
+
+ σr
+
+12 
+
+−
+
+ σr
+
+6
+
+, (11) where ε controls the interaction strength and σ sets the interaction length scale. Interparticle bonds are modeled as harmonic, 
+
+Ubond (r) = k(r − r0)2, (12) with a sufficiently large force constant k, to hold the chain together, while still allowing substantial bond-length oscillations. The cutoff radii Rcut for the LJ potentials are set equal to the initial bond distances. If σ is fixed, the equilibrium distribution is controlled only by the LJ interaction strengths ε. We therefore use 
+
+ε as the conditioning variable for the generative model. For two interaction types, the condition can be written as 
+
+ε = ( ε1, ε 2), corresponding to independently controlled LJ pair coefficients with ε1 representing interactions be-tween nearest neighbors and ε2 representing interactions between next-nearest neighbors. The four-bead toy peptide provides a convenient testbed for the optimization procedure. A fully trained DDPM with a linear scheduler, deterministic DDIM sampler, and FiLM-conditioned MLP backbone[ 42 ] is able to reproduce the correct distributions for both seen and unseen ε pairs (Fig. 3b). To some extent, the model is also capable of generalizing to unseen ε value domains. Having established that the trained DDPM can gen-erate conformational ensembles that are consistent with the ground truth, we move on to explore the proposed framework’s ability to enable the finding of the system design parameters that yield a desired ensemble-level FES. To better navigate the rough KL-loss landscape, we use a two-step optimization procedure: first, a high learning rate with stochastic perturbations to escape local minima, followed by additional optimization steps with a lower learning rate. For evaluation, we are interested in reach-ing the pair of ε that produce FES that are sufficiently similar to the desired ones, and thus yield low KL loss values. First, we perform optimization in the full 5-dimensional space. As noted above, the peptide allows three metastable states: folded, unfolded, and crossfolded (Fig. 3a). Different combinations of ε lead to different populations of these states. Our results show that in the large majority of cases, the gradient-based optimization in the input space can adjust the LJ parameters such that the resulting distributions are sufficiently close to their target, as in examples shown in Fig. 4. As shown 6 
+
+> (a) (b)
+
+Figure 3: (a) Toy model described by LJ parameters ε1 and ε2 for first and second neighbors, respectively, and examples of possible configurations during the simulation. ε1 and ε2. (b) Target vs. generated FES at the same LJ parameters: ε = (0 .28; 1 .37) and ε = (0 .92; 1 .39) 
+
+in Fig. S1, ESI, the method can also be evaluated in the angle–distance representation. To ensure the optimization was successful, after attain-ing a small KL value we examined visually the FES to ensure similarity, including the fact that the exact same metastable basins appear in both optimized FES and the target FES. The model reaches the correct basin in 90% of the experiments (Table I, 5D case). However, optimization performance depends on the initial config-uration. For runs initialized in regions in which one or both initial ε values are close to the lower bound of the parameter range, optimization succeeds in 97.5% of the cases studied. In contrast, runs initialized with large ini-tial ε values fail more frequently, reducing the success rate to approximately 75%. This difference may arise from the highly localized distributions associated with strong Lennard–Jones interactions, which make it difficult for the optimizer to escape the initial basin and converge to the target configuration. Optimization in the full multidimensional space of struc-tural variables can be computationally demanding, par-ticularly for larger systems with dozens or hundreds of degrees of freedom. To improve the scalability of the optimization procedure, it would therefore be advanta-geous to operate in a reduced representation of the system utilizing for example a set of collective variables. One such approach, which we explored here, uses Harmonic Linear Discriminant Analysis (HLDA) [ 43 – 45 ], which sys-tematically constructs a low-dimensional set of collective variables that effectively separates the metastable states of the system. Applying HLDA to a trajectory containing all three Table II: HLDA coefficients calculated from a single trajectory calculated with ε = (0 .448; 0 .287)      
+
+> Descriptor Importance
+> θ123 0.2323
+> θ234 0.2432
+> r12 0.1798
+> r23 0.1630
+> r34 0.1816
+
+metastable states reveals (Table II) that the peptide’s bond angles play a more significant role than its inter-atomic distances in distinguishing between these states for the given trajectory. Accordingly, we performed GB-FESO using a KL-divergence loss computed only from the two bond-angle distributions, rather than from all structural degrees of freedom. As shown in Table I (2D case), the method is still able to accurately reproduce the target free-energy surface, with only a minor loss in performance, yielding an 88% rate. 7
+
+> (a)
+
+Figure 4: GB-FESO applied to the Toy Peptide. We start optimization from a random ε value and optimize it to match target distribution (on the right). We show initial generated FES and intermediate steps to the optimal result.  
+
+> IV. CONCLUSION
+
+In this work, we have proposed GB-FESO, a framework for the inverse design of systems with target free-energy landscapes using conditional diffusion models as differ-entiable ensemble generators. Rather than optimizing individual conformations or selecting samples that sat-isfy a target property, our approach directly optimizes the conditioning variables that determine the generated ensemble. This formulation enables direct comparison between the generated and target distributions through an ensemble-level loss, while updating the design variables by backpropagating gradients through the deterministic diffusion sampling trajectory. We first demonstrate the method on ensembles drawn from simple one-dimensional Gaussian distributions, where the conditioning variables correspond directly to the distribution parameters. This controlled setting con-firmed that the conditioning variables of a trained and frozen generative model can be optimized to transform 8one ensemble distribution into another. We then apply the same principle to a toy peptide model governed by Lennard–Jones interaction parameters. In this more physi-cally motivated setting, the method successfully optimizes the interaction strengths to reproduce target free-energy surfaces in the large majority of test cases, including targets whose conditioning parameters lie outside the training region of the diffusion model. These results suggest that conditional diffusion mod-els provide a practical route for ensemble-level molecular and materials design, particularly in settings where the desired outcome is naturally expressed as a distribution rather than as a single optimized structure. At the same time, several challenges must be addressed before this approach can be extended to larger and more realistic molecular systems. For very large neural networks and/or high-dimensional free-energy landscapes, straightforward backpropagation through the diffusion sampling trajec-tory may become computationally inefficient or unsta-ble. Moreover, the KDE-based approximation of the KL divergence objective can give rise to a rough optimiza-tion landscape, hindering convergence. As shown in this work, however, performing free-energy optimization in a reduced space of collective variables obtained through dimensionality-reduction methods, such as HLDA, can substantially mitigate these issues. Furthermore, improv-ing scalability and robustness in higher-dimensional set-tings may require alternative distributional objectives, such as Wasserstein-based metrics [46]. Overall, the proposed framework represents a promis-ing first step toward differentiable free-energy-surface design. Although further methodological developments are needed, the results demonstrate that optimizing the conditioning variables of a frozen generative model can effectively steer generated ensembles toward target ther-modynamic behavior and target free-energy landscapes.   
+
+> V. COMPUTATIONAL DETAILS A. Gaussian dataset generation
+
+For the one-dimensional proof-of-concept, the target dataset is generated dynamically during training, from Gaussian distributions whose mean and variance are con-trolled by two integer-valued condition indices, 
+
+midx , v idx .
+
+The Gaussian DDPM uses 100 diffusion steps with a linear noise schedule from β1 = 10 −4 to βT = 0 .1.The model is trained for 6000 optimization steps with a batch size 1024 , using the Adam[ 47 ] optimizer with a learning rate of 2 × 10 −4. The model is trained with the standard DDPM noise-prediction mean-squared-error loss per Eq. (5). For inverse optimization, for example, the initial and target distributions can be chosen as 
+
+I : ( midx , v idx ) = (90 , 1) , T : ( midx , v idx ) = (20 , 8) .
+
+The discrete indices are represented by binary encodings: seven bits for the mean index and four bits for the variance index. During optimization, these binary variables are replaced by relaxed continuous logits, allowing gradients to propagate through the deterministic DDIM sampler. The relaxed bits are evaluated using a sigmoid–Gumbel relaxation with a temperature τ = 0 .7.At each optimization step, 2048 samples are generated using a deterministic DDIM sampler with 40 sampling steps. The condition logits are optimized for 140 iterations using Adam with a learning rate of 0.12 . The loss is the KDE-based KL divergence between the generated distribution and the target distribution, evaluated on a one-dimensional grid over x ∈ [−1, 2] with a Gaussian KDE bandwidth of h = 0 .06 . After optimization, the relaxed condition is decoded back to integer indices, while the generated density is compared visually against the initial and target Gaussian distributions.  
+
+> B. Toy-peptide LAMMPS simulations
+
+Toy-peptide reference ensembles were generated with LAMMPS using a two-dimensional four-bead chain. Each bead had a distinct particle type, and consecutive beads were connected by harmonic bonds to keep the chain intact while still allowing bond-length fluctuations. Non-bonded interactions were described by a Lennard–Jones potential with fixed σ = 1 and rcutof f = 1 . Same-type interactions were set to zero, while cross-type interactions defined the tunable energy landscape. For each trajectory, two independent LJ energy param-eters were randomly selected in the interval 
+
+ε1, ε 2 ∈ [0 .21 , 1.6] .
+
+The first parameter, ε1, was assigned to bonded-neighbor pairs, 
+
+(1 , 2) , (2 , 3) , (3 , 4) ,
+
+while the second parameter, ε2, was assigned to next-nearest-neighbor pairs, 
+
+(1 , 3) , (2 , 4) .
+
+The remaining long-range pair (1 , 4) was kept fixed at 
+
+ε3 = 0 .5. Each LAMMPS input file therefore defines one trajectory and one condition vector, 
+
+ε = ( ε1, ε 2).
+
+The simulations were performed in reduced Lennard– Jones units with Langevin dynamics at low temperature 
+
+t = 0 .09 . The resulting dump files were postprocessed into internal coordinates rather than Cartesian coordinates. For every saved frame, the target vector was 
+
+x = ( r12 , r 23 , r 34 , θ 123 , θ 234 ),9where the three r values are adjacent bond distances and the two θ values are signed bond angles. These five-dimensional internal-coordinate samples were used as the training data for the conditional diffusion model. The cor-responding (ε1, ε 2) values were extracted directly from the LAMMPS pair coefficients and used as the conditioning variables.  
+
+> C. Toy-peptide DDPM and inverse optimization
+
+Within this representation, the model therefore learns a conditional ensemble distribution 
+
+pθ (x | ε1, ε 2),
+
+where changes in the condition correspond to changes in the interaction parameters that define the four-bead system. The denoising network is implemented as a FiLM-conditioned multilayer perceptron. The network uses a hidden width of 256 and contains seven FiLM-conditioned residual blocks. Each block contains layer normalization, FiLM scale-and-shift modulation, two linear layers, SiLU activation, and dropout with probability 0.05. The diffu-sion timestep is encoded using a 64-dimensional sinusoidal embedding, while the timestep and condition embeddings are mapped through 128-dimensional conditioning lay-ers. At each diffusion step, the noisy internal-coordinate vector, the diffusion timestep, and the condition vector are provided to the network. The network is trained to predict the Gaussian noise added during the forward diffu-sion process, using the standard DDPM noise-prediction mean-squared-error objective. During training, a linear noise schedule is used. The model was trained with 1000 diffusion steps, batch size 256, AdamW optimization, learning rate 1.5 × 10 −4, weight decay 10 −4, and 80 train-ing epochs. For sampling during inverse optimization, we use a deterministic DDIM sampler, which preserves a differentiable path from the generated ensemble back to the conditioning variables. For inverse FES optimization, the trained DDPM pa-rameters are frozen and only the input condition is up-dated. At each optimization step, an ensemble is gener-ated from the current condition using the deterministic DDIM sampler. The generated and target ensembles are compared in the full internal-coordinate space (5D), so that both bond-length fluctuations and angular conforma-tional changes contributed to the optimization objective, and, later in the reduced angle space (2D). The loss is computed as the KDE-based KL divergence between the generated and target distributions, per Eq. (9) . Our cal-culations have shown that exclusion of the symmetric term does not significantly affect performance, and λ = 0 
+
+can therefore be assumed to reduce the computational cost. Optimization is performed in two stages. In the first stage, the condition is optimized with a relatively large learning rate while stochastic perturbations are added to help escape local minima. In the second stage, if the KL loss remains above a chosen threshold, the condition is further refined with a lower learning rate and without additional perturbations. This procedure is used to im-prove convergence toward a condition whose generated ensemble matches the target distribution. For this case we use KDE bandwidth of h = 0 .5 and 3600-4096 samples per optimization step and KL loss calculation. The purpose of the optimization is not necessarily to recover the exact target values of ε1 and ε2. Since, in the broader case, different interaction parameters might produce similar ensemble statistics, success is instead defined by the agreement between the generated and target distributions. Thus, the optimized condition is evaluated according to the final KL loss between the generated and target internal-coordinate ensembles. 
+
+> DATA AVAILABILITY
+
+The code and the dataset scripts used to generate and analyze the data supporting this article are openly available in Zenodo at 
+
+https://doi.org/10.5281/zenodo.21075939 , ac-cession number: 10.5281/zenodo.21075939. The development version of the code is available on GitHub at https://github.com/MendelsResearchGroup/ Gradient-Based-Free-Energy-Surface-Optimization 
+
+and is released under the MIT License. 
+
+> ACKNOWLEDGMENTS
+
+The authors acknowledge support from the Israel Sci-ence Foundation (ISF) under grant number 1181/24.           
+
+> [1] Butler, K. T., Davies, D. W., Cartwright, H., Isayev, O., and Walsh, A. Machine learning for molecular and materials science. Nature , 559, 547–555, 2018. https: //doi.org/10.1038/s41586-018-0337-2
+> [2] Sanchez-Lengeling, B. and Aspuru-Guzik, A. Inverse molecular design using machine learning: Generative mod-els for matter engineering. Science , 361, 360–365, 2018.
+> https://doi.org/10.1126/science.aat2663
+> [3] Rives, A. et al. Biological structure and function emerge from scaling unsupervised learning to 250 million pro-tein sequences. Proceedings of the National Academy of Sciences , 118, e2016239118, 2021. https://doi.org/10. 1073/pnas.2016239118
+> [4] Salman, S. N., Shteingolts, S. A., Levie, R., and Mendels, D. Evaluating the use of a machine learning simulator for structure–property prediction: A case study on disordered
+
+10 
+
+elastic networks. The Journal of Chemical Physics , 163, 124115, 2025. https://doi.org/10.1063/5.0282871 
+
+[5] Shteingolts, S. A., Salman, S. N., and Mendels, D. En-abling structure-only initialization and out-of-distribution generalization in GNN-based molecular dynamics simu-lators. arXiv preprint arXiv:2605.09495 , 2026. https: //arxiv.org/abs/2605.09495 
+
+[6] Sanchez-Gonzalez, A., Godwin, J., Pfaff, T., Ying, R., Leskovec, J., and Battaglia, P. Learning to simulate complex physics with graph networks. In Proceedings of the 37th International Conference on Machine Learning ,PMLR 119, 8459–8468, 2020. https://proceedings.mlr. press/v119/sanchez-gonzalez20a.html 
+
+[7] Ho, J., Jain, A., and Abbeel, P. Denoising diffusion probabilistic models. Advances in Neu-ral Information Processing Systems , 33:6840–6851, 2020. https://proceedings.neurips.cc/paper/2020/ file/4c5bcfec8584af0d967f1ab10179ca4b-Paper.pdf 
+
+[8] Jumper, J., Evans, R., Pritzel, A., Green, T., Figurnov, M., Ronneberger, O., Tunyasuvunakool, K., Bates, R., Žídek, A., Potapenko, A., Bridgland, A., Meyer, C., Kohl, S. A. A., Ballard, A. J., Cowie, A., Romera-Paredes, B., Nikolov, S., Jain, R., Adler, J., Back, T., Petersen, S., Reiman, D., Clancy, E., Zielinski, M., Steinegger, M., Pacholska, M., Berghammer, T., Bodenstein, S., Silver, D., Vinyals, O., Senior, A. W., Kavukcuoglu, K., Kohli, P., and Hassabis, D. Highly accurate protein structure prediction with AlphaFold. Nature , 596:583–589, 2021. 
+
+https://doi.org/10.1038/s41586-021-03819-2 
+
+[9] Lewis, S., Hempel, T., Jimenez-Luna, J., Gastegger, M., Xie, Y., Foong, A. Y. K., Satorras, V. G., Abdin, O., Veeling, B. S., Zaporozhets, I., et al. Scalable emulation of protein equilibrium ensembles with generative deep learning. Science , 389(6761):eadv9817, 2025. https:// doi.org/10.1126/science.adv9817 
+
+[10] Watson, J. L., Juergens, D., Bennett, N. R., Trippe, B. L., Yim, J., Eisenach, H. E., Ahern, W., Borst, A. J., Ragotte, R. J., Milles, L. F., et al. De novo design of protein structure and function with RFdiffusion. Na-ture , 620:1089–1100, 2023. https://doi.org/10.1038/ s41586-023-06415-8 
+
+[11] Ingraham, J. B., Baranov, M., Costello, Z., Barber, K. W., Wang, W., Ismail, A., Frappier, V., Lord, D. M., Ng-Thow-Hing, C., Van Vlack, E. R., et al. Illuminating protein space with a programmable generative model. Na-ture , 623:1070–1078, 2023. https://doi.org/10.1038/ s41586-023-06728-8 
+
+[12] Wu, K. E., Yang, K. K., van den Berg, R., Alamdari, S., Zou, J. Y., Lu, A. X., and Amini, A. P. Protein structure generation via folding diffusion. Nature Com-munications , 15:1059, 2024. https://doi.org/10.1038/ s41467-024-45051-2 
+
+[13] Yim, J., Trippe, B. L., De Bortoli, V., Mathieu, E., Doucet, A., Barzilay, R., and Jaakkola, T. SE(3) dif-fusion model with application to protein backbone gen-eration. In Proceedings of the 40th International Con-ference on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pages 40001–40039, 2023. 
+
+https://proceedings.mlr.press/v202/yim23a.html 
+
+[14] Liu, Y., Yu, Z., Lindsay, R. J., Lin, G., Chen, M., Sa-hoo, A., and Hanson, S. M. ExEnDiff: An experiment-guided diffusion model for protein conformational en-semble generation. PRX Life , 3:023013, 2025. https: //doi.org/10.1103/PRXLife.3.023013 
+
+[15] Kara, C., Hoppe, T., Angelis, E., Schreiner, J. M., Bauer, S., Dittadi, A., and Olsson, S. Minimum-excess-work guidance: Score-based sampling with experimental data or sparse restraints. Journal of Chemical Theory and Computation , 2026. https://doi.org/10.1021/acs. jctc.6c00080 
+
+[16] Novak, B., Lotthammer, J. M., Emenecker, R. J., and Holehouse, A. S. Accurate predictions of disordered pro-tein ensembles with STARLING. Nature , 652:240–250, 2026. https://doi.org/10.1038/s41586-026-10141-2 
+
+[17] Stenstrom, O., Diehl, C., Modig, K., and Akke, M. Ligand-induced protein transition state stabilization switches the binding pathway from conformational selection to induced fit. Proceedings of the National Academy of Sciences ,121(14):e2317747121, 2024. https://doi.org/10.1073/ pnas.2317747121 
+
+[18] Spoendlin, F. C., Fernandez-Quintero, M. L., Raghavan, S. S. R., Turner, H. L., Gharpure, A., Loeffler, J. R., Wong, W. K., Bujotzek, A., Georges, G., Ward, A. B., et al. Predicting the conformational flexibility of antibody and T cell receptor complementarity-determining regions. Nature Machine Intelligence , 7(10):1755–1767, 2025. https:// doi.org/10.1038/s42256-025-01131-6 
+
+[19] Nussinov, R., Regev, C., and Jang, H. Leveraging conformational ensembles in allosteric drug discovery. 
+
+Trends in Pharmacological Sciences , 47(3):276–289, 2026. 
+
+https://doi.org/10.1016/j.tips.2026.01.006 
+
+[20] Frauenfelder, H., Sligar, S. G., and Wolynes, P. G. The energy landscapes and motions of proteins. Science ,254(5038):1598–1603, 1991. https://doi.org/10.1126/ science.1749933 
+
+[21] Torrie, G. M. and Valleau, J. P. Nonphysical sam-pling distributions in Monte Carlo free-energy estima-tion: Umbrella sampling. Journal of Computational Physics , 23(2):187–199, 1977. https://doi.org/10. 1016/0021-9991(77)90121-8 
+
+[22] Laio, A. and Parrinello, M. Escaping free-energy min-ima. Proceedings of the National Academy of Sciences ,99(20):12562–12566, 2002. https://doi.org/10.1073/ pnas.202427399 
+
+[23] Henin, J., Lelievre, T., Shirts, M. R., Valsson, O., and Delemotte, L. Enhanced sampling methods for molecular dynamics simulations. Living Journal of Computational Molecular Science , 4(1):1583, 2022. https://doi.org/10. 33011/livecoms.4.1.1583 
+
+[24] Medaparambath, M., Zhilkin, A., and Mendels, D. Collec-tive variable-guided engineering of the free-energy surface of a small peptide. arXiv preprint arXiv:2602.19906 , 2026. 
+
+https://doi.org/10.48550/arXiv.2602.19906 
+
+[25] Zhilkin, A., Medaparambath, M., and Mendels, D. Guid-ing Peptide Kinetics via Collective-Variable Tuning of Free-Energy Barriers. Journal of Chemical Theory and Computation , 22(9):4573–4580, 2026. https://doi.org/ 10.1021/acs.jctc.6c00418 
+
+[26] Abrams, C. and Bussi, G. Enhanced sampling in molecu-lar dynamics using metadynamics, replica-exchange, and temperature-acceleration. Entropy , 16(1):163–199, 2014. 
+
+https://doi.org/10.3390/e16010163 
+
+[27] Mendels, D. and de Pablo, J. J. Collective variables for free energy surface tailoring: Understanding and modifying functionality in systems dominated by rare events. The Journal of Physical Chemistry Letters , 13(12):2830–2837, 2022. https://doi.org/10.1021/acs.jpclett.2c00317 11 
+
+[28] Mendels, D., Byléhn, F., Sirk, T. W., and de Pablo, J. J. Systematic modification of functionality in disordered elastic networks through free energy surface tailoring. 
+
+Science Advances , 9(23):eadf7541, 2023. https://doi. org/10.1126/sciadv.adf7541 
+
+[29] Rombach, Robin and Blattmann, Andreas and Lorenz, Dominik and Esser, Patrick and Ommer High-Resolution Image Synthesis with Latent Diffusion Models In Proceed-ings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2022. [30] Kullback, S. and Leibler, R. A. On information and suffi-ciency. The Annals of Mathematical Statistics , 22(1):79– 86, 1951. https://doi.org/10.1214/aoms/1177729694 
+
+[31] Parzen, E. On estimation of a probability density func-tion and mode. The Annals of Mathematical Statistics ,33(3):1065–1076, 1962. [32] Wallace, B., Gokul, A., Ermon, S., and Naik, N. End-to-end diffusion latent optimization improves classifier guidance. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 7280–7290, 2023. 
+
+https://arxiv.org/abs/2303.13703 
+
+[33] Pan, J., Yan, H., Liew, J. H., Feng, J., and Tan, V. Y. F. Towards accurate guided diffusion sampling through sym-plectic adjoint method. arXiv preprint arXiv:2312.12030 ,2023. https://doi.org/10.48550/arXiv.2312.12030 
+
+[34] Watson, D., Chan, W., Ho, J., and Norouzi, M. Learn-ing fast samplers for diffusion models by differentiating through sample quality. In International Conference on Learning Representations , 2022. https://openreview. net/forum?id=VFBjuF8HEp 
+
+[35] Song, J., Meng, C., and Ermon, S. Denoising diffusion im-plicit models. International Conference on Learning Rep-resentations , 2021. https://arxiv.org/abs/2010.02502 
+
+[36] Louizos, C., Welling, M., and Kingma, D. P. Learning sparse neural networks through L0 regularization. In 
+
+International Conference on Learning Representations ,2018. https://arxiv.org/abs/1712.01312 
+
+[37] Bengio, Y., Leonard, N., and Courville, A. Estimating or propagating gradients through stochastic neurons for conditional computation. arXiv preprint arXiv:1308.3432 ,2013. https://arxiv.org/abs/1308.3432 
+
+[38] Jang, E., Gu, S., and Poole, B. Categorical repa-rameterization with Gumbel-Softmax. In International Conference on Learning Representations , 2017. https: //arxiv.org/abs/1611.01144 
+
+[39] Maddison, C. J., Mnih, A., and Teh, Y. W. The Concrete distribution: A continuous relaxation of discrete random variables. In International Conference on Learning Rep-resentations , 2017. https://arxiv.org/abs/1611.00712 
+
+[40] Jones, J. E. On the determination of molecular fields. I. From the variation of the viscosity of a gas with tempera-ture. Proceedings of the Royal Society of London. Series A, 106(738):441–462, 1924. [41] Plimpton, S. Fast parallel algorithms for short-range molecular dynamics. Journal of Computational Physics ,117(1):1–19, 1995. [42] Perez, E., Strub, F., de Vries, H., Dumoulin, V., and Courville, A. FiLM: Visual reasoning with a general conditioning layer. AAAI Conference on Artificial Intelli-gence , 2018. [43] Mendels, D., Piccini, G., and Parrinello, M. Collective variables from local fluctuations. The Journal of Physical Chemistry Letters , 9(11):2776–2781, 2018. https://doi. org/10.1021/acs.jpclett.8b00733 
+
+[44] Piccini, G. M., Mendels, D., and Parrinello, M. Meta-dynamics with discriminants: A tool for understanding chemistry. Journal of Chemical Theory and Computation ,14(10):5040–5044, 2018. https://doi.org/10.1021/acs. jctc.8b00634 
+
+[45] Mendels, D., Piccini, G. M., Brotzakis, Z. F., Yang, Y. I., and Parrinello, M. Folding a small protein us-ing harmonic linear discriminant analysis. The Jour-nal of Chemical Physics , 149(19):194113, 2018. https: //doi.org/10.1063/1.5053566 
+
+[46] Cuturi, M. Sinkhorn distances: Lightspeed computation of optimal transport. Advances in Neural Information Processing Systems , 2013. https://arxiv.org/abs/1306. 0895 
+
+[47] Kingma, D. P. and Ba, J. Adam: A method for stochastic optimization. In International Conference on Learning Representations , 2015. https://arxiv.org/abs/1412. 6980 
+
+[48] Jing, B., Erives, E., Pao-Huang, P., Corso, G., Berger, B., and Jaakkola, T. EigenFold: Generative protein structure prediction with diffusion models. In ICLR Workshop on Machine Learning for Drug Discovery , 2023. https: //arxiv.org/abs/2304.02198 
+
+[49] Goodfellow, I. J., Shlens, J., and Szegedy, C. Explaining and harnessing adversarial examples. In International Conference on Learning Representations , 2015. https: //arxiv.org/abs/1412.6572 
+
+[50] Du, S., Kretsch, R. C., Parres-Gold, J., Pieri, E., Cruzeiro, V. W. D., Zhu, M., Pinney, M. M., Yabukarski, F., Schwans, J. P., Martinez, T. J., and Herschlag, D. Conformational ensembles reveal the origins of serine protease catalysis. Science , 387(6735):eado5068, 2025. 
+
+https://doi.org/10.1126/science.ado5068

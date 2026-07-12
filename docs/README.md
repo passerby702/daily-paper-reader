@@ -6,58 +6,77 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-06
-- 运行时间：2026-07-06 21:12:22 UTC
+- 最新运行日期：2026-07-12
+- 运行时间：2026-07-12 21:32:01 UTC
 - 运行状态：成功
-- 本次总论文数：12
-- 精读区：4
-- 速读区：8
+- 本次总论文数：19
+- 精读区：7
+- 速读区：12
 
 ### 今日简报（AI）
-1) 今日精读聚焦扩散模型与动态场景重建，速读覆盖离散扩散加速与微分同胚优化。  
-2) 最值得关注：扩散变换器的质量感知调制（8.0）与单目视频生成动态高斯重建（8.0）。  
-3) 建议优先精读这两篇，掌握提升生成质量与4D重建的前沿技术。
-- 详情：[/202607/06/README](/202607/06/README)
+今日精选2篇9分大作《CGGS》与《SynCity 3000》，分别攻克第一人称3D场景生成与场景级3D扩散建模。最值得关注的方向是3D场景生成与扩散模型的最新突破。建议普通读者优先了解CGGS的几何一致性增强技术及SynCity 3000的模型引导策略。
+- 详情：[/202607/12/README](/202607/12/README)
 
 ### 精读区论文标签
-1. [Quality-Aware Modulation for Diffusion Transformers](/202607/06/2606.30934v1-quality-aware-modulation-for-diffusion-transformers)  
+1. [CGGS: Consistency-Augmented Geometric Gaussian Splatting for Ego-centric 3D Scene Generation](/202607/12/2607.03819v1-cggs-consistency-augmented-geometric-gaussian-splatting-for-ego-centric-3d-scene-generation)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：使用多视图潜在扩散模型进行3D场景生成
+2. [SynCity 3000: Bootstrapping Scene-Scale 3D Diffusion](/202607/12/2607.05392v1-syncity-3000-bootstrapping-scene-scale-3d-diffusion)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：基于扩散模型的场景级3D生成
+3. [LongE2V: Long-Horizon Event-based Video Reconstruction, Prediction, and Frame Interpolation with Video Diffusion Models](/202607/12/2607.08770v1-longe2v-long-horizon-event-based-video-reconstruction-prediction-and-frame-interpolation-with-video-diffusion-models)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：使用视频扩散模型进行视频帧插值
+4. [Folding, Reasoning, and Scaling with Open-source Drug Discovery Engine](/202607/12/2607.03787v1-folding-reasoning-and-scaling-with-open-source-drug-discovery-engine)  
+   标签：评分：8.0/10、query:pocket-lig
+   evidence：开源全原子生物分子基础模型，支持基于结构的药物设计和从头生成
+5. [CGGS: Consistency-Augmented Geometric Gaussian Splatting for Ego-centric 3D Scene Generation](/202607/12/2607.03819v2-cggs-consistency-augmented-geometric-gaussian-splatting-for-ego-centric-3d-scene-generation)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：改进扩散Transformer用于文本到图像生成，属于多模态扩散模型
-2. [World from Motion: Generative Dynamic Gaussian Reconstruction from Monocular Video](/202607/06/2607.01202v1-world-from-motion-generative-dynamic-gaussian-reconstruction-from-monocular-video)  
+   evidence：扩散模型用于文本到3D场景生成
+6. [MV-Forcing: Long Multi-View Video Generation via 4D-Grounded Spatio-Temporal Self-Forcing](/202607/12/2607.05376v1-mv-forcing-long-multi-view-video-generation-via-4d-grounded-spatio-temporal-self-forcing)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：使用视频模型生成动态3D高斯表示
-3. [De novo design of RNA pseudoknots with deep learning](/202607/06/biorxiv-10-64898-2026-05-21-726960-v2-de-novo-design-of-rna-pseudoknots-with-deep-learning)  
+   evidence：基于扩散模型的多视角视频生成，用于3D场景
+7. [Reinforcing the Generation Order of Multimodal Masked Diffusion Models](/202607/12/2607.08056v1-reinforcing-the-generation-order-of-multimodal-masked-diffusion-models)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：利用深度学习生成AI从头设计RNA假结
-4. [A generalizable interface-seeded framework for de novo design of functional oligomers](/202607/06/biorxiv-10-64898-2026-07-02-736098-v1-a-generalizable-interface-seeded-framework-for-de-novo-design-of-functional-oligomers)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：基于AI的生成方法用于从头设计功能性寡聚体，采用深度学习进行分子生成
+   evidence：多模态扩散模型的生成顺序优化
 
 ### 速读区论文标签
-1. [Adaptive Block Diffusion: Resolving Training-Inference Mismatch in Diffusion Language Models](/202607/06/2606.29275v1-adaptive-block-diffusion-resolving-training-inference-mismatch-in-diffusion-language-models)  
+1. [A Distributional Framework for Generative Modeling of Molecular Crystals](/202607/12/2607.05266v1-a-distributional-framework-for-generative-modeling-of-molecular-crystals)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：解决扩散语言模型的训练-推理不匹配问题
-2. [Accelerating Discrete Diffusion Models with Parallel-In-Time Sampling](/202607/06/2607.00773v1-accelerating-discrete-diffusion-models-with-parallel-in-time-sampling)  
+   evidence：分子晶体生成建模
+2. [Gradient-Based Inverse Design of Free-Energy Landscapes with Diffusion Models](/202607/12/2607.06421v1-gradient-based-inverse-design-of-free-energy-landscapes-with-diffusion-models)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：离散扩散模型加速方法
-3. [Diffeomorphic Optimization](/202607/06/2607.00947v1-diffeomorphic-optimization)  
+   evidence：扩散模型用于分子自由能景观优化
+3. [Gen4U: Unifying Video Generation and Understanding via Diffusion](/202607/12/2607.06856v1-gen4u-unifying-video-generation-and-understanding-via-diffusion)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：利用扩散模型进行蛋白质设计的优化方法
-4. [Dynamic consensus pocket detection across molecular dynamics ensembles reveals persistent and transient druggable sites](/202607/06/biorxiv-10-64898-2026-06-27-734992-v1-dynamic-consensus-pocket-detection-across-molecular-dynamics-ensembles-reveals-persistent-and-transient-druggable-sites)  
-   标签：评分：7.0/10、query:pocket-lig
-   evidence：综述并重用途口袋检测工具，使用深度学习，与口袋特异性分子生成相关
-5. [Pathogen context reshapes antimicrobial peptide generation](/202607/06/biorxiv-10-64898-2026-07-01-735178-v1-pathogen-context-reshapes-antimicrobial-peptide-generation)  
+   evidence：基于扩散的视频生成与理解统一方法
+4. [HPG-Diff: Hierarchical physics-guided diffusion with differentiable connectivity constraints for topology optimization](/202607/12/2607.07233v1-hpg-diff-hierarchical-physics-guided-diffusion-with-differentiable-connectivity-constraints-for-topology-optimization)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：利用深度学习的条件抗菌肽生成
-6. [Few-Step Boltzmann Generators via Scalable Likelihood Flow Maps](/202607/06/2606.29110v1-few-step-boltzmann-generators-via-scalable-likelihood-flow-maps)  
+   evidence：扩散模型用于三维拓扑优化，类似于三维形状生成
+5. [DrugGen 2: A disease-aware language model for enhancing drug discovery](/202607/12/2607.08404v1-druggen-2-a-disease-aware-language-model-for-enhancing-drug-discovery)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：基于疾病和目标蛋白的分子生成
+6. [The Dayhoff Atlas: scaling sequence diversity for improved protein generation](/202607/12/biorxiv-10-1101-2025-07-21-665991-v2-the-dayhoff-atlas-scaling-sequence-diversity-for-improved-protein-generation)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：蛋白质序列生成深度模型与数据集
+7. [Tensor-Train Joint Modeling for Few-Step Discrete Diffusion](/202607/12/2607.03788v1-tensor-train-joint-modeling-for-few-step-discrete-diffusion)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：可扩展的流式生成模型用于玻尔兹曼分布
-7. [Histogram-constrained Image Generation](/202607/06/2606.31683v1-histogram-constrained-image-generation)  
+   evidence：基于张量分解的离散扩散模型加速
+8. [DICT: Data Injection and Contrastive Trajectory Refinement for Conditional Image Generation with Diffusion Models](/202607/12/2607.03899v1-dict-data-injection-and-contrastive-trajectory-refinement-for-conditional-image-generation-with-diffusion-models)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：基于直方图约束的扩散模型图像生成
-8. [A control-validated pan-proteome deep-learning pipeline nominates GPR35 as a candidate target of the orphan bacterial metabolite ligiamycin A](/202607/06/biorxiv-10-64898-2026-07-01-735807-v1-a-control-validated-pan-proteome-deep-learning-pipeline-nominates-gpr35-as-a-candidate-target-of-the-orphan-bacterial-metabolite-ligiamycin-a)  
+   evidence：扩散模型用于条件图像生成，无训练推理方法
+9. [Optimal Mixture-of-Experts Model Averaging for Conditional Generative Models](/202607/12/2607.04360v1-optimal-mixture-of-experts-model-averaging-for-conditional-generative-models)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：条件生成模型的最优模型平均
+10. [Transferability Between Understanding and Generation in Unified Multimodal Models](/202607/12/2607.04423v2-transferability-between-understanding-and-generation-in-unified-multimodal-models)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：统一多模态模型，理解与生成间的可迁移性
+11. [Dynamic-in-Few-Step: Unifying Dynamic Computation and Few-Step Distillation for Efficient Video Generation](/202607/12/2607.06631v1-dynamic-in-few-step-unifying-dynamic-computation-and-few-step-distillation-for-efficient-video-generation)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：视频扩散模型加速
+12. [Hybrid quantum-classical de novo design of MHC-binding peptides](/202607/12/biorxiv-10-64898-2026-07-09-736951-v1-hybrid-quantum-classical-de-novo-design-of-mhc-binding-peptides)  
    标签：评分：6.0/10、query:pocket-lig
-   evidence：深度学习管道用于天然产物靶标预测，支持结构感知的配体设计
+   evidence：使用生成模型从头设计MHC结合肽
 
 
 <div class="dpr-home-promo-card">
