@@ -1,0 +1,787 @@
+Title: SinAE: A Single-Architecture Flow-Matching Autoencoder for Cross-Domain Atomic Systems
+
+URL Source: https://arxiv.org/pdf/2607.12380v1
+
+Published Time: Wed, 15 Jul 2026 12:00:52 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+NUS Blue Whale Lab · Preprint 
+
+# SinAE : A Single-Architecture Flow-Matching Autoencoder for Cross-Domain Atomic Systems 
+
+Yuxuan Ren 
+
+Department of Computer Science National University of Singapore 
+
+yuxuan.ren@nus.edu.sg 
+
+Fan Yang 
+
+Tencent AI for Life Science Lab 
+
+fionafyang@tencent.com 
+
+Jianhua Yao 
+
+Tencent AI for Life Science Lab 
+
+jianhuayao@tencent.com 
+
+Yatao Bian 
+
+Department of Computer Science National University of Singapore 
+
+ybian@nus.edu.sg 
+
+## Abstract 
+
+Small molecules, crystals, and proteins all reduce to atoms in 3D space, yet their generative pipelines remain fragmented across domains, each with its own graph, equivariant, or frame-based architecture. Cross-domain training would mitigate per-domain data scarcity, but direct generation in 3D coordinate space cannot easily handle the heterogeneous structural priors of all three domains, and no prior latent autoencoder is simultaneously lossless and architecturally general across all three. We introduce SinAE , a single-architecture flow-matching autoencoder for molecules, crystals, and proteins, with vanilla Transformer encoder and decoder and no equivariant, graph, or domain-specific operators. Rather than requiring the encoder to capture fine-grained geometry, SinAE shifts the reconstruction burden into an iterative flow-matching decoder, achieving near-lossless reconstruction across domains and reducing reconstruction errors by orders of magnitude relative to prior latent baselines. The same per-token latent supports a standard Diffusion Transformer prior that reaches strong performance on molecular, crystal, and protein generation benchmarks. Joint molecule–crystal training strictly improves both domains, providing direct evidence of cross-domain transfer through a shared atomic latent. Code is available at https://anonymous.4open.science/ r/SinAE_anonymous-523D/ .
+
+## 1 Introduction 
+
+3D atomic structure generation underpins advances in drug discovery, materials design, and protein engineering. Despite differences in scale and domain conventions, the underlying data is the same: atoms placed in R3 with discrete element types, sharing the same physics of bonding and steric exclusion. Yet generative pipelines have evolved separately along community lines. Molecular generators build on equivariant message-passing networks (Gilmer et al., 2017; Sch ¨utt et al., 2017; Thomas et al., 2018); crystal generators must additionally handle periodic boundary conditions and lattice-basis invariance (Xie et al., 2022; Jiao et al., 2023); protein generators rely on residue-level parameterisations such as SE(3) frames (Yim et al., 2023; Watson et al., 2023; Bose et al., 2024) or triangle attention over pair representations (Jumper et al., 2021; Lin et al., 2023). Per-domain 3D datasets are small: QM9 (Ramakrishnan et al., 2014) contains 134 k molecules and MP-20 (Xie et al., 2022) contains 45 k crystals, both are low-data regimes by modern standards. A single architecture that covers all three domains would let each provide training signal for the others and reuse shared geometric regularities (bond-length distributions, coordination patterns, steric exclusion etc). Cross-domain atomic generation has attracted growing interest along two routes. The direct-generation route avoids an autoencoder and generates structures in coordinate space or through 1arXiv:2607.12380v1 [cs.LG] 14 Jul 2026 NUS Blue Whale Lab · Preprint 
+
+spatial tokenisation (Morehead et al., 2026; Lu et al., 2026; Zhang et al., 2025). This is appealing for its simplicity, but places a heavy burden on a single model: the generator must simultaneously learn valid compositions, precise 3D geometry, and the distinct structural priors of each domain (periodicity and lattice equivalences for crystals, residue-level backbone geometry for proteins, bond connectivity and valence rules for molecules). In practice, accommodating these heterogeneous priors within one generator has required either per-modality tokenization and architectural choices (Lu et al., 2026), staged sequence-then-coordinate generation that has not yet been validated for uncon-ditional de novo sampling (Zhang et al., 2025), or restricting domain coverage to molecules and crystals (Morehead et al., 2026). The latent-autoencoder route offers an alternative: the autoencoder absorbs per-domain geometric complexity in its encoder and decoder, and the prior operates over smooth latent codes rather than raw 3D structures (Joshi et al., 2025). Single-domain work has shown that near-lossless latent reconstruction is achievable (Luo et al., 2026; Li et al., 2026), but extending this to a cross-domain setting introduces two challenges that existing methods have not jointly resolved. The first is reconstruction fidelity . Reconstruction error in the autoencoder directly limits generation quality: the prior cannot correct geometric errors introduced by a lossy decoder. In atomistic systems this limit is especially strict, because sub- ˚A coordinate drift can push bond lengths and angles outside physically valid ranges and corresponds to large shifts in potential energy. The only cross-domain latent autoencoder to date achieves a 94 .6% structure match rate on QM9 and 84 .5% on MP-20 (Joshi et al., 2025), accepting this loss as a cost of domain generality. The second is training complexity . Existing autoencoders rely on domain-specific loss combinations: structure tokenisers for proteins combine FAPE, distance, and violation losses with individual weight tuning (Hayes et al., 2025); cross-domain pipelines use separate coordinate and atom-type losses with per-domain weights (Joshi et al., 2025); molecular autoencoders add bond-type and bonded-distance losses with multi-way weight vectors (Luo et al., 2026). Each additional domain means re-balancing the entire loss landscape, making cross-domain scaling a loss-engineering problem rather than a data-scaling problem. To the best of our knowledge, no existing cross-domain autoencoder is simultaneously lossless, architecturally domain-general, and trainable with a unified objective (Table 1). Motivated by this gap, we introduce SinAE , a flow-matching autoencoder for molecules, crystals, and proteins whose encoder and decoder are both vanilla Transformers with no equivariant, graph, or domain-specific operators. Following DiTo’s (Chen et al., 2025b) finding that a single diffusion loss can match or outperform multi-loss VAE training, we replace the single-pass decoder with an iterative flow-matching decoder trained with one unified reconstruction objective across all domains. The decoder refines structures over multiple ODE steps, resolving atomic placement early and refining bond geometry and sterics later (Section 5.2), reaching sub-milli- ˚A RMSD without auxiliary losses or per-domain weight tuning. Adding a new domain requires adding training data, not adding loss terms. Because the decoder handles the geometric complexity of each domain, the resulting latent space is approximately Gaussian and free of the symmetry constraints of the raw structure space. A standard 
+
+Table 1: Capability comparison of SinAE with latent autoencoders baselines. ✓: supported; 
+
+✗: not supported. Vanilla Transformer : backbone uses neither equivariant operators nor graph / message-passing. Joint type+coord. : model generates discrete atom-type or sequence labels jointly with continuous coordinates. Sub-m ˚A recon : reconstruction RMSD below 10 −3 ˚A on the primary benchmark.                                         
+
+> Domains Vanilla Joint Sub-m ˚ AMethod Mol Crystal Protein Transformer type+coord. recon GeoLDM (Xu et al., 2023) ✓✗✗✗✓✗
+> CDVAE (Xie et al., 2022) ✗✓✗✗✓✗
+> ADiT (Joshi et al., 2025) ✓✓✗✓✓✗
+> ProteinAE (Li et al., 2026) ✗✗✓✓✗✗
+> SinAE (ours) ✓✓✓✓✓✓
+
+2NUS Blue Whale Lab · Preprint molecule 
+
+> crystal / MOF
+> protein
+
+Encoder  z 
+
+> N′ × d
+
+Flow decoder         
+
+> molecule
+> crystal / MOF
+> protein
+> DiT prior
+> latent flow matching
+> zT∼N(0, I)
+> Reconstruction RMSD (Å): QM9 0.0002 MP-20 0.0017 CASP15 0.013
+
+Figure 1: SinAE overview. A flow-matching autoencoder for molecules, crystals, and proteins, with a shared per-token latent ( N +3 tokens for periodic systems, with three lattice tokens). A DiT prior over the same latent enables de novo generation. Bottom: per-domain reconstruction RMSD. DiT (Peebles & Xie, 2023) suffices as the generative prior, with no equivariant layers, no triangle attention, and no lattice-aware modules, yielding a simpler and more efficient pipeline than methods that generate directly in the coordinate space. At inference time, generated latents are decoded with the same precision as training reconstructions, without post-hoc relaxation. Table 1 summarises the resulting capability profile. In summary, SinAE makes three contributions: 1. A single architecture for atomic-structure tokenisation across three domains. A vanilla-Transformer flow-matching autoencoder handles molecules, crystals, and protein backbones under one architecture, with no equivariant, graph, or domain-specific operators. 2. Near-lossless reconstruction across all three domains. Sub-milli- ˚A all-atom Kabsch-aligned RMSD on molecules and crystals ( 0.0002 ˚A on QM9, 0.0017 ˚A on MP-20) and 
+
+∼ 0.02 ˚A backbone CA-RMSD on proteins, with 100% match rate on molecules and crystals, achieved with a unified flow-matching reconstruction objective across all domains. 3. Cross-domain training yields positive transfer; latent generation is competitive. Joint QM9 + MP-20 training strictly improves both single-domain baselines on reconstruction and generation, giving direct evidence that a shared atomic latent benefits both chemical populations. The same latents support a vanilla DiT prior that reaches strong crystal generation on hard metrics and competitive molecular and protein generation. 
+
+## 2 Background and Related Work 
+
+Molecules. Early deep-learning approaches for 3D molecules build on equivariant message-passing over molecular graphs (Gilmer et al., 2017; Sch ¨utt et al., 2017; Thomas et al., 2018). Diffusion and flow-matching generators such as EDM (Hoogeboom et al., 2022), EQGAT-diff (Le et al., 2024), SemlaFlow (Irwin et al., 2024), and FlowMol (Dunn & Koes, 2024) operate directly in 3D coordinate space with specialised equivariant architectures. On the latent side, GeoLDM (Xu et al., 2023) compresses molecules into SE(3)-equivariant VAE codes, but its encoder–decoder bottleneck leaves 
+
+0.25 ˚A RMSD on GEOM-Drugs, which propagates into bond-length and angle errors at generation time. UAE-3D (Luo et al., 2026) addresses this by achieving near-lossless molecular reconstruction with a Relational Transformer encoder and SO(3) augmentation, but is limited to small molecules and does not extend to crystals or proteins. 
+
+Crystals. Crystal generation must additionally respect periodic boundary conditions and lattice-basis invariance (Xie et al., 2022; Jiao et al., 2023). CDVAE (Xie et al., 2022) pioneered VAE-based 3NUS Blue Whale Lab · Preprint 
+
+crystal latents; FlowMM (Miller et al., 2024) introduced Riemannian flow matching on the crystal lattice manifold; FlowLLM (Sriram et al., 2024) uses a large language model as the base distribution. ADiT (Joshi et al., 2025) unifies molecules and crystals through a shared VAE + DiT pipeline, but its single-pass VAE decoder leaves substantial reconstruction loss on both domains. Concurrent Zatom-1 (Morehead et al., 2026) takes the opposite approach, eliminating the autoencoder and running flow matching directly in R3; it does not produce a reusable latent representation and does not address proteins. SinAE shows that, with a flow-matching decoder, the latent route retains a smooth latent space while surpassing both lines on hard generation metrics (Section 4.4). 
+
+Proteins. Protein backbone generation is dominated by SE(3) frame-diffusion methods such as FrameFlow (Yim et al., 2023) and RFdiffusion (Watson et al., 2023) that operate directly on residue frames; their architectures are tightly coupled to protein geometry and cannot be shared with molecule or crystal encoders. On the latent side, ProteinAE (Li et al., 2026) compresses backbones via a diffusion autoencoder and leads prior latent methods in reconstruction fidelity, but is single-domain and does not generate residue-type sequences jointly with coordinates. SinAE uses the same vanilla-Transformer architecture as its molecule + crystal model to achieve 10 –20 × tighter protein reconstruction while additionally supporting sequence–structure co-design (Section 4.5). 
+
+## 3 Methodology 
+
+3.1 Problem Formulation and Overview 
+
+Across all domains we represent an atomic structure as G = ( X, A), where X ∈ RN ×3 are 3D coordinates and A ∈ { 1, . . . , K }N are categorical atom types. For periodic systems (crystals) we additionally include a lattice matrix L ∈ R3×3; for aperiodic systems (molecules, proteins) no lattice is used. 
+
+SinAE is trained for both reconstruction and generation. Given G, the autoencoder produces a latent code z from which G can be recovered with near-exact fidelity; a learned prior p(z) then enables de novo sampling of novel structures. These capabilities are provided by two components trained in sequence: 1. Flow-matching autoencoder. A Transformer encoder maps G to a compact latent z, while a non-equivariant Transformer decoder reconstructs G from z via conditional flow matching. The decoder, not the encoder, is responsible for reconstruction fidelity, allowing the encoder to remain simple and domain-general. 2. Latent flow matching prior. A vanilla Diffusion Transformer (DiT) learns the distribution 
+
+p(z) over encoder outputs. At generation time, a new latent is sampled from this prior and passed through the frozen decoder to produce a 3D structure. The architecture and procedures are summarized in Figure 2. 
+
+3.2 Input Featurization 
+
+Coordinate handling. We avoid hand-crafted geometric preprocessing. For aperiodic systems (molecules, proteins), the model consumes raw Cartesian coordinates xi ∈ R3 after centering at the centroid, without PCA alignment, canonical-frame construction, or invariant descriptors (pairwise distances, sorted k-NN, bond angles). For periodic systems (crystals), we append the three lattice vectors L = [ l1, l2, l3] as three virtual-atom tokens at the end of the sequence, so the model processes the full 3 × 3 lattice matrix in the same way as atomic coordinates. 
+
+Equivariance via random augmentation. To ensure the non-equivariant Transformer does not learn orientation-dependent features, we apply a random SO(3) rotation (and, for aperiodic systems, a random translation) to every training structure on the fly. Empirically this suffices to reach the reconstruction RMSD reported in Section 4.2 without any equivariant layer or invariant featurization. 
+
+Token construction. Each atom i is represented by the sum of a learned element embedding (looked up from a table of size K) and a linear projection of its coordinate vector xi ∈ R3, both projected to the Transformer model dimension dmodel . The three lattice-vector tokens use a dedicated 4NUS Blue Whale Lab · Preprint (a) Embedding module                    
+
+> Linear
+> Embedding
+> +
+> c
+> embedded tokens
+> (d) Latent DiT prior
+> zt
+> noisy latent
+> × L dit
+> vθ(z t, t)
+> velocity
+> ℒFM latent
+> (b) Encoder
+> XA
+> Embedding
+> from (a)
+> +∿
+> time t
+> Feedforward
+> Self-attention
+> N ×
+> Transformer
+> Blocks
+> Linear
+> z
+> (c) Flow decoder
+> z
+> concat z from (b) or (d)
+> Feedforward
+> Self-attention
+> N ×
+> Transformer
+> Blocks
+> Cross-
+> attention
+> Q: x̂ | K, V: c
+> Cross-
+> attention
+> Q: â | K, V: c
+> x̂ 1â1
+> ℒFM recon
+> Training and inference procedures
+> (e) Reconstruction training
+> (X,A)
+> Encoder
+> (b) z
+> +ε, t
+> ∼U(0,1)
+> (xt,at)
+> noisy structure
+> Decoder
+> (c)
+> (x̂ 1, â 1)
+> ℒFM recon
+> match to clean ( X,A)
+> (f) DiT prior training
+> z from (b)
+> clean latent
+> +ε
+> noise schedule: z t= t·z + (1−t)·ε
+> t=0.9 t=0.65 t=0.4 t=0.15
+> (g) Generation (inference)
+> ε∼N(0, I)
+> prior sample
+> z₀→ z ₁: DiT (d) ODE integration
+> t=0.25 t=1.0
+> xt
+> at
+> FFN
+> Self-attention
+> AdaLN (t)
+> at
+> +∿
+> time t
+> Embedding
+> from (a)
+> xt
+> c
+> z
+> DiT
+> (d) vθ(z t, t)
+> target: z − ε
+> ℒFM latent : match predicted velocity
+> ODE over
+> (x t, a t)
+> Decoder
+> (c)
+> (x̂ , â)
+> generated
+
+Figure 2: SinAE architecture and procedures. Left (a–d): (a) shared embedding; (b) Transformer encoder mapping (X, A) to a per-token latent z ∈ RN ′×d ; (c) flow decoder with two cross-attention output heads predicting clean (ˆ x1, ˆa1); (d) latent DiT prior over z. Right (e–g): (e) reconstruction training, where the encoder z conditions the decoder’s flow-matching reconstruction of (X, A); (f) DiT prior training on noised encoder latents; (g) generation, in which DiT ODE integration produces a sample z that conditions the decoder ODE over (xt, at).learned type embedding in place of the element lookup. For proteins, each residue is represented as a single token at its C α position, with the residue type as the categorical label in place of the element type. 
+
+3.3 Architecture 
+
+Encoder. The encoder ϕ maps a sequence of N ′ input tokens to a sequence of latent tokens 
+
+z ∈ RN ′×d, where N ′ = N for aperiodic systems and N ′ = N +3 for periodic systems (the three trailing tokens encode the lattice vectors). A per-token (rather than pooled) latent preserves per-atom granularity: local geometric information scales with N , so a fixed-size global bottleneck would force lossy compression for larger systems. We use a standard pre-norm Transformer with Lenc layers and multi-head self-attention; after the final layer, two parallel linear heads produce a Gaussian posterior 
+
+zi = μi + σi ⊙ εi, εi ∼ N (0, I). We use a small latent channel d (see Appendix F), keeping the total latent size compact while preserving enough information for near-exact decoding. 
+
+Flow-matching decoder. The decoder ψ is a non-equivariant Transformer that reconstructs (X, A)
+
+from z conditioned on partially noised inputs at time t ∈ [0 , 1] . We follow DiTo’s (Chen et al., 2025b) single-objective design but replace its score-matching formulation with a continuous conditional flow-matching objective for coordinates and a discrete flow-matching objective for atom types. The decoder receives noisy (Xt, At) projected through separate linears, summed with a sinusoidal time embedding and a learnable positional embedding: 
+
+h(0) 
+
+i = Wx xt,i + WA at,i + etime (t) + epos 
+
+i , (1) where Wx ∈ Rd×3, WA ∈ Rd×K . The joint sequence [h(0) ; z] (concatenated along the sequence dimension, yielding 2N ′ tokens) is processed by Ldec pre-norm Transformer blocks (Vaswani et al., 2017). Following the two-stream output design of Tabasco (Vonessen et al., 2026), two parallel cross-attention output heads, one for coordinates and one for atom types, use the final hidden states as queries and the embedded noisy-input tokens {ci} as keys/values to produce ˆXθ
+
+1 and ˆAθ
+
+1 (Figure 2(c)). No domain-specific attention, equivariant layer, or self-conditioning (Chen et al., 2023) is used in the backbone; random SO(3) augmentation at training time provides rotation robustness (Appendix D). 5NUS Blue Whale Lab · Preprint 
+
+3.4 Training Objective 
+
+The autoencoder is trained end-to-end by minimising a fixed-weight sum of three terms, 
+
+L = Lcoord + λatom Latom + λKL LKL , (2) where Lcoord is continuous conditional flow matching on coordinates (Lipman et al., 2023), Latom 
+
+is discrete flow matching on atom types (Campbell et al., 2024), and LKL is a light KL regulariser pushing the encoder’s posterior towards N (0, I). For periodic systems the three lattice-vector tokens are treated as virtual atoms, so their coordinates are reconstructed through the same Lcoord as ordinary atoms. Unlike DiTo (Chen et al., 2025b), which uses a deterministic encoder, we use a stochastic encoder so that the aggregate posterior approximates the N (0, I) prior of the DiT (Section 3.5). Exact loss definitions, interpolants, and weight values are in Appendix E. 
+
+3.5 Latent Flow Matching for Generation 
+
+Because the KL term in Eq. 2 pushes the encoder’s posterior towards N (0, I), the aggregate la-tent distribution is approximately Gaussian, and de novo generation reduces to learning p(z) and decoding. We train a vanilla DiT (Peebles & Xie, 2023) vθ as a flow-matching velocity field (Lip-man et al., 2023) with the linear interpolant zt=(1 −t)z0 + tz1 and the standard FM objective 
+
+LFM =E∥vθ (zt, t )−(z1−z0)∥2, without any equivariant layer or domain-specific module. Since z
+
+is variable-length ( N ′=N or N +3 ), we pad and mask within each mini-batch during training. At generation time we sample the sequence length from the training-set size distribution before running the DiT ODE. Since the joint molecule–crystal model covers two domains, we condition the DiT prior on a domain label so that the user can specify which domain to generate at sampling time. During training, each sample carries its ground-truth domain label; at inference, we apply classifier-free guidance (Ho & Salimans, 2021) on this label to steer generation toward the target domain. A new structure is generated by sampling z0∼N (0, I), integrating vθ with fixed-step Euler to obtain 
+
+z1, and decoding from pure noise (X0, A0) conditioned on z1. Because the decoder is near-lossless, generated structures match the geometric precision of reconstructed training structures without post-hoc relaxation. 
+
+## 4 Experiments 
+
+We evaluate SinAE on three primary structural domains (small molecules, crystals, proteins) and one secondary domain (metal–organic frameworks; Appendix N), focusing on two capabilities: (1) reconstruction fidelity of the flow-matching autoencoder, and (2) de novo generation quality of the latent DiT prior. 
+
+4.1 Datasets, Training, and Evaluation Protocol 
+
+Datasets. We train and evaluate on standard benchmarks: QM9 (Ramakrishnan et al., 2014) and 
+
+GEOM-Drugs (Axelrod & Gomez-Bombarelli, 2022) for small molecules, MP-20 (Xie et al., 2022) (from the Materials Project (Jain et al., 2013)) for crystals, and AFDB-FS (a filtered single-chain subset of the AlphaFold Protein Structure Database (Jumper et al., 2021; Lin et al., 2023)) for proteins, with CASP14/CASP15 held out for protein reconstruction evaluation. As an additional periodic benchmark we use QMOF (Rosen et al., 2021) for MOF reconstruction and generation; the full QMOF results and a head-to-head MOF generation comparison with ADiT are reported in Appendix N. All splits follow prior work (Hoogeboom et al., 2022; Vignac et al., 2023; Irwin et al., 2024; Xie et al., 2022; Joshi et al., 2025; Van Kempen et al., 2024); full specification in Appendix C. 
+
+Training and evaluation. We train autoencoder–prior pairs with the same vanilla-Transformer architecture but domain-appropriate sizing, using Adam/AdamW with constant learning rate 10 −4 ,on a single NVIDIA H200 for ∼48 GPU-hours. Full hyperparameters, loss weights, flow-matching schedule, and evaluation protocol are in Appendix F. 
+
+4.2 Reconstruction Fidelity 
+
+Figure 3 and Tables 2–3 report reconstruction across all four domains. On every dataset, SinAE 
+
+reaches sub-milli- ˚A RMSD for molecules and crystals and 0.010 –0.014 ˚A CA-RMSD on proteins 6NUS Blue Whale Lab · Preprint GeoLDM                   
+
+> ADiT
+> UAE-3D
+> SinAE
+> GeoLDM
+> UAE-3D
+> SinAE
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> RMSD (Å)
+> QM9 GEOM-Drugs
+> 0.183
+> 0.089
+> 0.0002 0.0002
+> 0.253
+> 0.0008 0.0006
+> Molecules
+> ADiT
+> SinAE
+> SinAE
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> MP-20 QMOF
+> 0.183
+> 0.0017 0.0021
+> Crystals
+> CHEAP
+> ESM3 VQ
+> ProteinAE
+> SinAE
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> 10 1CASP15 TS-dom 11
+> 1.25
+> 0.31
+> 0.013
+> Proteins
+> SinAE (Molecules) SinAE (Crystals / Proteins) Baselines
+
+Figure 3: Reconstruction RMSD across domains (log scale). Visual summary of Tables 2–3; 
+
+SinAE reaches 20 –100 × tighter RMSD than the previous best baseline on the crystal and protein domains. (chains truncated to the training-time maximum of 256 residues; longer chains require retraining at a higher length budget, which we leave to future work), one to three orders of magnitude tighter than prior latent autoencoders. 
+
+Isolating the flow-matching decoder. On molecules, SinAE matches or outperforms prior latent autoencoders (Xu et al., 2023; Luo et al., 2026) while reaching 100% structure match rate on both QM9 and GEOM-Drugs (Table 2). ADiT (Joshi et al., 2025) also uses a vanilla Transformer over Cartesian coordinates with a shared latent across molecules and crystals, but relies on a single-pass VAE decoder; it reaches 94 .6% match rate on QM9 and 84 .5% on MP-20, compared to 100% 
+
+for SinAE on both. This gap isolates the contribution of the iterative flow-matching decoder. Reconstruction RMSD saturates by roughly six decoder steps (Appendix G). 
+
+Cross-domain transfer. Joint QM9 + MP-20 training improves both domains relative to single-domain training: QM9 RMSD drops from 0.0007 to 0.0002 ˚A, and MP-20 RMSD from 0.0041 to 
+
+0.0017 ˚A. Section 5.1 provides visual evidence through latent-space visualisation. 
+
+Table 2: Reconstruction on molecules and crystals. (a) structure match rate and Kabsch-aligned coordinate RMSD on molecule benchmarks. (b) coordinate RMSD and pymatgen structure match rate on periodic benchmarks (MP-20; QMOF as an additional secondary domain). “ SinAE (joint)” on MP-20 denotes the model trained jointly on QM9 + MP-20. 
+
+(a) Molecules. 
+
+Dataset Method Match ↑ RMSD ( ˚ A) ↓
+
+QM9 GeoLDM 87.2 0.1830 ADiT 94.6 0.089 UAE-3D 100.0 0.0002 
+
+SinAE (QM9) 100.0 0.0007 
+
+SinAE (joint) 100.0 0.0002 
+
+GEOM-Drugs GeoLDM 82.3 0.2526 UAE-3D 100.0 0.0008 
+
+SinAE (GEOM) 100.0 0.0006 (b) Periodic systems. 
+
+Dataset Method RMSD ↓ Match ↑
+
+MP-20 ADiT 0.1827 84.50 
+
+SinAE (MP20) 0.0041 100.0 
+
+SinAE (joint) 0.0017 100.0 
+
+QMOF SinAE (QMOF) 0.0021 99.9 
+
+4.3 Generative Performance: Molecules 
+
+With near-lossless reconstruction established, we next ask whether the resulting latent space is smooth enough for a standard DiT prior to produce chemically valid structures. Tables 4 and 5 report molecular generation on QM9 and GEOM-Drugs. The metric we emphasise is PB Valid (PoseBusters validity), which simultaneously checks bond lengths, bond angles, and intra-molecular clashes and is therefore the strictest test of geometric quality. On QM9, the joint SinAE model reaches PB Valid 0.97 , above all compared baselines including equivariant methods (EQGAT-diff (Le et al., 2024) and SemlaFlow (Irwin et al., 2024) at 0.94 , and FlowMol (Dunn & Koes, 2024) at 
+
+0.92 ). On GEOM-Drugs the margin widens: SinAE achieves PB Valid 0.93 against ADiT (Joshi et al., 2025)’s 0.86 and SemlaFlow’s 0.88 . That a non-equivariant architecture matches or exceeds equivariant generators on geometric quality reflects the two-stage design: the autoencoder’s iterative 7NUS Blue Whale Lab · Preprint 
+
+Table 3: Protein backbone reconstruction RMSD ( ↓, ˚A). Mean over evaluation samples; best per column bold . SinAE is evaluated on chains truncated to the training-time maximum of 256 residues; longer chains are not supported by the current autoencoder without retraining at higher length. Full table with ±std is in Appendix K.                                
+
+> CASP14 CASP15 Method TT-dom oligo TS-dom oligo CHEAP 11.16 4.71 11.10 10.98 8.24 ESM3 VQ-VAE 1.28 0.66 3.11 1.25 2.47 DPLM-2 1.94 1.47 3.81 4.58 3.83 ProteinAE 0.51 0.23 0.31 0.31 0.43
+> SinAE 0.010 0.011 0.013 0.013 0.014
+
+Figure 4: Generated samples from SinAE . Unconditional samples from the latent DiT prior decoded with the corresponding flow-matching decoder (left: small molecules; middle: crystals; right: protein backbones). Samples are uncurated; per-domain visualisations at higher resolution are in Appendix O. decoder has already learned to produce geometrically precise structures during reconstruction training, and the DiT prior inherits this precision through the latent interface without needing to rediscover bond-length or angle constraints. Validity, uniqueness, diversity, and novelty are competitive across both benchmarks (Tables 4–5); the per-PoseBusters-check breakdown is reported in Appendix M. 
+
+Table 4: Molecule generation on QM9 (Benchmark I). Each row is a separately trained QM9 model; SinAE (joint) is jointly trained on QM9+MP-20.                                   
+
+> Method Valid ↑Unique ↑Div ↑PB Valid ↑
+> EQGAT-diff 0.99 1.00 0.89 0.94 SemlaFlow 0.99 0.95 0.89 0.94 FlowMol 0.97 0.97 0.92 0.92 ADiT 0.97 0.97 0.90 0.94
+> SinAE (QM9) 0.97 0.97 0.91 0.94
+> SinAE (joint) 0.99 0.97 0.91 0.97
+
+Table 5: Molecule generation on GEOM-Drugs (Benchmark II). SinAE (GEOM) is trained on GEOM-Drugs alone; QM9 and GEOM-Drugs are never jointly trained.                              
+
+> Method Valid ↑Nov ↑PB Valid ↑Div ↑
+> EQGAT-diff 0.94 0.94 0.84 0.90 SemlaFlow 0.93 0.93 0.88 0.91 FlowMol 0.81 0.81 0.64 0.91 ADiT 0.98 0.97 0.86 0.91
+> SinAE (GEOM) 0.98 1.00 0.93 0.91
+
+4.4 Generative Performance: Materials 
+
+Crystal generation requires producing not only valid arrangements but thermodynamically metastable structures that survive DFT relaxation. Table 6 reports MP-20 results using S.U.N. (Stable, Unique, Novel) and M.S.U.N. (S.U.N. with the stability threshold relaxed to Ehull <0.1 eV/atom). The joint 
+
+SinAE model achieves S.U.N. 5.4 / M.S.U.N. 30.2 , the highest among all compared methods, surpassing FlowMM (Miller et al., 2024) ( 2.8 / 22 .5) and FlowLLM (Sriram et al., 2024) ( 4.7 /
+
+26 .3) despite using a generic Transformer with no lattice invariance or symmetry priors. The joint model improves over MP-20-only on every metric (S.U.N. 4.6 → 5.4, M.S.U.N. 24 .31 → 30 .2), consistent with the reconstruction gains in Section 4.2. Structure / composition validity ( 99 .29 
+
+/ 90 .49 ) sits just below jointly-trained ADiT (Joshi et al., 2025) ( 99 .74 / 92 .14 ), with SinAE ’s advantage concentrated in the stability-filtered metrics that probe thermodynamic plausibility rather than structural or compositional validity alone. 8NUS Blue Whale Lab · Preprint 
+
+Table 6: Material generation on MP-20. Structure and composition validity rates, stable rate (Ehull <0 eV/atom), and the hard S.U.N. / M.S.U.N. metrics (all in %, higher is better). “–” denotes numbers not reported by the original authors. Metastable rate and “Overall” validity are subsumed by M.S.U.N. and by Structure × Composition , respectively; full breakdown is in Appendix L.                                                      
+
+> Model Struct ↑Comp ↑Stable ↑M.S.U.N. ↑S.U.N. ↑
+> CDVAE †100.00 86.70 1.6 ––DiffCSP †100.00 83.25 5.0 –3.3 UniMat †97.2 89.4 –––FlowMM 96.85 83.19 4.6 22.5 2.8 FlowLLM 99.94 90.84 13.9 26.3 4.7 Jointly-trained ADiT 99.74 92.14 15.4 28.2 5.3
+> SinAE (MP20-only) 98.29 88.89 14.1 24.3 4.6
+> SinAE (joint) 99.29 90.49 15.8 30.2 5.4
+> †CDVAE (Xie et al., 2022), DiffCSP (Jiao et al., 2023), UniMat (Yang et al., 2024).
+
+4.5 Generative Performance: Proteins 
+
+The protein autoencoder uses the same architecture as the molecule–crystal model, so strong perfor-mance here confirms that the SinAE architecture generalises across domains rather than being tuned for small-molecule or crystal chemistry. 
+
+Unconditional generation. Table 7 reports designability, diversity, DPT, and novelty. Prior latent-space protein generators face a trade-off between designability and diversity: ProteinAE achieves 
+
+0.93 designability but with 204 diversity clusters, while LatentDiff produces diverse but largely non-designable backbones ( 0.17 designability). At guidance temperature 0.25 , SinAE reaches 0.96 
+
+designability and 278 diversity, exceeding ProteinAE on both metrics simultaneously; at temperature 
+
+0.35 it attains the highest diversity ( 291 ) among all compared methods while maintaining 0.88 
+
+designability. Two factors contribute: the near-lossless decoder ensures that diversity in latent space translates into structural diversity without geometric degradation, and jointly modelling residue types alongside coordinates may steer generation toward more physically plausible backbone geometries compared to coordinate-only approaches. 
+
+Co-design generation. Table 8 evaluates sequence–structure co-design at fixed lengths 100 and 200 .At length 100 , SinAE reaches scRMSD 3.93 ˚A and scTM 0.83 , comparable to MultiFlow (Campbell et al., 2024) ( 0.86 / 4.73 ˚A) and ProteinGenerator (Lisanza et al., 2025) ( 0.91 / 3.75 ˚A). At length 
+
+200 , scRMSD is 4.44 ˚A, below both MultiFlow ( 4.98 ˚A) and ProteinGenerator ( 6.24 ˚A). scTM ( 0.83 
+
+/ 0.78 ) is below APM (Chen et al., 2025a) ( 0.96 / 0.89 ), a method with protein-specific architecture. 
+
+Table 7: Unconditional protein generation. Des-ignability (scRMSD ≤2.0 ˚A), diversity, DPT, and novelty.                                             
+
+> Method Des ↑Div ↑DPT ↓Nov ↑
+> RFdiffusion 0.96 247 0.43 0.71 FrameFlow 0.91 278 0.48 0.65 ESM3 0.61 127 0.37 0.84 DPLM2 0.63 130 0.37 0.72 LSD 0.69 203 0.46 0.74 LatentDiff 0.17 34 0.51 0.73 ProteinAE 0.93 204 0.35 0.66
+> Ours(0.35) 0.88 291 0.35 0.72
+> Ours(0.25) 0.96 278 0.36 0.74
+
+Table 8: Co-design at fixed lengths (100, 200) via scTM / scRMSD. ∗: without distil-lation. All baseline numbers from Protein-Bench (Ye et al., 2024).                                      
+
+> Method Length 100 Length 200 scTM ↑scRMSD ↓scTM ↑scRMSD ↓
+> NativePDBs 0.91 2.98 0.88 3.24 ESM3(1.4B) 0.72 13.80 0.63 21.18 MultiFlow ∗0.86 4.73 0.86 4.98 ProtGen. 0.91 3.75 0.88 6.24 ProtPardelle 0.56 12.90 0.64 13.67 APM 0.96 1.80 0.89 4.25
+> Ours 0.83 3.93 0.78 4.44
+
+## 5 Analysis 
+
+9NUS Blue Whale Lab · Preprint 0.2 0.4 0.6 0.8 1.0       
+
+> Decoder ODE time t
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> RMSD to  t = 1  (\AA)
+> Molecule
+> 0.2 0.4 0.6 0.8 1.0
+> Decoder ODE time t
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> RMSD to  t = 1  (\AA)
+> Crystal
+
+Figure 5: Decoder ODE trajectory during generation (DiT-sampled latents, not encoded ground truth). (a) Physical energy along the trajectory (molecule force-field, log scale; crystal CHGNet, eV/atom). (b) Kabsch-aligned RMSD to the final state at t=1 . RMSD plateaus by t ≈ 0.8 while energy continues to descend: early steps handle geometric placement, late steps perform fine local refinement. Energy was never used as a training signal. 
+
+5.1 Latent Space Structure 
+
+Sections 4.2 and 4.4 showed that joint QM9+MP-20 training improves both domains in reconstruction and generation. A t-SNE projection of the joint model’s encoder outputs (Appendix H) shows that molecules and crystals occupy separated, internally coherent regions without any explicit domain label. Within each domain, KMeans clusters align with chemically meaningful groupings: functional-group composition for molecules, coordination environment for crystals. The two domains share a common low-density boundary region, suggesting that the encoder learns geometric regularities (bond-length distributions, coordination patterns) transferable across domains. This shared structure is consistent with the reconstruction improvement ( 0.0007 → 0.0002 ˚A on QM9, 0.0041 → 0.0017 ˚Aon MP-20) and the generation gain (M.S.U.N. 24 .31 → 30 .2) when the two populations are pooled through a single latent. Straight-line interpolations between encoded structures decode into valid intermediates across all three domains (Appendix I). 
+
+5.2 Decoder Trajectory Analysis 
+
+Figure 5 examines the decoder’s behaviour during generation (decoding from DiT-sampled latents, not from encoded ground-truth structures). We track two quantities along the decoder ODE trajectory 
+
+t ∈ [0 , 1] : physical energy (top row) and Kabsch-aligned RMSD to the final state at t=1 (bottom row). For molecules, force-field energy drops by more than ten orders of magnitude; for crystals, CHGNet energy descends from ∼6 eV/atom into the sub-1 eV/atom metastable window. Crucially, the two quantities follow different schedules: RMSD plateaus near zero by t ≈ 0.8 while energy continues to descend through the final 20% of the trajectory. Early ODE steps thus handle geometric placement, while late steps perform fine local refinement (bond-angle planarity, dihedral relaxation, sterics) that contributes little to RMSD but substantially to physical energy. The decoder learns denoising directions aligned with the local energy gradient even though energy is never supervised ,and this holds for prior-sampled latents that the encoder has never produced. 
+
+## 6 Conclusion 
+
+We presented SinAE , a vanilla-Transformer flow-matching autoencoder for molecules, crystals, and proteins. By shifting reconstruction fidelity into an iterative flow-matching decoder trained with a unified objective, SinAE reaches sub-milli- ˚A Kabsch-aligned RMSD on molecules and crystals and 
+
+∼ 0.02 ˚A backbone CA-RMSD on proteins, while supporting strong latent generation across all three domains. Joint training on QM9 + MP-20 improves both domains in reconstruction and generation, providing direct evidence that cross-domain training through a shared atomic latent benefits both chemical populations. Limitations. Protein evaluation is at the backbone level; all-atom protein modelling, property- / composition- / length-conditioned generation, and single-checkpoint training across all three domains are natural directions for future work. 
+
+## References 
+
+Simon Axelrod and Rafael Gomez-Bombarelli. Geom, energy-annotated molecular conformations for property prediction and molecular generation. Scientific data , 9(1):185, 2022. 10 NUS Blue Whale Lab · Preprint 
+
+Joey Bose, Tara Akhound-Sadegh, Guillaume Huguet, Kilian FATRAS, Jarrid Rector-Brooks, Cheng-Hao Liu, Andrei Cristian Nica, Maksym Korablyov, Michael M. Bronstein, and Alexander Tong. SE(3)-stochastic flow matching for protein backbone generation. In The Twelfth International Conference on Learning Representations , 2024. URL https://openreview.net/forum? id=kJFIH23hXb .Martin Buttenschoen, Garrett M Morris, and Charlotte M Deane. Posebusters: Ai-based docking methods fail to generate physically valid poses or generalise to novel sequences. Chemical Science ,15(9):3130–3139, 2024. Andrew Campbell, Jason Yim, Regina Barzilay, Tom Rainforth, and Tommi S. Jaakkola. Generative flows on discrete state-spaces: Enabling multimodal flows with applications to protein co-design. In ICML , 2024. URL https://openreview.net/forum?id=kQwSbv0BR4 .Ruizhe Chen, Dongyu Xue, Xiangxin Zhou, Zaixiang Zheng, xiangxiang Zeng, and Quanquan Gu. An all-atom generative model for designing protein complexes. In Forty-second International Conference on Machine Learning , 2025a. URL https://openreview.net/forum?id= Afmi28vgIf .Ting Chen, Ruixiang ZHANG, and Geoffrey Hinton. Analog bits: Generating discrete data using diffusion models with self-conditioning. In The Eleventh International Conference on Learning Representations , 2023. URL https://openreview.net/forum?id=3itjR9QxFw .Yinbo Chen, Rohit Girdhar, Xiaolong Wang, Sai Saketh Rambhatla, and Ishan Misra. Diffusion autoencoders are scalable image tokenizers, 2025b. URL https://arxiv.org/abs/2501. 18593 .Bowen Deng, Peichen Zhong, KyuJung Jun, Janosh Riebesell, Kevin Han, Christopher J Bartel, and Gerbrand Ceder. Chgnet as a pretrained universal neural network potential for charge-informed atomistic modelling. Nature Machine Intelligence , 5(9):1031–1041, 2023. Ian Dunn and David Ryan Koes. Mixed continuous and categorical flow matching for 3d de novo molecule generation, 2024. URL https://arxiv.org/abs/2404.19739 .Justin Gilmer, Samuel S Schoenholz, Patrick F Riley, Oriol Vinyals, and George E Dahl. Neural message passing for quantum chemistry. In International conference on machine learning , pp. 1263–1272. Pmlr, 2017. Thomas Hayes, Roshan Rao, Halil Akin, Nicholas J Sofroniew, Deniz Oktay, Zeming Lin, Robert Verkuil, Vincent Q Tran, Jonathan Deaton, Marius Wiggert, et al. Simulating 500 million years of evolution with a language model. Science , 387(6736):850–858, 2025. Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. In NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications , 2021. URL https://openreview. net/forum?id=qw8AKxfYbI .Emiel Hoogeboom, Vıctor Garcia Satorras, Cl ´ement Vignac, and Max Welling. Equivariant diffusion for molecule generation in 3d. In International conference on machine learning , pp. 8867–8887. PMLR, 2022. Ross Irwin, Alessandro Tibo, Jon Paul Janet, and Simon Olsson. Efficient 3d molecular generation with flow matching and scale optimal transport. In ICML 2024 AI for Science Workshop , 2024. URL https://openreview.net/forum?id=CxAjGjdkqu .Anubhav Jain, Shyue Ping Ong, Geoffroy Hautier, Wei Chen, William Davidson Richards, Stephen Dacek, Shreyas Cholia, Dan Gunter, David Skinner, Gerbrand Ceder, et al. Commentary: The materials project: A materials genome approach to accelerating materials innovation. APL materials , 1(1), 2013. Rui Jiao, Wenbing Huang, Peijia Lin, Jiaqi Han, Pin Chen, Yutong Lu, and Yang Liu. Crystal structure prediction by joint equivariant diffusion. In Thirty-seventh Conference on Neural Information Processing Systems , 2023. URL https://openreview.net/forum?id=DNdN26m2Jk .11 NUS Blue Whale Lab · Preprint 
+
+Chaitanya K. Joshi, Xiang Fu, Yi-Lun Liao, Vahe Gharakhanyan, Benjamin Kurt Miller, Anuroop Sriram, and Zachary Ward Ulissi. All-atom diffusion transformers: Unified generative modelling of molecules and materials. In Forty-second International Conference on Machine Learning , 2025. URL https://openreview.net/forum?id=89QPmZjIhv .John Jumper, Richard Evans, Alexander Pritzel, Tim Green, Michael Figurnov, Olaf Ronneberger, Kathryn Tunyasuvunakool, Russ Bates, Augustin ˇZ´ıdek, Anna Potapenko, et al. Highly accurate protein structure prediction with alphafold. nature , 596(7873):583–589, 2021. Tuan Le, Julian Cremer, Frank Noe, Djork-Arn ´e Clevert, and Kristof T Sch ¨utt. Navigating the design space of equivariant diffusion-based generative models for de novo 3d molecule generation. In The Twelfth International Conference on Learning Representations , 2024. URL https: //openreview.net/forum?id=kzGuiRXZrQ .Shaoning Li, Le Zhuo, Yusong Wang, Mingyu Li, Xinheng He, Fandi Wu, Hongsheng Li, and Pheng-Ann Heng. ProteinAE: Protein diffusion autoencoders for structure encoding. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview. net/forum?id=tYLCkzHAM2 .Zeming Lin, Halil Akin, Roshan Rao, Brian Hie, Zhongkai Zhu, Wenting Lu, Nikita Smetanin, Robert Verkuil, Ori Kabeli, Yaniv Shmueli, et al. Evolutionary-scale prediction of atomic-level protein structure with a language model. Science , 379(6637):1123–1130, 2023. Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matthew Le. Flow matching for generative modeling. In The Eleventh International Conference on Learning Repre-sentations , 2023. URL https://openreview.net/forum?id=PqvMRDCJT9t .Sidney Lyayuga Lisanza, Jacob Merle Gershon, Samuel WK Tipps, Jeremiah Nelson Sims, Lucas Arnoldt, Samuel J Hendel, Miriam K Simma, Ge Liu, Muna Yase, Hongwei Wu, et al. Multistate and functional protein design using rosettafold sequence space diffusion. Nature biotechnology , 43 (8):1288–1298, 2025. Shuqi Lu, Haowei Lin, Lin Yao, Zhifeng Gao, Xiaohong Ji, Yitao Liang, Weinan E, Linfeng Zhang, and Guolin Ke. Unified cross-scale 3d generation and understanding via autoregressive modeling. In ICLR 2026 Workshop on Foundation Models for Science: Real-World Impact and Science-First Design , 2026. URL https://openreview.net/forum?id=RQW73gLLMp .Yanchen Luo, Zhiyuan Liu, Yi Zhao, Sihang Li, Hengxing Cai, Kenji Kawaguchi, Tat-Seng Chua, Yang Zhang, and Xiang Wang. Towards unified and lossless latent space for 3d molecular latent diffusion modeling. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2026. URL https://openreview.net/forum?id=g2XE40zTrj .Benjamin Kurt Miller, Ricky T. Q. Chen, Anuroop Sriram, and Brandon M. Wood. Flowmm: Generating materials with riemannian flow matching. CoRR , abs/2406.04713, 2024. URL 
+
+https://doi.org/10.48550/arXiv.2406.04713 .Alex Morehead, Miruna Cretu, Antonia Panescu, Rishabh Anand, Maurice Weiler, Tynan Perez, Samuel Blau, Steven Farrell, Wahid Bhimji, Anubhav Jain, Hrushikesh Sahasrabuddhe, Pietro Lio, Tommi Jaakkola, Rafael Gomez-Bombarelli, Rex Ying, N. Benjamin Erichson, and Michael W. Mahoney. Zatom-1: A multimodal flow foundation model for 3d molecules and materials, 2026. URL https://arxiv.org/abs/2602.22251 .William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pp. 4195–4205, 2023. Raghunathan Ramakrishnan, Pavlo O Dral, Matthias Rupp, and O Anatole Von Lilienfeld. Quantum chemistry structures and properties of 134 kilo molecules. Scientific data , 1(1):1–7, 2014. Andrew S Rosen, Shaelyn M Iyer, Debmalya Ray, Zhenpeng Yao, Alan Aspuru-Guzik, Laura Gagliardi, Justin M Notestein, and Randall Q Snurr. Machine learning the quantum-chemical properties of metal–organic frameworks for accelerated materials discovery. Matter , 4(5):1578– 1597, 2021. 12 NUS Blue Whale Lab · Preprint 
+
+Kristof Sch ¨utt, Pieter-Jan Kindermans, Huziel Enoc Sauceda Felix, Stefan Chmiela, Alexandre Tkatchenko, and Klaus-Robert M ¨uller. Schnet: A continuous-filter convolutional neural network for modeling quantum interactions. Advances in neural information processing systems , 30, 2017. Anuroop Sriram, Benjamin Kurt Miller, Ricky T. Q. Chen, and Brandon M Wood. FlowLLM: Flow matching for material generation with large language models as base distributions. In 
+
+The Thirty-eighth Annual Conference on Neural Information Processing Systems , 2024. URL 
+
+https://openreview.net/forum?id=0bFXbEMz8e .Nathaniel Thomas, Tess Smidt, Steven Kearnes, Lusann Yang, Li Li, Kai Kohlhoff, and Patrick Riley. Tensor field networks: Rotation-and translation-equivariant neural networks for 3d point clouds. 
+
+arXiv preprint arXiv:1802.08219 , 2018. Michel Van Kempen, Stephanie S Kim, Charlotte Tumescheit, Milot Mirdita, Jeongjae Lee, Cameron LM Gilchrist, Johannes S ¨oding, and Martin Steinegger. Fast and accurate protein structure search with foldseek. Nature biotechnology , 42(2):243–246, 2024. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. Clement Vignac, Nagham Osman, Laura Toni, and Pascal Frossard. Midi: Mixed graph and 3d denoising diffusion for molecule generation. In Joint European Conference on Machine Learning and Knowledge Discovery in Databases , pp. 560–576. Springer, 2023. Carlos Vonessen, Charles Harris, Miruna Cretu, and Pietro Lio. TABASCO: A fast, simplified model for molecular generation with improved physical quality. Transactions on Machine Learn-ing Research , 2026. ISSN 2835-8856. URL https://openreview.net/forum?id= Kg6CSrbXl4 .Joseph L Watson, David Juergens, Nathaniel R Bennett, Brian L Trippe, Jason Yim, Helen E Eisenach, Woody Ahern, Andrew J Borst, Robert J Ragotte, Lukas F Milles, et al. De novo design of protein structure and function with rfdiffusion. Nature , 620(7976):1089–1100, 2023. Tian Xie, Xiang Fu, Octavian-Eugen Ganea, Regina Barzilay, and Tommi S. Jaakkola. Crystal diffu-sion variational autoencoder for periodic material generation. In International Conference on Learn-ing Representations , 2022. URL https://openreview.net/forum?id=03RLpj-tc_ .Minkai Xu, Alexander S Powers, Ron O Dror, Stefano Ermon, and Jure Leskovec. Geometric latent diffusion models for 3d molecule generation. In International Conference on Machine Learning ,pp. 38592–38610. PMLR, 2023. Sherry Yang, KwangHwan Cho, Amil Merchant, Pieter Abbeel, Dale Schuurmans, Igor Mordatch, and Ekin Dogus Cubuk. Scalable diffusion for materials generation. In The Twelfth International Conference on Learning Representations , 2024. URL https://openreview.net/forum? id=wm4WlHoXpC .Fei Ye, Zaixiang Zheng, Dongyu Xue, Yuning Shen, Lihao Wang, Yiming Ma, Yan Wang, Xinyou Wang, Xiangxin Zhou, and Quanquan Gu. Proteinbench: A holistic evaluation of protein foundation models, 2024. URL https://arxiv.org/abs/2409.06744 .Jason Yim, Andrew Campbell, Andrew YK Foong, Michael Gastegger, Jos ´e Jim ´enez-Luna, Sarah Lewis, Victor Garcia Satorras, Bastiaan S Veeling, Regina Barzilay, Tommi Jaakkola, et al. Fast protein backbone generation with se (3) flow matching. arXiv preprint arXiv:2310.05297 , 2023. Gongbo Zhang, Yanting Li, Renqian Luo, Pipi Hu, Yang Yang, Zeru Zhao, Lingbo Li, Guoqing Liu, Zun Wang, Ran Bi, Kaiyuan Gao, Liya Guo, Yu Xie, Chang Liu, Jia Zhang, Tian Xie, Robert Pinsler, Claudio Zeni, Ziheng Lu, Hongxia Hao, Yingce Xia, Marwin Segler, Maik Riechert, Wei Yang, Hao Jiang, Wen-Bin Zhang, Zhijun Zeng, Yi Zhu, Li Dong, Xiuyuan Hu, Li Yuan, Lei Chen, Haiguang Liu, and Tao Qin. Unigenx: a unified generative foundation model that couples sequence, structure and function to accelerate scientific design across proteins, molecules and materials, 2025. URL https://arxiv.org/abs/2503.06687 .13 NUS Blue Whale Lab · Preprint 
+
+# Appendix 
+
+## A Broader Impacts 
+
+SinAE is an architectural contribution towards 3D structural representation learning; its immediate downstream use cases are molecular, materials, and protein design in academic and industrial R&D. Positive societal impacts include accelerating the discovery of catalysts for carbon capture and clean energy, stable metal–organic frameworks for gas storage, and therapeutic lead compounds. We note, however, that the same generative capabilities could in principle be misused to accelerate the design of toxic small molecules, narcotics, or proteins with harmful biological activity. The models released alongside this work are trained exclusively on publicly available non-hazardous datasets (QM9, GEOM-Drugs, MP-20, QMOF, AFDB-FS), none of which is enriched for hazardous compounds, and we do not anticipate SinAE conferring a meaningful advantage over existing, widely available generative tools for adversarial design. We encourage downstream users to combine generative models of this class with structure-aware toxicity and bioactivity filters before experimental validation, and we are not releasing any fine-tuned weights targeted at restricted chemical or biological endpoints. 
+
+## B Evaluation Metrics 
+
+This appendix defines every metric reported in the main text and specifies the tool, formula, or threshold used for each. 
+
+B.1 Reconstruction Metrics 
+
+Coordinate RMSD ( ˚A, ↓). For a structure with N atoms, ground-truth coordinates X ∈ RN ×3,and reconstructed coordinates ˆX ∈ RN ×3, we first align ˆX to X using the Kabsch algorithm (optimal rotation R∗, translation t∗ via SVD), then report 
+
+RMSD( X, ˆX) = 
+
+vuut 1
+
+> NN
+
+X
+
+> i=1
+
+xi − (R∗ ˆxi + t∗) 22.
+
+For proteins we apply this to the Cα trace (CA-RMSD). For periodic systems (crystals, MOFs), coordinates are first unwrapped into a single fractional cell and Kabsch alignment is applied in the Cartesian space. 
+
+Structure Match Rate — Reconstruction (%, ↑). For molecule reconstruction on QM9, the structure match rate uses pymatgen.analysis.molecule matcher.MoleculeMatcher. get rmsd with InChI-based atom mapping at tolerance 0.01 ˚A. A reconstructed molecule is counted as a match iff this routine returns a finite RMSD, i.e. the predicted 3D conformation is chemically isomorphic to the reference under the OpenBabel bond-perception convention (identical atom counts, atomic numbers, and inferred bond multiset). For MP-20 crystal reconstruction, we compute the structure match rate using StructureMatcher 
+
+from pymatgen , with thresholds ltol = 0 .3, stol = 0 .5, and angle tol = 10 ◦. A 100% match rate means that every reconstructed crystal is matched to its reference under these tolerances. 
+
+Valid (%, ↑). Fraction of generated molecules accepted by RDKit’s sanitization pipeline (valid valences, no kekulisation failure, parseable SMILES). 
+
+Unique (%, ↑). Fraction of valid molecules whose canonical SMILES is distinct from the other molecules in the sampled batch. Computed on the same N samples used for Valid .
+
+Novelty (%, ↑). Fraction of valid molecules whose canonical SMILES does not appear in the training set. 14 NUS Blue Whale Lab · Preprint 
+
+Diversity ( ↑). Mean pairwise Tanimoto dissimilarity of Morgan fingerprints (radius 2, 2048 bits) across the valid generated molecules: 
+
+Diversity = 1 − 2  
+
+> N(N−1)
+
+X
+
+> i<j
+
+Tanimoto( fi, fj ).
+
+PB Valid (%, ↑). PoseBusters-Validity: a molecule is PB-valid only if it simultaneously passes all PoseBusters sanity checks: chemistry, intra-molecular clashes, bond lengths and angles within empirical distributions. PB Valid is the most physically restrictive metric in Tables 4–5 and is the metric we emphasise for geometric quality. 
+
+B.2 Crystal Generation Metrics 
+
+Structure / Composition / Overall Validity (%, ↑). Structure validity counts generated crystals that pass pymatgen’s structure-level sanity (no atomic overlap, finite lattice). Composition validity 
+
+counts crystals whose composition is charge-balanced with standard oxidation states. Overall validity 
+
+is the product (i.e. passes both). We follow the protocol of CDVAE. 
+
+Stable and Metastable Rate (%, ↑). We follow the two-stage relaxation protocol of ADiT (Joshi et al., 2025): each generated crystal is first pre-relaxed with the CHGNet universal machine-learning potential (Deng et al., 2023), and the pre-relaxed geometry is then DFT-relaxed. Stability is evaluated against the Matbench-Discovery convex hull using the final DFT energy-above-hull Ehull :stable : Ehull < 0.0 eV/atom and #unique elements ≥ 2,
+
+metastable : Ehull < 0.1 eV/atom and #unique elements ≥ 2.
+
+The ≥ 2 unique-element constraint matches ADiT and excludes trivial elemental crystals from stability counting. 
+
+S.U.N. and M.S.U.N. (%, ↑). S.U.N. (Stable, Unique, Novel) is the fraction of sampled crystals that are simultaneously (i) stable under the above definition, (ii) structurally unique within the sample batch, and (iii) novel with respect to the MP-20 training set. Uniqueness and novelty both use 
+
+pymatgen.StructureMatcher with the thresholds listed in B.1 for an all-to-all equivalence check. M.S.U.N. replaces “stable” with “metastable” in condition (i). Following FlowMM, FlowLLM, and ADiT, these are the hard metrics for crystal generation and the ones we emphasise when claiming state of the art. 
+
+B.3 Protein Generation Metrics 
+
+For each generated backbone we run ProteinMPNN inverse folding ( 8 sequences per backbone) and fold the resulting sequences with ESMFold; all self-consistency metrics below are computed over this design-fold loop, following the protocol of ProteinBench (Ye et al., 2024). 
+
+scRMSD ( ˚A, ↓) and scTM ( ↑). Self-consistency RMSD is the Kabsch-aligned CA-RMSD between the generated backbone and the best ESMFold re-fold among the 8 designed sequences; scTM is the corresponding best TM-score. These are the two primary quality metrics in Table 8. 
+
+Designability (“Des”, ↑). Fraction of generated backbones with scRMSD ≤ 2.0 ˚A, i.e. structures for which at least one designed sequence re-folds into essentially the same backbone. This is the standard “designable” criterion (Watson et al., 2023; Yim et al., 2023). 
+
+Diversity (“Div”, ↑). Number of unique structural clusters obtained by hierarchical clustering of the designable backbones using pairwise TM-score with a 0.5 cutoff (single linkage). A higher number indicates that more distinct folds have been reached. 
+
+DPT — Designable Pairwise TM-score ( ↓). Mean pairwise TM-score computed only over the subset of generated backbones that passed the designability filter ( scRMSD ≤ 2.0 ˚A). Restricting the computation to designable samples removes low-quality, degenerate structures that would otherwise 15 NUS Blue Whale Lab · Preprint 
+
+inflate pairwise dissimilarity; a lower DPT indicates that the useful outputs of the model explore a structurally wider region. DPT is complementary to Div (which counts cluster number) in that it measures the geometric spread of the designable samples. 
+
+Novelty (“Nov”, ↑). 1 − max p∈PDB TM(ˆ x, p ), the deviation of each generated backbone from its closest match in the full PDB (measured by TM-score); averaged across designable samples. Higher means further from any known fold. 
+
+B.4 Latent-Space Analysis Metrics 
+
+Per-atom classical force-field energy (eV/atom, ↓). For molecule trajectories in Figure 5 we report the per-structure energy computed with a classical force field (UFF/MMFF as implemented in RDKit) evaluated on the decoder’s intermediate structures (xt, at). For crystal trajectories we report the per-atom energy from the same CHGNet ML potential used for stability evaluation above. These are reported only to probe whether the decoder’s ODE path visits progressively lower-energy configurations; they are not used as training signal at any stage. 
+
+## C Full Dataset Specification 
+
+This appendix provides the per-domain dataset details abbreviated in Section 4.1. 
+
+Molecules. QM9 (Ramakrishnan et al., 2014) consists of 130,000 stable small organic molecules containing up to nine heavy atoms (C, N, O, F) along with hydrogens. We follow the splits of Hoogeboom et al. (2022). GEOM-Drugs (Axelrod & Gomez-Bombarelli, 2022) is a dataset of 1M high-quality conformers of drug-like molecules; we use the splits of Vignac et al. (2023) and, following Irwin et al. (2024), discard molecules with more than 72 heavy atoms from the training set (accounting for 1% of the data). At test time we sample molecule sizes from the (unchanged) test-set size distribution. 
+
+Materials. MP-20 (Xie et al., 2022) contains 45,231 metastable crystal structures from the Materials Project (Jain et al., 2013), each with up to 20 atoms per unit cell and spanning 89 elements; we use the CDVAE splits (Xie et al., 2022). QMOF (Rosen et al., 2021) is a database of 14,000 MOF structures with quantum-chemical properties; we use the splits of Joshi et al. (2025). 
+
+Proteins. AFDB-FS (Jumper et al., 2021; Lin et al., 2023) is a filtered single-chain subset of the AlphaFold Protein Structure Database, obtained via sequence-based MMseqs2 and structure-based Foldseek (Van Kempen et al., 2024) clustering. It contains 588,318 structures with lengths in [32 , 256] . For training we apply random global SO(3) rotations as data augmentation. For reconstruction evaluation we use the CASP14 and CASP15 benchmark sets. 
+
+## D Method Design Rationale 
+
+This appendix collects the design justifications abbreviated in the main-paper architecture section. 
+
+Why a per-token latent instead of a pooled global code. Atomistic structures exhibit local geometric features (bond environments, coordination shells) whose information content scales with the number of atoms N ; a fixed-size global latent would force lossy compression as N grows. Our latent is z ∈ RN ′×d with compact per-token dimension d (see Appendix F), which keeps the total latent size an order of magnitude smaller than the raw structure while preserving enough information for near-exact decoding. Because the decoder handles fine-grained geometry, the encoder can remain lightweight while producing a latent that is smooth and suitable for downstream generative modelling. 
+
+Why a non-equivariant Transformer. Equivariant layers encode physical symmetries as hard constraints, but at substantial architectural-complexity and scaling cost. We instead rely on random SO(3) rotation augmentation during training (Section 3.2) to induce rotation robustness, and demon-strate empirically that this, combined with the iterative flow-matching decoder, is sufficient to achieve near-lossless reconstruction on molecules and crystals and sub-0.03 ˚A RMSD on proteins. 16 NUS Blue Whale Lab · Preprint 
+
+Why output heads instead of stream-specific mid-backbone cross-attention. Following Tabasco (Vonessen et al., 2026), we localise the coordinate / atom-type specialisation in two par-allel cross-attention output heads rather than interleaving stream-specific cross-attention inside the backbone. This keeps every Transformer block in the backbone fully shared across its constituent structural categories, and places all cross-attention compute at the output, where it directly conditions the two prediction heads on the embedded noisy inputs. 
+
+Why we do not use self-conditioning. We found a single-pass output head with cross-attention from the noisy input to be sufficient; self-conditioning (Chen et al., 2023) does not provide measurable gains on our atomistic reconstruction benchmarks in preliminary tests and increases per-step cost. 
+
+## E Full Training Objective 
+
+This appendix gives the exact interpolants, loss formulae, and weight values abbreviated in Section 3.4. All three terms are summed in Eq. 2. 
+
+Coordinate flow matching (Lipman et al., 2023). With the interpolant Xt = t X1 + (1 − t) ϵ,
+
+ϵ ∼ N (0, I), t ∼ U (0 , 1) , the coordinate head is trained with x1-prediction: 
+
+Lcoord = Eϵ, t 
+
+h 1 
+
+> N
+
+ˆXθ
+
+> 1
+
+(Xt, At, t, z) − X1
+
+> 22
+
+i
+
+. (3) 
+
+Atom-type discrete flow matching (Campbell et al., 2024). Ground-truth atom types are corrupted by interpolating with a uniform categorical prior, At ∼ Cat( t δ (A1) + (1 − t) 1 
+
+> K
+
+1), and the head is trained with endpoint cross-entropy: 
+
+Latom = Et
+
+"
+
+− 1
+
+> NN
+
+X
+
+> i=1
+
+A⊤ 
+
+> 1,i
+
+log ˆAθ
+
+> 1,i
+
+(Xt, At, t, z)
+
+#
+
+. (4) 
+
+KL regularisation. Unlike DiTo (Chen et al., 2025b), we pair a stochastic encoder with the decoder and add a light KL term pushing qϕ(z|G ) towards N (0, I):
+
+LKL = DKL 
+
+ qϕ(z|G ) ∥ N (0, I) = 12
+
+X
+
+> j
+
+ μ2 
+
+> j
+
++ σ2 
+
+> j
+
+− log σ2 
+
+> j
+
+− 1. (5) Aligning the aggregate posterior with a Gaussian simplifies the prior-fitting problem for the latent flow-matching model (Section 3.5). Weight values ( λatom =0 .1, λKL =10 −6) are listed alongside the rest of the training configuration in Appendix F; we find the model insensitive to these weights across an order of magnitude each. 
+
+## F Full Implementation Details 
+
+This appendix gives the complete architectural, training, and evaluation specification for the SinAE 
+
+models summarised in Section 4.1. 
+
+F.1 Architecture 
+
+The autoencoder uses a pre-norm vanilla Transformer with hidden dimension dmodel =64 and 8
+
+attention heads throughout. No equivariant layer, message-passing operator, graph attention, or pretrained discriminator is used anywhere in the architecture. - Joint molecule–crystal autoencoder. Encoder depth Lenc =4 , decoder depth Ldec =16 , per-token latent dimension d=8 (so z ∈ RN ′×8). - Joint molecule–crystal latent DiT. Ldit =24 layers, dmodel =1024 , 16 attention heads. - Protein autoencoder. Encoder depth Lenc =4 , decoder depth Ldec =16 , per-token latent dimen-sion d=16 .- Protein latent DiT prior. Ldit =15 layers, dmodel =768 , 12 attention heads. 17 NUS Blue Whale Lab · Preprint 
+
+F.2 Training 
+
+All stages use Adam (autoencoder) and AdamW (latent prior) with a constant learning rate of 1×10 −4,weight decay 0, no warm-up, and no scheduler. The joint molecule–crystal autoencoder is trained with batch size 2048 (each batch drawn 50 /50 from QM9 and MP-20); the protein autoencoder uses batch size 256 .The total reconstruction loss follows Eq. 2 with the fixed weights 
+
+λcoord =1 .0, λatom =0 .1, λKL =1 ×10 −6.
+
+The flow-matching schedule uses a lower time cutoff tmin =10 −2; no additional σmin is imposed. The joint molecule–crystal model was trained on a single NVIDIA H200 GPU for approximately 48 
+
+GPU-hours. 
+
+F.3 Evaluation Protocol 
+
+Reconstruction RMSD. All reconstruction RMSDs are computed after Kabsch SVD alignment between the decoded and reference coordinates. Protein CA-RMSD uses the same Kabsch pipeline on the Cα trace. 
+
+Crystal Structure-Match Rate. Both crystal generation and crystal reconstruction structure-match rates use the same pymatgen.StructureMatcher pipeline with the standard thresholds 
+
+ltol=0 .3, stol=0 .5, angle tol=10 ◦ (Xie et al., 2022); we additionally report Kabsch-aligned RMSD for reconstruction as a continuous fidelity metric. 
+
+Generation NFE. At generation time we use NFE =100 Euler steps for both the DiT latent prior and the flow-matching decoder of the joint molecule–crystal model. Protein latent sampling uses a smaller latent step size dt latent =2 .5×10 −3 (NFE =400 ), because the longer protein latents empirically benefit from more steps. Classifier-free guidance (used only for domain-selection in the joint molecule–crystal model) doubles per-step compute but does not change NFE. 
+
+## G Fidelity–Efficiency Trade-off (Decoder NFE) 
+
+Because reconstruction is iterative, inference cost scales linearly with the number of function evalua-tions (NFE) in the decoder. Figure 6 plots reconstruction RMSD against NFE on QM9 and MP-20. On both datasets, RMSD drops sharply between NFE =1 and NFE =4 and saturates by NFE ≈6: the QM9 decoder reaches its asymptotic RMSD of ∼ 0.0003 ˚A after only 6 steps, and MP-20 saturates at 
+
+∼ 0.0016 ˚A over the same range. Even at NFE =2 , SinAE already outperforms every VAE baseline in Table 2, confirming that the fidelity advantage is not from expensive sampling. In practice we use NFE =10 as a comfortable operating point. In wall-clock terms, at NFE =10 on a single NVIDIA H200 the decoder takes 0.13 s per batch of 4 QM9-scale molecules ( ∼ 36 atoms total), i.e. ∼ 32 ms per molecule, or ∼ 3.6 ms per atom. Generating 10 k molecules takes ∼ 5 minutes including overhead. 
+
+## H t-SNE of the Joint Latent Space 
+
+Section 5.1 interprets the cross-domain transfer through a t-SNE projection of the joint molecule + crystal model’s encoder outputs. Figure 7 visualises this projection: QM9 molecules (circles) and MP-20 crystals (squares) occupy separated, internally coherent regions of the latent space without any explicit domain label. Colours indicate within-domain KMeans clusters; molecular clusters separate by functional-group composition while crystal clusters align with coordination environment. The two domains share a low-density boundary region, consistent with shared low-level geometric regularities (bond-length distributions, coordination patterns) being captured by a common encoder. 18 NUS Blue Whale Lab · Preprint 
+
+Figure 6: Reconstruction fidelity vs decoder NFE. RMSD on QM9 (blue) and MP-20 (green) as a function of the number of decoder function evaluations. Both curves drop sharply between NFE =1 
+
+and NFE =4 and saturate by NFE ≈6.
+
+Figure 7: t-SNE of SinAE latents. QM9 (circles) and MP-20 (squares) separate without explicit domain conditioning; colours are within-domain KMeans clusters. 
+
+## I Latent-Space Interpolation Across Domains 
+
+Section 5.1 reports that straight-line interpolations between pairs of SinAE latents decode into chemically and geometrically valid intermediates across all three domains; we visualise representative trajectories in Figure 8. Molecular interpolations preserve ring connectivity while smoothly varying functional groups; crystal interpolations transition between unit-cell geometries while keeping atoms well-coordinated; protein interpolations evolve continuously from highly helical backbones toward more compact mixed-fold structures. This smoothness is consistent with the strong generative results in Section 4. 19 NUS Blue Whale Lab · Preprint 
+
+Figure 8: Latent-space interpolation across domains. Structures decoded along straight-line interpolations between pairs of SinAE latents: molecules (top), crystals (middle), proteins (bottom). 
+
+## J Length Generalisation on Proteins 
+
+Figure 9 examines whether the SinAE protein model, trained with chains truncated to a maximum of 
+
+256 residues, generalises to longer chains and to generation lengths it was never explicitly conditioned on. Figure 9(a) plots per-sample reconstruction CA-RMSD against protein length on AFDB-FS; the binned mean (right panel) stays below 0.015 ˚A across the full 60 –260 residue range, increasing only mildly from ∼ 0.006 ˚A at 60 residues to ∼ 0.014 ˚A at 260 residues. This sub-linear scaling indicates that the flow-matching decoder does not require length-conditioned training to remain accurate on longer chains. Figure 9(b) reports the analogous picture on the generative side: the distribution of self-consistency scRMSD as a function of generated length. The mean scRMSD remains in a narrow band between 60 and 128 residues without any monotonic upward trend; quantitative per-length numbers are reported in Table 8. 
+
+## K Protein Reconstruction: Full Table with ±std 
+
+Table 9 reproduces the protein-backbone reconstruction RMSD numbers from Table 3 with the full mean ± std. uncertainties from ProteinBench (Ye et al., 2024). 
+
+## L Material Generation: Full MP-20 Breakdown 
+
+Table 10 reports the complete MP-20 generation breakdown, including the Overall validity col-umn ( Overall = Structure × Composition , which is derivable from the main-text table) and the Metastable rate ( Ehull <0.1 eV/atom). Both columns are omitted from the main paper because Overall is redundant and Metastable rate is the input to the M.S.U.N. metric that we already report. 20 NUS Blue Whale Lab · Preprint 
+
+Figure 9: Length generalisation on proteins. (a) Per-sample reconstruction CA-RMSD vs protein length on AFDB-FS; the binned mean (right) stays below 0.015 ˚A across the full 60–260 residue range. (b) Distribution of generation scRMSD as a function of generated sequence length; the mean (orange) is flat across 60–128 residues. 
+
+Table 9: Protein backbone reconstruction RMSD — full table. Mean ± std. in ˚A ( ↓). Best per column bold . SinAE is evaluated on chains truncated to the training-time maximum of 256 residues. All baseline numbers are taken from ProteinBench (Ye et al., 2024).                                                                                  
+
+> CASP14 CASP15 Method TT-dom oligo TS-dom oligo CHEAP 11.16 ±10.09 4.71 ±5.21 11.10 ±11.95 10.98 ±12.44 8.24 ±14.12 ESM3 VQ-VAE 1.28 ±2.32 0.66 ±0.42 3.11 ±7.41 1.25 ±1.28 2.47 ±2.27 DPLM-2 ∗1.94 ±1.99 1.47 ±0.42 3.81 ±7.20 4.58 ±6.62 3.83 ±6.90 ProteinAE 0.51 ±1.56 0.23 ±0.11 0.31 ±0.27 0.31 ±0.21 0.43 ±0.51
+> SinAE 0.010 ±0.005 0.011 ±0.004 0.013 ±0.008 0.013 ±0.009 0.014 ±0.005
+
+21 NUS Blue Whale Lab · Preprint 
+
+Table 10: Material generation on MP-20 — full breakdown. All columns in %, higher is better. “–” denotes numbers not reported by the original authors. 
+
+Validity Rate Metastable Stable M.S.U.N. S.U.N. Model Structure Composition Overall rate rate rate rate CDVAE 100.00 86.70 – – 1.6 – –DiffCSP 100.00 83.25 – – 5.0 – 3.3 UniMat 97.2 89.4 – – – – –FlowMM 96.85 83.19 80.30 30.6 4.6 22.5 2.8 FlowLLM 99.94 90.84 90.81 66.9 13.9 26.3 4.7 Jointly-trained ADiT 99.74 92.14 91.92 81.0 15.4 28.2 5.3 
+
+SinAE (MP20-only) 98.29 88.89 88.40 79.6 14.1 24.3 4.6 
+
+SinAE (joint) 99.29 90.49 90.02 83.0 15.8 30.2 5.4 
+
+22 NUS Blue Whale Lab · Preprint 
+
+## M Molecule Generation: Per-PoseBusters-Check Breakdown 
+
+Table 11 reports the per-check pass rates for each of the seven PoseBusters sanity checks (But-tenschoen et al., 2024) for SinAE on QM9 (joint model) and GEOM-Drugs ( 10 k samples each), together with the aggregate PB Valid rate (passes all seven checks) reported in Tables 4–5. The breakdown shows that on QM9 the residual is dominated by the internal energy check ( 96 .8% ), and on GEOM-Drugs by internal steric clash (96 .7% ) and bond angles (97 .8% ); other checks are at or near 100% .
+
+Table 11: Per-PoseBusters-check pass rates (%, ↑) for SinAE on QM9 and GEOM-Drugs. Last row is the aggregate PoseBusters Valid rate (passes all seven checks), corresponding to the PB Valid column in Tables 4–5.                     
+
+> Test (% pass) SinAE (QM9, joint) SinAE (GEOM-Drugs) All atoms connected 100.00 99.48 Bond lengths 99.59 99.07 Bond angles 100.00 97.84 No internal steric clash 99.90 96.70 Aromatic ring flatness 100.00 100.00 Double bond flatness 99.90 99.90 Reasonable internal energy 96.83 98.45
+> PoseBusters Valid (all 7) 96.52 92.58
+
+## N MOF Generation: Full MOFChecker Sanity Checks 
+
+Table 12 reports the full set of MOFChecker sanity checks for 1,000 unconditionally sampled MOF structures from SinAE (trained on QMOF) and the jointly-trained ADiT baseline. The main text reports MOF reconstruction in Table 2; this appendix provides the generation-side comparison. 
+
+SinAE outperforms ADiT by +6 .1 points on the aggregate validity rate ( 16 .28% vs 10 .2% ), with consistent improvements on nearly every individual sanity check. 
+
+Table 12: MOF generation benchmark (full MOFChecker breakdown). Sanity checks from MOFChecker for 1,000 sampled structures are reported for SinAE and Joint ADiT. Higher values are better for metrics marked with ↑, lower values are better for those marked with ↓.Test (%) SinAE Joint ADiT Has carbon ↑ 100.0 100.0 Has hydrogen ↑ 99.8 100.0 Has atomic overlap ↓ 5.2 10.8 Has overcoord. C ↓ 12.8 34.3 Has overcoord. N ↓ 0.4 1.6 Has overcoord. H ↓ 1.3 3.6 Has undercoord. C ↓ 39.2 72.1 Has undercoord. N ↓ 26.9 39.9 Has undercoord. rare earth ↓ 0.2 0.8 Has metal ↑ 100.0 99.4 Has lone molecule ↓ 49.8 83.2 Has high charge ↓ 0.2 2.5 Has suspicious terminal oxo ↓ 3.1 5.8 Has undercoord. alkali ↓ 0.7 6.4 Has geom. exposed metal ↓ 4.0 9.6 Validity rate (all passed) ↑ 16.28 10.2 23 NUS Blue Whale Lab · Preprint 
+
+## O Generated Sample Visualisations 
+
+Figures 10–12 show unconditional samples drawn from the latent DiT prior of SinAE across all evaluated domains (QM9 small molecules, GEOM-Drugs drug-like molecules, MP-20 crystals, and AFDB-FS proteins), decoded with the corresponding flow-matching decoder. Samples are uncurated unless otherwise stated. 24 NUS Blue Whale Lab · Preprint 
+
+Figure 10: Generated samples on QM9 and GEOM-Drugs. Top: unconditional samples from the joint molecule + crystal SinAE prior (QM9). Bottom: unconditional samples from the GEOM-Drugs 
+
+SinAE prior. 25 NUS Blue Whale Lab · Preprint 
+
+Figure 11: Generated samples on MP-20. Unconditional crystal samples from the joint molecule + crystal SinAE prior, decoded with their lattice tokens to inorganic crystal structures. 26 NUS Blue Whale Lab · Preprint 
+
+Figure 12: Generated samples on AFDB-FS. Unconditional protein backbones from the protein-only SinAE prior; structures shown as cartoon traces of the C α chain. 27
