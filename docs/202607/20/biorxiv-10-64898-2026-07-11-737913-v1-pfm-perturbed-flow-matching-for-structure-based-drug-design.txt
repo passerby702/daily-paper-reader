@@ -1,0 +1,948 @@
+Title: PFM: perturbed flow matching for structure-based drug design
+
+URL Source: https://www.biorxiv.org/content/10.64898/2026.07.11.737913v1.full.pdf
+
+Number of Pages: 20
+
+Markdown Content:
+# PFM: perturbed flow matching for structure-based drug design 
+
+Yankai Yu 1 Guikun Xu 2 Zhuyang Xie 3 Yan Yang 1 Yongquan Jiang 1
+
+Xiaobo Zhou 4,∗ Kang Li 5,6,∗
+
+> 1
+
+School of Computing and Artificial Intelligence, Southwest Jiaotong University, Chengdu, China 
+
+> 2
+
+School of Artificial Intelligence, Shanghai Jiao Tong University, Shanghai, China 
+
+> 3
+
+College of Information Engineering, Sichuan Agricultural University, Ya’an, China 
+
+> 4
+
+Center for Computational Systems Medicine, McWilliams School of Biomedical Informatics, The University of Texas Health Science Center at Houston, Houston, TX, USA 
+
+> 5
+
+West China Biomedical Big Data Center, West China Hospital, Sichuan University, Chengdu, China 
+
+> 6
+
+Med-X Center for Informatics, Sichuan University, Chengdu, China 
+
+> ∗
+
+Corresponding authors: Xiaobo.Zhou@uth.tmc.edu, kang.li.research@gmail.com 
+
+## Abstract 
+
+Generating 3D molecules that bind to specific protein targets via generative models has shown great promise in structure-based drug design. Recently, diffusion-based methods have achieved promising results, but their reliance on high sampling steps poses risks of slowing the drug discovery process due to increased time and computational costs. In this work, we propose a novel method named Per-turbed Flow Matching ( PFM ), which significantly reduces sampling steps by leveraging a Flow Matching framework. PFM introduces a unique perturbed con-ditional probability path design that incorporates pocket binding site information and atom type-coordinate coupled information to enhance molecular generation performance. Experiments on CrossDocked2020 dataset demonstrate that PFM generates molecules with competitive 3D structures and state-of-the-art (SOTA) binding affinities towards the protein targets, achieving an Avg. of -7.12 . Addi-tionally, PFM accelerates the generation of valid molecules by a factor of 21.3 ,while demonstrating potential for further improvement. The code is available at 
+
+https://github.com/kurisu92725/PFM .
+
+## 1 Introduction 
+
+Structure-based drug design (SBDD) [ 1] is one of the key approaches in modern drug discovery. It aims to design 3D ligand molecules with specific properties, such as high binding affinity, conditioned on a target binding site. With the development of deep learning, many generative methods have emerged to address this task. Among these, autoregressive models [ 2, 3, 4], which iteratively construct molecules by adding atoms and bonds, have made notable advancements. Although [ 5]uses fragment-based strategies to generate higher-quality molecules, this kind of method is still constrained by generation order. Recently, diffusion models [ 6 , 7, 8] based on stochastic dynamics, have demonstrated remarkable performance. The main idea of these methods lies in denoising by inferring the reverse of the diffusion process through models. Guan et al.[ 9] introduced diffusion models into SBDD, and subsequent improvements have largely focused on incorporating prior knowledge to enhance the quality of the generated molecules [10, 11]. In SBDD tasks, a common expectation is to generate higher-quality molecules more rapidly. However, popular diffusion models typically require a large number of sampling steps to produce good enough results [ 9, 11 ], and fewer sampling steps pose a risk of low-quality generation [ 11]. To address this 
+
+Preprint. Under review. 
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+issue, we explore the use of Flow Matching (FM) [ 12, 13 , 14 ] framework, which learns deterministic dynamics and generally offers faster sampling speeds by reducing steps [ 15]. However, a straight-forward application leads to poor results. Despite employing different conditional probability paths that ultimately yield the same marginal distribution both at t = 0 and t = 1 , Flow Matching models produce different optimization results due to variations in paths [ 13 , 16 ]. Furthermore, while the independent conditional probability path design for each variable (dimension) can form an uncondi-tional target path through coupling [ 17 ], inspired by IPDiff [ 11 ] and EquiFM [ 18 ], we emphasize that differentiated conditional probability path designs can improve the quality of the generation. Based on the above considerations, we propose the Perturbed Flow Matching ( PFM ) method for SBDD tasks. The perturbed conditional probability path designed in PFM maintains a correct approx-imation of the marginal distributions while incorporating pocket binding site information and atom type-coordinate coupled information to enhance molecular generation performance. Additionally, based on the research of simulation-free score and flow matching [ 16 ], we extend our method to incorporate stochastic dynamics without retraining. The main contributions of this work are as follows: 1. We introduce the Perturbed Flow Matching (PFM) for molecular generation, conditioned on a target binding site, and extend it to stochastic dynamics version without retraining. 2. We propose a Full-atom Multi-stage Equivariant Network to enable flexible training of PFM. 3. Our method achieves SOTA or competitive results across most evaluation metrics, with a valid molecule generation speed 21.3 times faster than the previous SOTA method. 
+
+## 2 Related Work 
+
+Structure-Based Drug Design SBDD aims to generate 3D molecules with desirable properties (e.g., high affinity) conditioned on a target binding site. Skalic et al.[ 19 ] and Xu et al. [ 20 ] proposed methods for generating SMILES of molecules from given proteins. Luo et al.[ 2], Liu et al.[ 3], and Peng et al.[ 4 ] developed approaches for generating molecules in 3D Euclidean space using autoregressive techniques. Recently, the development of diffusion models has provided new solutions for SBDD tasks. Guan et al.[ 9], Lin et al.[ 21 ], and Schneuing et al.[ 22] decomposed the molecular diffusion process into continuous diffusion of atom coordinates and discrete diffusion of atom types. After generating coordinates and types, they used tools [ 23 ] to restore bonds and reconstruct the complete molecular structure. A key distinction between [ 9] and [ 21 ] lies in their variance schedules. Schneuing et al.[ 22 ] incorporates additional considerations such as off-the-shelf property optimization, explicit negative design, and partial molecular design with inpainting. Guan et al.[ 10 ] and Huang et al.[ 11] take prior knowledge into account. The former utilizes AlphaSpace2 [ 24 ] and BRICS [ 25] to extract the target protein subpockets and decompose molecules into fragments, while the latter introduces prior perturbations to distinguish differences among pocket binding sites by incorporating embeddings from models trained for binding affinity prediction on external datasets [ 26 ]. These diffusion-based methods typically require a large number of sampling steps to achieve high-quality generation, posing a risk of slowing down drug discovery. To address this, we propose a Flow Matching framework for SBDD to significantly enhance generation efficiency. 
+
+Flow Matching and Applications Flow-based generative models [ 27, 28 , 29] faced training chal-lenges due to the computational expense of integrating Ordinary Differential Equations (ODEs) in simulation-based training objectives. Recent advancements in simulation-free Flow Matching [12 ] methods have overcome this limitation. Current FM approaches focus on exploring probability paths [ 13 , 16 ] and extending the theory to handle general manifolds [ 14 ]. Moreover, Discrete Flow Matching [ 17, 30 ] has emerged, enabling the generation of complex data. In the field of molecular generation, Song et al.[ 18 ] proposed an equivariant flow matching method for unconditional molec-ular generation, and Nori & Jin[ 31 ] applied FM methods to RNA generation. Campbell et al.[ 17] developed a Discrete Flow Matching approach based on Continuous Time Markov Chains (CTMCs) for protein sequence and structure generation, and Li et al.[ 32 ]’s continuous processing of amino acid types has shown promising results. The straightforward conditional probability paths in the above methods limit the performance of generated molecules in SBDD. In response, we propose a perturbed conditional probability path that incorporates pocket binding site information and atom 2
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+type-coordinate coupled information, enabling differentiation of conditional probability flows. This approach enhances the quality of molecule generation for given binding sites. 
+
+## 3 Method 
+
+In this section, we provide a detailed introduction to PFM and PFM-SDE. In Sec.3.1, we introduce the standard forms of Score and Flow Matching. Sec.3.2 defines the problem and describes the con-struction of the basic conditional probability path. Sec.3.3 explains how to perturb basic conditional probability path. In Sec.3.4, we present a unified loss function for both deterministic and stochastic processes, and the method for obtaining perturbations in practice. In Sec.3.5, a Full-atom Multi-stage Equivariant Network is designed for training and inference. 
+
+3.1 Preliminaries on Score and Flow Matching 
+
+Consider a predefined marginal probability path (or target flow) pt : [0 , 1] × Rd → R+, which interpolates between the prior distribution p0 and the data distribution p1 = q. The flow pt is generated by a smooth vector field u◦ 
+
+> t
+
+(x) : [0 , 1] × Rd → Rd, where u◦ 
+
+> t
+
+defines the deterministic process dx = u◦ 
+
+> t
+
+(x) dt (with continuity equation ∂tpt = −∇ · (ptu◦ 
+
+> t
+
+) holding in this case [ 33 ]). Approximating u◦ 
+
+> t
+
+(x) using a parameterized vector field vθ (t, x ) enables the learning of a flow that matches pt, while the the loss function LF M (θ) = Et,p t(x)∥vθ (t, x ) − u◦ 
+
+> t
+
+(x)∥22 is difficult to compute due to the intractability of u◦ 
+
+> t
+
+(x). However, the availability of a conditional vector field u◦ 
+
+> t
+
+(x|z)
+
+allows for optimizing an alternative objective LCF M (θ) = Et,q (z),p t(x|z)∥vθ (t, x ) − u◦ 
+
+> t
+
+(x|z)∥22, and it has been proven that ∇θ LF M (θ) = ∇θ LCF M (θ) [12, 13]. From a stochastic perspective, the marginal distribution pt can evolve from p0 according to a stochastic differential equation (SDE) of the form dx = ut(x) dt + g(t) dw t, with the corresponding 
+
+Fokker-Planck equation ∂tpt = −∇ · (ptut) + g2(t)2 ∆pt holding, where dw t is a Brownian motion and ∆pt = ∇ · (∇pt). In this case, one can construct an associated conditional probability flow ODE: 
+
+dx =
+
+h
+
+ut(x) − g(t)2 
+
+> 2
+
+∇ log pt(x)
+
+i
+
+dt , where the term in brackets is denoted as u◦ 
+
+> t
+
+(x); thus, the drift term can be recovered via ut(x) = u◦ 
+
+> t
+
+(x)+ g(t)2 
+
+> 2
+
+∇ log pt(x). Similar to the previous case, we consider the loss functions L[SF ]M (θ) = Et,p t(x)[∥vθ (t, x ) − u◦ 
+
+> t
+
+(x)∥2 + λ(t)2∥sθ (t, x ) − ∇ log pt(x)∥2] and 
+
+LC[SF ]M (θ) = Et,q (z),p t(x|z)[∥vθ (t, x ) − u◦ 
+
+> t
+
+(x|z)∥2 + λ(t)2∥sθ (t, x ) − ∇ log pt(x|z)∥2]. Since 
+
+∇θ L[SF ]M (θ) = ∇θ LC[SF ]M (θ), it suffices to optimize LC[SF ]M (θ) [16]. 
+
+3.2 Problem Definition and Basic Path Preparation 
+
+Figure 1: Specific training procedure of PFM. The middle is the crucial construction of the perturbed conditional probability path. 
+
+Problem Definition Using generative models for SBDD involves generating ligand molecules conditioned on a given protein binding site. The protein and ligand molecule can be represented as 3
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+P = {(xP 
+
+> i
+
+, a P 
+
+> i
+
+)}NP 
+
+> i=1
+
+and M = {(xM 
+
+> i
+
+, a M 
+
+> i
+
+)}NM 
+
+> i=1
+
+, where NP and NM refer to the number of atoms in the protein and ligand molecule, respectively. xi ∈ R3 and ai ∈ { 1, 2, . . . , D } represent coordinate and types of the atom, respectively. For simplicity, we denote molecules as M = {(xM 
+
+> i
+
+, s M 
+
+> i
+
+)}NM 
+
+> i=1
+
+,where si ∈ RD is the continuous representation of ai and D represents the number of atom types in the ligand molecule. Furthermore, since types and coordinates of atoms in the protein remain constant during the process, we only simplify the representation of the molecule as M = [ X, S ], where 
+
+X ∈ RNM ×3 and S ∈ RNM ×D . The task is then framed as modeling the conditional distribution 
+
+q(M|P ), with the number of atoms in the ligand molecule sampled from the prior distribution [9]. 
+
+Continuous Processing of Atom Types To map discrete type ai to a continuous space, we employ a soft one-hot encoding operation logit (ai) = si ∈ RD , with a constant value K > 0, and the j-th value of si is represented as: 
+
+si[j] = 
+
+K, j = ai
+
+−K, otherwise , (1) where si can be interpreted as the logit of probabilities [34]. 
+
+Basic Conditional Probability Path Preparation Before performing path perturbation, we select the basic paths for types and coordinates of atoms. Here, for simplicity, we adopt two similar paths for S and X:
+
+pt(S|S0, S 1, P) = N (S|tS 1 + (1 − t)S0), σ 2I), (2) 
+
+pt(X|X0, X 1, P) = N (X|tX 1 + (1 − t)X0), σ 2I), (3) where q(S0) = N (0 , K 2I), q(X0) = N (0 , I ) and subscripts on S and X denote time. Further details on atom type continuousization and sampling can be found in Appendix A.2. 
+
+3.3 Perturbed Conditional Probability Path Design 
+
+Different choices of conditional probability paths pt(x|z) and conditioning distributions q(z) can lead to distinct optimization results [ 13, 18 , 35 ]. Here, we introduce a novel path that does not rely on specific optimization objectives. Specifically, we propose perturbing simple conditional probability paths by incorporating pocket binding site information and atom type-coordinate coupled information to construct a new conditional probability path, which we term a “perturbed conditional probability path”. The form is as follows: 
+
+pt(M|M0, M1, P) = N (M|tM1 + (1 − t)M0 + t(1 − t)W ⊙ ˆM(M1, M0, P), σ 2I), (4) 
+
+q(M0, M1|P ) = q(M0)q(M1|P ), (5) where W ∈ RNM ×(3+ D) represents the weight matrix. ˆM(·) is a function, which, together with 
+
+W , is required to ensure that pt(M|M0, M1, P) can be integrated over M0 and M1 to obtain the marginal probability pt(M|P ). ⊙ denotes the Hadamard product. In the independent coupling represented by Eq.5, translational invariance in coordinate X, where p(X + t) = p(X) and t denotes the translation, can lead to non-normalizable probability distributions. To address this issue, we use the centroid of the pocket binding site as the origin [ 36 ]. In practice, we further employ the following simplified perturbed conditional probability path, as illustrated in Fig.1: 
+
+pt(M|M0, M1, P) = N ([ X, S ]|[tX 1 + (1 − t)X0 + ξt (1 − t) ˆX(S1, X 0, P),tS 1 + (1 − t)S0 + ξt (1 − t) ˆS(X1, S 0, P)] , σ 2I), (6) where ˆX(·) and ˆS(·) are functions, with ˆX and ˆS in the following referring to the perturbations from computation. In practice, we find that using neural networks to generate these perturbations works well. The magnitude of the perturbation is jointly controlled by ξ and t(1 − t).Eq.4 and 6 describe the conditional flow of each element in the matrix M or [X, S ]. The non-"straight" nature of the perturbed conditional probability paths reflected in Eq.6 contributes to the distinguishability between different trajectories, which may offer potential benefits for generative model construction [ 11 ]. Moreover, based on the results in [ 13 , 18 , 35], we would like to emphasize that "straight" paths do not always lead to good generative performance. As demonstrated in the ex-perimental results of Sec.4, proposed perturbed paths improve molecular generation performance. 4
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+The details of ˆX and ˆS involved are introduced at the end of Sec.3.4. According to Sec.3.1 and 
+
+Theorem 3 of [12], the conditional vector field can be expressed as follows: 
+
+u◦ 
+
+> t
+
+(M|M0, M1, P) = [ X1 − X0 + ξ(1 − 2t) ˆX, S 1 − S0 + ξ(1 − 2t) ˆS]. (7) Notably, pt(M|M0, M1, P) can be efficiently sampled, and u◦ 
+
+> t
+
+(M|M0, M1, P) can be easily com-puted, which makes the optimization of θ on LCF M feasible. As σ → 0, the marginal boundary probabilities converge to q(M0) and q(M1|P ) according to Proposition 3.3 in [13]. When pt is generated by the stochastic process described in Sec.3.1, the conditional score is given by: 
+
+∇ log pt(M|M0, M1, P) =[ tX 1 + (1 − t)X0 + ξt (1 − t) ˆX − Xt
+
+σ2 ,tS 1 + (1 − t)S0 + ξt (1 − t) ˆS − St
+
+σ2 ].
+
+(8) Further details on constructing flows for the SBDD task can be found in Appendix A. 
+
+3.4 Training Objective Score and Flow Matching Loss Directly predicting drift and score function requires training separate networks for the deterministic and stochastic processes [ 16 ]. Inspired by [ 7 ], we derive a unified loss function for both processes through reparameterization and setting coefficients to unity: 
+
+LSF = LM 
+
+> CF M
+
+= LM  
+
+> C[SF ]M
+
+= Et,q (M0,M1|P ),p t(M|M0,M1,P)∥[ ˜X − X1, ˜S − S1]∥2 
+
+> F
+
+, (9) where t ∼ U (0 , 1) , and ˜X and ˜S are predictions from the target neural network, distinct from the networks previously used to generate perturbations.This equation implies that we only need to train the deterministic process, while enabling flexible sampling methods for both processes. The detailed reparameterization is provided in Appendix A.1. However, LSF focuses solely on individual atoms, lacking consideration for local molecular structures and interactions with the protein. Here, we propose incorporating two simple auxiliary losses to account for these considerations. 
+
+Local Loss From an intramolecular perspective, it is important to incorporate insights into local structure, such as bond lengths, bond angles, and torsion angles. For simplicity, we introduce only the bond length loss: 
+
+LB = Et,q (M0,M1|P ),p t(M|M0,M1,P)
+
+> NB
+
+X
+
+> i=1
+
+∥ ˜lB − lB ∥, (10) where NB denotes the number of bonds in a ligand molecule, and lB is ground truth of bond length. 
+
+Clash Loss From the perspective of molecule–pocket interactions, steric clashes are a crit-ical consideration. Therefore, we introduce a clash loss to penalize atoms that intrude into the protein interior. Following [ 37 , 10 ], we choose {x ∈ R3 : S(x) = γ} where S(x) = 
+
+−˜σ ln 
+
+PNP 
+
+> j=1
+
+exp  −∥ x − xP 
+
+> j
+
+∥2/˜σ
+
+as the descriptor of the protein surface. Subsequently, we define a clash loss as: 
+
+LC = Et,q (M0,M1|P ),p t(M|M0,M1,P)
+
+> NM
+
+X
+
+> i=1
+
+max  0, γ − S (˜ xM 
+
+> i
+
+) . (11) The overall loss function for PFM or PFM-SDE is thus expressed as: 
+
+LP F M = LSF + μLB + νLC . (12) 
+
+Perturbation Network and Reconstruction Loss To enhance the stability of PFM training and reduce memory usage, we leverage pre-trained predictors for the perturbations ˆX and ˆS as shown in Fig.1. Specifically, we introduce a molecular reconstruction task given protein pocket P and atom types S or coordinates X of ligand molecule. Their corresponding loss functions are defined as: 
+
+L ˆXpredictor = Eq(M|P ),q (M0)∥ ˆX(S, X 0, P) − X∥2 
+
+> F
+
+, (13) 5
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+L ˆSpredictor = Eq(M|P ),q (M0)∥ ˆS(X, S 0, P) − S∥2 
+
+> F
+
+, (14) where M = [ X, S ]. The pre-trained predictors introduce meaningful and reasonable perturbations into basic probability paths. However, this training strategy raises concerns about the effectiveness of this kind of perturbation, such as the difference between paths with mean [tX 1 + (1 − t)X0 + ξt (1 −
+
+t) ˆX] and [tX 1 + (1 − t)X0 + ξt (1 − t)X1]. These concerns will be addressed in Sec.4.3. 
+
+3.5 Full-atom Multi-stage Equivariant Network 
+
+Inspired by recent advancements in equivariant neural networks [ 38 , 39 , 40 ] and protein-ligand binding affinity prediction [ 41 ], a multi-stage approach is proposed to update features and positions. First, three atom-level k-nearest neighbor (knn) graphs are constructed: GP , GM, and GI representing the protein, ligand molecule, and protein-ligand interaction graphs, respectively. The value of k
+
+differs for each graph. After embedding the initial node features into the same dimension for both protein and molecule atoms, the protein atom features are updated as follows in each layer: 
+
+mij ← ϕd (∥xi − xj ∥, e ij ) , (15) 
+
+hP 
+
+> i, 1
+
+← hP 
+
+> i
+
++ X 
+
+> j∈N P(i)
+
+ϕmP
+
+ hP 
+
+> i
+
+, h P 
+
+> j
+
+, m ij 
+
+ , (16) where hP 
+
+> i, 1
+
+represents the updated feature of node i in graph GP , NP (i) denotes the set of neighboring nodes’ indices of node i in GP , eij represents edge ij in related G, and mij denotes message. Since the network ultimately obtains atom representations in ligand molecules, the updating strategy in GM
+
+differs slightly from that in GP . In the first stage , atomic interactions within the ligand molecule are considered, and the type features and positions are updated as follows: 
+
+hM 
+
+> i, 1
+
+← hM 
+
+> i
+
++ X
+
+> j∈N M(i)
+
+ϕmM
+
+ hM 
+
+> i
+
+, h M 
+
+> j
+
+, m ij , t  , (17) 
+
+∆xM 
+
+> i, 1
+
+← X
+
+> j∈N M(i)
+
+(xM 
+
+> j
+
+− xM 
+
+> i
+
+)ϕxM
+
+ hM
+
+> i, 1
+
+, h M
+
+> j, 1
+
+, d ij , t  , (18) 
+
+xM 
+
+> i, 1
+
+← xM 
+
+> i
+
++ ∆ xM
+
+> i, 1
+
+, (19) where dij is the Euclidean distance between nodes i and j.
+
+In the second stage , atomic interactions between the ligand molecule and the protein are considered, and the type features and positions are updated as follows: 
+
+hI 
+
+> i, 2
+
+← hI 
+
+> i, 1
+
++ X 
+
+> j∈N I(i)
+
+ϕmI
+
+ hI
+
+> i, 1
+
+, h I
+
+> j, 1
+
+, m ij , t  , (20) 
+
+∆xM 
+
+> i, 2
+
+← X 
+
+> j∈N I(i)
+
+(xP 
+
+> j
+
+− xM
+
+> i, 1
+
+)ϕxI
+
+ hM
+
+> i, 2
+
+, h P
+
+> j, 2
+
+, d ij , t  , (21) 
+
+xM 
+
+> i, 2
+
+← xM 
+
+> i, 1
+
++ ∆ xM
+
+> i, 2
+
+. (22) Here, Eq.21 distinguishes the atomic origin. During both stages, the subscripts on h and x (e.g., 1, 2) denote updates within the same layer. mij and dij change dynamically due to updating. After L layers of updates, the network outputs Ho → ˜S and Xo → ˜X, which are then passed to the loss function LP F M for parameter optimization. The same network structure is adopted for pre-trained predictors. Further details on pretraining and PFM training can be found in Appendix C, while procedures for training and sampling are provided in Algorithm 1 and Algorithm 2. 
+
+## 4 Experiments 
+
+4.1 Experimental Setup Dataset Following the previous work [ 2, 4], we train and evaluate PFM on CrossDocked2020 dataset [42]. The data preprocessing and splitting methods used by [ 9] and [ 2] are adopted, refining the 22.5 million docked binding complexes to retain high-quality docking poses (RMSD between the docked 6
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+pose and the ground truth < 1 Å) and diverse proteins (sequence identity 30%). Ultimately, 99,900 qualified complexes are utilized for training, and 100 novel proteins are selected for testing. 
+
+Baseline In this study, the proposed method is compared with several recent representative ap-proaches: LiGAN [43 ] is a CVAE model implemented on atomic density grids. AR [2 ], Pocket2Mol 
+
+[4] and GraphBP [3 ] generate molecules autoregressively by leveraging contextual information. Tar-getDiff [9], DecomposeDiff [10 ], and IPDiff [11 ] are diffusion-based models designed for molecular generation. 
+
+Evaluation The generated molecules are evaluated from two perspectives: Target Binding Results 
+
+and Molecular Conformations and Properties .
+
+· Target Binding Results The mean and median of Vina Score , Vina Min , Vina Dock , and High Affinity are used to evaluate binding affinities [ 2, 43 ]. Vina Score directly estimates the binding affinity of generated molecules to the target, Vina Min performs local minimization before estimation, Vina Dock involves a re-docking process reflecting the best possible binding affinity, and High Affinity 
+
+indicates the percentage of molecules generated for each test protein that bind better than the reference molecules. In addition, Clash Ratio and RMSD are considered to evaluate the geometry of docking poses. Specifically, CCA. denotes the ratio of atoms that clash with protein atoms to the total number of atoms, and CM. indicates the ratio of molecules with clashes [ 44 ]. %<2Å denotes the percentage of generated molecules with RMSD less than 2Å from the redocked poses, serving as a measure of the model’s ability to learn the docking poses [45, 46]. 
+
+· Molecular Conformation and Properties Molecular conformation is evaluated by measuring the Jensen-Shannon divergences (JSD) between the bond distance distributions of reference and generated molecules. The strain energy ( SE ) of the generated molecules is also considered, reflecting the energetic stability of conformation [ 47 ]. For molecular properties, QED , SA , Diversity , Similarity ,
+
+Validity , and Uniqueness are used [ 2, 43 , 48 , 49 ]. QED quantifies the drug-likeness of molecules, 
+
+SA evaluates their synthetic accessibility, and Diversity represents the average pairwise dissimilarity between the molecules generated for a given pocket binding site. Similarity measures the average similarity between generated molecules and their references. Validity refers to the proportion of generated molecules that can be reconstructed by RDKit and have binding affinities <0. Uniqueness 
+
+indicates the proportion of valid molecules with different canonical SMILES. 
+
+4.2 Main Results Target Binding Results As shown in Tab.1, for binding affinity , PFM significantly outperforms the autoregressive model Pocket2Mol, with notable improvements of 38.5%, 18.1%, and 16.4% in the average Vina Score, Vina Min, and Vina Dock, respectively. Compared with IPDiff, PFM achieves competitive results without introducing additional prior knowledge (e.g., binding affinity prediction tasks), showing a 10.9% improvement in average Vina Score, a slight increase of 1.7% in average Vina Min, and a minor decrease of 2.9% in average Vina Dock. It is important to note that, as described in Sec.4.1, Vina Score best reflects the model’s molecular generation and docking ability. In addition, larger generated molecules or distortions introduced by the model could potentially lead to better Vina Scores. However, as shown by the average number of atoms in Tab.1 and the strain energy results in Tab.3, PFM does not appear to benefit significantly from either of these factors, which could otherwise compromise the fairness of comparisons or the stability of generated molecules. For 
+
+geometry evaluation , PFM outperforms other diffusion-based methods in Clash Ratio and RMSD. LiGAN achieves the best clash ratio, primarily because its grid-based modeling effectively avoids most steric clashes. 
+
+Molecular Conformation and Properties JSD values between bond distance distributions of reference and generated molecules are calculated and summarized in Tab.2. The results demonstrate that molecules generated by PFM-SDE achieved SOTA performance in five out of eight common bond types. While PFM performs slightly below PFM-SDE, it delivers competitive results compared with IPDIFF (the previous SOTA). For SE in Tab.3, PFM outperforms diffusion-based methods, indicating that it generates more stable docking conformations. Regarding molecular properties ,PFM achieves superior or competitive performance across most metrics compared with diffusion-based methods, though it performs significantly worse on SA. However, as shown in the ablation studies in Tab.45, this deficiency primarily arises from the trade-off between QED and SA induced by the perturbed conditional probability path and the LB term, rather than a direct decline in SA. 7
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+Table 1: Summary of target binding results of reference molecules and molecules generated by our model and other non-diffusion ( Others ) and diffusion-based ( Diffusion ) baselines. ( ↑) / ( ↓) denotes a larger / smaller number is better. Top 3 results are highlighted with bold text and underlined text ,respectively. Methods Vina Score ( ↓) Vina Min ( ↓) Vina Dock ( ↓) High Affinity ( ↑) Clash Ratio ( ↓) RMSD ( ↑) # Atoms /mol. Avg. Med. Avg. Med. Avg. Med. Avg. Med. CCA. CM. %<2 Å Avg. Reference -6.36 -6.46 -6.71 -6.49 -7.45 -7.26 - - - - 34.0 22.8                                                                                                              
+
+> Others
+> liGAN -----6.33 -6.20 21.1% 11.1% 0.0096 0.0718 43.8 19.7 GraphBP -----4.80 -4.70 14.2% 6.7% 0.8634 0.9974 -23.1 AR -5.75 -5.64 -6.18 -5.88 -6.75 -6.62 37.9% 31.0% ----Pocket2Mol -5.14 -4.70 -6.42 -5.82 -7.15 -6.79 48.4% 51.0% 0.0576 0.4499 30.8 17.7
+> Diffusion
+> TargetDiff -5.47 -6.30 -6.64 -6.83 -7.80 -7.91 58.1% 59.1% 0.0483 0.4920 29.4 24.2 DecompDiff -5.67 -6.04 -7.04 -7.09 -8.39 -8.43 64.4% 71.0% 0.0462 0.5248 23.9 20.9 IPDiff -6.42 -7.01 -7.45 -7.48 -8.57 -8.51 69.5% 75.5% 0.0313 0.3463 -24.5
+> FM PFM -7.12 -7.18 -7.58 -7.32 -8.32 -8.26 72.1% 76.5% 0.0145 0.2040 36.7 22.6
+> PFM-SDE -6.99 -7.13 -7.48 -7.32 -8.29 -8.23 71.2% 76.6% 0.0155 0.2131 37.3 22.5
+
+Table 2: Jensen-Shannon divergence between bond distance distributions of the reference molecules and the generated molecules, and lower values indicate better performances. “-”, “=”, and “:” represent single, double, and aromatic bonds, respectively. Top 3 results are highlighted with bold text and underlined text, respectively. Bond liGAN GraphBP AR Pocket2 Mol Target Diff Decomp Diff IP Diff PFM PFM-SDE C−C 0.601 0.368 0.609 0.496 0.369 0.359 0.386 0.395 0.375 C=C 0.665 0.530 0.620 0.561 0.505 0.537 0.245 0.172 0.165 
+
+C−N 0.634 0.456 0.474 0.416 0.363 0.344 0.298 0.266 0.254 
+
+C=N 0.749 0.693 0.635 0.629 0.550 0.584 0.238 0.147 0.147 
+
+C−O 0.656 0.467 0.492 0.454 0.421 0.376 0.366 0.317 0.309 
+
+C=O 0.661 0.471 0.558 0.516 0.461 0.374 0.353 0.411 0.392 C:C 0.497 0.407 0.451 0.416 0.263 0.251 0.169 0.188 0.165 
+
+C:N 0.638 0.689 0.552 0.487 0.235 0.269 0.128 0.187 0.181 Nonetheless, according to [ 50 ], the SA scores of molecules generated by PFM remain within an acceptable range and do not hinder the rough screening of drug discovery [9, 10]. 
+
+Faster Sampling and Performance Gains from Perturbation As shown in Tab.6, PFM achieves a 21.3x speed-up in sampling, benefiting from the inherent efficiency of Flow Matching that require fewer sampling steps, as well as the flexibility of the proposed network in graph construction. However, this acceleration comes at the cost of poor baseline performance, as evidenced by the BFM* results in Tab.4. The proposed perturbed conditional probability path significantly improves docking energy and introduces a trade-off between QED and SA (as shown by PFM*), while the simple auxiliary loss further enhances model effectiveness. The potential for faster sampling can be found in Appendix D. 
+
+4.3 Ablation Studies 
+
+PFM introduces an FM-based molecular generation approach for SBDD, featuring a novel perturbed conditional probability path design and a well-performed loss function construction. A comprehensive ablation analysis validates the effectiveness of these components. Further results and analysis on reducing the number of sampling steps, the impact of perturbation coefficients, and the differences in predicted fields caused by perturbed conditional probability paths can be found in Appendix D. 
+
+Effect of Perturbed Conditional Probability Path The perturbed conditional probability path in PFM is hypothesized to improve molecular generation performance. Tab.4 presents the impact of different path choices on the quality of generated molecules, all utilizing Gaussian paths with identical variance but differing means. Taking the conditional probability path on X as an example, the mean for Basic Flow Matching ( BFM ) is [tX 1 +(1 −t)X0]; for BFM-Ref , [tX 1 +(1 −t)X0 +ξt (1 −t)X1];for Left-Shifted PFM ( LPFM ), [tX 1 +(1 −t)X +ζt (1 −t)2 ˆX]; and for Right-Shifted PFM ( RPFM ), 
+
+[tX 1+(1 −t)X+ζt 2(1 −t) ˆX]. Note that BFM* and PFM* indicate models trained with consideration 8
+
+(which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint Table 3: Summary of molecular conformation and properties of reference molecules and molecules generated by our model and other baselines. ( ↑) / ( ↓) denotes a larger / smaller number is better. Top 3 results are highlighted with bold text and underlined text, respectively. Methods QED ( ↑) SA ( ↑) Diversity ( ↑) SE ( ↓) Similarity ( ↓) Validity ( ↑) Uniqueness ( ↑)Avg. Med. Avg. Med. Avg. Med. 25% 50% 75% Avg. Avg. Avg. Reference 0.48 0.47 0.73 0.74 - - 34 107 196 - 100% -liGAN 0.39 0.39 0.59 0.57 0.66 0.67 212 619 1855 0.22 - 87.28% GraphBP 0.43 0.45 0.49 0.48 0.79 0.78 46 105 464 0.15 - 100%                                                             
+
+> Pocket2Mol 0.56 0.57 0.74 0.75 0.69 0.71 102 186 374 0.26 98.31% 100%
+> TargetDiff 0.48 0.48 0.58 0.58 0.72 0.71 369 1243 13871 0.30 90.35% 99.63% DecompDiff 0.45 0.43 0.61 0.60 0.68 0.68 379 983 4133 0.34 71.96% 99.99% IPDiff 0.52 0.53 0.61 0.59 0.74 0.73 600 2720 6299 0.18 88.16% 100% PFM 0.49 0.50 0.51 0.51 0.73 0.71 229 783 1708 0.20 95.12% 100%
+
+Table 4: The influence of perturbed conditional probability path. Methods Vina Score ( ↓) Vina Min ( ↓) QED ( ↑) SA ( ↑)Avg. Med. Avg. Med. Avg. Med. Avg. Med. BFM* -4.27 -4.94 -6.04 -5.94 0.46 0.47 0.50 0.51 BFM -5.77 -6.27 -6.76 -6.71 0.47 0.48 0.54 0.54 BFM-Ref -6.48 -6.89 -7.27 -7.10 0.49 0.50 0.51 0.51 LPFM -6.72 -6.88 -7.37 -7.13 0.49 0.50 0.51 0.50 RPFM -6.86 -7.17 -7.51 -7.33 0.48 0.49 0.52 0.52 PFM* -6.48 -6.49 -6.79 -6.45 0.43 0.43 0.57 0.57 
+
+PFM -7.12 -7.18 -7.58 -7.32 0.49 0.50 0.51 0.51 of LSF only. The results demonstrate that the proposed perturbed paths improve overall molecular generation performance (as shown by comparisons of PFM with BFM and BFM-Ref, or PFM* with BFM*) and confirm the effectiveness of PFM under different perturbation strategies (as evidenced by comparisons of LPFM, RPFM, PFM with BFM and BFM-Ref). 
+
+Impact of the Loss Function The proposed loss function significantly enhances PFM’s molecular generation performance. Tab.5 presents an ablation study of the loss terms, indicating that LB
+
+contributes a lot to performance improvement. LC provides slight benefits to molecular generation performance only when combined with LB and LSF .Table 5: The effect of different loss terms. 
+
+LSF LB LC Vina Score ( ↓) Vina Min ( ↓) QED ( ↑) SA ( ↑)Avg. Med. Avg. Med. Avg. Med. Avg. Med. 
+
+✔ ✗ ✗ -6.48 -6.49 -6.79 -6.45 0.43 0.43 0.57 0.57 
+
+✔ ✔ ✗ -6.88 -7.06 -7.43 -7.18 0.49 0.50 0.52 0.51 
+
+✔ ✗ ✔ -6.45 -6.48 -6.83 -6.51 0.42 0.42 0.57 0.56 
+
+✔ ✔ ✔ -7.12 -7.18 -7.58 -7.32 0.49 0.50 0.51 0.51 
+
+## 5 Conclusions 
+
+In this paper, a method called PFM for the SBDD task is proposed for the first time. Building on a basic FM framework, PFM enhances molecular generation performance by designing a more differentiated perturbed path, which incorporates pocket binding site information and atom type-coordinate coupled information into a basic conditional probability path. Additionally, the introduction of a flexible full-atom multi-stage equivariant network and a simple auxiliary loss also contribute to improved results. Experiments demonstrate the efficiency of the model and the effectiveness of its components, and highlight PFM’s potential to generate competitive molecules with faster sampling. 9
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+## 6 Limitations and Future Work 
+
+PFM have been demonstrated to be effective in this paper. However, certain limitations remain. From the perspective of generative algorithms, PFM explores the construction of generative paths to a certain extent. The effectiveness of this approach lacks large-scale validation in multimodal generation tasks, due to computational constraints. Moreover, in various generative tasks, the design and coupling of modality-specific paths warrant deeper investigation. From the SBDD perspective, PFM focuses on local structural information through the loss function during generation, which may be insufficient. Additional structural constraints should be incorporated. Our future work will also explore matching of multi-level molecular generation, the integration of domain-specific priors, and the application of large models. 
+
+## References 
+
+[1] Amy C Anderson. The process of structure-based drug design. Chemistry & biology , 10(9):787– 797, 2003. [2] Shitong Luo, Jiaqi Guan, Jianzhu Ma, and Jian Peng. A 3d generative model for structure-based drug design. Advances in Neural Information Processing Systems , 34:6229–6239, 2021. [3] Meng Liu, Youzhi Luo, Kanji Uchino, Koji Maruhashi, and Shuiwang Ji. Generating 3d molecules for target protein binding. In International Conference on Machine Learning (ICML) ,2022. [4] Xingang Peng, Shitong Luo, Jiaqi Guan, Qi Xie, Jian Peng, and Jianzhu Ma. Pocket2mol: Efficient molecular sampling based on 3d protein pockets. In International Conference on Machine Learning , pages 17644–17655. PMLR, 2022. [5] Zaixi Zhang, Yaosen Min, Shuxin Zheng, and Qi Liu. Molecule generation for target pro-tein binding with structural motifs. In The Eleventh International Conference on Learning Representations , 2023. [6] Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan, and Surya Ganguli. Deep unsuper-vised learning using nonequilibrium thermodynamics. In International conference on machine learning , pages 2256–2265. PMLR, 2015. [7] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in neural information processing systems , 33:6840–6851, 2020. [8] Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. arXiv preprint arXiv:2011.13456 , 2020. [9] Jiaqi Guan, Wesley Wei Qian, Xingang Peng, Yufeng Su, Jian Peng, and Jianzhu Ma. 3d equivariant diffusion for target-aware molecule generation and affinity prediction. arXiv preprint arXiv:2303.03543 , 2023. [10] Jiaqi Guan, Xiangxin Zhou, Yuwei Yang, Yu Bao, Jian Peng, Jianzhu Ma, Qiang Liu, Liang Wang, and Quanquan Gu. Decompdiff: Diffusion models with decomposed priors for structure-based drug design. In International Conference on Machine Learning , pages 11827–11846. PMLR, 2023. [11] Zhilin Huang, Ling Yang, Xiangxin Zhou, Zhilong Zhang, Wentao Zhang, Xiawu Zheng, Jie Chen, Yu Wang, CUI Bin, and Wenming Yang. Protein-ligand interaction prior for binding-aware 3d molecule diffusion models. In The Twelfth International Conference on Learning Representations , 2024. [12] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. [13] Alexander Tong, Kilian Fatras, Nikolay Malkin, Guillaume Huguet, Yanlei Zhang, Jarrid Rector-Brooks, Guy Wolf, and Yoshua Bengio. Improving and generalizing flow-based generative models with minibatch optimal transport. arXiv preprint arXiv:2302.00482 , 2023. 10 
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+[14] Ricky TQ Chen and Yaron Lipman. Flow matching on general geometries. In The Twelfth International Conference on Learning Representations , 2024. [15] Aram-Alexandre Pooladian, Heli Ben-Hamu, Carles Domingo-Enrich, Brandon Amos, Yaron Lipman, and Ricky TQ Chen. Multisample flow matching: Straightening flows with minibatch couplings. In International Conference on Machine Learning , pages 28100–28127. PMLR, 2023. [16] Alexander Y Tong, Nikolay Malkin, Kilian Fatras, Lazar Atanackovic, Yanlei Zhang, Guillaume Huguet, Guy Wolf, and Yoshua Bengio. Simulation-free schrödinger bridges via score and flow matching. In International Conference on Artificial Intelligence and Statistics , pages 1279–1287. PMLR, 2024. [17] Andrew Campbell, Jason Yim, Regina Barzilay, Tom Rainforth, and Tommi Jaakkola. Gener-ative flows on discrete state-spaces: Enabling multimodal flows with applications to protein co-design. arXiv preprint arXiv:2402.04997 , 2024. [18] Yuxuan Song, Jingjing Gong, Minkai Xu, Ziyao Cao, Yanyan Lan, Stefano Ermon, Hao Zhou, and Wei-Ying Ma. Equivariant flow matching with hybrid probability transport for 3d molecule generation. Advances in Neural Information Processing Systems , 36, 2024. [19] Miha Skalic, José Jiménez, Davide Sabbadin, and Gianni De Fabritiis. Shape-based generative modeling for de novo drug design. Journal of chemical information and modeling , 59(3):1205– 1214, 2019. [20] Mingyuan Xu, Ting Ran, and Hongming Chen. De novo molecule design through the molecular generative model conditioned by 3d information of protein binding sites. Journal of Chemical Information and Modeling , 61(7):3240–3254, 2021. [21] Haitao Lin, Yufei Huang, Odin Zhang, Siqi Ma, Meng Liu, Xuanjing Li, Lirong Wu, Jishui Wang, Tingjun Hou, and Stan Z Li. Diffbp: Generative diffusion of 3d molecules for target protein binding. Chemical Science , 2025. [22] Arne Schneuing, Charles Harris, Yuanqi Du, Kieran Didi, Arian Jamasb, Ilia Igashov, Weitao Du, Carla Gomes, Tom L Blundell, Pietro Lio, et al. Structure-based drug design with equivariant diffusion models. Nature Computational Science , pages 1–11, 2024. [23] Noel M O’Boyle, Michael Banck, Craig A James, Chris Morley, Tim Vandermeersch, and Geoffrey R Hutchison. Open babel: An open chemical toolbox. Journal of cheminformatics ,3:1–14, 2011. [24] Joseph Katigbak, Haotian Li, David Rooklin, and Yingkai Zhang. Alphaspace 2.0: representing concave biomolecular surfaces using β-clusters. Journal of chemical information and modeling ,60(3):1494–1508, 2020. [25] Jorg Degen, Christof Wegscheid-Gerlach, Andrea Zaliani, and Matthias Rarey. On the art of compiling and using’drug-like’chemical fragment spaces. ChemMedChem , 3(10):1503, 2008. [26] Zhihai Liu, Yan Li, Li Han, Jie Li, Jie Liu, Zhixiong Zhao, Wei Nie, Yuchen Liu, and Renxiao Wang. Pdb-wide collection of binding data: current status of the pdbbind database. Bioinfor-matics , 31(3):405–412, 2015. [27] Ricky TQ Chen, Yulia Rubanova, Jesse Bettencourt, and David K Duvenaud. Neural ordinary differential equations. Advances in neural information processing systems , 31, 2018. [28] Will Grathwohl, Ricky TQ Chen, Jesse Bettencourt, Ilya Sutskever, and David Duvenaud. Ffjord: Free-form continuous dynamics for scalable reversible generative models. arXiv preprint arXiv:1810.01367 , 2018. [29] Emiel Hoogeboom, Didrik Nielsen, Priyank Jaini, Patrick Forré, and Max Welling. Argmax flows and multinomial diffusion: Learning categorical distributions. Advances in Neural Information Processing Systems , 34:12454–12465, 2021. 11 
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+[30] Itai Gat, Tal Remez, Neta Shaul, Felix Kreuk, Ricky TQ Chen, Gabriel Synnaeve, Yossi Adi, and Yaron Lipman. Discrete flow matching. arXiv preprint arXiv:2407.15595 , 2024. [31] Divya Nori and Wengong Jin. Rnaflow: Rna structure & sequence co-design via inverse folding-based flow matching. In ICLR 2024 Workshop on Generative and Experimental Perspectives for Biomolecular Design , 2024. [32] Jiahan Li, Chaoran Cheng, Zuofan Wu, Ruihan Guo, Shitong Luo, Zhizhou Ren, Jian Peng, and Jianzhu Ma. Full-atom peptide design based on multi-modal flow matching. arXiv preprint arXiv:2406.00735 , 2024. [33] Cédric Villani et al. Optimal transport: old and new , volume 338. Springer, 2009. [34] Xiaochuang Han, Sachin Kumar, and Yulia Tsvetkov. Ssd-lm: Semi-autoregressive simplex-based diffusion language model for text generation and modular control. In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pages 11575–11596, 2023. [35] Leon Klein, Andreas Krämer, and Frank Noé. Equivariant flow matching. Advances in Neural Information Processing Systems , 36, 2024. [36] Victor Garcia Satorras, Emiel Hoogeboom, Fabian Fuchs, Ingmar Posner, and Max Welling. E (n) equivariant normalizing flows. Advances in Neural Information Processing Systems ,34:4181–4192, 2021. [37] Octavian-Eugen Ganea, Xinyuan Huang, Charlotte Bunne, Yatao Bian, Regina Barzilay, Tommi Jaakkola, and Andreas Krause. Independent se (3)-equivariant models for end-to-end rigid protein docking. arXiv preprint arXiv:2111.07786 , 2021. [38] Vıctor Garcia Satorras, Emiel Hoogeboom, and Max Welling. E (n) equivariant graph neural networks. In International conference on machine learning , pages 9323–9332. PMLR, 2021. [39] Yi Liu, Limei Wang, Meng Liu, Yuchao Lin, Xuan Zhang, Bora Oztekin, and Shuiwang Ji. Spherical message passing for 3d molecular graphs. In International Conference on Learning Representations (ICLR) , 2022. [40] Yi-Lun Liao, Brandon Wood, Abhishek Das, and Tess Smidt. Equiformerv2: Improved equivari-ant transformer for scaling to higher-degree representations. arXiv preprint arXiv:2306.12059 ,2023. [41] Dejun Jiang, Chang-Yu Hsieh, Zhenxing Wu, Yu Kang, Jike Wang, Ercheng Wang, Ben Liao, Chao Shen, Lei Xu, Jian Wu, et al. Interactiongraphnet: A novel and efficient deep graph representation learning framework for accurate protein–ligand interaction predictions. Journal of medicinal chemistry , 64(24):18209–18232, 2021. [42] Paul G Francoeur, Tomohide Masuda, Jocelyn Sunseri, Andrew Jia, Richard B Iovanisci, Ian Snyder, and David R Koes. Three-dimensional convolutional neural networks and a cross-docked data set for structure-based drug design. Journal of chemical information and modeling ,60(9):4200–4215, 2020. [43] Matthew Ragoza, Tomohide Masuda, and David Ryan Koes. Generating 3d molecules condi-tional on receptor binding sites with deep generative models. Chemical science , 13(9):2701– 2713, 2022. [44] Haitao Lin, Guojiang Zhao, Odin Zhang, Yufei Huang, Lirong Wu, Zicheng Liu, Siyuan Li, Cheng Tan, Zhifeng Gao, and Stan Z Li. Cbgbench: fill in the blank of protein-molecule complex binding graph. arXiv preprint arXiv:2406.10840 , 2024. [45] Andrew T McNutt, Paul Francoeur, Rishal Aggarwal, Tomohide Masuda, Rocco Meli, Matthew Ragoza, Jocelyn Sunseri, and David Ryan Koes. Gnina 1.0: molecular docking with deep learning. Journal of cheminformatics , 13(1):43, 2021. [46] Yanru Qu, Keyue Qiu, Yuxuan Song, Jingjing Gong, Jiawei Han, Mingyue Zheng, Hao Zhou, and Wei-Ying Ma. Molcraft: Structure-based drug design in continuous parameter space. arXiv preprint arXiv:2404.12141 , 2024. 12 
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+[47] Charles Harris, Kieran Didi, Arian R Jamasb, Chaitanya K Joshi, Simon V Mathis, Pietro Lio, and Tom Blundell. Benchmarking generated poses: How rational is structure-based drug design with generative models? arXiv preprint arXiv:2308.07413 , 2023. [48] Pedro O O Pinheiro, Joshua Rackers, Joseph Kleinhenz, Michael Maser, Omar Mahmood, Andrew Watkins, Stephen Ra, Vishnu Sresht, and Saeed Saremi. 3d molecule generation by denoising voxel grids. Advances in Neural Information Processing Systems , 36:69077–69097, 2023. [49] Danny Reidenbach. Evosbdd: Latent evolution for accurate and efficient structure-based drug design. In ICLR 2024 Workshop on Machine Learning for Genomics Explorations , 2024. [50] Peter Ertl and Ansgar Schuffenhauer. Estimation of synthetic accessibility score of drug-like molecules based on molecular complexity and fragment contributions. Journal of cheminfor-matics , 1:1–11, 2009. [51] Weiran Wang and Miguel A Carreira-Perpinán. Projection onto the probability simplex: An efficient algorithm with a simple proof, and an application. arXiv preprint arXiv:1309.1541 ,2013. [52] Pierre H Richemond, Sander Dieleman, and Arnaud Doucet. Categorical sdes with simplex diffusion. arXiv preprint arXiv:2210.14784 , 2022. [53] Griffin Floto, Thorsteinn Jonsson, Mihai Nica, Scott Sanner, and Eric Zhengyu Zhu. Diffusion on the probability simplex. arXiv preprint arXiv:2309.02530 , 2023. [54] Harold W Kuhn. The hungarian method for the assignment problem. Naval research logistics quarterly , 2(1-2):83–97, 1955. 13 
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+## A Score and Flow Matching in the SBDD Task 
+
+A.1 Obtaining LCF M and LC[SF ]M through Reparameterization 
+
+According to Sec.3.1, the conditional flow matching loss in the SBDD task is defined as: 
+
+LM 
+
+> CF M
+
+(θ) = Et,q (M0,M1|P ),p t(M|M0,M1,P)∥vθ (t, M, P) − u◦ 
+
+> t
+
+(M|M0, M1, P)∥2 
+
+> F
+
+. (23) Substituting Eq.7 into Eq.23: 
+
+LM 
+
+> CF M
+
+(θ) = Et,q (M0,M1|P ),p t(M|M0,M1,P)∥[v(X) 
+
+> θ
+
+(t, M, P), v (S) 
+
+> θ
+
+(t, M, P)] 
+
+− [X1 − X0 + ξ(1 − 2t) ˆX, S 1 − S0 + ξ(1 − 2t) ˆS]∥2
+
+> F
+
+= Et,q (M0,M1|P ),p t(M|M0,M1,P)∥[ ˜X(θ)1 (t, M, P) − X0 + ξ(1 − 2t) ˆX, 
+
+˜S(θ)1 (t, M, P) − S0 + ξ(1 − 2t) ˆS] − [X1 − X0 + ξ(1 − 2t) ˆX, S 1 − S0 + ξ(1 − 2t) ˆS]∥2
+
+> F
+
+= Et,q (M0,M1|P ),p t(M|M0,M1,P)∥[ ˜X(θ)1 (t, M, P) − X1, ˜S(θ)1 (t, M, P) − S0]∥2
+
+> F
+
+= Et,q (M0,M1|P ),p t(M|M0,M1,P)∥[ ˜X − X1, ˜S − S1]∥2 
+
+> F
+
+.
+
+It is important to note that, taking the vector field of position X as an example, the perturbation term contributing to the predicted vector field in the second equality is actually ˆX( ˜S, X 0, P). Strictly enforcing this term increases training complexity and degrades the quality of the final generation. Our simple loss function provided is sufficient to optimize the vector field prediction, and this simpli-fication does not compromise the inference process. The results in Tab.7 validate the effectiveness of our simplification. From Sec.3.1, the conditional score matching loss part of LC[SF ]M in the SBDD task is defined as: 
+
+LM 
+
+> CSM
+
+(θ) = Et,q (M0,M1|P ),p t(M|M0,M1,P)λ(t)2∥sθ (t, M, P) − ∇ log pt(M|M0, M1, P)∥2 
+
+> F
+
+.
+
+(24) Substituting Eq.8 into Eq.24, and following a derivation similar to that of LCF M :
+
+LM 
+
+> CSM
+
+(θ) = Et,q (M0,M1|P ),p t(M|M0,M1,P)
+
+ ( t · λ(t)
+
+σ2 )2∥[ ˜X(θ)1 (t, M, P) − X1, ˜S(θ)1 (t, M, P) − S0]∥2
+
+> F
+
+
+
+= Et,q (M0,M1|P ),p t(M|M0,M1,P)
+
+ ( t · λ(t)
+
+σ2 )2∥[ ˜X − X1, ˜S − S0]∥2
+
+> F
+
+.
+
+During training, we set ( t·λ(t) 
+
+> σ2
+
+)2 = 1 to ensure a stable training process. Now, we observe that the score matching loss and flow matching loss share the same form, and further normalization of the coefficients leads to Eq.9. This implies that we only need to train the network on the deterministic dynamics, and during inference, we can freely choose between the deterministic and stochastic dynamics from Sec.3.1 to generate molecules, without retraining. 
+
+A.2 Flow of Atom Type on Simplex 
+
+Based on Eq.1, si undergoes a softmax operation, resulting in a normalized probability distribution. The i-th dimension of this distribution approaches 1, while the remaining dimensions converge to 0, indicating that the probability mass is correctly concentrated on the atom type ai. Specifically, 
+
+softmax (si) represents a point on the D-category probability simplex ∆D−1, where ∆D−1 := n
+
+p ∈ RD : 0 ≤ p[i] ≤ 1, PDi=1 p[i] = 1 
+
+o
+
+is a smooth manifold in RD [51 , 52, 53 ]. Each point on 
+
+∆D−1 represents a categorical distribution over D classes. Instead of directly constructing flows on 
+
+∆D−1, as detailed in [ 32], we define a conditional flow in the logit space RD with a Gaussian prior, as shown in Eq.2. During inference, Euler steps are performed to solve the probability flow in the logit space, and atom types can then be sampled from the corresponding probability vector on the simplex: 
+
+S′ 
+
+> t+∆ t
+
+= St + v(S) 
+
+> θ
+
+(t, M, P)∆ t, (25) 
+
+At+∆ t ∼ softmax  S′
+
+> t+∆ t
+
+, dim = 1  , (26) 14 
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+where At+∆ t ∈ RNM ×D denotes atom type sampled according to Eq.26. To improve consistency between the logit space and the simplex space during generation, the predicted atom types are mapped back to the logit space throughout the iterative process: 
+
+St+∆ t = logit (At+∆ t). (27) Additionally, according to Appendix A.1 of [ 32 ], a rigorous and correct approach involves reducing one degree of freedom in the logit space to ensure a one-to-one mapping between the simplex and the logit space. However, this setting is not adopted in the implementation of [ 32 ], and it does not show a significant impact in PFM. 
+
+A.3 Modification of Independent Coupling (Eq.5) 
+
+Tong et al.[ 13 ] used mini-batch optimal transport to improve Flow Matching (OT-FM), while Klein et al.[ 35 ] extended this with Equivariant Optimal Transport Flow Matching (EOT-FM) to provide improved conditioning distributions. These approaches significantly shorten the path length during training, empirically improving both training stability and generation quality. However, applying EOT to the SBDD task poses practical challenges. Specifically, variations in atom counts among ligands within a batch make mini-batch EOT infeasible. Inspired by the explanation of Discrete Optimal Transport in Appendix B.1 of [ 35], we propose a method to shorten the path length and devise a corresponding sampling strategy. When the cost function c(X0, X 1) = d(X0, X 1), where d
+
+denotes the Euclidean distance, the sampling process is defined as: Sampling pairs: (X0, X ∗ 
+
+> 1
+
+) = ( X0, g ∗ · X1), g∗ := arg min  
+
+> g∈G
+
+c(X0, g · X1), (28) where X0 and X1 sampled according to Eq.5, and G is a compact (topological) group acting on an 
+
+n-dimension Euclidean space X via isometries. This includes the symmetric group S n, the orthogonal group O n, and all their subgroups. Fig.2 provides a more intuitive depiction of the differences in basic conditional probability paths (flow matching differences) during training. In practice, for simplicity, only the symmetric group S NM is considered, and s ∗ is obtained using Hungarian algorithm [ 54 ]. The impact of the modified conditioning distributions on the performance of generated molecules is detailed in Tab.7. 
+
+Figure 2: Different sampling methods lead to distinct basic conditional probability paths during training: a) the original path and b) the modified path. 
+
+## B Training and Sampling Procedure 
+
+The training and sampling procedures are summarized as Algorithm 1 and Algorithm 2. 15 
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+Algorithm 1 Training Procedure of PFM 
+
+Input: Protein-ligand binding dataset {P , M} Ni=1 , learnable Flow Matching model ϕθ , and pretrained perturbed network ˆX and ˆS.
+
+1: while ϕθ not converge do 
+
+2: (M1 = {(xM 
+
+> i
+
+, a M 
+
+> i
+
+)}NM 
+
+> i=1
+
+, P1) ∼ {P , M} Ni=1 
+
+3: t ∼ U (0 , 1) 
+
+4: Obtain the molecular representation M1 = [ X1, S 1] based on Problem Definition in Sec.3.2 and Eq.1 
+
+5: Move the complex to make CoM of protein atoms zero 
+
+6: Obtain M0 = [ X0, S 0] based on Eq.5 and Appendix A.3 
+
+7: Calculate the perturbation ˆX(S1, X 0, P1) and ˆS(X1, S 0, P1)
+
+8: Xt ∼ N (X|tX 1 +(1 −t)X0 +ξt (1 −t) ˆX, σ 2I), St ∼ N (S|tS 1 +(1 −t)S0 +ξt (1 −t) ˆS, σ 2I)
+
+9: [ ˜X, ˜S] = ϕθ (t, X t, S t, P1)
+
+10: Compute loss LP F M with [ ˜X, ˜S] and [X1, S 1]
+
+11: Update θ by minimizing LP F M 
+
+12: end while Algorithm 2 Sampling Procedure of PFM and PFM-SDE 
+
+Input: The protein binding site P, the learned Flow Matching model ϕθ , and pretrained perturbed network ˆX and ˆS.
+
+Output: Generated ligand molecule M that binds to the protein pocket P
+
+1: Sample the number of atoms NM of the ligand molecule M as described in Problem Definition 
+
+in Sec.3.2 
+
+2: Move CoM of protein atoms to zero 
+
+3: Sample initial ligand atom coordinates X0 and continuous atom types S0, forming M0 =[X0, S 0]
+
+4: Obtain step size ∆t = 1 /N step 
+
+5: for n in 0, . . . , N step − 1 do 
+
+6: [ ˜X, ˜S] = ϕθ (n∆t, X n∆t, S n∆t, P)
+
+7: u◦ 
+
+> t
+
+= [ ˜X − X0 + ξ(1 − 2t) ˆX( ˜S, X 0, P1), ˜S − S0 + ξ(1 − 2t) ˆS( ˜X, S 0, P1)] 
+
+8: if PFM-SDE Sampling then 
+
+9: ∇ log pt = [ n∆t ˜X+(1 −n∆t)X0+ξn ∆t(1 −n∆t) ˆX−Xn∆t 
+
+> σ2
+
+, n∆t ˜S+(1 −n∆t)S0+ξn ∆t(1 −n∆t) ˆS−Sn∆t 
+
+> σ2
+
+]
+
+10: ut = u◦ 
+
+> t
+
++ g(t)2 
+
+> 2
+
+∇ log pt
+
+11: Mn∆t+∆ t ∼ N (Mn∆t + ut∆t, g (t)2∆t) (Euler-Maruyama integration) 
+
+12: else 
+
+13: Mn∆t+∆ t = Mn∆t + u◦ 
+
+> t
+
+∆t
+
+14: end if 
+
+15: Using Eq.26 and Eq.27 to improve consistency between the logit space and the simplex space 
+
+16: end for 
+
+17: A1 ∼ softmax (S1, dim = 1) 
+
+18: Employ the method in [9] to recover the ligand molecule M that binds to the protein pocket P
+
+## C Implementation Details 
+
+C.1 Initialization of Inputs 
+
+Following [ 9], protein atoms are represented using a combination of one-hot encoding for element types (H, C, N, O, S, Se) and amino acid types (20 types), while ligand atoms are encoded using one-hot representations of their element types (C, N, O, F, P, S, Cl). Furthermore, an additional dimension is introduced to distinguish between protein and ligand atoms. Two linear layers map atoms from different sources to 128-dimensional latent space, respectively. Edge connections of graphs are encoded using a 4-dimensional one-hot vector indicating the connection type (intra-protein, 16 
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+intra-ligand, protein-ligand, or ligand-protein). Edge distances are embedded via radial basis functions located at 20 centers between 0 Å and 10 Å. 
+
+C.2 Architecture 
+
+An 8-layer SE(3)-equivariant neural network with a hidden dimensionality of 128 and 16 attention heads is used for dot product attention-based message passing. At each layer, three knn graphs (GP , GM and GI ) are dynamically constructed based on distances, where kP = 24 , kM = 32 and 
+
+kI = 32 . Message passing and feature updates are conducted over these graphs according to Sec.3.5. 
+
+C.3 Training Details 
+
+The model is trained using the Adam optimizer with learning rate of 5e-4, betas = (0.95, 0.999), batch size of 16, and clipped gradient norm of 8. During the training process for ˆX predictor and ˆS
+
+predictor, Gaussian noise is added to S1 and X1 with standard deviations of 2.5 and 0.5, respectively, to adapt to vector field predictions with noise during inference. To ensure appropriate perturbation tendencies of ˆX, the operations described in Appendix A.3 are applied to X0 and X1. Throughout training, protein atom coordinates are augmented with Gaussian noise with a standard deviation of 0.1. We trained the parameterized PFM on a single NVIDIA GeForce RTX 4090 GPU, and it could converge within 62.5k steps. 
+
+C.4 Hyperparameter Settings 
+
+In the experiments, Eq.6 uses σ = 0 .1 and ξ = 1 .5, while Eq.11 employs γ = 3 .5 and S uses ˜σ = 2 .In Eq.12, μ = 0 .75 and ν = 10 . For ablation studies, ζ = 2 .53 in LPFM and RPFM to align with the peak values of perturbation terms in the PFM schedule. In Algorithm 2, g(t) is set to 0.1. 
+
+## D Additional Results 
+
+Tab.6 presents the training and inference times of PFM compared with two other diffusion-based models, with all models configured according to the settings specified in the respective paper. Training time refers to the duration required for model convergence, while inference time denotes the time taken to generate 10,000 valid molecules. All tests were conducted on the same NVIDIA GeForce RTX 4090 GPU. Table 6: Training and inference time Methods Training_t(hrs) Inference_t(hrs) TargetDiff 5.57 22.11 IPDiff 9.53 66.68 BFM 4.31 1.17 
+
+ˆXpredictor 4.22 -
+
+ˆSpredictor 4.17 -PFM 6.31 3.13 Tab.7 highlights the positive effects of practices described in Appendix A.3 and Appendix A.1 on the model’s generative performance. PFM-True Loss ( PFM-TL ) indicates the use of ˆX( ˜S, X 0, P) and 
+
+ˆS( ˜X, S 0, P) during training, while PFM-IC represents the use of independent coupling during the training process. Training Loss and Test Loss report the best loss during training and test, respectively. Tab.8 presents an ablation study on the perturbation coefficient, showing that ξ = 1 .5 is a generally better choice; ξ = 0 corresponds to BFM, while ξ = 1 .5 corresponds to PFM. Fig.3 visualizes the influence of perturbation in PFM on molecular generation outcomes and pro-cesses. Specifically, PFM (BFM sampling) refers to molecule generation using only the vector field predictions from the BFM component, while PFM (BFM part) represents the BFM component’s contribution when generating molecules with the total PFM vector field predictions. Molecule-level Comparison of vector fields illustrate the average atomic contributions. The top row of Fig.3 shows 17 
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+Table 7: The influence of loss function and conditioning distribution. Methods Vina Score ( ↓) Vina Min ( ↓) QED ( ↑) SA ( ↑) Loss ( ↓)Avg. Med. Avg. Med. Avg. Med. Avg. Med. Training Test PFM-TL -6.83 -6.98 -7.49 -7.23 0.47 0.47 0.50 0.51 - -PFM-IC -4.42 -4.76 -7.58 -7.16 0.49 0.50 0.42 0.39 5.48 9.83 PFM -7.12 -7.18 -7.58 -7.32 0.49 0.50 0.51 0.51 1.27 2.28 Table 8: Ablation of perturbation coefficients. Methods Vina Score ( ↓) Vina Min ( ↓) QED ( ↑) SA ( ↑)Avg. Med. Avg. Med. Avg. Med. Avg. Med. 
+
+ξ = 0 -5.77 -6.27 -6.76 -6.71 0.47 0.48 0.54 0.54 
+
+ξ = 0 .5 -6.68 -7.15 -7.48 -6.30 0.48 0.49 0.48 0.48 
+
+ξ = 1 .0 -6.78 -6.83 -7.25 -7.13 0.48 0.49 0.52 0.52 
+
+ξ = 1 .5 -7.12 -7.18 -7.58 -7.32 0.49 0.50 0.51 0.51 performance improvements due to the perturbed conditional probability path, and the bottom two rows demonstrate how perturbations alter the vector fields. The vector field in the figure is not smooth, as it is produced by the trained network rather than the true marginal distribution. Fig.5 provides more visualizations. Compared with TargetDiff, DecompDiff, and IPDiff, PFM achieves superior or competitive molecular generation results with fewer sampling steps (100 steps in the primary experiment). Fig.4 shows that further reducing the number of sampling steps does not lead to significant fluctuations in the quality of generated molecules. This indicates the method’s potential for faster molecule generation. In addition, we provide the visualization of more ligand molecules generated by PFM, comparing with both reference and IPDiff [11], as shown in Fig.6. 18 
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+Figure 3: The influence of perturbation in PFM on molecular generation outcomes (top row) and processes (middle and bottom rows) on protein 2v3r. 
+
+Figure 4: Ablation study on sampling step number. We compare PFM with BFM in terms of QED, SA, Vina Score under different sampling step number settings. 19 
+
+> (which was not certified by peer review) is the author/funder. All rights reserved. No reuse allowed without permission. The copyright holder for this preprint this version posted July 17, 2026. ;https://doi.org/10.64898/2026.07.11.737913 doi: bioRxiv preprint
+
+Figure 5: More examples of generated ligands for protein pockets. The generated molecules are produced by the trained PFM model. The results of PFM (BFM sampling) and PFM (Total) share the same noise initialization but differ in the vector field predictions used during the generation process. 
+
+Figure 6: More examples of generated ligands for protein pockets. Carbon atoms in reference ligands, ligands generated by IPDiff [ 11 ] and PFM are visualized in blue, pink and green, respectively. QED, SA and Vina Score are reported for each molecule. 20
