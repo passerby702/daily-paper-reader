@@ -1,0 +1,711 @@
+Title: DBMol: Design of High-Affinity, Target-Specific Small Molecules through Structure Prediction Models
+
+URL Source: https://arxiv.org/pdf/2607.19237v1
+
+Published Time: Wed, 22 Jul 2026 01:14:29 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# DBMol: Design of High-Affinity, Target-Specific Small Molecules through Structure Prediction Models 
+
+Yiming Qin ∗
+
+EPFL, Switzerland 
+
+Kai Yi ∗
+
+MRC-LMB, UK 
+
+Miruna Cretu 
+
+University of Cambridge, UK 
+
+Sjors H.W. Scheres 
+
+MRC-LMB, UK 
+
+Pietro Li` o
+
+University of Cambridge, UK 
+
+Pascal Frossard 
+
+EPFL, Switzerland 
+
+## Abstract 
+
+Designing small molecule ligands that bind with high affinity to specific protein pockets is a fundamental goal in drug discovery, as small molecules constitute a major fraction of approved therapeutics. Recent breakthroughs in structure pre-diction, such as AlphaFold-3 and Boltz-2, enable accurate biomolecular interac-tion prediction and show promise as foundation models for downstream tasks, including binding affinity prediction. We propose to leverage these models and introduce DBMol, a new structure predictor-guided framework for de novo small molecule design. DBMol formulates an alternating optimization and projection process. In the optimization stage, DBMol starts from an initial molecule and uses gradient-based optimization to improve pocket-specific interactions and pre-dicted binding affinity using a structure prediction model. In the projection stage, a flow-matching model maps the optimized molecular graph to discrete and chem-ically valid molecules. Experiments show that DBMol effectively optimizes the Boltz-2 affinity proxy and generates molecules with strong predicted affinity and specificity under Boltz-2 evaluation. To reduce self-confirmation bias, we further evaluate generated molecules using held-out metrics, including AF3-based evalu-ation. DBMol substantially improves pocket coverage while maintaining molec-ular diversity over unconditional generation, and is competitive under held-out metrics despite the absence of reference-ligand supervision. These results support the promise of structure prediction models as effective optimization signals for de novo molecular design. 
+
+## 1 Introduction 
+
+Small-molecule modulators that target specific protein pockets with high affinity are central to mod-ern therapeutics. G protein-coupled receptors (GPCRs), for instance, represent one of the most important drug target families. More than 30% of FDA-approved drugs act on GPCRs [1], with the objective of either activating or inhibiting receptor signaling by binding to specific conformational pockets. Achieving both high binding affinity and strong target specificity is therefore a core objec-tive in molecule design, as it directly determines therapeutic efficacy and off-target risk. Existing ligand design methods can be broadly divided into two categories. Structure-based, pocket-aware generators, such as DiffSBDD [2], FLOWR [3], and Pocket2Mol [4], explicitly condition ligand generation on protein pocket geometry. In contrast, ligand-centric models [5–9] guide generation using docking objectives, reference ligands, or pharmacophore profiles. These two directions there-fore face complementary limitations: pocket-aware generators are constrained by the coverage of currently available protein–ligand complexes, while ligand-centric optimization methods depend on    
+
+> ∗Equal contribution. Correspondence to yiming.qin@epfl.ch and kyi@mrc-lmb.cam.ac.uk .Preprint. arXiv:2607.19237v1 [cs.LG] 21 Jul 2026
+
+I. Optimization  II. Projection                 
+
+> : initial
+> molecule
+> t=0: clean
+> distribution
+> t=1
+> Boltz-guided gradient descent Flow matching-based denoising
+> G0⋆p0Gt⋆pt=m∼G1⋆p1
+
+Figure 1: Framework of DBMol . (I) Optimization , where Boltz-2-conditioned gradient updates start from G0, an uninformative initial molecule graph visualized here as a simple linear carbon chain, and refine relaxed molecule representation to improve predicted binding affinity and pocket specificity for a given protein pocket; and (II). Projection , where a flow-matching-based molecule denoising model maps a noisy molecule Gt (in its optimized representation m⋆) onto discrete, chem-ically valid molecule graphs G1.target-specific objectives, known ligands, or costly retraining procedures, restricting their general-ization to new proteins and binding sites. This motivates an alternative way of leveraging protein information: rather than learning ligand generation only from curated complexes or optimizing task-specific ligand scores, we can use modern structure prediction models as general-purpose protein– ligand interaction signals. Recent advances in biomolecular structure prediction make this increasingly promising. AlphaFold-3 [10] shows accurate modeling of multi-molecule complexes, including protein–ligand interactions, enabling structure-based in-silico ligand design workflows that were previously impractical at scale. Building on this progress, Boltz-2 [11] extends such models to both continuous binding strength and binder probability from protein–ligand inputs. Motivated by these developments, we propose DB-Mol, a small-molecule design framework that uses structure prediction models to generate ligands specific to a target protein pocket. Unlike conventional generative models, DBMol does not require curated protein–ligand complex datasets, known ligands for the target, or task-specific retraining. Instead, it directly leverages differentiable signals from a structure prediction model, such as Boltz-2 [11], to guide molecule design through an alternating optimization and projection procedure, as illustrated in Figure 1. As a result, DBMol enables flexible de novo small-molecule generation conditioned only on a target protein sequence and target pocket positions. More specifically, DBMol first performs an optimization step (stage I in Figure 1), where a differ-entiable interaction objective derived from the structure prediction model is optimized to improve predicted binding affinity, pocket specificity, and predicted complex confidence. This objective pro-vides gradient signals that guide molecule representations toward structures aligned with the target protein pocket. However, directly applying differentiable guidance to small molecules is challeng-ing because atom types, formal charges, and bonding patterns are tightly coupled and must satisfy strict chemical constraints. Na¨ ıve gradient-based updates can therefore distort the molecular dis-tribution and frequently produce invalid or chemically implausible structures. This necessitates an explicit projection mechanism onto the discrete, chemically valid molecule manifold. DBMol there-fore uses a diffusion-based molecule completion model, such as DeFoG [12], as the projection stage (stage II in Figure 1). This stage maps optimized but potentially invalid molecule representations back to chemically valid 2D molecule graphs through iterative denoising, while preserving the op-timized structural signal. Synthesizability is then encouraged by mapping each generated molecule to a structurally similar, synthetically accessible compound [7]. We evaluate DBMol on LIT-PCBA [13], a benchmark for target-specific molecular generation. DB-Mol effectively optimizes the Boltz-2 proxy and substantially improves over unconditional genera-tion under structure-predictor-aligned metrics. These results show that the proposed optimization-and-projection pipeline can capture useful structure-predictor signals for pocket-specific molecule design. Since DBMol is optimized using Boltz-based signals, we further evaluate generated molecules using held-out AF3-based metrics as a complementary structural assessment, rather than treating the optimization proxy as ground truth. Under this held-out evaluation, DBMol achieves substantially higher target-pocket coverage while preserving molecular diversity, and re-mains competitive with reinforcement-learning-based and conditional generative baselines despite using weaker supervision: no reference ligands, curated pocket–ligand training pairs, or task-specific 2retraining. Beyond the benchmark setting, we further show that DBMol can be applied to new protein pockets without known ligands, highlighting its intended role as a flexible de novo design framework that can benefit from continued advances in biomolecular structure prediction models. 
+
+## 2 Related Work 
+
+Generative models for molecule design. Molecular generative models can be broadly cate-gorized into three classes: SMILES-based sequence models, graph-based 2D models, and 3D structure-aware models. SMILES-based models treat molecules as sequences using autoregres-sive or transformer-based architectures [14, 15]. Graph-based 2D models represent molecules as atom–bond graphs and have been extensively studied, using variational autoencoders [16–18], nor-malizing flows [19], and diffusion-based methods [20]. Discrete flow-matching frameworks such as DeFoG [12] further improve generation efficiency while preserving strong performance. 3D structure-aware models aim to jointly generate molecule topology and three-dimensional atomic co-ordinates, typically using E(3)-equivariant architectures with diffusion or flow matching [21–23], or keeping a non-equivariant architecture [24, 25]. Recently, there has been increased attention to generating molecules that, beyond accurate 2D topology and geometric fidelity, are constrained to synthesizable space [7–9, 26, 27]. In this work, we focus on 2D molecule graph generation, which provides a discrete representation of molecule structure while aligning naturally with the Boltz-2 input format, and we incorporate a synthesis-aware pipeline for practical molecule design. 
+
+Structure prediction models. Structure prediction models have moved beyond single-protein folding and are increasingly used as foundation models for biomolecular systems. AlphaFold-3 [10] showed that diffusion-based all-atom models can predict multi-component complexes, including protein-ligand interactions and nucleic-acid assemblies. Recent open-source efforts further extend structure prediction toward functional readouts such as binding affinity and conformational change. For example, Boltz-2 [11] reports protein-ligand affinity predictions competitive with physics-based free-energy methods such as FEP, while being substantially faster, making these models attractive for virtual screening and reducing reliance on expensive simulations. Structure prediction mod-els have also been explored for inverse design, primarily in the context of protein sequence and structure optimization. Representative approaches include all-atom sequence design with explicit ligands and ions [28], diffusion-time hallucination for de novo protein discovery [29], and gradient-based optimization through differentiable structure predictors for protein–protein or protein–nucleic acid interfaces [30–32]. However, despite these advances, a comparable differentiable, structure-predictor-guided framework for small-molecule design remains largely unexplored. 
+
+## 3 DBMol 
+
+In this section, we present DBMol, an optimization–projection framework for structure-guided molecule design. We first define the problem setting (Sec. 3.1), then describe how gradients from the structure predictor Boltz-2 are used to optimize a relaxed molecular representation (Sec. 3.2). Next, we introduce a discrete flow–matching projection step to recover chemically valid molecular graphs (Sec. 3.3). Finally, we present a refinement stage that enforces synthesizability (Sec. 3.4). 
+
+3.1 Problem Setting and Molecular Representation 
+
+We study structure-predictor-aligned molecule design , which can be viewed as a conditional gener-ation problem guided by a differentiable surrogate objective. Given a protein sequence and a pre-defined binding pocket, we treat a structure prediction model (e.g., Boltz-2 [11]) as a differentiable scoring function and optimize molecules to improve predicted protein-ligand interactions. Impor-tantly, we do not assume access to ground-truth binding affinities, and we do not treat the structure predictor as a physical oracle; instead, it serves as a proxy objective whose inductive biases guide molecule design. 
+
+Molecular representation. We represent a molecule as an undirected graph with N nodes, 
+
+G =  x1: N , c 1: N , e 1: i<j :N
+
+, (1) where x1: N = ( x(n))1≤n≤N denote atom types, c1: N = ( c(n))1≤n≤N denote formal charges, and 
+
+e1: i<j :N = ( e(ij ))1≤i<j ≤N denote bond types. Each atom type satisfies x(n) ∈ X , each charge 3c(n) ∈ C , and each bond type e(ij ) ∈ E , where one category in E explicitly represents the absence of a bond. Following prior work [20] on molecule graph generation, we assume a fully connected graph, allowing bonded and non-bonded atom pairs to be modeled within a unified categorical space. We adopt this discrete notation for the projection stage in Sec. 3.3. 
+
+Algorithm 1 Boltz-guided optimization (Sec. 3.2)  
+
+> 1:
+
+Input: pocket P, Boltz2, DeFoG denoiser fθ 
+
+> 2:
+
+Hyperparams: weights (w1, w 2), optimization steps K, late start t, step size η 
+
+> 3:
+
+Init: simple discrete molecule G0 
+
+> 4:
+
+m0 ← Relax( G0) ▷ atom/bond probs + charges  
+
+> 5:
+
+for k = 0 to K − 1 do  
+
+> 6:
+
+L ← L aff (mk)+ w1Lcontact (mk)+ w2Lconf (mk) 
+
+> 7:
+
+gk ← ∇ mk L(mk) 
+
+> 8:
+
+mk+1 ← Update( mk, gk, η ) 
+
+> 9:
+
+end for  
+
+> 10:
+
+m⋆ ← mK 
+
+> 11:
+
+Gt ∼ p(· | m⋆) 
+
+> 12:
+
+G1 ← Denoise( Gt, f θ , t ) 
+
+> 13:
+
+return G1
+
+To enable gradient-based optimization in our framework, we adopt a continu-ous relaxation of the discrete molecule graph. Specifically, atom types x1: N
+
+and bond types e1: i<j :N are represented as categorical probability vectors on the probability simplex, while formal charges c1: N are represented as contin-uous values to align with Boltz-2. We denote this relaxed continuous represen-tation by m, and distinguish it from the discrete molecule graph G. This relax-ation does not carry a strict probabilistic interpretation over molecules, nor does it define a generative distribution; rather, it serves as a parameterization that en-ables constrained gradient-based design using differentiable structure prediction models. We adopt this relaxed notation m for Sec. 3.2 (summarized in Alg. 1). We next describe the structure-predictor-guided optimization of DBMol under the notations above. 
+
+3.2 Optimization through Structure Prediction Models 
+
+We leverage a structure prediction model to guide molecule design through gradient-based optimiza-tion. In particular, we adopt Boltz-2 [11] as a structure predictor that provides differentiable signals characterizing protein-ligand interactions, including binding affinity estimates and structural confi-dence measures. These signals define a fixed objective for optimization; DBMol does not perform model retraining, reinforcement learning, or inference over learned molecule distributions. 
+
+Objective. Given a relaxed molecule representation m, we define a composite objective 
+
+L(m) = Laffinity (m) + w1Lcontact (m) + w2Lconf (m), (2) where Laffinity combines the minimization of Boltz-2 affinity regression value with maximization of the binder/non-binder classification logit from the structure prediction model, biasing generation toward stronger binders. Lcontact encourages interactions with residues in the predefined binding pocket, while Lconf aggregates Boltz-2 confidence signals to encourage plausible complex geome-tries. All terms are written as losses, so lower values are preferred: higher-is-better confidence scores are negated, and error-like quantities are used as penalties. The positive weights (w1, w 2)
+
+balance these objectives, with details provided in App. C.1. Overall, the objective encourages strong, target-specific binders with high-confidence predicted interfaces. While continuous relax-ation enables efficient gradient-based optimization, directly discretizing the optimized representa-tion m almost always produces invalid or chemically implausible molecular graphs. This occurs because atom types and bond configurations are tightly coupled, and these constraints are not en-forced in the relaxed space. To address this issue, we introduce a projection step that maps noisy or invalid proposals to discrete molecular graphs that satisfy basic chemical validity constraints. 
+
+Contact loss. To encourage pocket-specific binding, we add a contact loss based on the distogram predicted by the structure prediction model. For each pocket residue i and ligand token j, the model outputs logits over D distance bins. After softmax, we obtain pij (d) and define 
+
+Lpair (i, j ) = − log X
+
+> d<d cutoff
+
+pij (d) + ϵ
+
+!
+
+, (3) where ϵ is a small constant and dcutoff = 8 .0 ˚A. We compute this loss only over pocket residues 
+
+P. For each residue i, we select the ligand atom with the strongest predicted contact, j⋆i =
+
+4Ground Truth (GBA; 2v3d) Affinity: 0.58  
+
+> ipTM: 0.99 Affinity: -0.31
+> ipTM: 0.98 Affinity: -1.07
+> ipTM: 0.97 Affinity: -0.24
+> ipTM: 0.96 Ground Truth (VDR; 3a2i) Affinity: 0.22
+> ipTM: 0.99 Affinity: -1.52
+> ipTM: 0.98 Affinity: -1.06
+> ipTM: 0.99 Affinity: -1.23
+> ipTM: 0.96
+
+Figure 2: Protein–ligand interactions predicted by Boltz-2. For each target, the reference ligand and its interaction pattern are shown in beige in the upper left, while three molecules found via DBMol after SynFormer post-processing are shown in blue. The protein backbone and molecular surface are shown in gray, interacting protein side chains are highlighted in purple, and hydrogen bonds are shown as dashed light-blue lines. Across both proteins, the generated molecules bind within the target pocket and exhibit coherent predicted binding poses. The predicted binding affini-ties and ipTM scores are reported in the bottom right of each subfigure. 
+
+arg min j Lpair (i, j ), and define 
+
+Lpocket (m) = 1
+
+|P| 
+
+X
+
+> i∈P
+
+Lpair (i, j ⋆i ). (4) Simultaneously enforcing many pocket–ligand contacts can make optimization unstable and lead to noisy gradients. We therefore add an anchoring term based on the single strongest pocket residue– ligand atom pair: 
+
+(i⋆, j ⋆) = arg min  
+
+> i∈P ,j
+
+Lpair (i, j ), Lanchor (m) = Lpair (i⋆, j ⋆). (5) The final contact loss averages the pocket-level and anchor-level terms: 
+
+Lcontact (m) = 12 Lpocket (m) + 12 Lanchor (m). (6) The anchor term provides a stable global pull toward the target pocket, while the pocket-level term encourages broader local contacts, improving stability and reducing diffuse interaction patterns. 
+
+Gradient updates in the relaxed space. Direct optimization over discrete molecule graphs is infeasible due to combinatorial constraints. We therefore perform gradient-based optimization in the relaxed molecule space defined in the previous subsection. At iteration k, we compute gradients of the objective with respect to the relaxed representation of the molecule mk,
+
+gk = ∇mk L(mk), (7) and apply constrained gradient descent to preserve valid categorical simplices. For atom and bond type variables, under step size η, the update takes the form 
+
+˜mk+1 = clip( mk − ηgk, 0, 1) → mk+1 = ˜mk+1 
+
+P 
+
+> l
+
+˜m(l)
+
+> k+1
+
+. (8) Here, clipping prevents negative or overly large category weights, while normalization ensures that each atom-type or bond-type vector sums to one. For continuous charge variables, we apply additive gradient-descent updates followed by clipping to a predefined range. A detailed description of how gradients affect atom types, bond types, and atomic charges is provided in App. C.1. While these operations implement constrained gradient descent in the relaxed space, they do not ensure chemical validity. We therefore introduce a separate projection (denoising) step in Sec. 3.3. 5Table 1: Mean molecular generation results averaged across the seven LIT-PCBA targets. Rank is computed over all held-out metrics except Boltz2 Success using standard competition ranking. DBMol results are reported from 100 valid molecules without any post-selection. Gray rows corre-spond to our method, and the best average rank and Boltz2 Success are highlighted in bold.                                                                                 
+
+> Model Condition BCov ↑AF3 Succ. ↑iPAE ↓Dist ↓Div. ↑Vina ↓Rank ↓Boltz Succ. ↑
+> DeFoG Unconditional 0.39 0.89 11.7 4.6 0.89 -8.3 5.50 0.13 SynFormer Ligand 0.55 0.93 10.8 3.8 0.87 -8.9 1.83 0.47 ShEPhERD Pharmacophore 0.42 0.91 10.8 4.2 0.87 -8.5 4.00 0.20 SynCoGen Pharmacophore 0.51 0.92 11.6 4.5 0.50 -10.3 3.67 0.62
+> CGFlow-ZS 3D pocket 0.46 0.92 10.9 4.5 0.78 -10.4 3.33 0.32 DiffSBDD 3D pocket 0.50 0.94 10.9 4.6 0.78 -8.8 3.67 0.44 DBMol Pocket 0.51 0.92 11.8 4.6 0.89 -8.7 3.83 0.47
+
+3.3 Projection to Chemically Valid Molecules Learned projection via discrete denoising. We instantiate this projection using a denoising model based on discrete flow matching, specifically DeFoG [12]. Discrete flow matching formu-lates denoising as a continuous-time process over discrete states, enabling gradual and controlled corrections of atom, bond, and charge types. This property makes it particularly well suited for pro-jection, as local chemical inconsistencies can be resolved without overwriting the global structural signal introduced during optimization. Full technical details of the discrete flow-matching formula-tion and training procedure are provided in App. B.1. DeFoG is trained only on chemically valid molecular graphs and learns to recover chemically con-sistent structures from corrupted graph inputs. We do not interpret this denoising process as proba-bilistic inference; instead, we use it as a learned projection operator that enforces chemical validity while preserving the structural signal introduced by optimization stage in Sec. 3.2. Given an optimized relaxed representation m⋆, we first instantiate a noisy discrete molecule graph 
+
+Gt, by sampling the atom and bond types from m⋆ and rounding the continuous charges to their nearest integers. Since charges are encoded as scalars in m⋆ in Boltz-2, we discretize them in Gt
+
+by rounding to the nearest integer. This sampled graph may violate chemical constraints, and we therefore apply the denoising model to project Gt back onto a valid molecule graph G1.
+
+Late-time denoising. A key design choice is the initialization point of the denoising process in the flow-matching trajectory. Starting from an early denoising time introduces too much randomness and can wash out the optimization signal from the structure predictor. Starting from an overly late time, however, produces many invalid structures that the denoiser cannot reliably repair. We therefore initialize denoising at a late diffusion time t, which allows the model to ensure sufficient chemical validity while largely preserving the optimized molecule structure. In practice, we set 
+
+t = 0 .8 in all experiments, which provides a favorable trade-off. 
+
+3.4 Synthesizability-Aware Design 
+
+Chemical validity does not necessarily imply practical synthesizability: a generated molecule may satisfy valence constraints while still being unstable, implausible, or difficult to synthesize. We therefore include an optional synthesis-aware post-processing step based on SynFormer [7]. Given a molecule generated by DBMol, SynFormer maps it to a structurally similar molecule that is reach-able through chemically valid reaction pathways. This step is used only to assess whether the target-specific signal discovered by DBMol can be preserved after moving molecules toward synthesizable chemical space; it is not part of the Boltz-guided optimization objective. In our synthesis-aware variant, this mapping is applied independently to each DBMol molecule, without Boltz-2-, AF3-, Vina-, or docking-based filtering. 
+
+## 4 Experiments 
+
+We evaluate whether DBMol can use structure prediction models as optimization signals for de novo 
+
+molecule design. Our experiments have three goals: (i) to test whether DBMol optimizes the Boltz-2 proxy, as assessed via both Boltz-2- and AF3-based evaluation on seven targets from the LIT-PCBA benchmark; (ii) to investigate whether this framework extends to de novo targets beyond the original benchmark; and (iii) to validate the main design choices through ablations. 64.1 Experimental Setup Baselines. We compare DBMol with representative baselines across conditioning and supervision regimes. DeFoG is an unconditional graph-generation reference. SynFormer [7] uses reference-ligand guidance; ShEPhERD [6] and SynCoGen [9] use pharmacophore guidance; CGFlow [8] and DiffSBDD [2] are pocket-conditioned structure-based generators. DiffSBDD conditions on 3D pocket information, typically from a broader 8 ˚A pocket region, whereas DBMol only uses pocket residue positions within 3.5 ˚A and does not condition on a fixed pocket conformation, and therefore relies on less structural but more flexible information. Together, these baselines cover the main regimes relevant to target-specific molecule generation, including no target information, reference ligands, pharmacophores, learned pocket rewards, and pocket–ligand training data. This comparison positions DBMol as a structure-predictor-guided approach that remains competitive under weaker supervision, suggesting a promising path toward flexible de novo molecular design. 
+
+Evaluation protocol. For the main benchmark, we report 100 molecules per target for each method. For the projection stage, we generate 2048 candidates, discard chemically invalid pro-jected graphs, and randomly sample 100 valid molecules, which takes around 10 seconds in total. This step enforces only chemical validity and does not use any evaluation metrics for selection. 
+
+Metrics. We evaluate all methods using held-out structural metrics, proxy-aligned reference metrics, and chemical-quality metrics, with details in App. C.7. Our primary evaluation uses 
+
+AlphaFold3-based held-out metrics , since AlphaFold3 is not used during DBMol optimization. These include BindCov (denoted as BCov as an abbreviation), measuring AF3-predicted pocket coverage; AF3 Succ., a combined success rate based on sufficient AF3 ipTM and successful pocket binding; iPAE, the AF3-predicted interface error; and Dist, the mean minimum ligand-to-pocket dis-tance. We also report AutoDock Vina scores and molecular diversity, measured by average pairwise ECFP4 Tanimoto distance, both used only for evaluation. We additionally report Boltz2 Success ,defined by favorable Boltz-2 affinity and sufficient pocket specificity. Since Boltz-2 provides the optimization signal, Boltz2 Success is treated only as a diagnostic proxy-aligned reference metric rather than the primary basis for comparison. 
+
+4.2 Pocket-Specific Molecule Design on LIT-PCBA 
+
+We evaluate DBMol on the seven-target LIT-PCBA protocol used in work [9]. For DBMol, we use one fixed configuration across all LIT-PCBA targets, including loss weights, optimization hyperpa-rameters, and 50 optimization iterations. This avoids target-specific iteration selection or hyperpa-rameter tuning. The full setup is reported in App. C. We use the ground-truth ligand size only to fix the number of atoms; no reference-ligand geometry, or interaction pattern is used. 
+
+We first ask whether the optimization-projection framework improves the proxy. The comparison in Tab. 1 shows that DBMol effectively exploits structure-predictor guidance. Under the proxy-aligned Boltz2 Success metric, DBMol improves over unconditional generation from 0.13 to 0.47 , indicating that projection preserves useful optimization signals after mapping relaxed representations back to discrete molecule graphs. 
+
+We next ask whether Boltz-guided optimization transfers to held-out evaluation. DBMol achieves strong held-out performance despite using weaker supervision than several baselines. Using only the target pocket and the structure predictor, DBMol obtains a BCov of 0.51 , an AF3 Success of 0.92 ,and high diversity of 0.89 . Its average rank over held-out metrics is 3.83 , which is competitive with pocket-conditioned and pharmacophore-guided methods. SynFormer achieves the best average rank and the strongest BCov and Dist, but it relies on the strongest conditioning setting, where a ground-truth ligand is available; CGFlow-ZS achieves a very low Vina score, supported by its training reward encouraging a proxy of this metric. Nevertheless, DBMol remains competitive under weaker supervision and achieves the highest diversity among target-aware methods. These results suggest that the Boltz-guided optimization signal transfers to independent AF3-based evaluation metrics, supporting DBMol as a flexible structure-predictor-guided design framework. 
+
+Proxy tradeoff analysis. We further analyze the proxy tradeoff by comparing DBMol with a less confidence-focused variant that optimizes only the ipTM confidence term for Lconf . This variant increases Boltz2 Success from 0.47 to 0.69 , surpassing the strongest baseline score of 0.62 . Both 7this variant and DBMol reach a high ipT M of 0.85 , indicating similar confidence under this metric. This confirms that DBMol can strongly optimize the Boltz-2 proxy, especially affinity and pocket specificity. However, this proxy gain comes with worse held-out metrics: BCov drops from 0.51 to 
+
+0.46 , iPAE increases from 11 .8 to 12 .3, Dist increases from 4.6 to 4.7, and Vina weakens from −8.7
+
+to −8.3. AF3 Success also slightly decreases from 0.92 to 0.91 . These results show that stronger proxy optimization alone is insufficient, and that a more balanced confidence objective is important for improving held-out transfer. Table 2: Effect of SynFormer post-processing. We compare DBMol can-didates before and after SynFormer-based synthesizability post-processing. 
+
+Retained reports the average number of molecules kept per target after post-processing or size filtering. We abbreviate size filter with sf .                                                          
+
+> Setting Retained BCov ↑AF3 Succ. ↑iPAE ↓Dist ↓Vina ↓Div ↑Avg. Rank ↓Syn. ↑
+> DBMol 100 0.51 0.92 11.8 4.6 -8.7 0.89 1.83 0.06 + SynFormer ∼97 0.44 0.88 11.7 4.9 -8.0 0.88 3.50 0.39 + sf ( ≥15& ±5)∼59 0.47 0.91 11.3 4.5 -8.3 0.88 2.00 0.35 + sf ( ≥15& ±3)∼41 0.48 0.91 11.5 4.4 -8.2 0.88 2.00 0.33
+
+Synthesizability. 
+
+We evaluate DBMol-Syn to test whether the DBMol signal is preserved after mov-ing molecules into a more synthesizable region of chemical space. For each DBMol molecule, SynFormer maps it to a structurally similar and synthetically accessible neighbor, without Boltz-2-, AF3-, Vina-, or docking-based filtering. Thus, DBMol-Syn is a synthesis-aware robustness check rather than an additional score-based selection procedure. For this, we additionally report Syn. , the fraction of generated molecules for which AiZynthFinder [33] finds a solved retrosynthetic route. As shown in Table 2, this step substantially improves syn. , reaching 0.33 to 0.39 across the three setups. This is close to the strongest baseline, CGFlow-ZS, which achieves a syn. score of 0.40, and clearly above all other baselines from the main table, which reach at most 0.27 with Synformer. Meanwhile, SynFormer preserves much of the AF3-based signal. AF3 Success decreases from 0.92 
+
+to 0.88 , and BCov decreases from 0.51 to 0.44 . A simple size-consistency filter recovers much of this gap, reaching 0.91 AF3 Success and 0.47 BCov under the ±5 filter, with improved Dist and iPAE. A stricter filter of ±3 leads to further improved results on BCov and Dist. This suggests that the optimized signal is better preserved when the SynFormer neighbor remains close in molecular size, consistent with the fact that DBMol optimizes each molecule under its original size scale. Overall, synthesis-aware refinement introduces a tradeoff, but much of the DBMol signal transfers to more synthesizable molecules when the mapped neighbor is size-consistent and structurally similar. 
+
+4.3 De Novo Molecule Design on Additional Targets 
+
+Table 3: De novo molecule design results on addi-tional targets. We compare DBMol with DiffSBDD, a pocket-conditioned structure-based baseline applicable to the strict de novo setting without reference ligands.                                           
+
+> Method BCov ↑AF3 Succ. ↑iPAE ↓Dist ↓Vina ↓Div ↑Avg. Rank ↓
+> LGR4
+> DiffSBDD 0.23 0.51 13.2 5.7 -9.6 0.90 1.67 DBMol 0.25 0.71 11.4 3.9 -8.1 0.87 1.33
+> CD47
+> DiffSBDD 0.01 0.06 8.3 25.3 -4.0 0.93 1.50
+> DBMol 0.03 0.08 8.7 28.5 -6.2 0.87 1.50
+
+We next evaluate DBMol in a stricter 
+
+de novo setting, which is its intended use case. Unlike methods requiring ref-erence ligands, pharmacophore annota-tions, or pocket–ligand training pairs, DBMol only uses the target pocket positions inside the protein sequence, and a structure prediction model at test time. This makes it applicable to new or weakly annotated targets. Since these proteins do not have a prede-fined 3D pocket, we define it using the pocket region induced by a high-scoring DBMol-generated molecule, selected by the average of Boltz-2 predicted BCov and ipTM. We consider two additional targets: LGR4 [34] and CD47 [35]. These provide complementary test cases, including a GPCR target and a protein–protein interaction immune-checkpoint target. We compare DBMol against DiffSBDD. The results are summarized in Tab. 3. On LGR4, DBMol improves the AF3-based metrics over DiffSBDD, including BCov, AF3 Success, iPAE, and Dist, while DiffSBDD obtains better Vina and diversity scores. On CD47, DBMol im-proves BCov, AF3 Success, and Vina, while DiffSBDD performs better on iPAE, Dist, and diversity, 80.0 0.2 0.4 0.6 0.8     
+
+> Denoising Time
+> 0.7
+> 0.8
+> 0.9
+> Success
+> 60
+> 80
+> Validity 020 40 60 80
+> Optimization steps
+> 0.2
+> 0.4
+> Success
+> Success
+> Validity
+> 40
+> 60
+> 80
+> Validity
+
+Figure 3: Success rate based on Boltz2 and molecular validity as functions of denoising time (left) and optimization steps (right). yielding the same average rank. However, both methods show low absolute pocket engagement, sug-gesting that CD47 remains challenging in this de novo setting. Overall, DBMol remains competitive on de novo targets without using reference ligands or requiring a complete 3D pocket geometry. 
+
+4.4 Additional results Optimization–projection tradeoff. We analyze the tradeoff between target-specific success and chemical validity. Stronger structure-predictor guidance can better preserve pocket-specific signals, but it can also move relaxed molecular representations farther from the discrete manifold of valid molecule graphs. We vary two control parameters: the denoising initialization time and the number of Boltz-guided optimization steps. As shown in the left of Figure 3, initializing denoising at later diffusion times makes the final gen-erated molecules closer to the optimized relaxed representation. This improves the preservation of Boltz-guided structural signals and leads to higher success rates. However, because fewer denoising steps remain, the model has less opportunity to correct chemically invalid structures, resulting in a clear decrease in chemical validity. The right panel of Figure 3 isolates the effect of Boltz-guided gradient refinement by evaluating at different optimization steps, while keeping the projection and evaluation protocol fixed. Proxy-based metrics (Boltz2 Success) improve rapidly in the early stages and then saturate, indicating that the gradient updates directly contribute to the observed improvement rather than merely increasing the candidate pool. At the same time, validity decreases with excessive optimization. 
+
+Additional analyses. We provide additional analyses in the appendix. In App. D.4, we show that DBMol supports DBMol-candidate-conditioned iterative refinement by further optimizing a promising molecule found by DBMol. In App. D.3, we show it finds molecules close to known actives, without directly copying known ligands. In App. D.6, we discuss the choice of the denoiser. In App. D.1, we study the necessity of using both contact- and affinity-related losses. 
+
+## 5 Conclusion 
+
+We introduced DBMol, an optimization-centric framework that leverages differentiable signals from modern protein–ligand structure predictors for small-molecule design without docking supervi-sion, reference ligands, or curated protein–ligand datasets. Results with held-out metrics on LIT-PCBA show that structure-predictor-guided optimization improves pocket coverage while maintain-ing molecular diversity over unconditional generation, and stays competitive with other baselines, supporting the practical utility of structure-based guidance. Several directions remain open and motivate future work. First, DBMol relies on surrogate ob-jectives, which are inevitably imperfect and may not always align with experimental binding. As structure prediction models improve, DBMol may benefit from more accurate and better-aligned optimization signals. A key current limitation is the scarcity of high-quality protein–ligand binding datasets [36]; larger and more open datasets, such as OpenBind [37], could provide more robust evaluation signals closer to real-world design objectives. In addition, extending DBMol from 2D molecular graphs to full 3D protein–ligand representations would enable richer geometric reasoning and tighter integration with structure prediction models. Finally, improving computational effi-ciency, particularly through parallelization and reduced overall cost, remains an important direction. We also aim to support controllable molecule size during optimization stage. 9Overall, DBMol substantially improves over unconditional generation under Boltz2-based met-rics, while remaining competitive with reinforcement-learning-based and ligand- or interaction-conditioned baselines under held-out structural evaluation. These results suggest that structure pre-diction models can serve as useful differentiable surrogate objectives for target-specific molecular generation, while experimental binding validation remains an important direction for future work. 
+
+## Acknowledgements 
+
+This work was funded by ELSA – European Lighthouse on Secure and Safe AI funded by the Euro-pean Union under Grant Agreement No. 101070617. This work was supported by the Medical Re-search Council as part of UK Research and Innovation (UKRI) (MC UP A025 1013 to S.H.W.S.). Y.Q. was supported by the Swiss National Science Foundation (SNSF grant 10001445). 
+
+## References 
+
+[1] Alexander S Hauser, Sreenivas Chavali, Ikuo Masuho, Leonie J Jahn, Kirill A Martemyanov, David E Gloriam, and M Madan Babu. Pharmacogenomics of gpcr drug targets. Cell ,172(1):41–54, 2018. [2] Arne Schneuing, Charles Harris, Yuanqi Du, Kieran Didi, Arian Jamasb, Ilia Igashov, Weitao Du, Carla Gomes, Tom L Blundell, Pietro Lio, et al. Structure-based drug design with equiv-ariant diffusion models. Nature Computational Science , 4(12):899–909, 2024. [3] Julian Cremer, Ross Irwin, Alessandro Tibo, Jon Paul Janet, Simon Olsson, and Djork-Arn´ eClevert. Flowr: Flow matching for structure-aware de novo, interaction- and fragment-based ligand generation. ArXiv , abs/2504.10564, 2025. [4] Xingang Peng, Shitong Luo, Jiaqi Guan, Qi Xie, Jian Peng, and Jianzhu Ma. Pocket2mol: Efficient molecular sampling based on 3d protein pockets. ArXiv , abs/2205.07249, 2022. [5] Yael Ziv, Fergus Imrie, Brian Marsden, and Charlotte M. Deane. Molsnapper: Conditioning Diffusion for Structure-Based Drug Design. Journal of Chemical Information and Modeling ,65(9):4263–4273, 2025. PMID: 40248896. [6] Keir Adams, Kento Abeywardane, Jenna Fromer, and Connor W. Coley. ShEPhERD: Diffusing shape, electrostatics, and pharmacophores for bioisosteric drug design, 2024. [7] Wenhao Gao, Shitong Luo, and Connor W Coley. Generative artificial intelligence for navi-gating synthesizable chemical space. arXiv preprint arXiv:2410.03494 , 2024. [8] Tony Shen, Seonghwan Seo, Ross Irwin, Kieran Didi, Simon Olsson, Woo Youn Kim, and Martin Ester. Compositional flows for 3d molecule and synthesis pathway co-design. In 
+
+Proceedings of the 42nd International Conference on Machine Learning (ICML) , 2025. [9] Andrei Rekesh, Miruna Cretu, Dmytro Shevchuk, Vignesh Ram Somnath, Pietro Li` o, Robert A Batey, Mike Tyers, Michał Koziarski, and Cheng-Hao Liu. Syncogen: Synthe-sizable 3d molecule generation via joint reaction and coordinate modeling. arXiv preprint arXiv:2507.11818 , 2025. [10] Josh Abramson, Jonas Adler, Jack Dunger, Richard Evans, Tim Green, Alexander Pritzel, Olaf Ronneberger, Lindsay Willmore, Andrew J Ballard, Joshua Bambrick, et al. Accurate structure prediction of biomolecular interactions with alphafold 3. Nature , pages 1–3, 2024. [11] Saro Passaro, Gabriele Corso, Jeremy Wohlwend, Mateo Reveiz, Stephan Thaler, Vignesh Ram Somnath, Noah Getz, Tally Portnoi, Julien Roy, Hannes Stark, et al. Boltz-2: Towards accurate and efficient binding affinity prediction. BioRxiv , pages 2025–06, 2025. [12] Yiming Qin, Manuel Madeira, Dorina Thanou, and Pascal Frossard. Defog: Discrete flow matching for graph generation. In Proceedings of the 42nd International Conference on Ma-chine Learning (ICML) , 2025. 10 [13] Viet-Khoa Tran-Nguyen, C´ elien Jacquemard, and Didier Rognan. Lit-pcba: An unbiased data set for machine learning and virtual screening. Journal of Chemical Information and Modeling ,60(9):4263–4273, 2020. PMID: 32282202. [14] Rafael G´ omez-Bombarelli, David Kristjanson Duvenaud, Jos´ e Miguel Hern´ andez-Lobato, Jorge Aguilera-Iparraguirre, Timothy D. Hirzel, Ryan P. Adams, and Al´ an Aspuru-Guzik. Au-tomatic chemical design using a data-driven continuous representation of molecules. ACS Central Science , 4:268 – 276, 2016. [15] Viraj Bagal, Rishal Aggarwal, P. K. Vinod, and U. Deva Priyakumar. Molgpt: Molecular generation using a transformer-decoder model. J. Chem. Inf. Model. , 62(9):2064–2076, 2022. [16] Matt J. Kusner, Brooks Paige, and Jos´ e Miguel Hern´ andez-Lobato. Grammar variational au-toencoder. In Doina Precup and Yee Whye Teh, editors, Proceedings of the 34th International Conference on Machine Learning , volume 70 of Proceedings of Machine Learning Research ,pages 1945–1954. PMLR, 06–11 Aug 2017. [17] Qi Liu, Miltiadis Allamanis, Marc Brockschmidt, and Alexander Gaunt. Constrained graph variational autoencoders for molecule design. In Advances in Neural Information Processing Systems (NeurIPS) , 2018. [18] Wengong Jin, Regina Barzilay, and Tommi Jaakkola. Junction tree variational autoencoder for molecular graph generation, 2019. [19] Chengxi Zang and Fei Wang. Moflow: an invertible flow model for generating molecular graphs. In Proceedings of the 26th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining , pages 617–626, 2020. [20] Clement Vignac, Igor Krawczuk, Antoine Siraudin, Bohan Wang, Volkan Cevher, and Pas-cal Frossard. Digress: Discrete denoising diffusion for graph generation. In International Conference on Learning Representations (ICLR) , 2023. [21] Emiel Hoogeboom, Vıctor Garcia Satorras, Cl´ ement Vignac, and Max Welling. Equivariant diffusion for molecule generation in 3d. In International conference on machine learning ,pages 8867–8887. PMLR, 2022. [22] Cl´ ement Vignac, Nagham Osman, Laura Toni, and Pascal Frossard. Midi: Mixed graph and 3d denoising diffusion for molecule generation. In Joint European Conference on Machine Learning and Knowledge Discovery in Databases (ECML/PKDD) , 2023. [23] Ross Irwin, Alessandro Tibo, Jon Paul Janet, and Simon Olsson. Semlaflow–efficient 3d molecular generation with latent attention and equivariant flow matching. In The 28th In-ternational Conference on Artificial Intelligence and Statistics , 2025. [24] Chaitanya K. Joshi, Xiang Fu, Yi-Lun Liao, Vahe Gharakhanyan, Benjamin Kurt Miller, Anuroop Sriram, and Zachary W. Ulissi. All-atom diffusion transformers: Unified genera-tive modelling of molecules and materials. In International Conference on Machine Learning ,2025. [25] Carlos Vonessen, Charles Harris, Miruna Cretu, and Pietro Li` o. Tabasco: A fast, simplified model for molecular generation with improved physical quality, 2025. [26] Miruna Cretu, Charles Harris, Ilia Igashov, Arne Schneuing, Marwin Segler, Bruno Correia, Julien Roy, Emmanuel Bengio, and Pietro Lio. Synflownet: Design of diverse and novel molecules with synthesis constraints. In The Thirteenth International Conference on Learning Representations , 2025. [27] Michał Koziarski, Andrei Rekesh, Dmytro Shevchuk, Almer van der Sloot, Piotr Gai´ nski, Yoshua Bengio, Chenghao Liu, Mike Tyers, and Robert Batey. RGFN: Synthesizable molec-ular generation using GFlowNets. Advances in Neural Information Processing Systems ,37:46908–46955, 2024. [28] Kai Yi, Kiarash Jamali, and Sjors HW Scheres. All-atom inverse protein folding through discrete flow matching. In Forty-second International Conference on Machine Learning , 2025. 11 [29] Yehlin Cho, Griffin Rangel, Gaurav Bhardwaj, and Sergey Ovchinnikov. Protein hunter: ex-ploiting structure hallucination within diffusion for protein design. bioRxiv , pages 2025–10, 2025. [30] Martin Pacesa, Lennart Nickel, Christian Schellhaas, Joseph Schmidt, Ekaterina Pyatova, Lu-cas Kissling, Patrick Barendse, Jagrity Choudhury, Srajan Kapoor, Ana Alcaraz-Serna, et al. One-shot design of functional protein binders with bindcraft. Nature , 646(8084):483–492, 2025. [31] Protenix Team, Milong Ren, Jinyuan Sun, Jiaqi Guan, Cong Liu, Chengyue Gong, Yuzhe Wang, Lan Wang, Qixu Cai, Wenzhi Ma, et al. Pxdesign: Fast, modular, and accurate de novo design of protein binders. bioRxiv , pages 2025–08, 2025. [32] Yehlin Cho, Martin Pacesa, Zhidian Zhang, Bruno E Correia, and Sergey Ovchinnikov. Boltzdesign1: Inverting all-atom structure prediction model for generalized biomolecular binder design. bioRxiv , pages 2025–04, 2025. [33] Samuel Genheden, Amol Thakkar, Veronika Chadimov´ a, Jean-Louis Reymond, Ola Reymond, and Esben Bjerrum. Aizynthfinder: a fast, robust and flexible open-source software for ret-rosynthetic planning. Journal of Cheminformatics , 2020. Published 17 November 2020. [34] L. Wang, F. Hu, Q. Cui, et al. Structural insights into the lgr4–rspo2–znrf3 complexes regulat-ing wnt/ β-catenin signaling. Nature Communications , 16:362, 2025. [35] Hai Zhao, Shuangshuang Song, Junwei Ma, Zhiyong Yan, Hongwei Xie, Ying Feng, and Shusheng Che. Cd47 as a promising therapeutic target in oncology. Frontiers in Immunol-ogy , 2022. Published 2022 Aug 22. [36] Peter ˇ Skrinjar, J´ erˆ ome Eberhardt, Janani Durairaj, and Torsten Schwede. Have protein-ligand co-folding methods moved beyond memorisation? BioRxiv , pages 2025–02, 2025. [37] OpenBind. Openbind: Open protein–ligand binding data. https://zenodo.org/records/20026661, 2026. [38] Andrew Campbell, Jason Yim, Regina Barzilay, Tom Rainforth, and Tommi Jaakkola. Gen-erative flows on discrete state-spaces: Enabling multimodal flows with applications to protein co-design. In International Conference on Machine Learning (ICML) , 2024. [39] Yiming Qin, Clement Vignac, and Pascal Frossard. Sparse training of discrete diffusion models for graph generation. In ArXiv , 2023. [40] Keyulu Xu, Weihua Hu, Jure Leskovec, and Stefanie Jegelka. How powerful are graph neural networks? In International Conference on Learning Representations (ICLR) , 2019. [41] Wenhao Zhu, Tianyu Wen, Guojie Song, Liang Wang, and Bo Zheng. On structural expressive power of graph transformers. In ACM SIGKDD Conference on Knowledge Discovery and Data Mining (KDD) , 2023. [42] Liheng Ma, Chen Lin, Derek Lim, Adriana Romero-Soriano, Puneet K Dokania, Mark Coates, Philip Torr, and Ser-Nam Lim. Graph inductive biases in transformers without message pass-ing. In International Conference on Machine Learning (ICML) , 2023. [43] Antoine Siraudin, Fragkiskos D Malliaros, and Christopher Morris. Cometh: A continuous-time discrete-state graph diffusion model. In ArXiv , 2024. [44] Teague Sterling and John J Irwin. Zinc 15–ligand discovery for everyone. In Journal of Chemical Information and Modeling , 2015. [45] Tony Shen, Seonghwan Seo, Grayson Lee, Mohit Pandey, Jason R Smith, Artem Cherkasov, Woo Youn Kim, and Martin Ester. TacoGFN: Target-conditioned GFlownet for structure-based drug design. Transactions on Machine Learning Research , 2024. 12 Appendix 
+
+# Table of Contents 
+
+A Discussions 13 
+
+A.1 Alternatives . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 13 
+
+B Background 14 
+
+B.1 Discrete Flow Matching . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14 B.2 Discrete Flow Matching for Graphs . . . . . . . . . . . . . . . . . . . . . . . . 15 
+
+C Experimental Details 15 
+
+C.1 Boltz2 Gradient Computation Setup. . . . . . . . . . . . . . . . . . . . . . . . 16 C.2 Mapping Boltz2 Gradients to DeFoG Sampling . . . . . . . . . . . . . . . . . . 17 C.3 DeFoG Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 C.4 Dataset Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 C.5 Synformer Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19 C.6 Baseline Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19 C.7 Evaluation Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19 
+
+D Additional Results 20 
+
+D.1 Ablations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 D.2 VINA correlation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 D.3 Similarity to known actives . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 D.4 Iterative refinement from a first-round candidate . . . . . . . . . . . . . . . . . 22 D.5 Runtime and inference-time compute. . . . . . . . . . . . . . . . . . . . . . . . 23 D.6 Choice of discrete denoiser . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 
+
+## Impact Statement 
+
+This paper introduces DBMol, a computational framework for structure-guided molecular design that leverages differentiable signals from protein–ligand structure prediction models. The proposed method is intended to advance methodological research in molecular generation and structure-based drug design. While structure-guided molecular design may have downstream applications in biomedical research, this work focuses on algorithmic development and evaluation. We do not anticipate any immediate societal or ethical impacts arising from the proposed methodology. 
+
+## A Discussions 
+
+A.1 Alternatives 
+
+A possible alternative formulation of our problem is conditional generation. Since Boltz-2 provides differentiable gradients in the logits space, these gradients could, in principle, be used to modulate the rate matrix of the flow matching denoising process. This would inject structural guidance from the structure prediction model directly during sampling. In practice, however, this approach introduces substantial computational and optimization chal-lenges. First, it requires calling Boltz-2 to compute gradients at each denoising step. A single backward pass of Boltz-2 takes approximately 30 seconds. Even if the conditional signal is applied only at a small number of time steps, the total cost remains prohibitively high. Second, when the time variable t is close to 0, the conditional gradients are dominated by noise and become inef-fective. In contrast, near the end of sampling, the logits are highly peaked and approach one-hot 13 vectors. Meaningful modification at this stage requires a very large condition weight, which leads to unstable optimization and makes the process difficult to tune. Moreover, even after applying the alignment procedure between Boltz2 and DeFoG described in App. C.1 to align Boltz-2 gradients, additional structural difficulties arise. The molecular graphs used by Boltz-2 and DeFoG differ in node ordering and construction. As a result, gradients must be carefully aligned through typed graph isomorphism before they can be applied. This alignment re-quires simultaneously constraining node types and edge types to prevent ambiguous matches caused by purely topological isomorphisms. Although we implemented this alignment pipeline, the iso-morphism step remains difficult to stabilize for certain cases, particularly involving aromatic bonds, further increasing system complexity. For these reasons, we adopt this two-stage approach proposed in this work, which decouples struc-tural guidance from molecular generation at the modeling level. This design avoids the high cost of step-wise guidance, the instability and tuning difficulty of conditional denoising, and the implemen-tation complexity introduced by cross-representation graph isomorphism. As a result, the overall pipeline is significantly more efficient and robust. 
+
+## B Background 
+
+B.1 Discrete Flow Matching 
+
+In generative modeling, the primary goal is to generate new data samples from the underlying distri-bution that produced the original data, pdata . An effective approach is to learn a mapping between a simpler distribution pϵ that can be easily sampled, and pdata .We consider a discrete variable zt ∈ Z = {1, . . . , Z } evolving over time t ∈ [0 , 1] . Its marginal distribution is denoted by pt ∈ ∆Z . The initial distribution is set to a predefined noise distribution, 
+
+p0 = pϵ, while p1 = pdata represents the target data distribution. We refer to the mapping t : 1 → 0
+
+as the noising process and t : 0 → 1 as the denoising process. Following [38], the noising trajectory is defined through a simple linear interpolation conditioned on a datapoint z1:
+
+pt|1(zt|z1) = t δ (zt, z 1) + (1 − t) p0(zt). (9) A common choice for p0 is the uniform distribution over Z.
+
+Denoising as a CTMC. The denoising process is formulated as a continuous-time Markov chain (CTMC). A CTMC is characterized by a rate matrix Rt ∈ RZ×Z , which governs the instantaneous transition rates between states. For an infinitesimal time step dt, the transition probabilities satisfy: 
+
+pt+d t|t(zt+d t|zt) = δ(zt, z t+d t) + Rt(zt, z t+d t) d t. (10) By definition, Rt(zt, z t+d t) ≥ 0 for zt̸ = zt+d t, and the diagonal entries are set to ensure nor-malization. The evolution of the marginal distribution follows the Kolmogorov forward equation, 
+
+∂tpt = R⊤ 
+
+> t
+
+pt.
+
+Conditional rate construction. Similarly to the noising process, denoising is performed under conditioning on z1. We consider a z1-conditional rate matrix Rt(·, ·| z1) that satisfies the corre-sponding Kolmogorov equation. Under mild assumptions, [38] derive a closed-form expression for a valid conditional rate matrix. For zt̸ = zt+d t, it is given by: 
+
+R∗ 
+
+> t
+
+(zt, z t+d t|z1) = ReLU[ ∂tpt|1(zt+d t|z1) − ∂tpt|1(zt|z1)] 
+
+Z>0 
+
+> t
+
+pt|1(zt|z1) . (11) Intuitively, this rate redistributes probability mass toward states that require increased marginal prob-ability. The unconditional rate matrix used for sampling is obtained by marginalizing over z1:
+
+Rt(zt, z t+d t) = Ep1|t(z1|zt)[Rt(zt+d t, z t|z1)] .
+
+14 B.2 Discrete Flow Matching for Graphs Graph notation. We denote by G = ( x(1: n:N ), c (1: n:N ), e (1: i̸=j:N )) a directed graph with N
+
+nodes. Nodes, charges, and edges are categorical variables with x(n) ∈ {1, . . . , X }, c(n) ∈{1, . . . , C }, and e(i,j ) ∈ { 1, . . . , E }.
+
+Training objective. The denoising model is parameterized by a neural network with parameters 
+
+θ, trained to predict the clean node, charge, and edge distributions given a noisy graph Gt. The predicted distributions are denoted by pθ
+
+> 1|t
+
+(·| Gt).Training is performed using a cross-entropy loss applied independently to nodes, charges, and edges: 
+
+L = Et,G 1,G t
+
+− X
+
+> n
+
+log pθ, (n)1|t (x(n)1 |Gt) − λc
+
+X
+
+> n
+
+log pθ, (c,n )1|t (c(n)1 |Gt) − λe
+
+X
+
+> i̸=j
+
+log pθ, (i,j )1|t (e(i,j )1 |Gt)
+
+ .
+
+(12) 
+
+Denoising and sampling. At sampling time, denoising is formulated as a CTMC evolving from an initial graph G0 ∼ p0 toward t = 1 . The transition kernel is defined by a rate matrix Rt,approximated using the network predictions pθ
+
+> 1|t
+
+. In practice, the continuous-time dynamics are discretized using a finite step size ∆t, resulting in an Euler-style update. 
+
+Algorithmic summary. For clarity, the overall training and sampling procedures of DeFoG are summarized in Alg. 2 and Alg. 3, respectively. 
+
+Algorithm 2 DeFoG Training  
+
+> 1:
+
+Input: Graph dataset D = {G1, . . . , G M } 
+
+> 2:
+
+while fθ not converged do  
+
+> 3:
+
+Sample G ∼ D  
+
+> 4:
+
+Sample t ∼ T  
+
+> 5:
+
+Sample Gt ∼ pt|1(Gt|G) ▷ Noising  
+
+> 6:
+
+h ← RRWP( Gt) ▷ Extra features  
+
+> 7:
+
+pθ
+
+> 1|t
+
+(·| Gt) ← fθ (Gt, h, t ) ▷ Denoising prediction  
+
+> 8:
+
+loss ← CE λ(G, pθ
+
+> 1|t
+
+(·| Gt))  
+
+> 9:
+
+optimizer . step(loss)  
+
+> 10:
+
+end while Algorithm 3 DeFoG Sampling  
+
+> 1:
+
+Input: # graphs to sample S 
+
+> 2:
+
+for i = 1 to S do  
+
+> 3:
+
+Sample N from train set ▷ # Nodes  
+
+> 4:
+
+Sample G0 ∼ p0(G0) 
+
+> 5:
+
+for t = 0 to 1 − ∆t with step ∆t do  
+
+> 6:
+
+h ← RRWP( Gt) ▷ Extra features  
+
+> 7:
+
+pθ
+
+> 1|t
+
+(·| Gt) ← fθ (Gt, h, t ) ▷ 
+
+> Denoising prediction
+> 8:
+
+Gt+∆ t ∼ ˜pt+∆ t|t(Gt+∆ t|Gt) ▷ 
+
+> Eq. (10)
+> 9:
+
+end for  
+
+> 10:
+
+Store G1 
+
+> 11:
+
+end for Discussion. Discrete flow matching offers an efficient and flexible framework for generative mod-eling in discrete domains. A key advantage of this formulation is the decoupling between training and sampling: the denoising model is trained to predict clean data distributions, while the sampling dynamics are specified separately through a continuous-time stochastic process. This separation is particularly advantageous for graph generation, where rigid sampling schemes can be computa-tionally expensive due to the combinatorial structure of nodes and edges. As demonstrated in De-FoG [12], this flexibility can be leveraged through tailored sampling strategies, including modified rate constructions and adaptive denoising schedules, to substantially reduce the number of gener-ated steps required at inference time without degrading generation quality. These properties make discrete flow matching especially suited for scalable graph generation and motivate its use as the foundation of our approach. 
+
+## C Experimental Details 
+
+This section provides further details on the experimental settings used in the paper. 15 C.1 Boltz2 Gradient Computation Setup. 
+
+This section describes how gradients are extracted from the Boltz2 model [11] and incorporated into the DeFoG sampling procedure. The design goal is to use Boltz2 as an external differentiable eval-uator that provides guidance signals. We therefore focus on minimal and targeted modifications to the Boltz2 inference pipeline and on a clean interface for mapping gradients into discrete sampling. 
+
+Enabling gradient support in Boltz2. To enable gradient-based guidance, Boltz2 must expose gradients with respect to molecule structure variables while preserving stable structure prediction and affinity estimation. The modifications described below are restricted to inference-time behavior and do not change the trained model parameters. 
+
+Differentiable relaxation of discrete inputs. Boltz-2 takes SMILES strings as input and pre-processes them into a structured object, denoted as batch , which contains all molecular features required for inference. Among these features, we focus on three components that are relevant for gradient-based optimization: atom types, bond types, and atomic charges. First, Boltz-2 represents atom types using a large atomic vocabulary, where each atom is encoded by an index corresponding to its chemical element, for example carbon is indexed as 6, stored as batch["ref element"] In contrast, DeFoG operates on a much smaller, fixed set of atom-type categories, where carbon corresponds to a single category in the DeFoG vocabulary. This discrepancy prevents atom-type representations from Boltz-2 from being updated directly in the DeFoG space. To resolve this mismatch, we first map Boltz-2 atom types to the subset of atom types supported by DeFoG, and restrict gradient updates to these matched categories. We then treat atom types as continuous variables by converting their discrete one-hot representations into continuous categorical vectors, which enables gradient-based optimization while keeping unsupported atom types fixed. Bond types in Boltz-2 are encoded as integers and are passed through an embedding layer. To make this embedding step differentiable, we explicitly construct one-hot bond-type representations instead of directly encoding the type index integer, stored as batch["type bonds onehot"] . We then modify the implementation inside the Boltz-2 model so that the bond embedding is applied via matrix multiplication, which allows gradients to propagate through the bond-type representation during optimization. Last, atomic charges are modeled as continuous scalar values throughout the pipeline, stored as 
+
+batch["ref charge"] . Since this term is concatenated into the atom feature tensor, it does not naturally align with categorical representations; we therefore keep it in its original scalar form. As a result, gradients with respect to atomic charges can be computed directly, without requiring any additional relaxation or approximation. 
+
+Losses. Boltz-2 confidence outputs include several complementary estimates of complex quality, and their values may depend on recycling convergence and low-confidence or disordered regions. We therefore define Lconf as a weighted combination of selected confidence terms from the Boltz-2 confidence model output. Specifically, we use terms such as complex iplddt , which encourages high local confidence around interface tokens; complex ipde and complex pde , which penalize large predicted distance errors at the interface and over the complex; ptm , which encourages re-liable global complex geometry; and confidence score , an aggregate confidence measure. For scores where higher values indicate higher confidence, we use their negative values as losses, while for error-based quantities such as PDE/ipDE, we minimize the predicted error directly. The exact weighted composition of Lconf is provided in App. C. Boltz2 also predicts protein-ligand binding affinity , which reflects how strongly a small molecule binds to a target protein and provides a direct optimization signal for ligand gen-eration. The affinity model outputs scalar predictions through affinity pred value . We use this value directly as the loss function and minimize it to bias generation toward higher-affinity binding candidates. At the same time, we optimize the binder/non-binder classi-fication signal affinity probability binary . Specifically, we maximize in logit space 
+
+affinity logits binary , whose sigmoid corresponds to the predicted probability that the lig-and binds to the target. Both terms are equally weighted in our loss function. 16 We define a contact loss based on Boltz2-predicted distance distributions ( p-distogram ) to encourage protein-ligand contacts. Details are provided in Sec. 3.2. 
+
+Memory-efficient gradient computation. Direct gradient computation in Boltz2 is memory-intensive. We apply three optimizations. First, the recycling mechanism is limited to a single refinement step, which substantially reduces memory usage while preserving gradient quality in practice. Second, gradient checkpointing is applied to pairwise representation update modules for lower memory consumption. Third, the gradient does not pass through the structure module of Boltz-2. 
+
+Requirement computational resources and running time. GPU memory usage for Boltz-2–based optimization primarily depends on protein length. In our experiments, this step consistently requires less than 65 GB of GPU memory. For molecule generation and evaluation, all setups re-quire less than 20 GB of GPU memory. All experiments are performed on NVIDIA A100, H100, or H200 GPUs. For efficiency, MSA searches are performed once per protein and cached. During opti-mization, we reuse these preprocessed MSAs since the protein sequence stays unchanged, resulting in an average runtime of approximately 30 seconds per optimization step. 
+
+Hyperparameters. In our framework, the molecular size is fixed at the beginning of generation. While this size could be inferred heuristically from the pocket size or searched over in parallel, we use the reference-ligand size for targets with a known ligand to keep the pipeline simple. This is the only use of reference-ligand information in our pipeline; no reference-ligand geometry, chemical identity, or interaction pattern is used during optimization. For the main LIT-PCBA benchmark and de novo design results, we use a single default optimization configuration across all proteins. In particular, we fix the optimization hyperparameters and report results after 50 optimization iterations for every target, rather than selecting target-specific iteration counts. In practice, we use SGD with learning rate η = 2 .0 for relaxed molecule optimization. The loss weights are fixed across all LIT-PCBA experiments, with w1 = 2 .5, and w2 = 2 .5. For the contact loss, we use dcutoff = 8 .0 ˚A, and assign equal weights to the pocket-averaged term and the anchoring term. The confidence loss Lconf combines the nonzero-weight Boltz-2 confidence terms, including ipTM, ipLDDT, ipDE, PDE, confidence score, and pTM, with weights 1.0, 0.3, 0.3, 0.1,
+
+0.3, and 0.1, respectively. All other confidence terms are assigned zero weight. For the projection stage, we initialize the discrete denoising process at t0 = 0 .8. The same default configuration is used for the component ablations unless otherwise stated. All generated molecules are evaluated with the same AF3-based evaluation pipeline. AF3 metrics are not used during molecular optimization; they are used after generation for evaluation and target-level reporting. Due to the computational cost of AF3-based evaluation, we perform only a limited hyperparameter search over the loss terms rather than exhaustive tuning. The reported results should therefore be interpreted as performance under a practical, modest tuning budget. More systematic hyperparam-eter optimization may further improve performance, especially for additional de novo targets and target-specific design settings; we leave this direction to future work. 
+
+C.2 Mapping Boltz2 Gradients to DeFoG Sampling Handling aromatic bond representations. Boltz2 and DeFoG may adopt different conventions for aromatic bonds, such as explicit aromatic categories or kekulized representations. To avoid inconsistencies during alignment and gradient transfer, we use DeFoG checkpoints trained with explicit aromatic bond types. This choice simplifies matching and removes the need to redistribute gradient mass across bond categories. 
+
+Projection of gradients into the DeFoG state space. Gradients are projected into the discrete state spaces supported by DeFoG. Atom-type gradients are mapped from Boltz’s larger atomic vo-cabulary to the element set used by DeFoG, namely {C, N, O, F, P, S, Cl , Br , I}. Bond-type gradients are mapped to DeFoG edge categories {NO-EDGE , SINGLE , DOUBLE , TRIPLE , AROMATIC }. Charge gradients are compressed into a discrete set of charge states {0, +1 , −1}.17 C.3 DeFoG Setup Denoising neural architecture. DeFoG’s denoising neural network takes a noisy graph Gt as input and predicts the clean marginal probability for each node x(n) via pθ, (n)1|t (·| Gt) and for each edge e(ij ) via pθ, (ij )1|t (·| Gt). This formulation boils down the graph generative task to a graph-to-graph mapping. While both message-passing layers and graph transformers can be used for this task, graph transformers have empirically outperformed message-passing layers in graph generation [39]. DeFoG thus adopts the transformer architecture of [20], using multi-head attention layers which encode node, edge, and graph-level features while preserving node permutation equivariance. 
+
+Enhancing model expressivity. Graph neural networks, including graph transformers, have in-herent limitations in their expressive power [40, 41]. An usual approach to overcome the limited representation power of graph neural networks consists of explicitly augmenting the inputs with features that the networks would otherwise struggle to learn. We adopt Relative Random Walk Probabilities (RRWP) encodings that are proved to be expressive for both discriminative [42] and generative settings [43]. RRWP encodes the likelihood of traversing from one node to another in a graph through random walks of varying lengths, offering insights into graph dynamics across dif-ferent hop distances. In particular, given a graph with an adjacency matrix A, we generate K − 1
+
+powers of its degree-normalized adjacency matrix, M = D−1A, i.e., I, M, M 2, . . . , M K−1. We concatenate the diagonal entries of each power to their corresponding node embedding, while com-bining and appending the non-diagonal to their corresponding edge embeddings. 
+
+Training setup. We encode aromatic bonds as an additional bond type and explicitly model formal charges during training. The model is trained on a single NVIDIA A100 GPU for approximately 50 hours for 300 epochs. Model checkpoints are selected based on molecule validity evaluated on a validation set, with the final checkpoint chosen after 38 hours of training. 
+
+Sampling setup. We use the polydec time distortion function in DeFoG for both training and sampling to improve efficiency. During sampling, the denoising process is run for 200 steps with an initial time t0 = 0 .8. We find that t0 = 0 .8 provides a good trade-off between generating valid molecules and preserving the strength of Boltz-derived optimization signals. Reducing the number of denoising steps leads to a noticeable drop in validity. We therefore use 200 steps as a balanced choice that maintains both sample quality and computational efficiency. For each experiment, we generate 2048 molecules and randomly select 100 valid molecules for evaluation. We adopt this oversampling strategy because the guided sampling distribution can deviate substantially from the clean data distribution on which DeFoG is trained, leading to a non-negligible fraction of invalid samples. Despite this, the overall generation process remains highly efficient: sampling involves only a small number of denoising steps over relatively small molecule graphs, resulting in a total runtime of under 10 seconds (8 seconds for generation, 2 seconds for filtering) for all generated samples. 
+
+C.4 Dataset Details LIT-PCBA. LIT-PCBA [13] is a carefully curated virtual screening benchmark constructed from 149 dose-response PubChem BioAssays. The dataset is filtered to remove false positives, assay arti-facts, and major physicochemical imbalances, and retains only targets with experimentally resolved ligand-bound structures. After target selection and asymmetric validation embedding (AVE), LIT-PCBA consists of 15 targets with 7,844 confirmed actives and 407,381 confirmed inactives. We fix the size of the molecules during generation based on the reference ligand, which is considered as the only information leakage in our generation pipeline. We also report results for molecules with a fixed size of 25 atoms per protein, corresponding to the median reference molecule size across the 7 proteins, and use this setting for ablation studies as shown in App. D.1. In our experiments, we eval-uate on 7 targets: Estrogen Receptor (ESR; PDB IDs: 2iok and 2p15), Glucocerebrosidase (GBA; 2v3d), Mitogen-Activated Protein Kinase 1 (MAPK1; 4zzn), Aldehyde Dehydrogenase 1 (ALDH1; 5l2m), Tumor Protein p53 (TP53; 3zme), and Vitamin D Receptor (VDR; 3a2i). 18 ZINC-250K. ZINC-250K is a curated subset of the ZINC database [44] containing approximately 250,000 structurally diverse, drug-like molecules. It is widely used in molecule machine learning for tasks such as property prediction and de novo molecule generation. 
+
+C.5 Synformer Setup 
+
+For the synthesis-aware variant in Tab. 2, we apply SynFormer to all 100 valid DBMol molecules per target without any pre-filtering based on Boltz-2, AF3, Vina, or docking scores. For SynFormer ex-pansion, we use fixed hyperparameters across all experiments: exhaustiveness=128, time-limit=300, search-width=32, and num-smiles-per-target=100. For the metrics syn. , we run AiZynthFinder [33] with default settings. We additionally report results under simple molecule-size consistency filters. The ’+size filter (+-N)’ rows in Tab. 2 retain only SynFormer outputs whose heavy-atom count differs from the input DBMol molecule by at most N atoms. This filter is based solely on molecular size, not on any evaluation metric. 
+
+C.6 Baseline Setup 
+
+We mainly follow [9] setup for our baselines. Precisely, • SynCoGen. SynCoGen [9] is an amortized molecular generator that conditions directly on pharmacophore profiles, specified as interaction types and their 3D positions. During training, pharmacophore features are provided as input to the model; to encourage robust-ness and generalization, at most seven pharmacophore features are randomly subsampled per example. At inference time, SynCoGen generates molecules conditioned solely on the provided pharmacophore profile, without requiring reference ligands themselves. • ShEPhERD. ShEPhERD [6] is a 3D molecular generator conditioned on pharmacophore interaction profiles. While ShEPhERD explicitly models spatial interactions, it does not impose synthesizability constraints, and chemical feasibility is not guaranteed by design. • SynFormer. SynFormer [7] is a synthesis-aware 2D molecular generator that produces compounds by modeling chemically valid reaction pathways. It generates molecules by conditioning on a reference compound and optimizing structural similarity under 2D fingerprint-based metrics. • CGFlow-ZS. CGFlow [8] is a pathway-based generative model that produces molecules to-gether with 3D poses by sampling synthesis pathways. In its original formulation, CGFlow relies on reinforcement learning with pocket-conditioned rewards. To align with amor-tized sampling, we use a zero-shot variant (CGFlow-ZS) that samples using the pocket-conditional generation proposed by [45], without task-specific fine-tuning. CGFlow-ZS results in Tab. 1 are averaged over 6 of the seven LIT-PCBA targets without 3a2i due to missing results from baselines. • DiffSBDD [2]. DiffSBDD is a standard 3D pocket-conditioned model for structure-based molecule generation. It can generate molecules without requiring a known reference ligand, but it requires a well-defined binding pocket. For instance, an overly small pocket can naturally bias the model toward generating small molecules. In our experiments, for each target, we define the pocket as the residues within 8 ˚A of the Boltz-2-predicted ligand-binding region. For de novo design, to have a proper definition for the 3D pocket, we define it using the pocket region induced by a high-scoring DBMol-generated molecule. 
+
+C.7 Evaluation Details C.7.1 AF3-based structural evaluation 
+
+We evaluate each generated protein–ligand complex with AlphaFold3 (AF3). For each target protein, we provide the corresponding multiple sequence alignment (MSA). For each ligand, we run AF3 once with a fixed random seed and generate one diffusion sample. 19 Confidence and interface quality. AF3 reports the inter-chain predicted TM score (ipTM), which measures confidence in the predicted protein–ligand interface. We report iPAE, the predicted inter-face aligned error, where lower values indicate higher predicted interface quality. We also use ipTM 
+
+≥ 0.6 as the high-confidence criterion, as discussed for AF3 Success. 
+
+Pocket engagement. To evaluate whether the ligand is placed in the intended binding pocket, we use the target pocket residues. For each pocket residue, we compute the minimum heavy-atom distance to the ligand. We report BCov, defined as the fraction of pocket residues within 3.5 ˚ A of any ligand atom, and Dist, defined as the mean of these per-residue minimum distances. Higher BCov indicates broader pocket coverage, while lower Dist indicates more localized pocket binding. 
+
+AF3 Success. We define AF3 Success as a heuristic thresholded structural metric built from AF3 outputs. A predicted complex is counted as successful if it satisfies both ipTM ≥ 0.6 and at least one target pocket residue (defined based on the reference ligand-protein structure of LIT-PCBA, and cho-sen manually for de novo targets) lies within 3.5 ˚ A of the ligand. The threshold was selected without considering DBMol or its variants: we evaluated several ipTM thresholds on unconditional gener-ation and other baselines, and chose this criterion because it provided a basic separation between unconditional generation and stronger methods. Since thresholded metrics can affect rankings, our conclusions do not rely on AF3 Success alone, but on the full set of AF3-based metrics, including BCov, iPAE, and Dist. 
+
+C.7.2 Other evaluation metrics Boltz2-aligned metrics. We report Boltz2 Success as a proxy-aligned reference metric. Amolecule is counted as Boltz2-successful if it achieves predicted affinity below 0 and target pocket coverage ratio above 0.5 under Boltz-2. Because DBMol is optimized using Boltz-based signals, Boltz2 Success is reported as a reference metric rather than used as the primary basis for compari-son. 
+
+Molecular diversity. We measure molecular diversity using ECFP4 fingerprints. For each gener-ated set, we compute the average pairwise Tanimoto distance between molecules, with higher values indicating greater chemical diversity. 
+
+Docking-based reference. We report AutoDock Vina scores as an additional held-out docking-based reference metric. For each generated molecule, the receptor and ligand are converted to PDBQT format, and docking is performed in a local search box centered on the Boltz-predicted ligand region with fixed padding. We use exhaustiveness =32 and num modes =10, and report the best-scoring pose among the returned modes. Lower Vina scores indicate stronger predicted docking affinity. Vina is used only for evaluation and does not participate in DBMol optimization, candidate selection, or hyperparameter tuning. 
+
+Known-active similarity and interaction recovery. For LIT-PCBA targets with known active compounds, we additionally evaluate whether generated molecules recover active-like chemical and interaction patterns. We report similarity to the crystallized reference ligand, active enrichment EF@1%, and interaction fingerprint similarity (IFP Sim) to the reference ligand. These metrics help assess whether generated molecules copy known binders or instead discover alternative active-like candidates with related pocket-level interactions. 
+
+## D Additional Results 
+
+D.1 Ablations Anchoring loss. We show in Figure 4 the effectiveness of the anchoring loss. Intuitively, the an-choring loss simplifies the optimization by avoiding the need to minimize contact loss independently at all pocket positions, and instead encourages a global attraction between the ligand and the pro-tein. This stabilizes the optimization process and leads to consistent improvements across all three objectives. 20 0 25 50 75 100 125 150             
+
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Affinity
+> Affinity (Averaged across 7 proteins)
+> w/o ligand loss
+> w ligand loss
+> 025 50 75 100 125 150
+> 0.82
+> 0.84
+> 0.86
+> 0.88
+> 0.90
+> ipTM
+> ipTM (Averaged across 7 proteins)
+> w/o ligand loss
+> w ligand loss
+> 025 50 75 100 125 150
+> Step
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> Contact Loss
+> Contact Loss (Averaged across 7 proteins)
+> w/o ligand loss
+> w ligand loss
+
+Figure 4: Ligand-centric anchoring loss helps to stabilize the optimization. 0 10 20 30 40 50           
+
+> 4
+> 2
+> 0
+> 2
+> affinity
+> Affinity
+> 010 20 30 40 50
+> 0.88
+> 0.90
+> 0.92
+> 0.94
+> ipTM
+> ipTM
+> 010 20 30 40 50
+> step
+> 0.2
+> 0.4
+> 0.6
+> contact loss
+> Contact Loss
+> w/ ipTM
+> w/o ipTM
+
+Figure 5: Effect of ipTM on Estrogen Receptor (ESR; 2p15) 
+
+Effect of ipTM loss. As shown in Figure 5, removing the ipTM loss does not noticeably affect either affinity or contact loss, while ipTM scores drop significantly across most optimization itera-tions. This shows the effectiveness of the optimization and also shows that improving the confidence does not sacrifice the other two objectives. Table 4: Ablation of affinity and contact objectives. We compare the full DBMol objective with variants that remove either the contact term or the affinity term. Boltz2 Success is reported as a proxy-aligned reference metric, while AF3-based metrics provide held-out structural evaluation. 
+
+Method BCov ↑ AF3 Succ. ↑ iPAE ↓ Dist ↓ Div. ↑ Vina ↓ Boltz2 Succ. ↑
+
+DBMol 0.54 0.97 12.0 4.1 0.89 -7.6 0.47 DBMol w/o contact 0.54 0.94 12.2 3.9 0.89 -7.2 0.53 DBMol w/o affinity 0.47 0.90 12.8 4.7 0.90 -7.9 0.80 
+
+Effect of affinity and contact objectives. We ablate the two main Boltz-guided objective terms in Tab. 4 on 2v3d, 2p15, and 3zme. The full DBMol objective achieves the best overall AF3-based performance, with the highest AF3 Success and the lowest iPAE among the three variants, while maintaining competitive BCov and Dist. Removing the contact term slightly improves Dist and Boltz2 Success, and removing the affinity term further increases Boltz2 Success, but both ablations degrade the held-out AF3-based metrics, especially AF3 Success and iPAE. This indicates that the affinity and contact terms are complementary: optimizing a single proxy term can improve some aligned scores, but the full objective provides a more balanced structural signal under held-out AF3 evaluation. 
+
+D.2 VINA correlation 
+
+We analyze the correlation between structure-prediction-based objectives and docking-based scores. We observe weak positive correlations between contact loss and Vina score (0.270), predicted affin-ity and Vina score (0.102), and ipTM and Vina score (0.145). Since contact loss, predicted affinity, and Vina score are all optimized in the lower-is-better direction, the positive correlations for contact loss and affinity indicate weak alignment with docking scores: improving these structure-predictor objectives tends to weakly coincide with better Vina scores, but the relationship is far from deter-ministic. In contrast, ipTM is a higher-is-better confidence score, whereas Vina is lower-is-better. 21 Therefore, alignment between ipTM and Vina would correspond to a negative correlation. The ob-served positive correlation instead points in the opposite direction, although its small magnitude indicates that this inverse trend is weak. Overall, these weak and partly misaligned correlations suggest that structure-prediction-based sig-nals and docking-based scores capture related but distinct aspects of protein–ligand interactions. This limited alignment helps explain why DBMol can achieve strong structure-aligned performance without consistently obtaining the best Vina scores. 
+
+D.3 Similarity to known actives 
+
+Table 5: Similarity to known actives and interaction recovery on LIT-PCBA. Sim measures sim-ilarity to the crystallized reference ligand, where lower values indicate less direct copying. EF@1% measures active enrichment in the nearest neighborhood of generated molecules. IFP Sim measures residue-level interaction fingerprint similarity to the reference ligand. 
+
+Method Sim ↓ EF@1% ↑ IFP Sim ↑
+
+SynFormer 0.447 1.06 0.656 ShEPhERD 0.137 0.80 0.401 SynCoGen 0.107 0.86 0.597 DiffSBDD 0.106 0.86 0.622 CGFlow 0.093 1.46 0.600 DeFoG 0.101 0.81 0.343 DBMol 0.094 1.33 0.392 
+
+Table 6: De novo molecule design results on additional tar-gets with iterative refinement. We compare DBMol with DiffS-BDD, a pocket-conditioned structure-based baseline applicable to the strict de novo setting without reference ligands. DBMol (round 2) denotes an exploratory second-round refinement ini-tialized from a first-round DBMol candidate.                                                         
+
+> Method BCov ↑AF3 Succ. ↑iPAE ↓Dist ↓Vina ↓Div ↑Avg. Rank ↓
+> LGR4
+> DiffSBDD 0.23 0.51 13.2 5.7 -9.6 0.90 2.33 DBMol 0.25 0.71 11.4 3.9 -8.1 0.87 1.83
+> DBMol (round 2) 0.33 0.87 11.6 3.2 -7.9 0.82 1.83
+> CD47
+> DiffSBDD 0.01 0.06 8.3 25.3 -4.0 0.93 1.83 DBMol 0.03 0.08 8.7 28.5 -6.2 0.87 1.67
+> DBMol (round 2) 0.01 0.02 7.9 32.0 -5.7 0.87 2.50
+
+We further analyze whether gen-erated molecules simply repro-duce known binders on LIT-PCBA. EF@1 measures the en-richment of known actives in the top 1% of ranked candidates over random selection. EF@1% = 5 means actives are 5 times more enriched in the top 1% vs random; EF@1% = 1 is ran-dom. IFP is a residue-level inter-action fingerprint; IFP similar-ity between a generated and ref-erence pose quantifies how well the generated pose reproduces the native binding interactions. As shown in Tab. 5, DBMol has low similarity to the crystallized reference ligand, with Sim = 0 .094 . This is substantially lower than ligand-guided SynFormer and also lower than the unconditional DeFoG baseline, indicating that DBMol does not directly copy the reference binder. At the same time, DBMol substantially improves active enrichment over DeFoG, increasing EF@1% from 0.81 to 1.33 , and achieves the second-best EF@1% among the compared methods. DBMol also modestly improves residue-level interaction recovery over DeFoG, increasing IFP Sim from 0.343 to 0.392 . Overall, these results suggest that DBMol tends to generate alternative active-like molecules rather than reproducing known binders, while improving neighborhood-level active enrichment and modestly improving pocket-level interaction similarity. However, the abso-lute gains are limited, so we report these results only as supplementary analysis rather than including them in the main paper. 
+
+D.4 Iterative refinement from a first-round candidate 
+
+We further include an exploratory ablation to test whether DBMol can be reused for iterative re-finement. Starting from an initial DBMol batch, we select the best first-round candidate (the same 22 molecule used to initialize DiffSBDD 3D pocket conditions) according to the Boltz-2-based selec-tion criterion used by DBMol, without using AF3 or Vina evaluation metrics for selection. We then use this candidate to initialize a second round of optimization and projection. During this second round, we add a lightweight regularization term that penalizes deviations from the relaxed node and edge distributions of the selected first-round candidate, preventing the optimized molecule from drifting too far from the initialization. Specifically, the loss weight is 0.1 and penalised the entropy of the current relaxed molecule distribution. In practice, we regularize the edge distribution more strongly (with doubled loss weight) than the node distribution, which empirically better preserves the molecular scaffold while still allowing local modifications. As shown in Tab. 6, the effect of second-round refinement is target-dependent. On LGR4, DBMol (round 2) further improves BCov from 0.25 to 0.33, AF3 Success from 0.71 to 0.87, and Dist from 3.9 to 3.2 compared with first-round DBMol, while maintaining a similar average rank. Its iPAE remains better than DiffSBDD but slightly worse than first-round DBMol, and the main tradeoffs are weaker Vina score and lower molecular diversity. On CD47, however, the second round does not improve overall performance: first-round DBMol obtains the best average rank, while DBMol (round 2) improves iPAE but degrades BCov, AF3 Success, Dist, and diversity. We further inspected the poor CD47 round-2 result. The round-2 initialization was selected using only the Boltz-2-based criterion, rather than AF3 metrics, to avoid leakage from the final evaluation. This selected molecule has 0 AF3 pocket coverage, indicating a poor initialization under the held-out metric. Since the sec-ond round regularizes the relaxed node and edge distributions to stay close to the initialization, the refinement is constrained around an unfavorable molecule, explaining the degraded CD47 perfor-mance. Overall, these results suggest that iterative reuse of DBMol candidates can further improve structural metrics on some targets, but it is not consistently beneficial across targets and is sensitive to the initial molecule. We therefore treat it as an exploratory refinement strategy rather than as part of the main de novo baseline. Nevertheless, DBMol remains competitive on de novo targets without relying on reference ligands or requiring a well-defined binding pocket. 
+
+D.5 Runtime and inference-time compute. 
+
+To make the inference-time search effort explicit, we report the runtime of DBMol under the LIT-PCBA protocol in Tab. 7. All LIT-PCBA targets use the same fixed configuration with 50 Boltz-guided optimization steps. We report the cost of the DBMol generation pipeline before AF3 evalua-tion, since AF3 is used only for downstream evaluation and is not part of the molecular optimization objective. MSA search is performed once per protein and cached, and is therefore not included in the per-run runtime. Table 7: Runtime breakdown of DBMol under the LIT-PCBA protocol. We report the estimated wall-clock time for the fixed 50-step optimization setting used in Tab. 1.           
+
+> Component Setting Runtime Boltz-guided optimization 50 steps ∼30 min DeFoG projection / sampling per optimized molecule set ∼10 s DBMol generation total 50-step protocol ∼30 min SynFormer projection optional, 100 molecules ∼25 min
+
+Under this protocol, DBMol uses a fixed number of Boltz calls for every target: one Boltz-guided update per optimization step, for 50 steps in total. The dominant cost is therefore the iterative Boltz-guided optimization, which takes approximately 30 minutes under our implementation. The subse-quent DeFoG projection is comparatively negligible, taking about 10 seconds. When the optional DBMol-Syn variant is used, SynFormer projection adds additional runtime, reported separately in Tab. 7. Thus, the additional test-time computation used by DBMol is fixed, target-independent within LIT-PCBA, and explicitly reported. 23 Table 8: Molecular generation results on the ZINC-250K dataset, comparing DeFoG with other diffusion and flow matching based baselines. Best results are highlighted in bold.                                    
+
+> Model Val. ↑Uniqueness ↑FCD ↓NSPDK ↓Scaffold ↑
+> GruM 98.65 –2.257 0.0015 0.5299 GBD 97.87 –2.248 0.0018 0.5042 CatFlow 99.21 100.00 13.211 ––DeFoG (w/o charges) 99.22 99.99 1.425 0.0008 0.5903 DeFoG (w/ charges) 99.28 100.00 1.850 0.0013 0.9281
+
+D.6 Choice of discrete denoiser 
+
+DBMol requires a discrete molecular denoiser that can reliably project optimized relaxed repre-sentations back to chemically valid molecules, while remaining computationally efficient. DeFoG satisfies both requirements. As shown in Table 8, DeFoG achieves near-perfect validity and strong distributional alignment on the ZINC-250K benchmark, as measured by chemical validity, unique-ness, FCD, NSPDK, and scaffold diversity. We further evaluate DeFoG both with and without explicit modeling of formal atomic charges to isolate the effect of charge-aware denoising. More-over, DeFoG adopts a flow-matching formulation, enabling high-quality molecular generation with a small number of denoising steps, which is particularly well suited for optimization-in-the-loop pipelines such as DBMol. 24

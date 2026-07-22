@@ -6,59 +6,53 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-20
-- 运行时间：2026-07-20 21:47:29 UTC
+- 最新运行日期：2026-07-22
+- 运行时间：2026-07-22 21:43:37 UTC
 - 运行状态：成功
-- 本次总论文数：13
+- 本次总论文数：11
 - 精读区：6
-- 速读区：7
+- 速读区：5
 
 ### 今日简报（AI）
-今日推荐13篇，精读6篇，聚焦视频帧插值与结构药物设计两大高分突破。最值得关注的是单步像素扩散模型SPEED（9.0分）和扰动流匹配药物设计PFM（9.0分），分别刷新视频插值与药物骨架生成效率。建议普通读者优先阅读这两篇，快速掌握高质量视频合成与AI制药的核心方法。
-- 详情：[/202607/20/README](/202607/20/README)
+今日共处理11篇论文，精读6篇、速读5篇，重点围绕分子生成与蛋白质设计；最值得关注的是采用可验证奖励的强化学习分子生成方法（9.0分）和基于结构预测模型的高亲和力靶标小分子设计（9.0分）；建议普通读者优先阅读这两篇高分精读论文，了解AI在药物分子设计中的前沿应用。
+- 详情：[/202607/22/README](/202607/22/README)
 
 ### 精读区论文标签
-1. [SPEED: One-Step Pixel Diffusion for High-quality Video Frame Interpolation](/202607/20/2607.15585v1-speed-one-step-pixel-diffusion-for-high-quality-video-frame-interpolation)  
+1. [Adopting Reinforcement Learning with Verifiable Rewards for Molecular Generation](/202607/22/2607.19044v1-adopting-reinforcement-learning-with-verifiable-rewards-for-molecular-generation)  
    标签：评分：9.0/10、query:diff-gen
-   evidence：用于视频帧插值的单步像素扩散模型
-2. [PFM: perturbed flow matching for structure-based drug design](/202607/20/biorxiv-10-64898-2026-07-11-737913-v1-pfm-perturbed-flow-matching-for-structure-based-drug-design)  
+   evidence：采用深度学习的分子生成
+2. [DBMol: Design of High-Affinity, Target-Specific Small Molecules through Structure Prediction Models](/202607/22/2607.19237v1-dbmol-design-of-high-affinity-target-specific-small-molecules-through-structure-prediction-models)  
    标签：评分：9.0/10、query:pocket-lig
-   evidence：基于流匹配的蛋白质口袋配体设计方法
-3. [Exploring the Alignment of Generation and Understanding in Protein Structure Modeling](/202607/20/2607.13503v1-exploring-the-alignment-of-generation-and-understanding-in-protein-structure-modeling)  
+   evidence：利用AlphaFold-3等结构预测模型设计针对特定蛋白口袋的小分子配体
+3. [Pixel-Space Diffusion Transformers](/202607/22/2607.17585v1-pixel-space-diffusion-transformers)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：探索蛋白质生成模型用于结构建模，直接与分子生成相关
-4. [Atomic Design Transformer: Scaffold-Conditioned 3D Molecule Generation via xTB-Reward Reinforcement Learning](/202607/20/2607.15918v1-atomic-design-transformer-scaffold-conditioned-3d-molecule-generation-via-xtb-reward-reinforcement-learning)  
-   标签：评分：8.0/10、query:pocket-lig
-   evidence：基于SE(3)不变变换器的3D分子生成，带骨架条件
-5. [Generative design of programmable asymmetric β-barrel nanopores](/202607/20/biorxiv-10-64898-2026-06-04-729630-v2-generative-design-of-programmable-asymmetric--barrel-nanopores)  
+   evidence：像素空间扩散模型用于多模态生成
+4. [MixDiffusion: Mixing Diffusion-based Uni-condition Text-to-Image Generation Models for Multi-condition Image Synthesis](/202607/22/2607.17634v1-mixdiffusion-mixing-diffusion-based-uni-condition-text-to-image-generation-models-for-multi-condition-image-synthesis)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：生成式AI框架设计蛋白质纳米孔，直接与分子生成相关
-6. [De novo design of ligand binding and sensing with a physics based generative approach](/202607/20/biorxiv-10-64898-2026-07-13-738243-v1-de-novo-design-of-ligand-binding-and-sensing-with-a-physics-based-generative-approach)  
+   evidence：多条件图像生成的扩散模型
+5. [Do Language Models Dream of Binding Molecules? Benchmarking LLMs under Spatial Constraints](/202607/22/2607.18144v1-do-language-models-dream-of-binding-molecules-benchmarking-llms-under-spatial-constraints)  
    标签：评分：8.0/10、query:pocket-lig
-   evidence：从头设计结合小分子的蛋白质
+   evidence：将LLM与扩散模型在口袋条件3D分子生成任务上进行基准测试
+6. [Appearance Pointers -- Multimodal Region Control of Diffusion Transformers](/202607/22/2607.19344v1-appearance-pointers----multimodal-region-control-of-diffusion-transformers)  
+   标签：评分：8.0/10、query:diff-gen
+   evidence：扩散变换器的多模态区域控制，与多模态扩散相关
 
 ### 速读区论文标签
-1. [DiTango: Cost-Effective Parallel Diffusion Generation with Selective Attention State Reuse](/202607/20/2607.15650v1-ditango-cost-effective-parallel-diffusion-generation-with-selective-attention-state-reuse)  
+1. [De Novo Design of Protein Switches with Diffusion-Based Ensemble Sampling](/202607/22/biorxiv-10-64898-2026-07-20-739027-v1-de-novo-design-of-protein-switches-with-diffusion-based-ensemble-sampling)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：具有选择性注意力重用的经济高效并行扩散生成
-2. [Toward a mechanistic understanding of inference in visual cortex and diffusion models](/202607/20/2607.15693v1-toward-a-mechanistic-understanding-of-inference-in-visual-cortex-and-diffusion-models)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：扩散模型用于视觉推理; 去噪分数匹配训练
-3. [Accelerated descriptor-free path sampling for protein-ligand binding kinetics](/202607/20/2607.15101v1-accelerated-descriptor-free-path-sampling-for-protein-ligand-binding-kinetics)  
+   evidence：使用扩散模型进行蛋白质从头设计，与3D生成主题相关
+2. [Advanced Image Generation: Negative Prompt Optimization and Latent Classifier Guidance](/202607/22/2607.14580v1-advanced-image-generation-negative-prompt-optimization-and-latent-classifier-guidance)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：使用扩散模型(Stable Diffusion)进行图像生成并引入指导机制，与基于扩散的多模态生成相关
+3. [PE-Field 4D: Video Generation Models as Canvas](/202607/22/2607.15667v1-pe-field-4d-video-generation-models-as-canvas)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：使用扩散变压器进行几何感知视频生成，适用于3D场景生成
+4. [Parallel Noising in Neural Markov Logic Networks](/202607/22/2607.19126v1-parallel-noising-in-neural-markov-logic-networks)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：通过并行噪声增强神经马尔可夫逻辑网络用于图生成，并与扩散模型对比
+5. [Minimal Data, Maximal Insight (MDMI): A Structure-guided Pipeline for Discovering Functional Alternatives in Peptide-Protein Interfaces](/202607/22/biorxiv-10-64898-2026-07-13-737974-v1-minimal-data-maximal-insight-mdmi-a-structure-guided-pipeline-for-discovering-functional-alternatives-in-peptide-protein-interfaces)  
    标签：评分：6.0/10、query:pocket-lig
-   evidence：蛋白质-配体结合动力学方法，可用于评估生成的配体
-4. [MGDT: MLLM-Guided Diffusion Transformer with Relation-Adaptive Mixture-of-Experts for Multimodal Knowledge Graph Completion](/202607/20/2607.15592v1-mgdt-mllm-guided-diffusion-transformer-with-relation-adaptive-mixture-of-experts-for-multimodal-knowledge-graph-completion)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：使用扩散变压器进行多模态知识图谱补全
-5. [PE-Field 4D: Video Generation Models as Canvas](/202607/20/2607.15667v1-pe-field-4d-video-generation-models-as-canvas)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：用于视频生成的扩散Transformer，具有几何感知控制
-6. [Advancing Knotted Protein Design with ESM3: Guided Generation and Topological Insights](/202607/20/biorxiv-10-64898-2026-05-07-723606-v2-advancing-knotted-protein-design-with-esm3-guided-generation-and-topological-insights)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：使用ESM3引导生成打结蛋白质设计
-7. [A Glycan-Aware Diffusion Model for Carbohydrate and Glycoprotein Structure Prediction](/202607/20/biorxiv-10-64898-2026-07-16-738959-v1-a-glycan-aware-diffusion-model-for-carbohydrate-and-glycoprotein-structure-prediction)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：扩散模型用于生物分子结构预测，与分子生成相关
+   evidence：结构引导的靶向蛋白质界面肽设计
 
 
 <div class="dpr-home-promo-card">

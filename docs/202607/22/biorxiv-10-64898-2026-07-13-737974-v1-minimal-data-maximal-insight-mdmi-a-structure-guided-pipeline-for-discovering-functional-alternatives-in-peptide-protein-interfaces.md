@@ -1,0 +1,25 @@
+---
+title: "Minimal Data, Maximal Insight (MDMI): A Structure-guided Pipeline for Discovering Functional Alternatives in Peptide-Protein Interfaces"
+title_zh: "最少数据，最大洞察 (MDMI): 一种结构引导的发现肽-蛋白质界面功能替代物的流程"
+authors: "Bayat, P., Perkins, S. J., Clancy, S., Patel, S. S., Yin, R. F., Bozovicar, K., Singh, S., Shrestha, S., Moustafa, Z., Zayani, R., IWE, I., Bayat, S., Kelly, P., Vigar, J. R. J., White, V. Y., Xie, M., Simchi, M., Palter, S., Nguyen, J., Zeisler, I. Y., Wu, B., Pardee, K."
+date: 2026-07-14
+pdf: "https://www.biorxiv.org/content/10.64898/2026.07.13.737974v1.full.pdf"
+tags: ["query:pocket-lig"]
+score: 6.0
+evidence: 结构引导的靶向蛋白质界面肽设计
+tldr: "从大量序列中发现功能肽在实验数据稀缺时极具挑战。本文提出MDMI，一种结合预测复合物3D结构与机器学习的双阶段方法，仅需少量标注数据即可探索序列空间。在split-GFP系统中，MDMI鉴定出与野生型序列差异超50%的活性肽，将假阳性率从70%降至近零，并产生四倍于基线的高置信度计算机结合子。结果表明结构信息可从极小数据挖掘远程功能序列空间，为肽与治疗类似物发现提供新途径。"
+source: biorxiv
+selection_source: fresh_fetch
+figures_json: "[{\"url\": \"assets/figures/biorxiv/biorxiv-10-64898-2026-07-13-737974-v1/fig-001.webp\", \"caption\": \"\", \"page\": 0, \"index\": 1, \"width\": 1578, \"height\": 888, \"label\": \"Figure\"}, {\"url\": \"assets/figures/biorxiv/biorxiv-10-64898-2026-07-13-737974-v1/fig-002.webp\", \"caption\": \"\", \"page\": 0, \"index\": 2, \"width\": 1604, \"height\": 405, \"label\": \"Figure\"}, {\"url\": \"assets/figures/biorxiv/biorxiv-10-64898-2026-07-13-737974-v1/fig-003.webp\", \"caption\": \"\", \"page\": 0, \"index\": 3, \"width\": 1597, \"height\": 1328, \"label\": \"Figure\"}, {\"url\": \"assets/figures/biorxiv/biorxiv-10-64898-2026-07-13-737974-v1/fig-004.webp\", \"caption\": \"\", \"page\": 0, \"index\": 4, \"width\": 1601, \"height\": 1167, \"label\": \"Figure\"}, {\"url\": \"assets/figures/biorxiv/biorxiv-10-64898-2026-07-13-737974-v1/fig-005.webp\", \"caption\": \"\", \"page\": 0, \"index\": 5, \"width\": 1596, \"height\": 1291, \"label\": \"Figure\"}, {\"url\": \"assets/figures/biorxiv/biorxiv-10-64898-2026-07-13-737974-v1/fig-006.webp\", \"caption\": \"\", \"page\": 0, \"index\": 6, \"width\": 1560, \"height\": 1126, \"label\": \"Figure\"}, {\"url\": \"assets/figures/biorxiv/biorxiv-10-64898-2026-07-13-737974-v1/fig-007.webp\", \"caption\": \"\", \"page\": 0, \"index\": 7, \"width\": 1585, \"height\": 893, \"label\": \"Figure\"}]"
+tables_json: "[{\"url\": \"assets/tables/biorxiv/biorxiv-10-64898-2026-07-13-737974-v1/table-001.webp\", \"caption\": \"\", \"page\": 0, \"index\": 1, \"width\": 1073, \"height\": 282, \"label\": \"Table\"}]"
+motivation: 克服实验训练数据稀缺时从庞大序列空间发现功能肽的难题。
+method: 构建结构感知预测器，整合肽-蛋白复合物三维几何与结合能量特征，并用遗传算法探索序列。
+result: "在split-GFP验证中，获得序列差异超50%的活性肽，将假阳性率从70%降至接近0，计算机结合子数量为基线四倍。"
+conclusion: 结构指导的管道可从极少数据发现远程功能序列空间，对肽和治疗发现具重要意义。
+---
+
+## 摘要
+发现跨广阔序列空间的功能肽仍然是一个严峻的挑战，特别是在实验训练数据稀缺的情况下。我们提出了最少数据最大洞察 (MDMI)，这是一个两阶段的结构引导计算流程，仅使用少量带注释的数据集来设计功能肽变体。MDMI 不是仅依赖序列信息，而是将来自预测肽-蛋白质复合物的三维结构特征整合到机器学习模型中，该模型捕获界面几何结构和结合能量学。这种结构感知预测器与用于序列探索的遗传算法相结合，在计算基准测试中，与纯序列模型相比，在全部阴性基准面板中将假阳性从70%降低到接近零，并且产生的计算机模拟高置信度结合物数量约为最先进的肽/蛋白质设计基线的四倍。使用split-GFP系统作为试验平台（其中荧光提供肽-蛋白质互补的直接功能读数），MDMI 在第一阶段鉴定了与野生型序列差异高达38%且仍保留可测量活性的肽。在第二阶段，基于基序的重组成功的第一阶段变体产生了高度不同但具有功能的肽，与野生型序列差异超过50%，揭示了序列空间中的两个不同功能簇。作为进一步验证，一个表现最佳的候选物以全长GFP融合形式表达，保留了类似GFP的发射谱，支持形成荧光GFP样支架。这些结果表明，结构信息化的流程可以从最少数据中发现远程功能序列空间，对肽和治疗类似物发现具有广泛意义。
+
+## Abstract
+Discovering functional peptides across vast sequence space remains a formidable challenge, particularly when experimental training data is scarce. We present Minimal Data Maximal Insight (MDMI), a two-stage structure-guided computational pipeline that designs functional peptide variants using only a small, annotated dataset. Rather than relying on sequence information alone, MDMI integrates three-dimensional structural features derived from predicted peptide-protein complexes into a machine learning model that captures interface geometry and binding energetics. This structure-aware predictor, paired with a genetic algorithm for sequence exploration, reduced false positives from 70% to close to zero in an all-negative benchmark panel compared with a sequence-only model in computational benchmarking, and produced approximately four-fold more high-confidence in silico binders than state-of-the-art peptide/protein design baselines. Using the split-GFP system as a testbed, where fluorescence provides a direct functional readout of peptide-protein complementation, MDMI identified peptides with up to 38% sequence divergence from wild-type in Stage 1 while retaining measurable activity. In Stage 2, motif-guided recombination of successful Stage 1 variants produced highly divergent yet functional peptides bearing over 50% sequence difference from wild-type, revealing two distinct functional clusters in sequence space. As further validation, a top-performing candidate expressed as a full-length GFP fusion retained a GFP-like emission profile, supporting formation of a fluorescent GFP-like scaffold. These results demonstrate that structure-informed pipelines can uncover remote functional sequence space from minimal data, with broad implications for peptide and therapeutic analog discovery.
