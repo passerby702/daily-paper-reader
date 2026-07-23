@@ -6,53 +6,61 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-22
-- 运行时间：2026-07-22 21:43:37 UTC
+- 最新运行日期：2026-07-23
+- 运行时间：2026-07-23 21:51:50 UTC
 - 运行状态：成功
-- 本次总论文数：11
-- 精读区：6
-- 速读区：5
+- 本次总论文数：13
+- 精读区：4
+- 速读区：9
 
 ### 今日简报（AI）
-今日共处理11篇论文，精读6篇、速读5篇，重点围绕分子生成与蛋白质设计；最值得关注的是采用可验证奖励的强化学习分子生成方法（9.0分）和基于结构预测模型的高亲和力靶标小分子设计（9.0分）；建议普通读者优先阅读这两篇高分精读论文，了解AI在药物分子设计中的前沿应用。
-- 详情：[/202607/22/README](/202607/22/README)
+1) 今日推荐13篇论文，精读2篇高分研究聚焦扩散模型在像素空间变换与分子设计上的突破。
+2) 最值得关注的方向：《Pixel-Space Diffusion Transformers》与《Boltzmann-Expected Molecular Design》分别在视觉生成与分子优化中展现新范式。
+3) 建议优先阅读这两篇精读论文，了解扩散模型在图像生成与计算化学领域的交叉应用潜力。
+- 详情：[/202607/23/README](/202607/23/README)
 
 ### 精读区论文标签
-1. [Adopting Reinforcement Learning with Verifiable Rewards for Molecular Generation](/202607/22/2607.19044v1-adopting-reinforcement-learning-with-verifiable-rewards-for-molecular-generation)  
-   标签：评分：9.0/10、query:diff-gen
-   evidence：采用深度学习的分子生成
-2. [DBMol: Design of High-Affinity, Target-Specific Small Molecules through Structure Prediction Models](/202607/22/2607.19237v1-dbmol-design-of-high-affinity-target-specific-small-molecules-through-structure-prediction-models)  
-   标签：评分：9.0/10、query:pocket-lig
-   evidence：利用AlphaFold-3等结构预测模型设计针对特定蛋白口袋的小分子配体
-3. [Pixel-Space Diffusion Transformers](/202607/22/2607.17585v1-pixel-space-diffusion-transformers)  
+1. [Pixel-Space Diffusion Transformers](/202607/23/2607.17585v2-pixel-space-diffusion-transformers)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：像素空间扩散模型用于多模态生成
-4. [MixDiffusion: Mixing Diffusion-based Uni-condition Text-to-Image Generation Models for Multi-condition Image Synthesis](/202607/22/2607.17634v1-mixdiffusion-mixing-diffusion-based-uni-condition-text-to-image-generation-models-for-multi-condition-image-synthesis)  
+   evidence：像素空间扩散Transformer，直接面向多模态生成的扩散模型
+2. [Boltzmann-Expected Molecular Design with Decoupled Annealing Flows](/202607/23/2607.19519v1-boltzmann-expected-molecular-design-with-decoupled-annealing-flows)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：多条件图像生成的扩散模型
-5. [Do Language Models Dream of Binding Molecules? Benchmarking LLMs under Spatial Constraints](/202607/22/2607.18144v1-do-language-models-dream-of-binding-molecules-benchmarking-llms-under-spatial-constraints)  
+   evidence：使用深度生成流进行分子生成
+3. [CAFE: A Co-folding Approach for Fragment Exploration of Allosteric and Cryptic Binding Sites](/202607/23/biorxiv-10-64898-2026-07-19-739466-v1-cafe-a-co-folding-approach-for-fragment-exploration-of-allosteric-and-cryptic-binding-sites)  
    标签：评分：8.0/10、query:pocket-lig
-   evidence：将LLM与扩散模型在口袋条件3D分子生成任务上进行基准测试
-6. [Appearance Pointers -- Multimodal Region Control of Diffusion Transformers](/202607/22/2607.19344v1-appearance-pointers----multimodal-region-control-of-diffusion-transformers)  
+   evidence：共折叠协议用于变构和隐秘结合位点的片段探索
+4. [De Novo Design of Protein Switches with Diffusion-Based Ensemble Sampling](/202607/23/biorxiv-10-64898-2026-07-20-739027-v1-de-novo-design-of-protein-switches-with-diffusion-based-ensemble-sampling)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：扩散变换器的多模态区域控制，与多模态扩散相关
+   evidence：使用预训练蛋白质扩散模型生成蛋白质骨架集合用于开关设计，与扩散模型的3D形状生成相关
 
 ### 速读区论文标签
-1. [De Novo Design of Protein Switches with Diffusion-Based Ensemble Sampling](/202607/22/biorxiv-10-64898-2026-07-20-739027-v1-de-novo-design-of-protein-switches-with-diffusion-based-ensemble-sampling)  
+1. [HarmoHOI: Harmonizing Appearance and 3D Motion for Multi-view Hand-Object Interaction Synthesis](/202607/23/2607.17097v1-harmohoi-harmonizing-appearance-and-3d-motion-for-multi-view-hand-object-interaction-synthesis)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：使用扩散模型进行蛋白质从头设计，与3D生成主题相关
-2. [Advanced Image Generation: Negative Prompt Optimization and Latent Classifier Guidance](/202607/22/2607.14580v1-advanced-image-generation-negative-prompt-optimization-and-latent-classifier-guidance)  
+   evidence：扩散模型用于三维场景和视频生成，保持多视角一致性
+2. [Multi-Mask Diffusion Language Models for Few-Step Generation](/202607/23/2607.19686v1-multi-mask-diffusion-language-models-for-few-step-generation)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：改进了文本生成的扩散模型，支持少步生成
+3. [Importance-Aware OBS Pruning for Diffusion Models](/202607/23/2607.20048v1-importance-aware-obs-pruning-for-diffusion-models)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：针对扩散模型的剪枝方法以提高效率
+4. [ProteinSketch translates spatial intuition into protein design with bimanual interaction in VR](/202607/23/biorxiv-10-64898-2026-07-19-739460-v1-proteinsketch-translates-spatial-intuition-into-protein-design-with-bimanual-interaction-in-vr)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：扩散模型用于蛋白质三维结构生成
+5. [DiTango: Cost-Effective Parallel Diffusion Generation with Selective Attention State Reuse](/202607/23/2607.15650v1-ditango-cost-effective-parallel-diffusion-generation-with-selective-attention-state-reuse)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：使用扩散模型(Stable Diffusion)进行图像生成并引入指导机制，与基于扩散的多模态生成相关
-3. [PE-Field 4D: Video Generation Models as Canvas](/202607/22/2607.15667v1-pe-field-4d-video-generation-models-as-canvas)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：使用扩散变压器进行几何感知视频生成，适用于3D场景生成
-4. [Parallel Noising in Neural Markov Logic Networks](/202607/22/2607.19126v1-parallel-noising-in-neural-markov-logic-networks)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：通过并行噪声增强神经马尔可夫逻辑网络用于图生成，并与扩散模型对比
-5. [Minimal Data, Maximal Insight (MDMI): A Structure-guided Pipeline for Discovering Functional Alternatives in Peptide-Protein Interfaces](/202607/22/biorxiv-10-64898-2026-07-13-737974-v1-minimal-data-maximal-insight-mdmi-a-structure-guided-pipeline-for-discovering-functional-alternatives-in-peptide-protein-interfaces)  
+   evidence：并行扩散生成加速
+6. [CORAL: Learning Amyloid Fibril Ligand Docking with Cooperative Binding Rewards](/202607/23/2607.17412v1-coral-learning-amyloid-fibril-ligand-docking-with-cooperative-binding-rewards)  
    标签：评分：6.0/10、query:pocket-lig
-   evidence：结构引导的靶向蛋白质界面肽设计
+   evidence：使用协同结合奖励学习淀粉样纤维配体对接
+7. [STEREOFLOW: Progressive Stereo Matching with StereoDiT and Transition Flow Matching](/202607/23/2607.19986v1-stereoflow-progressive-stereo-matching-with-stereodit-and-transition-flow-matching)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：使用扩散/流匹配进行立体匹配，与三维生成扩散模型相关
+8. [FUSED: A Functional Representation for Joint Structural and Elemental Analysis of Protein Ligand Binding Sites](/202607/23/biorxiv-10-64898-2026-07-10-737806-v1-fused-a-functional-representation-for-joint-structural-and-elemental-analysis-of-protein-ligand-binding-sites)  
+   标签：评分：6.0/10、query:pocket-lig
+   evidence：提出蛋白质配体结合位点的功能表示方法
+9. [EBD-DTI: Episodic Bridge Diffusion for Zero-Shot Cold-Start Drug-Target Interaction Prediction](/202607/23/biorxiv-10-64898-2026-07-14-738384-v1-ebd-dti-episodic-bridge-diffusion-for-zero-shot-cold-start-drug-target-interaction-prediction)  
+   标签：评分：6.0/10、query:pocket-lig
+   evidence：生成模型用于蛋白-配体相互作用预测，采用扩散方法
 
 
 <div class="dpr-home-promo-card">
