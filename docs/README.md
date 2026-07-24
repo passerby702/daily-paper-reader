@@ -6,61 +6,40 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-23
-- 运行时间：2026-07-23 21:51:50 UTC
+- 最新运行日期：2026-07-24
+- 运行时间：2026-07-24 21:12:34 UTC
 - 运行状态：成功
-- 本次总论文数：13
-- 精读区：4
-- 速读区：9
+- 本次总论文数：6
+- 精读区：2
+- 速读区：4
 
 ### 今日简报（AI）
-1) 今日推荐13篇论文，精读2篇高分研究聚焦扩散模型在像素空间变换与分子设计上的突破。
-2) 最值得关注的方向：《Pixel-Space Diffusion Transformers》与《Boltzmann-Expected Molecular Design》分别在视觉生成与分子优化中展现新范式。
-3) 建议优先阅读这两篇精读论文，了解扩散模型在图像生成与计算化学领域的交叉应用潜力。
-- 详情：[/202607/23/README](/202607/23/README)
+1) 今日推荐6篇论文，精读2篇聚焦3D形状补全和蛋白质结合位点探索。  
+2) 最值得关注的方向：Axolotl3D（8.0/10）实现忠实3D形状补全；CAFE（8.0/10）提出共折叠方法发现变构和隐式结合位点。  
+3) 建议优先阅读这两篇高分精读论文，掌握当前3D视觉与结构生物学交叉前沿。
+- 详情：[/202607/24/README](/202607/24/README)
 
 ### 精读区论文标签
-1. [Pixel-Space Diffusion Transformers](/202607/23/2607.17585v2-pixel-space-diffusion-transformers)  
+1. [Axolotl3D: a Unified Framework for Faithful 3D Shape Completion](/202607/24/2607.20660v1-axolotl3d-a-unified-framework-for-faithful-3d-shape-completion)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：像素空间扩散Transformer，直接面向多模态生成的扩散模型
-2. [Boltzmann-Expected Molecular Design with Decoupled Annealing Flows](/202607/23/2607.19519v1-boltzmann-expected-molecular-design-with-decoupled-annealing-flows)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：使用深度生成流进行分子生成
-3. [CAFE: A Co-folding Approach for Fragment Exploration of Allosteric and Cryptic Binding Sites](/202607/23/biorxiv-10-64898-2026-07-19-739466-v1-cafe-a-co-folding-approach-for-fragment-exploration-of-allosteric-and-cryptic-binding-sites)  
+   evidence：基于扩散的多模态3D形状补全
+2. [CAFE: A Co-folding Approach for Fragment Exploration of Allosteric and Cryptic Binding Sites](/202607/24/biorxiv-10-64898-2026-07-19-739466-v1-cafe-a-co-folding-approach-for-fragment-exploration-of-allosteric-and-cryptic-binding-sites)  
    标签：评分：8.0/10、query:pocket-lig
-   evidence：共折叠协议用于变构和隐秘结合位点的片段探索
-4. [De Novo Design of Protein Switches with Diffusion-Based Ensemble Sampling](/202607/23/biorxiv-10-64898-2026-07-20-739027-v1-de-novo-design-of-protein-switches-with-diffusion-based-ensemble-sampling)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：使用预训练蛋白质扩散模型生成蛋白质骨架集合用于开关设计，与扩散模型的3D形状生成相关
+   evidence：利用共折叠探索变构结合位点的片段
 
 ### 速读区论文标签
-1. [HarmoHOI: Harmonizing Appearance and 3D Motion for Multi-view Hand-Object Interaction Synthesis](/202607/23/2607.17097v1-harmohoi-harmonizing-appearance-and-3d-motion-for-multi-view-hand-object-interaction-synthesis)  
+1. [DiFA: Inference-Time Forward-Process Alignment for Diffusion Models](/202607/24/2607.17972v1-difa-inference-time-forward-process-alignment-for-diffusion-models)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：扩散模型用于三维场景和视频生成，保持多视角一致性
-2. [Multi-Mask Diffusion Language Models for Few-Step Generation](/202607/23/2607.19686v1-multi-mask-diffusion-language-models-for-few-step-generation)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：改进了文本生成的扩散模型，支持少步生成
-3. [Importance-Aware OBS Pruning for Diffusion Models](/202607/23/2607.20048v1-importance-aware-obs-pruning-for-diffusion-models)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：针对扩散模型的剪枝方法以提高效率
-4. [ProteinSketch translates spatial intuition into protein design with bimanual interaction in VR](/202607/23/biorxiv-10-64898-2026-07-19-739460-v1-proteinsketch-translates-spatial-intuition-into-protein-design-with-bimanual-interaction-in-vr)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：扩散模型用于蛋白质三维结构生成
-5. [DiTango: Cost-Effective Parallel Diffusion Generation with Selective Attention State Reuse](/202607/23/2607.15650v1-ditango-cost-effective-parallel-diffusion-generation-with-selective-attention-state-reuse)  
+   evidence：扩散模型的免训练推理改进，具有广泛适用性
+2. [Chemical filters for ultra-high-throughput materials screening and generation](/202607/24/2607.17910v1-chemical-filters-for-ultra-high-throughput-materials-screening-and-generation)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：并行扩散生成加速
-6. [CORAL: Learning Amyloid Fibril Ligand Docking with Cooperative Binding Rewards](/202607/23/2607.17412v1-coral-learning-amyloid-fibril-ligand-docking-with-cooperative-binding-rewards)  
-   标签：评分：6.0/10、query:pocket-lig
-   evidence：使用协同结合奖励学习淀粉样纤维配体对接
-7. [STEREOFLOW: Progressive Stereo Matching with StereoDiT and Transition Flow Matching](/202607/23/2607.19986v1-stereoflow-progressive-stereo-matching-with-stereodit-and-transition-flow-matching)  
+   evidence：用于AI生成材料的化学有效性过滤器
+3. [GEqTrain: A Configuration-Driven Framework for Retargeting Equivariant Graph Neural Networks Across 3D Scientific Tasks](/202607/24/2607.19083v1-geqtrain-a-configuration-driven-framework-for-retargeting-equivariant-graph-neural-networks-across-3d-scientific-tasks)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：使用扩散/流匹配进行立体匹配，与三维生成扩散模型相关
-8. [FUSED: A Functional Representation for Joint Structural and Elemental Analysis of Protein Ligand Binding Sites](/202607/23/biorxiv-10-64898-2026-07-10-737806-v1-fused-a-functional-representation-for-joint-structural-and-elemental-analysis-of-protein-ligand-binding-sites)  
-   标签：评分：6.0/10、query:pocket-lig
-   evidence：提出蛋白质配体结合位点的功能表示方法
-9. [EBD-DTI: Episodic Bridge Diffusion for Zero-Shot Cold-Start Drug-Target Interaction Prediction](/202607/23/biorxiv-10-64898-2026-07-14-738384-v1-ebd-dti-episodic-bridge-diffusion-for-zero-shot-cold-start-drug-target-interaction-prediction)  
-   标签：评分：6.0/10、query:pocket-lig
-   evidence：生成模型用于蛋白-配体相互作用预测，采用扩散方法
+   evidence：使用配置驱动框架重定向等变GNN到三维科学任务，可支持分子和蛋白质设计
+4. [M$^3$-Gen: Interpretable Multimodal Generation of Gene Expression Profiles Using Clinical and Imaging Data](/202607/24/2607.21343v1-m3-gen-interpretable-multimodal-generation-of-gene-expression-profiles-using-clinical-and-imaging-data)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：基于GAN的多模态基因表达生成，非扩散模型
 
 
 <div class="dpr-home-promo-card">
