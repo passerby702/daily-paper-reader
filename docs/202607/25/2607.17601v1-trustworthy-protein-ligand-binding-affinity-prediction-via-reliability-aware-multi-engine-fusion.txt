@@ -1,0 +1,842 @@
+Title: Trustworthy Protein-Ligand Binding Affinity Prediction via Reliability-Aware Multi-Engine Fusion
+
+URL Source: https://arxiv.org/pdf/2607.17601v1
+
+Published Time: Tue, 21 Jul 2026 01:50:03 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Trustworthy Protein–Ligand Binding Affinity Prediction via Reliability-Aware Multi-Engine Fusion 
+
+# Yongchan Hong 
+
+Department of Quantitative & Computational Biology University of Southern California Los Angeles, California, USA hongyong@usc.edu 
+
+# Defu Cao 
+
+Department of Computer Science University of Southern California Los Angeles, California, USA defucao@usc.edu 
+
+# Wenjin Liu 
+
+Department of Quantitative & Computational Biology University of Southern California Los Angeles, California, USA wenjinl@usc.edu 
+
+# Thomas Ku 
+
+Department of Quantitative & Computational Biology University of Southern California Los Angeles, California, USA kut@usc.edu 
+
+# Jordy Homing Lam 
+
+Department of Chemistry University of California, Berkeley Berkeley, California, USA jhml@berkeley.edu 
+
+# Emily Nguyen 
+
+Department of Computer Science University of Southern California Los Angeles, California, USA emilyn98@usc.edu 
+
+# Willie Neiswanger 
+
+Department of Computer Science University of Southern California Los Angeles, California, USA neiswang@usc.edu 
+
+# Vsevolod Katritch ∗
+
+Department of Quantitative & Computational Biology University of Southern California Los Angeles, California, USA katritch@usc.edu 
+
+# Yan Liu ∗
+
+Department of Computer Science University of Southern California Los Angeles, California, USA yanliu.cs@usc.edu 
+
+## Abstract 
+
+Accurate protein–ligand binding affinity prediction is central to computational drug discovery, yet modern docking engines fre-quently disagree without indicating which prediction to trust. Con-sensus scoring and ensemble methods improve mean accuracy but treat all predictions identically without interpretable confidence measures or uncertainty decomposition, ignoring the chemical con-text of each protein–ligand pair. To address this limitation, we intro-duce RELIABLE-BA (RELIAB iLity-aware Evidential fusion for 
+
+Binding Affinity), an evidential framework for multi-engine binding affinity prediction. Our model comprises three steps: (1) modeling each engine as an evidential expert via Normal–Inverse-Gamma distributions, (2) scaling epistemic uncertainty through learned reliability from molecular context while preserving each expert’s predictive mean, and (3) fusing experts through closed-form aggre-gation that captures both individual uncertainty and inter-engine disagreement. Experiments on the PDBBind and BDB2020+ bench-marks demonstrate competitive point prediction with substantially improved uncertainty calibration, and additional validation on the SARS-CoV-2 Mpro dataset and 5HT2A receptor demonstrates ap-plicability to clinically relevant drug targets. Crucially, these un-certainty estimates enable reliable filtering of protein-ligand pairs, reducing prediction error by up to 25% when retaining only high-confidence pairs. To our knowledge, RELIABLE-BA is the first multi-engine binding affinity prediction framework to combine evidential fusion with context-dependent reliability, offering a principled path 
+
+> ∗Corresponding authors. This work has been accepted for publication in the Proceed-ings of the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining (KDD 2026), August 9–13, 2026, Jeju, South Korea.
+
+toward trustworthy AI-guided drug discovery. Our code is publicly available at https://github.com/yongchand/RELIABLE-BA. 
+
+## CCS Concepts 
+
+• Computing methodologies → Artificial intelligence ; Uncer-tainty quantification ; • Applied computing → Bioinformatics .
+
+## Keywords 
+
+Binding Affinity Prediction, Uncertainty Quantification, Evidential Regression, Computational Drug Discovery 
+
+## 1 Introduction 
+
+Protein–ligand binding affinity prediction is a core component of computational drug discovery, enabling efficient hit discovery and substantially reducing the number of candidate compounds for experimental evaluation [ 22 ]. While physics-based methods such as free energy perturbation (FEP) achieve high accuracy, they require extensive sampling and are computationally prohibitive for large-scale screening [ 42 ]. Machine learning (ML) approaches offer faster inference with competitive accuracy [ 7]. Boltz-2 ap-proaches FEP-level accuracy with Pearson correlations of 0.62–0.66 on standard benchmarks [ 34 ], demonstrating that deep learning can meaningfully accelerate therapeutic discovery [ 33 ]. Modern ML-based affinity prediction engines demonstrate distinct strengths. Physics-based methods capture fundamental energetics, structure-based models exploit geometric features, and sequence-based ap-proaches generalize across protein families without requiring 3D structures [ 21 , 26 , 29 ]. Nevertheless, protein–ligand binding is in-herently complex, involving subtle interplay of electrostatics, sol-vation, entropy, and conformational dynamics that no single model 
+
+> 1arXiv:2607.17601v1 [cs.LG] 20 Jul 2026 Yongchan Hong et al.
+
+Figure 1: Pairwise error correlations between four binding affinity prediction engines on PDBbind. Prediction error is defined as the absolute difference between predicted and ex-perimental binding affinity ( 𝑝𝐾 𝑑 /𝑝𝐾 𝑖 ). Spearman correlation coefficients range from 0.14 to 0.33. 
+
+fully captures [ 5]. As a result, even state-of-the-art engines exhibit complementary failure modes: Figure 1 shows that pairwise error correlations between engines are weak (Spearman 𝜌 = 0.14-0.33), indicating that different engines succeed on different subsets of complexes. This complementarity suggests that fusing existing en-gines offers a more efficient path to robust predictions than building a single universal model from scratch. Building on this complementarity strength, practitioners employ multiple docking tools to improve robustness [ 3, 10 ]. Existing multi-engine strategies fall into two paradigms: consensus scoring, which combines predictions using heuristic rules such as rank aggregation or score normalization [ 32 , 46 ], and ensemble learning, which ag-gregates outputs via averaging or meta-learning [ 2 , 30 , 35 ]. While these approaches can improve mean accuracy, they are primarily designed to optimize aggregate performance, rather than to rea-son about engine-specific reliability for individual protein–ligand complexes. To reason about which predictions to rely on in a given pro-tein–ligand complex, uncertainty quantification (UQ) characterizes predictive confidence rather than producing point estimates alone. This is essential for trustworthy decision-making in drug discovery, where models are frequently applied to novel scaffolds or targets outside the training distribution [ 36 ]. Calibrated uncertainty esti-mates enable practitioners to prioritize high-confidence predictions for experimental validation, thereby reducing costly false positives. In active learning settings, uncertainty guides the selection of infor-mative compounds for iterative screening [ 14 ]. A key distinction is between aleatoric uncertainty, arising from inherent measurement noise that cannot be reduced, and epistemic uncertainty, reflecting limited model knowledge that could be addressed with additional data or improved models [ 6, 19 ]. Without this decomposition, prac-titioners cannot determine whether low confidence stems from inherent target difficulty or correctable gaps in model coverage. Recent advances in uncertainty quantification provide principled frameworks for single-model settings. Evidential regression using Normal–Inverse-Gamma (NIG) distributions enables closed-form uncertainty decomposition [ 1], and has shown promise in drug discovery applications [ 45 , 47 ]. However, these methods address uncertainty within a single model and do not account for the ad-ditional epistemic uncertainty arising from disagreement among engines. Binding affinity engines are not exchangeable as they rely on different assumptions, scoring functions, and training data with varying coverage [ 44 ]. Existing single-model UQ methods cannot capture this inter-engine disagreement and determine which engine to trust for a given protein–ligand complex. To address the above mentioned challenges, we introduce RELIABLE-BA (RELIABiLity-aware Evidential fusion for Binding Affinity). RELIABLE-BA models each docking engine as an evidential expert outputting a NIG distribution that captures both aleatoric and epis-temic uncertainty. A reliability network learns context-dependent trustworthiness scores conditioned on protein–ligand features, which modulate each expert’s epistemic uncertainty through a prin-cipled scaling transformation while preserving predictive means. The reliability-scaled experts are then fused via closed-form Mixture of Normal–Inverse-Gamma (MoNIG) aggregation [ 27 ], yielding cal-ibrated predictions that reflect both individual engine uncertainty and inter-engine disagreement. We evaluate RELIABLE-BA on PDBbind [ 43 ] using a time-split protocol, with additional validation on BDB2020+ [ 24 ], an inde-pendent test set with zero training overlap, and a case study on the SARS-CoV-2 Mpro dataset and 5HT2A receptor. Across all set-tings, RELIABLE-BA achieves competitive point prediction while substantially improving uncertainty calibration. Selective predic-tion analyses demonstrate consistent error reduction at low cov-erage, and epistemic uncertainty correlates with inter-engine dis-agreement while point predictions remain stable. These properties make RELIABLE-BA well-suited for multi-engine virtual screening pipelines where calibrated uncertainty is needed to prioritize high-confidence predictions before committing experimental resources. In summary, this paper makes the following contributions: (1) We propose RELIABLE-BA , the first multi-engine bind-ing affinity framework combining evidential uncertainty quantification with context-dependent reliability modeling. (2) We introduce a reliability-scaling mechanism that modu-lates epistemic uncertainty while preserving each expert’s predictive mean, enabling coherent fusion via MoNIG ag-gregation. (3) Through experiments on PDBbind, BDB2020+, and both SARS-CoV-2 Mpro dataset and 5HT2A receptor case study, we demonstrate superior uncertainty calibration and up to 25.7% MAE reduction via selective prediction. Together, these results position RELIABLE-BA as a practical approach to uncertainty-aware virtual screening in drug discovery. Accurate binding affinity prediction with calibrated uncertainty is particularly critical for challenging therapeutic targets such as GPCRs, which account for over 34% of FDA-approved drug targets 
+
+> 2Trustworthy Protein–Ligand Binding Affinity Prediction via Reliability-Aware Multi-Engine Fusion
+
+yet remain difficult to model due to their conformational flexibility and limited representation in binding affinity training data [ 15 ]. Our 5HT2A receptor case study confirms that RELIABLE-BA maintains strong performance on this clinically relevant target class. To prove its usage in real world, we further validated the method on a SARS-CoV-2 Mpro dataset, a clinically meaningful dataset known to be independent of the training data [24]. 
+
+## 2 Related Work 2.1 Binding Affinity Prediction 
+
+Binding affinity quantifies the strength of interaction between a pro-tein and a ligand, typically expressed as dissociation constants ( 𝐾 𝑑 ,
+
+𝐾 𝑖 ) or their negative logarithms (p 𝐾 𝑑 , p 𝐾 𝑖 ) [ 23 ]. Accurate prediction is essential for computational drug discovery, as experimental vali-dation is costly and time-consuming, allowing only a small fraction of candidate compounds to be tested [22]. Existing approaches span a wide spectrum of modeling assump-tions. Physics-based approaches include molecular docking with empirical scoring functions, such as AutoDock Vina [ 41 ] and Glide [ 11 ], as well as free energy perturbation (FEP) [ 42 ]. While docking meth-ods enable efficient large-scale screening, FEP achieves substan-tially higher accuracy ( ∼1 kcal/mol error) at the cost of extensive sampling and prohibitive computational expense. Machine learning approaches offer faster inference with compet-itive accuracy. Structure-based methods include 3D convolutional networks that operate on voxelized protein–ligand complexes (GN-INA [ 29 ], KDEEP [ 17 ], Pafnucy [ 40 ]). Sequence-based models such as BIND [ 21 ] combine protein language model embeddings with ligand graph neural networks, avoiding dependence on explicit 3D structures. More recently, generative docking methods based on diffusion (DynamicBind [ 26 ]) and flow matching (FlowDock [ 31 ]) jointly predict binding poses and affinities. Despite this diversity, each approach carries distinct biases. Physics-based docking relies primarily on structural information, making it less dependent on ligand data coverage but limited in capturing complex energetics. Structure-based ML models are sensitive to pose quality, while sequence-based models may miss geometric in-teractions between protein and ligand [ 21 ]. Critically, most methods output only point estimates without calibrated confidence scores, leaving practitioners unable to distinguish reliable predictions from unreliable ones. 
+
+## 2.2 Aggregation of Affinity Prediction Engines 
+
+A common strategy for improving binding affinity prediction is to aggregate outputs from multiple engines. Prior work has explored two main paradigms: consensus scoring and ensemble learning, motivated by the observation that no single engine consistently outperforms others across all target classes [44]. Consensus scoring aggregates predictions from independent docking or scoring functions using heuristic rules such as rank-based aggregation or score normalization [ 3, 32 , 46 ]. Ericksen et al .showed that machine learning consensus scoring outperforms naive combinations, but also found that the best-performing engine varies by target, making it difficult to know which engines to trust a priori. Ensemble learning formulates aggregation within a machine learning framework. Ballester and Mitchell pioneered machine learning scoring functions using Random Forests [ 2], while recent work has explored deep learning ensembles [ 30 ] and confidence estimation through ensemble disagreement [35]. Recent advances in uncertainty quantification offer principled alternatives [ 36 ]. Evidential methods have demonstrated practi-cal impact: Soleimany et al . [ 38 ] showed that evidential uncer-tainty improved virtual screening hit rates, and EviDTI [ 47 ] vali-dated uncertainty-guided predictions with experimental binding assays. UAMRL employed Normal-Inverse-Gamma distributions for uncertainty-aware fusion of multiple modalities within a single model [45]. Despite these advances, existing methods either apply uniform weighting across engines or fuse modalities within a single model, without learning context-dependent reliability for each prediction source. In practice, different engines exhibit sample-level biases, which is a gap RELIABLE-BA can address through learned reliability scaling. 
+
+## 2.3 Uncertainty Quantification and Evidential Learning 
+
+Uncertainty quantification (UQ) characterizes predictive confidence rather than producing point estimates alone. A key distinction is between aleatoric uncertainty, arising from inherent data noise, and epistemic uncertainty, reflecting limited model knowledge [ 19 ]. Common approaches of UQ include deep ensembles [ 20 ], Monte Carlo Dropout [ 12 ], SWA-Gaussian [ 28 ], and sparse variational Gaussian processes [16]. Another common approach is evidential regression, which is a probabilistic framework in which a neural network predicts the parameters of a Normal–Inverse-Gamma (NIG) prior over the mean and variance of a Gaussian likelihood, yielding closed-form uncer-tainty decomposition without sampling or ensembles [1]. Ma et al . [ 27 ] introduced the Mixture of NIG (MoNIG) framework for multi-source evidential fusion, combining NIG distributions through a closed-form summation operator that accumulates both within-expert uncertainty and inter-expert disagreement. While MoNIG provides a principled aggregation rule, existing applica-tions rely on static weighting schemes that do not adapt to input-dependent predictor reliability. 
+
+## 3 RELIABLE-BA: RELIABiLity-aware Evidential fusion for Binding Affinity 3.1 Problem Setup 
+
+We consider the problem of predicting protein–ligand binding affin-ity by integrating outputs from multiple binding affinity prediction engines. Let 𝑥 denote a protein–ligand complex, and 𝑦 ∈ R the ground-truth binding affinity. Assume 𝑀 docking engines are avail-able, each producing a scalar score 𝑠 𝑖 (𝑥 ) for engine 𝑖 . In addition, a shared representation h(𝑥 ) ∈ R𝑑 is extracted by concatenating frozen ESM-2 protein embeddings [ 25 ] and ChemBERTa ligand embeddings [ 8]. The goal is to output a predictive distribution 
+
+𝑝 (𝑦 | 𝑥 ) that captures both the predicted value and its associated uncertainty, rather than producing a single point estimate. 
+
+> 3
+
+Yongchan Hong et al. INPUT DOCKING EXPERTS SCORING FUNCTIONS EVIDENTIAL HEADS NIG PARAMETER SCALING MIXTURE FUSION OUTPUT 
+
+> Protein
+
++              
+
+> Ligand
+> GNINA GNINA Score
+> s₁(x)
+> NIG Head
+> (γ₁, ν₁, α₁, β₁)
+> Parameter Scaling
+> (γ̃ ₁, ν̃ ₁, α̃ ₁, β̃ ₁)
+> BIND BIND Score
+> s₂(x)
+> NIG Head
+> (γ₂, ν₂, α₂, β₂)
+> Parameter Scaling
+> (γ̃ ₂, ν̃ ₂, α̃ ₂, β̃ ₂)
+> Flow Dock
+> FlowDock Score
+> s₃(x)
+> NIG Head
+> (γ₃, ν₃, α₃, β₃)
+> Parameter Scaling
+> (γ̃ ₃, ν̃ ₃, α̃ ₃, β̃ ₃)
+> Dynamic Bind
+> DynamicBind Score
+> s₄(x)
+> NIG Head
+> (γ₄, ν₄, α₄, β₄)
+> Parameter Scaling
+> (γ̃ ₄, ν̃ ₄, α̃ ₄, β̃ ₄)
+
+⋮ ⋮ ⋮ ⋮
+
+MoNIG    
+
+> Mixture of Normal-Inverse Gamma
+> ⊕ᵢ NIG( γ̃ ᵢ, ν̃ ᵢ, α̃ ᵢ, β̃ ᵢ)
+
+OUTPUT 
+
+(γ, ν, α, β)  
+
+> Mean: E[μ] = γ Aleatoric: E[σ²] = β/(α−1) Epistemic: Var(μ) = β/(ν(α−1))
+> Embedding h(x)
+> ESM-2
+> ⊕ChemBERTa
+> Reliability Network
+> rᵢ(x) = σ(gᵩ(h(x))ᵢ)
+> EXAMPLE PREDICTION
+> Protein
+
++
+
+> Ligand
+> Predicted pK
+
+7.2   
+
+> Expert Reliability Weights
+> GNINA BIND Flow Dock
+> Dynamic Bind
+> ← Lower reliability (lighter) Higher reliability (darker) →
+> Uncertainty
+> Aleatoric: 0.31 Epistemic: 0.12
+
+Figure 2: Overview of the RELIABLE-BA architecture. Evidential heads map each engine’s score to NIG parameters, which are modulated by context-dependent reliability scores and fused via MoNIG aggregation. An example prediction illustrates per-engine reliability weights (darker = higher reliability) alongside decomposed uncertainty estimates. 
+
+## 3.2 Evidential Expert Modeling 
+
+Each engine is modeled as an evidential expert that outputs a prob-abilistic prediction over binding affinity. For engine 𝑖 , we assume a Gaussian likelihood 
+
+𝑦 | 𝜇, 𝜎 2 ∼ N ( 𝜇, 𝜎 2), (1) with a Normal–Inverse-Gamma (NIG) prior [ 1 ] placed over the unknown mean and variance, 
+
+(𝜇, 𝜎 2) ∼ NIG (𝛾, 𝜈, 𝛼, 𝛽 ). (2) Rather than treating these as fixed parameters, we learn the NIG parameters via a neural network. Specifically, for each engine 𝑖 ,an MLP 𝑓 (𝑖 )
+
+𝜃 maps the engine score 𝑠 𝑖 (𝑥 ) to the four evidential parameters: 
+
+(𝛾 𝑖 , 𝜈 𝑖 , 𝛼 𝑖 , 𝛽 𝑖 ) = 𝑓 (𝑖 )
+
+𝜃 
+
+ 𝑠 𝑖 (𝑥 ). (3) We enforce 𝜈 𝑖 > 0 and 𝛽 𝑖 > 0 via softplus activation, and 𝛼 𝑖 > 1
+
+via 𝛼 𝑖 = 1 + softplus (·) to ensure the expected variance E[𝜎 2]
+
+remains finite. The four parameters admit the following interpretation: 𝛾 𝑖 rep-resents the predicted mean, 𝜈 𝑖 controls confidence in the mean estimate (analogous to pseudo-observation count), while 𝛼 𝑖 and 
+
+𝛽 𝑖 govern the shape and scale of uncertainty over the variance. From these parameters, the expected prediction and uncertainty components are 
+
+E[𝜇 ] = 𝛾 𝑖 , (4) 
+
+E[𝜎 2] = 𝛽 𝑖 
+
+𝛼 𝑖 − 1 , (5) 
+
+Var (𝜇 ) = 𝛽 𝑖 
+
+𝜈 𝑖 (𝛼 𝑖 − 1) . (6) We interpret E[𝜇 ] as the point prediction, E[𝜎 2] as aleatoric uncer-tainty (irreducible data noise), and Var (𝜇 ) as epistemic uncertainty (model uncertainty due to limited evidence). 
+
+## 3.3 Reliability-Aware Uncertainty Modeling 
+
+Network. Since each docking engine operates on different mech-anisms with unique inductive biases, context-dependent reliability will differ across protein–ligand complexes. To model this behav-ior, RELIABLE-BA introduces a reliability network that estimates predictive trustworthiness conditioned on the input. The reliability network takes the shared embedding h(𝑥 ) as input and returns a reliability score for each engine, 
+
+𝑟 𝑖 (𝑥 ) = 𝜎  𝑔 𝜙 (h(𝑥 )) 𝑖 
+
+, 𝑟 𝑖 (𝑥 ) ∈ ( 0, 1), (7) where 𝑔 𝜙 is an MLP and 𝜎 denotes the sigmoid function. The output 
+
+𝑟 𝑖 (𝑥 ) reflects how trustworthy engine 𝑖 is for the given complex. The scores quantify predictive trustworthiness conditioned on molecu-lar context, reflecting factors such as protein family, binding pocket geometry, and structural complexity. 
+
+4Trustworthy Protein–Ligand Binding Affinity Prediction via Reliability-Aware Multi-Engine Fusion 
+
+Scaling. The reliability scores are used to modulate epistemic uncertainty without altering each expert’s predictive bias. Specif-ically, RELIABLE-BA applies reliability scaling to the evidential parameters as 
+
+˜𝛾 𝑖 = 𝛾 𝑖 , (8) 
+
+˜𝜈 𝑖 = 𝑟 𝑖 (𝑥 ) 𝜈 𝑖 , (9) 
+
+˜𝛼 𝑖 = 𝑟 𝑖 (𝑥 ) 𝛼 𝑖 +  1 − 𝑟 𝑖 (𝑥 ), (10) 
+
+˜𝛽 𝑖 = 𝑟 𝑖 (𝑥 ) 𝛽 𝑖 . (11) This transformation preserves each expert’s predicted mean while reducing its effective evidence when reliability is low. Consequently, epistemic uncertainty increases for unreliable experts, while the expected aleatoric variance remains unchanged under the NIG parameterization. We ensure numerical validity by constraining 
+
+𝑟 𝑖 (𝑥 ) away from zero, guaranteeing ˜𝜈 𝑖 > 0, ˜𝛽 𝑖 > 0, and ˜𝛼 𝑖 > 1.
+
+## 3.4 MoNIG Aggregation 
+
+The reliability-scaled experts are fused using a Mixture of Normal– Inverse-Gamma (MoNIG) aggregation. Let ( ˜𝛾 𝑖 , ˜𝜈 𝑖 , ˜𝛼 𝑖 , ˜𝛽 𝑖 ) denote the reliability-scaled evidential parameters produced by engine 𝑖 .Following prior work of MoNIG [ 27 ], we aggregate multiple Normal–Inverse-Gamma distributions using the NIG summation operator, denoted by ⊕, which defines a closed-form fusion rule that preserves conjugacy. The fusion of 𝑀 scaled experts is given by 
+
+NIG (𝛾, 𝜈, 𝛼, 𝛽 ) =
+
+> 𝑀
+
+Ê
+
+> 𝑖 =1
+
+NIG ( ˜𝛾 𝑖 , ˜𝜈 𝑖 , ˜𝛼 𝑖 , ˜𝛽 𝑖 ). (12) The fused mean is computed as an evidence-weighted average, 
+
+𝛾 =
+
+Í𝑀 𝑖 =1 ˜𝜈 𝑖 ˜𝛾 𝑖 
+
+Í𝑀 𝑖 =1 ˜𝜈 𝑖 
+
+, (13) with total evidence 
+
+𝜈 =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑖 =1
+
+˜𝜈 𝑖 . (14) The remaining Normal–Inverse-Gamma parameters are aggre-gated according to the NIG summation operator. Specifically, the fused shape parameter is 
+
+𝛼 =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑖 =1
+
+˜𝛼 𝑖 + 𝑀 − 12 , (15) and the fused scale parameter is 
+
+𝛽 =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑖 =1
+
+˜𝛽 𝑖 + 12
+
+> 𝑀
+
+∑︁ 
+
+> 𝑖 =1
+
+˜𝜈 𝑖 
+
+  ˜𝛾 𝑖 − 𝛾 2. (16) This aggregation accumulates both within-expert uncertainty and disagreement among expert means, with the second term in Eq. (16) increasing epistemic uncertainty when engines provide conflicting predictions. While the correctness of the NIG summation operator without reliability scaling has been established in prior work, we provide a formal proof in Appendix A that the summation remains valid under the proposed reliability scaling. Given the fused Normal–Inverse-Gamma parameters, predictive uncertainty decomposes into aleatoric and epistemic components as 
+
+E[𝜎 2]
+
+|{z} 
+
+> aleatoric
+
+= 𝛽 𝛼 − 1 , Var (𝜇 )
+
+| {z }
+
+> epistemic
+
+= 𝛽 𝜈 (𝛼 − 1) . (17) 
+
+## 3.5 Joint Evidential Learning Objective 
+
+RELIABLE-BA is trained end-to-end with joint supervision at both the expert and fused levels (Figure 2). For each complex 𝑥 with ground-truth binding affinity 𝑦 , engine-specific branches output evidential parameters 𝑚 𝑖 (𝑥 ) = (𝛾 𝑖 , 𝜈 𝑖 , 𝛼 𝑖 , 𝛽 𝑖 ).We define the overall training objective as the sum of expert-level evidential losses and the fused-level evidential loss: 
+
+L( 𝑤 ) =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑖 =1
+
+L𝑖 (𝑤 ) + L MoNIG (𝑤 ), (18) where each expert loss is given by 
+
+L𝑖 (𝑤 ) = LNLL  
+
+> 𝑖
+
+(𝑤 ) + 𝜆 LR 
+
+> 𝑖
+
+(𝑤 ), (19) and the fused loss is 
+
+LMoNIG (𝑤 ) = LNLL MoNIG (𝑤 ) + 𝜆 LRMoNIG (𝑤 ). (20) Here, LNLL  
+
+> 𝑖
+
+and LNLL MoNIG denote the negative log marginal like-lihoods under the expert-level and fused Student-𝑡 predictive dis-tributions, respectively. The regularization terms LR 
+
+> 𝑖
+
+and LRMoNIG 
+
+follow standard evidential regression and penalize excessive evi-dence when prediction errors are large. The coefficient 𝜆 controls the trade-off between data fit and uncertainty calibration. 
+
+## 4 Experiments 
+
+We organize our empirical analysis around the following research questions (RQs): 
+
+• RQ1 : Does RELIABLE-BA show competitive point predic-tion accuracy over individual docking engines and aggre-gation baselines? 
+
+• RQ2 : Does RELIABLE-BA produce better-calibrated and more informative uncertainty estimates? 
+
+• RQ3 : Does RELIABLE-BA support risk-aware decision mak-ing through selective prediction? 
+
+• RQ4 : How do reliability modeling and expert disagreement contribute to RELIABLE-BA’s performance? 
+
+## 4.1 Dataset and Experimental Setup 
+
+4.1.1 Dataset and Evaluation Protocol. We evaluate RELIABLE-BA on the PDBbind 2020 benchmark [ 43 ] using a time-based split to prevent temporal leakage, which was originally curated by prior works [ 26 , 31 , 39 ]. Within this split, we exclude IC50 affinity mea-surements, as IC50 values are assay-dependent and not directly comparable to thermodynamic binding constants ( 𝐾 𝑖 /𝐾 𝑑 ) with-out knowledge of assay conditions [ 18 , 23 ]. We have also utilized BDB2020+ [ 24 ], which is an independent, challenging dataset for fair benchmarking. Dataset details are included in Appendix B. Protein and ligand inputs are converted into fixed-dimensional representations using ESM-2 ( esm2_t6_8M_UR50D ) [ 25 ] for proteins and ChemBERTa ( ChemBERTa-77M-MTR ) [ 8] for ligands. All meth-ods operate on identical 704-dimensional protein–ligand embed-dings. 
+
+> 5Yongchan Hong et al.
+
+4.1.2 Evidential Expert Models. RELIABLE-BA integrates four dock-ing engines as evidential experts, selected to maximize methodolog-ical diversity and complementary inductive biases: 
+
+• GNINA (Version 1.3): A Vina-derived docking engine that performs Markov chain Monte Carlo (MCMC) pose sam-pling followed by CNN-based rescoring on grid-based protein– ligand representations [29]. 
+
+• BIND (Version 1.4): A sequence-based affinity predictor that combines a ligand graph neural network with protein language model embeddings (ESM-2) via cross-attention [ 21 ]. 
+
+• FlowDock (Version 0.0.3): A geometric generative docking method based on conditional flow matching, learning con-tinuous transformations from apo to holo protein–ligand complexes [31]. 
+
+• DynamicBind (Version 1.0): An E(3)-equivariant diffusion-based docking model that learns smooth energy landscapes for ligand-specific binding [26]. These experts differ substantially in input modality, architec-tural assumptions, and algorithms, making them well-suited for uncertainty-aware fusion. Note that the framework is modular and additional non-redundant docking engines can be incorporated as new evidential experts without architectural changes. 
+
+4.1.3 Baselines. We compare RELIABLE-BA against a comprehen-sive set of uncertainty-aware baselines, including: (i) Deterministic MLP regression, (ii) Single evidential regression (NIG) [ 1] (iii) het-eroscedastic Gaussian regression [ 19 ], (iv) MC Dropout [ 12 ], (v) Deep Ensembles with mean–variance estimation [ 20 ], (vi) SWA-Gaussian (SWAG) [ 28 ], and (vii) Sparse Variational Gaussian Process (SVGP) [ 16 ]. We have also compared with traditional aggregation methods including consensus scoring, ensemble scoring, learned weight ensemble (LWE), and softmax mixture of experts (Softmax MoE). Detailed architectural choices and hyperparameter settings for each method are provided in Appendix C. 
+
+4.1.4 Evaluation Metrics. We assess performance along two com-plementary dimensions: 
+
+Point prediction accuracy : Mean Absolute Error (MAE), Root Mean Squared Error (RMSE), Pearson correlation, and coefficient of determination ( 𝑅 2). 
+
+Uncertainty quality : Expected Calibration Error (ECE), Contin-uous Ranked Probability Score (CRPS), and Negative Log-Likelihood (NLL). Uncertainty quality metrics were calculated using Uncer-tainty Toolbox [9]. 
+
+## 4.2 Experimental Results 
+
+4.2.1 RQ1: Point Prediction Performance. Table 1 reports point pre-diction performance on the PDBbind time-split test set. Among learned and traditional aggregation methods, RELIABLE-BA achieves the strongest overall performance, attaining the lowest MAE (0.8247), lowest RMSE (1.0473), highest correlation (0.8457), and highest 𝑅 2
+
+(0.7017). RELIABLE-BA is also comparable to the strongest indi-vidual engine (DynamicBind: MAE 0.8095, RMSE: 1.0840) while providing calibrated uncertainty estimates that individual engines lack. Table 2 reports results on BDB2020+, an independent test set with zero overlap with training data. RELIABLE-BA achieves the 
+
+Figure 3: Selective predictive analysis on five models. 
+
+best MAE (0.722) and 𝑅 2 (0.272), with competitive RMSE (0.932, second to Deep Ensemble’s 0.931) again showing its high point prediction performance. 
+
+4.2.2 RQ2: Uncertainty Calibration and Quality. Table 1 summa-rizes the uncertainty evaluation results on PDBbind time-split test set. RELIABLE-BA consistently outperforms all uncertainty-aware baselines in calibration and distributional quality, achieving the lowest ECE, CRPS, and NLL. Compared to evidential regression, RELIABLE-BA reduces ECE by 71.2%, CRPS by 6.0%, and NLL by 4.7%, indicating substantially improved calibration and sharper predictive distributions. Table 2 with BDB2020+ also shows that RELIABLE-BA consis-tently outperforms all uncertainty-aware baselines, again achieving the lowest ECE, CRPS, and NLL. Compared to evidential regression, RELIABLE-BA reduces ECE by 21.4%, CRPS by 5.3%, and NLL by 2.9%, confirming that the calibration improvements transfer to an independent validation set. 
+
+4.2.3 RQ3: Selective Prediction and Risk–Coverage Tradeoff. We evaluate whether RELIABLE-BA’s uncertainty estimates meaning-fully correlate with prediction difficulty using selective prediction. Figure 3 reports relative MAE improvement as increasingly un-certain samples are discarded. RELIABLE-BA achieves consistent improvement across all discard thresholds, reaching 25.7% relative error reduction when retaining only the most confident 10% of predictions. RELIABLE-BA not only produces well-calibrated un-certainty estimates, but also ranks samples by prediction difficulty more effectively, enabling principled risk-aware filtering in virtual screening pipelines. 
+
+4.2.4 RQ4: Reliability Modeling and Expert Disagreement. We ana-lyze how RELIABLE-BA’s learned reliability interacts with expert disagreement. Figure 4 (left) shows a clear positive correlation be-tween inter-expert disagreement and RELIABLE-BA’s epistemic uncertainty. As expert predictions diverge, RELIABLE-BA appropri-ately assigns higher epistemic uncertainty, treating disagreement as a signal of epistemic risk rather than noise. Figure 4 (right) shows that prediction error itself is only weakly correlated with expert disagreement, indicating that RELIABLE-BA does not force consensus at the level of the predictive mean. In-stead, disagreement is absorbed through reliability-aware scaling of 
+
+> 6Trustworthy Protein–Ligand Binding Affinity Prediction via Reliability-Aware Multi-Engine Fusion
+
+Table 1: Point prediction and uncertainty evaluation on PDBbind time-split benchmark. Results averaged over 20 seeds ( ±
+
+standard deviation). Best results in bold, second best underlined among aggregation methods. 
+
+Method MAE ↓ RMSE ↓ Corr ↑ R2 ↑ ECE ↓ CRPS ↓ NLL ↓
+
+Individual Scoring Engines 
+
+DynamicBind 0.8095 1.0840 0.8507 0.6806 - - -FlowDock 1.0155 1.2776 0.7590 0.5563 - - -GNINA 1.2609 1.5621 0.6646 0.3367 - - -BIND 1.3898 1.7417 0.5415 0.1754 - - -
+
+Traditional Aggregation Methods 
+
+Consensus Scoring 0.9356 1.1896 0.7912 0.6153 - - -Ensemble Scoring 0.9231 1.1533 0.8148 0.6384 - - -LWE 0.8380 1.0750 0.8350 0.6860 - - -Softmax MoE 0.8610 ± 0.0200 1.0890 ± 0.0180 0.8260 ± 0.0050 0.6780 ± 0.0110 - - -
+
+Learned Aggregation Methods 
+
+Baseline 0.8630 ± 0.0287 1.0991 ± 0.0360 0.8267 ± 0.0107 0.6713 ± 0.0214 - - -Gaussian 0.8543 ± 0.0230 1.0961 ± 0.0303 0.8309 ± 0.0085 0.6732 ± 0.0182 0.0376 ± 0.0164 0.6153 ± 0.0164 1.5272 ± 0.0291 MC Dropout 0.8435 ± 0.0242 1.0796 ± 0.0256 0.8290 ± 0.0081 0.6830 ± 0.0151 0.1009 ± 0.0211 0.6286 ± 0.0145 1.5893 ± 0.0249 Deep Ensemble 0.8444 ± 0.0246 1.0887 ± 0.0324 0.8344 ± 0.0057 0.6775 ± 0.0196 0.0540 ± 0.0130 0.6134 ± 0.0165 1.5290 ± 0.0243 SVGP 0.8680 ± 0.0325 1.1162 ± 0.0320 0.8184 ± 0.0094 0.6610 ± 0.0195 0.0810 ± 0.0311 0.6416 ± 0.0166 1.5971 ± 0.0310 SWAG 0.8549 ± 0.0241 1.0961 ± 0.0281 0.8285 ± 0.0090 0.6732 ± 0.0169 0.0395 ± 0.0147 0.6155 ± 0.0151 1.5271 ± 0.0248 Evidential Regression 0.8595 ± 0.0297 1.1109 ± 0.0359 0.8279 ± 0.0062 0.6642 ± 0.0221 0.0518 ± 0.0265 0.6227 ± 0.0196 1.5381 ± 0.0335 
+
+Ours 
+
+RELIABLE-BA 0.8247 ± 0.0137 1.0473 ± 0.0203 0.8457 ± 0.0031 0.7017 ± 0.0117 0.0149 ± 0.0055 0.5856 ± 0.0113 1.4664 ± 0.0237 
+
+Table 2: Point prediction and uncertainty evaluation on BDB2020+ independent test set. Results averaged over 20 seeds ( ±
+
+standard deviation). Best results in bold, second best underlined among aggregation methods. 
+
+Method MAE ↓ RMSE ↓ Corr ↑ R2 ↑ ECE ↓ CRPS ↓ NLL ↓
+
+Individual Scoring Engines 
+
+DynamicBind 0.8540 1.0860 0.4630 0.0110 - - -FlowDock 0.8630 1.1480 0.5290 -0.1040 - - -GNINA 0.7310 1.0450 0.4920 0.0840 - - -BIND 2.1000 2.3360 0.3100 -3.5750 - - -
+
+Traditional Aggregation Methods 
+
+Consensus Scoring 0.7390 0.9970 0.5870 0.1660 - - -Ensemble Scoring 0.7990 1.0020 0.6200 0.1580 - - -LWE 0.7270 0.9620 0.5700 0.2240 - - -Softmax MoE 0.7560 ± 0.0400 0.9740 ± 0.0470 0.6150 ± 0.0240 0.2040 ± 0.0760 - - -
+
+Learned Aggregation Methods 
+
+Baseline 0.7650 ± 0.0610 0.9900 ± 0.0770 0.5860 ± 0.0240 0.1750 ± 0.1340 - - -Gaussian 0.7400 ± 0.0470 0.9510 ± 0.0540 0.5920 ± 0.0230 0.2390 ± 0.0900 0.0820 ± 0.0280 0.5350 ± 0.0280 1.4150 ± 0.0430 MC Dropout 0.8100 ± 0.0570 1.0450 ± 0.0640 0.5590 ± 0.0310 0.0820 ± 0.1140 0.1430 ± 0.0250 0.6200 ± 0.0310 1.6160 ± 0.0420 Deep Ensemble 0.7230 ± 0.0350 0.9310 ± 0.0420 0.5950 ± 0.0210 0.2720 ± 0.0660 0.1040 ± 0.0240 0.5300 ± 0.0190 1.4240 ± 0.0290 SVGP 0.7730 ± 0.0580 1.0040 ± 0.0590 0.5550 ± 0.0450 0.1520 ± 0.0990 0.1430 ± 0.0410 0.5990 ± 0.0320 1.5910 ± 0.0620 SWAG 0.7480 ± 0.0430 0.9670 ± 0.0590 0.5860 ± 0.0370 0.2140 ± 0.0970 0.0830 ± 0.0260 0.5420 ± 0.0290 1.4300 ± 0.0430 Evidential Regression 0.7570 ± 0.0610 0.9680 ± 0.0740 0.5840 ± 0.0250 0.2110 ± 0.1310 0.0700 ± 0.0360 0.5440 ± 0.0420 1.4160 ± 0.0710 
+
+Ours 
+
+RELIABLE-BA 0.7220 ± 0.0220 0.9320 ± 0.0180 0.5870 ± 0.0050 0.2720 ± 0.0280 0.0550 ± 0.0160 0.5150 ± 0.0100 1.3750 ± 0.0170 
+
+epistemic uncertainty, preserving stable point predictions while ac-curately reflecting uncertainty. This design enables RELIABLE-BA to remain relatively robust under heterogeneous expert behavior. 
+
+## 4.3 Ablation Studies 
+
+We conduct ablation studies to isolate the contribution of key com-ponents in RELIABLE-BA, with a particular focus on reliability modeling and expert diversity. Specifically, we evaluate five abla-tions: (i) removing reliability scaling (No Reliability Scaling), (ii) 
+
+> 7Yongchan Hong et al.
+
+Figure 4: Correlation between expert disagreement and epis-temic uncertainty of RELIABLE-BA (left) and expert disagree-ment and prediction error of RELIABLE-BA (right). Table 3: Ablation study on RELIABLE-BA components. Re-sults averaged over 20 seeds.                                                  
+
+> Method MAE ↓RMSE ↓Corr ↑R2↑ECE ↓CRPS ↓NLL ↓
+> RELIABLE-BA 0.8247 1.0473 0.8457 0.7017 0.0149 0.5856 1.4664
+> No Reliability Scaling 0.8356 1.0613 0.8410 0.6937 0.0147 0.5939 1.4771 Scores Only Reliability 0.8385 1.0679 0.8414 0.6899 0.0146 0.5972 1.4851 Uniform Weight Aggregation 0.8383 1.0555 0.8394 0.6972 0.0209 0.5950 1.4796 Uniform Reliability 0.8418 1.0701 0.8404 0.6886 0.0279 0.5997 1.5004
+
+Table 4: Effect of the number of docking engines in RELIABLE-BA. Results averaged over 20 seeds.                                    
+
+> Method MAE ↓RMSE ↓Corr ↑R2↑ECE ↓CRPS ↓NLL ↓
+> 4 Engines 0.8247 1.0473 0.8457 0.7017 0.0149 0.5856 1.4664
+> 3 Engines 0.8471 1.1084 0.8448 0.6657 0.0349 0.6124 1.5190 2 Engines 0.8719 1.0889 0.8340 0.6775 0.0792 0.6245 1.5621
+
+using only engine scores for reliability estimation without em-beddings (Scores Only Reliability), (iii) using uniform reliability weights instead of context-dependent reliability (Uniform Relia-bility), (iv) aggregating expert predictions using uniform weights without learned reliability-based weighting (Uniform Weight Ag-gregation), and (v) varying the number of docking engines used in the fusion. For engine diversity experiments, we select engines based on their reliability distribution: 2 engines (DynamicBind, FlowDock) and 3 engines (DynamicBind, FlowDock, BIND). De-tailed selection choices are shown in Appendix E. As shown in Table 3, RELIABLE-BA achieves the best point prediction performance across most ablation variants, with the lowest MAE (0.8247) and RMSE (1.0473) and highest correlation (0.8457) and 𝑅 2 (0.7017). The primary benefit of reliability model-ing is further reflected in uncertainty quality: removing molecular context from reliability estimation or using uniform weights con-sistently degrades calibration. While ECE is comparable across variants, RELIABLE-BA achieves the best CRPS (0.5856) and NLL (1.4664), demonstrating that context-dependent reliability modeling improves both predictive accuracy and uncertainty calibration. Table 4 shows that incorporating additional engines improves both accuracy and uncertainty quality. Adding a fourth engine re-duces MAE by 5.4% relative to two engines and by 2.6% relative to three engines. Calibration benefits are more pronounced: ECE de-creases by 81.2% compared to two engines and by 57.3% compared 
+
+Figure 5: Experimentally resolved structure of the human 5HT2A receptor (PDB ID: 7WC6) used in the case study eval-uation. 
+
+to three engines. These results confirm that RELIABLE-BA effec-tively leverages the complementary strengths of heterogeneous predictors, with each additional engine providing gains in predic-tion accuracy and calibration. 
+
+## 4.4 Case Study I: SARS-CoV-2 Mpro Dataset 
+
+We have conducted case study evaluation on the SARS-CoV-2 main protease dataset (Mpro), an independent real-world benchmark disjoint from our training data [ 24 ]. Evaluating on the SARS-CoV-2 main protease dataset, a target central to the COVID-19 pandemic response, demonstrates the real-world impact of this study. RELIABLE-BA outperforms all individual engines in terms of point prediction with best MAE ( 0.532 ±0.021 ), RMSE ( 0.644 ±0.024 )and correlation ( 0.695 ± 0.006 ) compared to individual engines like GNINA (MAE: 0.631, RMSE: 0.768, Correlation: 0.586) and Dynam-icBind (MAE: 0.643, RMSE: 0.780, Correlation: 0.683). RELIABLE-BA also showed strong uncertainty calibration (CRPS = 0.391, NLL = 1.144), demonstrating effective generalization to systematic out-of-domain evaluation. 
+
+## 4.5 Case Study II: 5HT2A Receptor 
+
+The 5HT2A receptor is a class A G protein–coupled receptor (GPCR) that plays a central role in serotonergic signaling and is a key ther-apeutic target for neurological and psychiatric disorders, includ-ing depression and anxiety (Figure 5) [ 37 ]. From a computational perspective, 5HT2A provides a realistic evaluation setting for affin-ity prediction under distribution shift, as the resolved receptor structure is not represented in the training split and the ligand set exhibits substantial functional heterogeneity. This setting is well-suited for examining the behavior of uncertainty-aware fu-sion methods, and thus can prove that this study can expand to virtual-screening settings. We select PDB structure 7WC6 as the protein target and eval-uate all methods on distinct ligands, averaged over 20 random seeds. RELIABLE-BA achieves an MAE of 1.002 ± 0.04 and an RMSE of 1.264 ± 0.043 , outperforming the strongest individual engine, DynamicBind (MAE: 1.060, RMSE: 1.360), by 5.5% and 7.1%, re-spectively. Notably, uncertainty calibration remains strong under 
+
+> 8
+
+Trustworthy Protein–Ligand Binding Affinity Prediction via Reliability-Aware Multi-Engine Fusion 
+
+distribution shift. RELIABLE-BA achieves ECE of 0.0233, compa-rable to in-distribution performance (0.0149), with CRPS of 0.7143 and NLL of 1.6622, showing competitive uncertainty quantification. 
+
+## 5 Conclusion 
+
+In this paper, we proposed RELIABLE-BA, a reliability-aware evi-dential framework that fuses heterogeneous docking engines through context-dependent uncertainty modulation. By modeling each en-gine as an evidential expert and scaling epistemic uncertainty ac-cording to learned reliability, RELIABLE-BA produces calibrated predictive distributions that enable effective selective prediction, reducing MAE by 25.7% when retaining the most confident 10% of predictions. Experiments on PDBbind and BDB2020+ demonstrate strong point prediction accuracy and well-calibrated uncertainty estimates, with additional validation on the SARS-CoV-2 Mpro dataset and the 5HT2A GPCR confirming applicability to practical drug targets. Moreover, RELIABLE-BA’s modular design allows it to integrate heterogeneous docking and scoring engines, mak-ing it broadly applicable to large-scale virtual screening pipelines. Future work will explore extending RELIABLE-BA to larger dock-ing ensembles and incorporating pose-level uncertainty to further enhance applicability in drug discovery workflows. 
+
+## 6 Limitations and Ethical Considerations 
+
+This work does not involve human participants or personally iden-tifiable information. All experiments are conducted on publicly available benchmark datasets for protein–ligand binding affinity prediction (PDBbind 2020 [ 43 ], ChEMBL [ 13 ], BDB2020+ [ 24 ]), de-rived from previously published experimental measurements and used in accordance with their original licenses. As a limitation, RELIABLE-BA relies on the availability of mul-tiple binding affinity prediction engines and may be less effective when only a few engines are available or when their predictions are highly correlated. The learned reliability scores reflect context-dependent predictive trustworthiness rather than physical or mech-anistic correctness and should not be interpreted as causal guar-antees. Our evaluation relies on established benchmark datasets, which may contain inherent biases or data leakage despite mitiga-tion efforts. Finally, RELIABLE-BA introduces computational over-head from multi-engine inference, though this overhead is minimal compared to the cost of individual docking engines (Appendix F). 
+
+## Acknowledgments 
+
+This work was supported in part by the U.S. National Science Foun-dation under Grant No. 2125142 to Y.L. and by the National In-stitutes of Health under Grant No. R35GM153437 to V.K. GPU re-sources were provided through an NVIDIA Academic Grant. 
+
+## GenAI Disclosure 
+
+Generative AI tools were used in a limited capacity. Claude was utilized for minor code construction, while ChatGPT was used for grammar and writing refinement. 
+
+## References 
+
+[1] Alexander Amini, Wilko Schwarting, Ava Soleimany, and Daniela Rus. 2020. Deep evidential regression. Advances in neural information processing systems 33 (2020), 14927–14937. [2] Pedro J. Ballester and John B. O. Mitchell. 2010. A machine learning approach to predicting protein–ligand binding affinity with applications to molecular docking. 
+
+Bioinformatics 26, 9 (2010), 1169–1175. doi:10.1093/bioinformatics/btq112 [3] Clara Blanes-Mira, Pilar Fernández-Aguado, Jorge de Andrés-López, Asia Fernández-Carvajal, Antonio Ferrer-Montiel, and Gregorio Fernández-Ballester. 2022. Comprehensive survey of consensus docking for high-throughput virtual screening. Molecules 28, 1 (2022), 175. doi:10.3390/molecules28010175 [4] Leo Breiman. 1996. Stacked regressions. Machine Learning 24, 1 (1996), 49–64. doi:10.1007/BF00117832 [5] Martin Buttenschoen, Garrett M Morris, and Charlotte M Deane. 2024. Pose-Busters: AI-based docking methods fail to generate physically valid poses or generalise to novel sequences. Chemical Science 15, 9 (2024), 3130–3139. [6] Defu Cao, James Enouen, Yujing Wang, Xiangchen Song, Chuizheng Meng, Hao Niu, and Yan Liu. 2023. Estimating treatment effects from irregular time series observations with hidden confounders. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 37. 6897–6905. [7] Defu Cao, Wen Ye, Yizhou Zhang, Sam Griesemer, and Yan Liu. 2026. PINFDiT: Energy-Based Physics-Informed Diffusion Transformers for General-purpose Time Series Tasks. In The Fourteenth International Conference on Learning Repre-sentations . https://openreview.net/forum?id=EphTlUJ4XN [8] Seyone Chithrananda, Gabriel Grand, and Bharath Ramsundar. 2020. Chem-BERTa: large-scale self-supervised pretraining for molecular property prediction. 
+
+arXiv preprint arXiv:2010.09885 (2020). [9] Youngseog Chung, Ian Char, Han Guo, Jeff Schneider, and Willie Neiswanger. 2021. Uncertainty Toolbox: an Open-Source Library for Assessing, Visualizing, and Improving Uncertainty Quantification. arXiv preprint arXiv:2109.10254 
+
+(2021). [10] Spencer S Ericksen, Haozhen Wu, Huikun Zhang, Lauren A Michael, Michael A Newton, F Michael Hoffmann, and Scott A Wildman. 2017. Machine Learning Consensus Scoring Improves Performance Across Targets in Structure-Based Virtual Screening. Journal of Chemical Information and Modeling 57, 7 (2017), 1579–1590. doi:10.1021/acs.jcim.7b00153 [11] Richard A Friesner, Jay L Banks, Robert B Murphy, Thomas A Halgren, Jasna J Klicic, Daniel T Mainz, Matthew P Repasky, Eric H Knoll, Mee Shelley, Jason K Perry, et al . 2004. Glide: a new approach for rapid, accurate docking and scoring. 1. Method and assessment of docking accuracy. Journal of Medicinal Chemistry 
+
+47, 7 (2004), 1739–1749. [12] Yarin Gal and Zoubin Ghahramani. 2016. Dropout as a bayesian approximation: Representing model uncertainty in deep learning. In international conference on machine learning . PMLR, 1050–1059. [13] Anna Gaulton, Louisa J Bellis, A Patricia Bento, Jon Chambers, Mark Davies, Anne Hersey, Yvonne Light, Shaun McGlinchey, David Michalovich, Bissan Al-Lazikani, et al . 2012. ChEMBL: a large-scale bioactivity database for drug discovery. Nucleic acids research 40, D1 (2012), D1100–D1107. [14] David E Graff, Eugene I Shakhnovich, and Connor W Coley. 2021. Accelerating high-throughput virtual screening through molecular pool-based active learning. 
+
+Chemical science 12, 22 (2021), 7866–7881. [15] Alexander S Hauser, Misty M Attwood, Mathias Rask-Andersen, Helgi B Schiöth, and David E Gloriam. 2017. Trends in GPCR drug discovery: new agents, targets and indications. Nature reviews Drug discovery 16, 12 (2017), 829–842. [16] James Hensman, Alexander Matthews, and Zoubin Ghahramani. 2015. Scalable variational Gaussian process classification. In Artificial intelligence and statistics .PMLR, 351–360. [17] José Jiménez, Miha Skalic, Gerard Martinez-Rosell, and Gianni De Fabritiis. 2018. K deep: protein–ligand absolute binding affinity prediction via 3d-convolutional neural networks. Journal of chemical information and modeling 58, 2 (2018), 287–296. [18] Tuomo Kalliokoski, Christian Kramer, Anna Vulpetti, and Peter Gedeck. 2013. Comparability of Mixed IC50 Data–A Statistical Analysis. PLoS ONE 8, 4 (2013), e61007. doi:10.1371/journal.pone.0061007 [19] Alex Kendall and Yarin Gal. 2017. What uncertainties do we need in bayesian deep learning for computer vision?. In Advances in Neural Information Processing Systems , Vol. 30. [20] Balaji Lakshminarayanan, Alexander Pritzel, and Charles Blundell. 2017. Simple and scalable predictive uncertainty estimation using deep ensembles. Advances in neural information processing systems 30. [21] Hilbert Yuen In Lam, Jia Sheng Guan, Xing Er Ong, Robbe Pincket, and Yuguang Mu. 2024. Protein language models are performant in structure-free virtual screening. Briefings in Bioinformatics 25, 6 (2024), bbae480. [22] Jordy Homing Lam and Vsevolod Katritch. 2025. Navigating structure-based drug discovery with emerging innovations in physics-and knowledge-based approaches. npj Drug Discovery 2, 1 (2025), 29. [23] Gregory A Landrum and Sereina Riniker. 2024. Combining IC50 or K i values from different sources is a source of significant noise. Journal of chemical information and modeling 64, 5 (2024), 1560–1567. [24] Jie Li, Xingyi Guan, Oufan Zhang, Kunyang Sun, Yingze Wang, Dorian Bagni, and Teresa Head-Gordon. 2026. Leak Proof PDBBind: a reorganized data set 9Yongchan Hong et al. 
+
+of protein–ligand complexes for more generalizable binding affinity prediction. 
+
+The Journal of Physical Chemistry B 130, 2 (2026), 730–740. [25] Zeming Lin, Halil Akin, Roshan Rao, Brian Hie, Zhongkai Zhu, Wenting Lu, Allan dos Santos Costa, Maryam Fazel-Zarandi, Tom Sercu, Sal Candido, et al .2022. Language models of protein sequences at the scale of evolution enable accurate structure prediction. BioRxiv 2022 (2022), 500902. [26] Wei Lu, Qifeng Wu, Jixian Zhang, Jiahua Rao, Chengtao Li, and Shuangjia Zheng. 2024. DynamicBind: predicting ligand-specific protein-ligand complex structure with a deep equivariant generative model. Nature Communications 15, 1 (2024), 1071. [27] Huan Ma, Zongbo Han, Changqing Zhang, Huazhu Fu, Joey Tianyi Zhou, and Qinghua Hu. 2021. Trustworthy multimodal regression with mixture of normal-inverse gamma distributions. Advances in Neural Information Processing Systems 
+
+34 (2021), 6881–6893. [28] Wesley J Maddox, Pavel Izmailov, Timur Garipov, Dmitry P Vetrov, and An-drew Gordon Wilson. 2019. A simple baseline for bayesian uncertainty in deep learning. Advances in neural information processing systems 32. [29] Andrew T McNutt, Paul Francoeur, Rishal Aggarwal, Tomohide Masuda, Rocco Meli, Matthew Ragoza, Jocelyn Sunseri, and David Ryan Koes. 2021. GNINA 1.0: molecular docking with deep learning. Journal of cheminformatics 13, 1 (2021), 43. [30] Jiffriya Mohamed Abdul Cader, MA Hakim Newton, Julia Rahman, Akmal Jahan Mohamed Abdul Cader, and Abdul Sattar. 2024. Ensembling methods for protein-ligand binding affinity prediction. Scientific Reports 14, 1 (2024), 24447. [31] Alex Morehead and Jianlin Cheng. 2025. FlowDock: Geometric flow matching for generative protein–ligand docking and affinity prediction. Bioinformatics 41, Supplement_1 (2025), i198–i206. doi:10.1093/bioinformatics/btaf187 [32] Do Nhat Phuong, Darren R. Flower, Subhagata Chattopadhyay, and Amit K. Chattopadhyay. 2023. Towards effective consensus scoring in Structure-Based virtual screening. Interdisciplinary Sciences: Computational Life Sciences 15, 1 (2023), 131–145. doi:10.1007/s12539-022-00546-8 [33] Fatemeh Panahandeh and Najme Mansouri. 2025. A comprehensive review of neural network-based approaches for drug–target interaction prediction. Molec-ular Diversity (2025), 1–48. [34] Saro Passaro, Gabriele Corso, Jeremy Wohlwend, Mateo Reveiz, Stephan Thaler, Vignesh Ram Somnath, Noah Getz, Tally Portnoi, Julien Roy, Hannes Stark, et al . 2025. Boltz-2: Towards Accurate and Efficient Binding Affinity Prediction. 
+
+bioRxiv (2025). doi:10.1101/2025.06.14.659707 [35] Milad Rayka, Morteza Mirzaei, and Ali Mohammad Latifi. 2024. An ensemble-based approach to estimate confidence of predicted protein–ligand binding affinity values. Molecular Informatics 43, 4 (2024), e202300292. doi:10.1002/minf. 202300292 [36] Milad Rayka and S Shahab Naghavi. 2025. Uncertainty quantification enables reliable deep learning for protein–ligand binding affinity prediction. Scientific Reports 15, 1 (2025), 43156. doi:10.1038/s41598-025-27167-7 [37] Christopher J Schmidt, Stephen M Sorensen, John H Kenne, Albert A Carr, and Michael G Palfreyman. 1995. The role of 5-HT2A receptors in antipsychotic activity. Life sciences 56, 25 (1995), 2209–2222. [38] Ava P Soleimany, Alexander Amini, Samuel Goldman, Daniela Rus, Sangeeta N Bhatia, and Connor W Coley. 2021. Evidential Deep Learning for Guided Molecu-lar Property Prediction and Discovery. ACS central science 7, 8 (2021), 1356–1367. doi:10.1021/acscentsci.1c00546 [39] Hannes Stärk, Octavian Ganea, Lagnajit Pattanaik, Regina Barzilay, and Tommi Jaakkola. 2022. Equibind: Geometric deep learning for drug binding structure prediction. In International conference on machine learning . PMLR, 20503–20521. [40] Marta M Stepniewska-Dziubinska, Piotr Zielenkiewicz, and Pawel Siedlecki. 2018. Development and evaluation of a deep learning model for protein–ligand binding affinity prediction. Bioinformatics 34, 21 (2018), 3666–3674. [41] Oleg Trott and Arthur J Olson. 2010. AutoDock Vina: improving the speed and accuracy of docking with a new scoring function, efficient optimization, and multithreading. Journal of Computational Chemistry 31, 2 (2010), 455–461. [42] Lingle Wang, Yujie Wu, Yuqing Deng, Byungchan Kim, Levi Pierce, Goran Krilov, Dmitry Lupyan, Shaughnessy Robinson, Markus K Dahlgren, Jeremy Greenwood, et al . 2015. Accurate and reliable prediction of relative ligand binding potency in prospective drug discovery by way of a modern free-energy calculation protocol and force field. Journal of the American Chemical Society 137, 7 (2015), 2695–2703. [43] Renxiao Wang, Xueliang Fang, Yipin Lu, Chao-Yie Yang, and Shaomeng Wang. 2005. The PDBbind database: methodologies and updates. Journal of medicinal chemistry 48, 12 (2005), 4111–4119. [44] Zhe Wang, Huiyong Sun, Xiaojun Yao, Dan Li, Lei Xu, Youyong Li, Sheng Tian, and Tingjun Hou. 2016. Comprehensive evaluation of ten docking programs on a diverse set of protein–ligand complexes: the prediction accuracy of sampling power and scoring power. Physical Chemistry Chemical Physics 18, 18 (2016), 12964–12975. doi:10.1039/C6CP01555G [45] Wenzhe Xu, Xiaorong Liu, Jie Wang, Fan Zhang, Dongfeng Hu, and Liansong Zong. 2025. UAMRL: multi-granularity uncertainty-aware multimodal represen-tation learning for drug-target affinity prediction. Bioinformatics 41, 10 (2025), btaf512. doi:10.1093/bioinformatics/btaf512 [46] Jinn-Moon Yang, Yen-Fu Chen, Tsai-Wei Shen, Bruce S. Kristal, and D. Frank Hsu. 2005. Consensus Scoring Criteria for Improving Enrichment in Virtual Screening. Journal of Chemical Information and Modeling 45, 4 (2005), 1134–1146. doi:10.1021/ci050034w [47] Yanpeng Zhao, Yuting Xing, Yixin Zhang, Yifei Wang, Mengxuan Wan, Duoyun Yi, Chengkun Wu, Shangze Li, Huiyan Xu, Hongyang Zhang, et al . 2025. Evi-dential deep learning-based drug-target interaction prediction. Nature communi-cations 16, 1 (2025), 6915. 
+
+## A Proof of Validity of Reliability-Scaled MoNIG Aggregation 
+
+We prove that RELIABLE-BA’s reliability scaling preserves NIG validity and that MoNIG fusion remains valid under this scaling. 
+
+## A.1 Preliminaries 
+
+A Normal–Inverse-Gamma distribution NIG (𝛾, 𝜈, 𝛼, 𝛽 ) is valid if: (V1) 𝜈 > 0
+
+(V2) 𝛼 > 1
+
+(V3) 𝛽 > 0
+
+Under these conditions, the moments are well-defined: 
+
+E[𝜇 ] = 𝛾, (21) 
+
+E[𝜎 2] = 𝛽 𝛼 − 1 (aleatoric uncertainty) , (22) 
+
+Var (𝜇 ) = 𝛽 𝜈 (𝛼 − 1) (epistemic uncertainty) . (23) 
+
+## A.2 Reliability Scaling Preserves Validity 
+
+Given valid NIG parameters (𝛾 𝑗 , 𝜈 𝑗 , 𝛼 𝑗 , 𝛽 𝑗 ) and reliability score 𝑟 𝑗 ∈(0, 1], RELIABLE-BA applies the following transformation: 
+
+˜𝛾 𝑗 = 𝛾 𝑗 , (24) 
+
+˜𝜈 𝑗 = 𝑟 𝑗 𝜈 𝑗 , (25) 
+
+˜𝛼 𝑗 = 1 + 𝑟 𝑗 (𝛼 𝑗 − 1), (26) 
+
+˜𝛽 𝑗 = 𝑟 𝑗 𝛽 𝑗 . (27) 
+
+Proposition A.1. If (𝛾 𝑗 , 𝜈 𝑗 , 𝛼 𝑗 , 𝛽 𝑗 ) is a valid NIG and 𝑟 𝑗 ∈ ( 0, 1],then ( ˜𝛾 𝑗 , ˜𝜈 𝑗 , ˜𝛼 𝑗 , ˜𝛽 𝑗 ) is also valid. 
+
+Proof. We verify each validity condition: (V1) ˜𝜈 𝑗 = 𝑟 𝑗 𝜈 𝑗 > 0 since 𝑟 𝑗 > 0 and 𝜈 𝑗 > 0.(V2) ˜𝛼 𝑗 = 1 + 𝑟 𝑗 (𝛼 𝑗 − 1) > 1 since 𝑟 𝑗 > 0 and 𝛼 𝑗 − 1 > 0.(V3) ˜𝛽 𝑗 = 𝑟 𝑗 𝛽 𝑗 > 0 since 𝑟 𝑗 > 0 and 𝛽 𝑗 > 0.
+
+□
+
+## A.3 Effect on Uncertainty Components 
+
+Proposition A.2 (Aleatoric Invariance). Reliability scaling preserves aleatoric uncertainty: ˜𝜎 2a,𝑗 = 𝜎 2a,𝑗 .
+
+Proof. 
+
+˜𝜎 2a,𝑗 =
+
+˜𝛽 𝑗 
+
+˜𝛼 𝑗 − 1 = 𝑟 𝑗 𝛽 𝑗 
+
+𝑟 𝑗 (𝛼 𝑗 − 1) = 𝛽 𝑗 
+
+𝛼 𝑗 − 1 = 𝜎 2a,𝑗 . (28) 
+
+□
+
+Proposition A.3 (Epistemic Scaling). Reliability scaling in-creases epistemic uncertainty for unreliable experts: ˜𝜎 2e,𝑗 = 𝜎 2e,𝑗 /𝑟 𝑗 .
+
+10 Trustworthy Protein–Ligand Binding Affinity Prediction via Reliability-Aware Multi-Engine Fusion 
+
+Proof. 
+
+˜𝜎 2e,𝑗 =
+
+˜𝛽 𝑗 
+
+˜𝜈 𝑗 ( ˜𝛼 𝑗 − 1) = 𝑟 𝑗 𝛽 𝑗 
+
+𝑟 𝑗 𝜈 𝑗 · 𝑟 𝑗 (𝛼 𝑗 − 1) = 1
+
+𝑟 𝑗 
+
+· 𝛽 𝑗 
+
+𝜈 𝑗 (𝛼 𝑗 − 1) = 𝜎 2e,𝑗 
+
+𝑟 𝑗 
+
+.
+
+(29) 
+
+□
+
+When 𝑟 𝑗 < 1, epistemic uncertainty increases by factor 1/𝑟 𝑗 > 1,reflecting reduced confidence in unreliable experts. 
+
+## A.4 MoNIG Fusion Under Reliability Scaling 
+
+Following Ma et al . [ 27 ], the NIG summation operator ⊕ fuses 𝑀 
+
+distributions with parameters: 
+
+𝛾 f =
+
+Í𝑀 𝑗 =1 𝜈 𝑗 𝛾 𝑗 
+
+Í𝑀 𝑗 =1 𝜈 𝑗 
+
+, (30) 
+
+𝜈 f =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+𝜈 𝑗 , (31) 
+
+𝛼 f =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+𝛼 𝑗 + 𝑀 − 12 , (32) 
+
+𝛽 f =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+𝛽 𝑗 + 12
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+𝜈 𝑗 (𝛾 𝑗 − 𝛾 f )2. (33) 
+
+Theorem A.4 (Validity of Reliability-Scaled Fusion). Let 
+
+{( 𝛾 𝑗 , 𝜈 𝑗 , 𝛼 𝑗 , 𝛽 𝑗 )} 𝑀 𝑗 =1 be 𝑀 valid NIG distributions with reliability scores 
+
+𝑟 𝑗 ∈ ( 0, 1]. Then the fused distribution 
+
+> 𝑀
+
+Ê
+
+> 𝑗 =1
+
+NIG ( ˜𝛾 𝑗 , ˜𝜈 𝑗 , ˜𝛼 𝑗 , ˜𝛽 𝑗 ) (34) 
+
+is a valid NIG. 
+
+Proof. We verify each validity condition for the fused parame-ters. 
+
+Condition (V1): 
+
+𝜈 f =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+˜𝜈 𝑗 =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+𝑟 𝑗 𝜈 𝑗 > 0, (35) since each term 𝑟 𝑗 𝜈 𝑗 > 0.
+
+Condition (V2): Substituting the scaled ˜𝛼 𝑗 :
+
+𝛼 f =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+˜𝛼 𝑗 + 𝑀 − 12 (36) 
+
+=
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+ 1 + 𝑟 𝑗 (𝛼 𝑗 − 1) + 𝑀 − 12 (37) 
+
+= 𝑀 +
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+𝑟 𝑗 (𝛼 𝑗 − 1) + 𝑀 − 12 (38) 
+
+= 3𝑀 − 12 +
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+𝑟 𝑗 (𝛼 𝑗 − 1). (39) Since 𝑟 𝑗 > 0 and 𝛼 𝑗 > 1 for all 𝑗 , we have 𝛼 f > 3𝑀 −12 ≥ 1 for 𝑀 ≥ 1.
+
+Condition (V3): The fused scale parameter is: 
+
+𝛽 f =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+𝑟 𝑗 𝛽 𝑗 
+
+| {z }
+
+> >0
+
++ 12
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+˜𝜈 𝑗 ( ˜𝛾 𝑗 − 𝛾 f )2
+
+| {z }
+
+> ≥0
+
+> 0. (40) 
+
+□
+
+Corollary A.5 (Reliability-Weighted Fusion Mean). Under reliability scaling, the fused mean becomes: 
+
+𝛾 f =
+
+Í𝑀 𝑗 =1 𝑟 𝑗 𝜈 𝑗 𝛾 𝑗 
+
+Í𝑀 𝑗 =1 𝑟 𝑗 𝜈 𝑗 
+
+. (41) 
+
+Each expert’s contribution is weighted by 𝑟 𝑗 𝜈 𝑗 , the product of reliabil-ity and evidence. 
+
+## A.5 Summary 
+
+The reliability scaling mechanism in RELIABLE-BA satisfies the following properties: (1) Scaled parameters remain valid NIG distributions (Proposi-tion 1). (2) Aleatoric uncertainty is preserved exactly (Proposition 2). (3) Epistemic uncertainty scales inversely with reliability (Propo-sition 3). (4) MoNIG fusion of reliability-scaled experts yields a valid NIG (Theorem 1). (5) The fused mean weights experts by reliability × evidence (Corollary 1). 
+
+## B Dataset Curation 
+
+For PDBbind, after filtering invalid entries and complexes with incomplete predictions from engines, the final data consists of 8,742 unique protein–ligand complexes (7,924 train / 576 validation / 242 test). For BDB2020+, we retained 96 complexes after excluding entries with proteins exceeding embedding length limits or incom-plete structural annotations. For the 5HT2A case study, we evaluate on 3,868 ligands with valid affinity annotations and docking en-gine outputs curated from ChEMBL dataset. For SARS-CoV-2 Mpro dataset, we utilized the curated dataset in LP-PDBBind [24]. 
+
+## C Baseline Architectures and Hyperparameters 
+
+All neural network baselines use the same encoder: a 4-layer net-work (708 → 512 → 256 → 128 → 64) that takes 4 engine scores and 704-dimensional molecular embeddings as input. We use ReLU activations, 20% dropout, Adam optimizer with learning rate 0.0005, batch size 64, and stop training if validation MAE doesn’t improve for 30 epochs. 
+
+RELIABLE-BA. Each docking engine has its own 3-layer head (1 → 256 → 128 → 64) that maps the engine score to four NIG parameters through separate linear projections. A separate relia-bility network (704 → 128 → 4) takes molecular embeddings and outputs a reliability score for each engine via sigmoid activation. Both components train jointly with evidential loss ( 𝜆 = 0.001 ). 
+
+Evidential Regression. Single evidential network that predicts four NIG parameters ( 𝛾, 𝜈, 𝛼, 𝛽 ) from all inputs combined. Uses shared encoder with 4 linear output heads. Same evidential loss (𝜆 = 0.001 ) but without per-engine modeling or reliability weight-ing. 
+
+> 11 Yongchan Hong et al.
+
+Figure 6: t-SNE visualization of protein-ligand embeddings colored by learned reliability scores. 
+
+Gaussian. Predicts mean 𝜇 and variance 𝜎 2 directly. Uses shared encoder with 2 linear output heads. Trained with Gaussian negative log-likelihood. 
+
+Baseline. Standard regression network without uncertainty es-timation. Uses shared encoder with single linear output. Trained with mean squared error loss. 
+
+Deep Ensemble MVE. Five independently trained Gaussian net-works with different random initializations. Final prediction aver-ages across members. 
+
+MC Dropout. Gaussian network with dropout kept active during prediction. Runs 50 forward passes and estimates uncertainty from variation across passes. 
+
+SVGP. Gaussian process with learned deep features. Encoder (without dropout) maps to 64 dimensions, followed by RBF kernel GP with 128 inducing points. 
+
+SWAG. Gaussian base model that collects weight statistics after epoch 75. At prediction, samples 30 weight configurations from the approximate posterior. 
+
+Consensus Scoring. Computes median across engines, then weights each engine by exp (−| deviation from median |) .
+
+Ensemble Scoring. Arithmetic mean of engines with standard deviation across engines. 
+
+LWE. Linear stacking [ 4] with four fixed softmax-normalized scalar weights on raw scores, plus one learnable noise scalar for uncertainty. 
+
+Softmax MoE. Mixture-of-experts on the full input. Four expert networks (708 → 128 → 64 → 1) combined by an input-dependent softmax gating network, with a separate network for uncertainty. 
+
+## D Hyperparameter Sensitivity 
+
+Table 5 shows RELIABLE-BA performance across different values of the evidential regularization coefficient 𝜆 . Lower 𝜆 yields substan-tially better calibration (ECE, NLL), while moderate values ( 𝜆 =0.01 )slightly improve point prediction at the expense of calibration. We select 𝜆 = 0.001 as it achieves the best calibration with only a mar-ginal increase in MAE, reflecting our emphasis on well-calibrated uncertainty estimates. 
+
+Table 5: Effect of evidential regularization coefficient 𝜆 on RELIABLE-BA performance. Results averaged over 20 seeds (std in parentheses).                             
+
+> 𝜆 MAE ↓RMSE ↓ECE ↓NLL ↓
+> 0.001 0.824 (0.015) 1.045 (0.021) 0.014 (0.003) 1.463 (0.023) 0.005 0.816 (0.019) 1.039 (0.024) 0.027 (0.011) 1.474 (0.030) 0.01 0.814 (0.017) 1.037 (0.022) 0.042 (0.011) 1.491 (0.032) 0.05 0.823 (0.041) 1.046 (0.051) 0.078 (0.019) 1.596 (0.086)
+
+## E Reliability Score Visualization 
+
+Figure 6 visualizes learned reliability scores across protein–ligand embedding space using t-SNE on the PDBBind test set. Each panel shows the reliability assigned to one docking engine, with color in-dicating reliability (yellow = high, purple = low). FlowDock achieves the highest mean reliability (0.895), followed by DynamicBind (0.81), GNINA (0.719), and BIND (0.706). 
+
+## F Computational Cost Analysis 
+
+Table 6 reports training and inference times for all methods on the PDBBind benchmark (7,924 training / 242 test samples). All experiments were conducted on a single NVIDIA RTX 5090 GPU. 
+
+Table 6: Computational cost comparison. Training and infer-ence times in seconds, averaged over 20 runs.                                                   
+
+> Method Training (s) Inference (s)
+> Baseline 9.02 ±0.64 2.04 ±0.00 Gaussian 10.30 ±0.54 2.72 ±0.02 SWAG 10.19 ±0.28 2.73 ±0.01 MC Dropout 13.31 ±0.94 2.77 ±0.01 Evidential Regression 15.38 ±1.06 2.74 ±0.02 SVGP 27.85 ±2.59 2.80 ±0.01 Deep Ensemble MVE 30.14 ±1.24 2.76 ±0.01 RELIABLE-BA 48.38 ±4.70 2.77 ±0.01
+
+RELIABLE-BA has higher total training time (48s) due to per-engine modeling, but training completes in under one minute and inference (11ms per complex) matches all other methods. In practice, upstream docking engines dominate computational cost (seconds to minutes per complex), making RELIABLE-BA’s overhead negligible.
