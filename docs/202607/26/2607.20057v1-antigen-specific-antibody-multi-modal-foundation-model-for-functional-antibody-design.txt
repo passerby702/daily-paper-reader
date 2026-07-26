@@ -1,0 +1,438 @@
+Title: Antigen-specific Antibody Multi-modal Foundation Model for Functional Antibody Design
+
+URL Source: https://arxiv.org/pdf/2607.20057v1
+
+Published Time: Thu, 23 Jul 2026 00:59:28 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Antigen-specific Antibody Multi-modal Foundation Model for Functional Antibody Design 
+
+Xiaoliang Shi ∗
+
+, Zichen Wang ∗
+
+, Runze Ma, Zhongyue Zhang, Shuangjia Zheng †
+
+Shanghai Jiao Tong University 
+
+shuangjia.zheng@sjtu.edu.cn 
+
+## Abstract 
+
+Antibodies are essential proteins that play a central role in immune recognition by binding specific antigen molecules. Although recent protein language models have enabled progress in single-chain protein modeling and generation, they often fall short in antigen-specific antibody design, where effective modeling requires explicit pairing between antibody and antigen, particularly at the epitope level. To address these limitations, we introduce AAMFM, an Antigen-specific Antibody 
+
+Multimodal Foundation Model that learns unified representations of antibody se-quences and structures conditioned on antigen context. AAMFM incorporates rich antigen information including geometric interfaces and epitope annotations via a cross-modal adapter, enabling joint modeling of antibody-antigen interactions in a shared latent space. To further guide the model toward functional relevance, we fine-tune AAMFM using Calibrated Direct Preference Optimization (Cal-DPO), leveraging preference signals extracted from a strong structural prior (AlphaFold3) to align learning with binding-specific objectives. Extensive experiments demon-strate that AAMFM achieves state-of-the-art performance in functional antibody design, revealing its potential for antigen-specific antibody engineering. Our code is available at https://github.com/XL-S224/AAMFM .
+
+## 1 Introduction 
+
+As fundamental proteins within the immune system, antibodies play a crucial role in identifying and neutralizing specific molecules known as antigens. The precise targeting ability of antibodies predominantly originates from their Complementarity Determining Regions (CDRs), which are the key determinants of binding affinity to these antigens [ 26 , 16 , 68 , 4 ]. Given that therapeutic antibodies represent a major and rapidly expanding class of large molecule drugs, the ability to effectively design functional and plausible CDRs and structure fit with the corresponding antibody is paramount for creating novel and potent treatments. However, developing such antibodies often depends on labor-intensive experimental approaches like large antibody library screening[ 9, 23 ], which frequently falls short in effectively designing antibodies that target to specific antigen. While computational approaches, particularly deep learning-based Protein Language Models (PLMs) [ 31 , 41 , 52 , 19 ], have shown promise in accelerating protein engineering, applying them to antibody design faces challenges. Many existing PLMs primarily model sequence information and struggle in protein complexes, hindering end-to-end optimization problem and limiting their ability to fully capture the complex interplay between sequence, structure, and residue interaction. Thus, general PLMs might struggle to generate highly specific antibodies for a given antigen, particularly at the epitope level. Conversely, specialized antibody sequence-structure co-design models [ 25 , 36 , 27 , 28 , 75 , 59 ] are often constrained by limited available data, which can 
+
+> ∗Equal contribution.
+> †Corresponding author. Preprint. arXiv:2607.20057v1 [q-bio.BM] 22 Jul 2026
+
+lead to model overfitting and thus hampering their generalization. Moreover, their lack of general protein knowledge may result in the generation of implausible protein sequence or structure. Beyond the challenge of generation, a critical limitation in current research lies in the evaluation and guidance of antibody design[ 74 , 69 , 49 ]. Traditional energy-based scoring functions such as Rosetta [ 6] exhibit low correlation with experimental binding affinities [ 37 ], making them relatively unreliable. Recent breakthroughs in protein structure foundation models, such as AlphaFold3 (AF3) [2], have significantly expanded the modeling capabilities to multi-chain protein complexes. Notably, AF3 provides structure confidence scores like the ipTM and ranking score (AF3 score), which have been shown to correlate with binding interface quality [ 35 , 21 , 62 ]. These provide a promising signal for assessing and refining antibody-antigen interactions. We identify an additional challenge: how can we effectively leverage such strong structural prior to steer antibody generation towards more functional, antigen-specific solutions? To address these challenges, we introduce AAMFM, an Antigen-specific Antibody Multimodal Foundation Model, designed for unified antibody sequence-structure representation learning and antigen-specific design. Built upon the powerful foundation multi-modal protein language model ESM3 [ 19 ], AAMFM is first adapted to the antibody domain using large-scale sequence-structure antibody pairs and subsequently fine-tuned on high-resolution experimental antibody-antigen complex data. Our model distinctively integrates antibody sequence, structure, and crucial antigen-related information—including its geometric features and specific epitope sites—into a shared latent space using a cross-modal adapter. A key innovation lies in enhancing antigen-specific functional antibody generation through preference optimization. We evaluate candidate antibodies generated by the model by predicting their complex structure with the target antigen using a reproduced version (Protenix [ 10 ]) of AF3. The resulting quality metrics, specifically the AF3 score which reflects both the sequence’s intrinsic foldability and its predicted binding capability to the antigen, are then used to define preferences. AAMFM is further fine-tuned on the preference data using Cal-DPO, aligning the model towards generating antibodies that satisfy these critical structural and binding criteria. Our contributions are as follows: (1) We propose AAMFM , an Antigen-specific Antibody Multimodal Foundation Model that unifies antibody sequence, structure, and antigen information to enable antibody representation and design. (2) We construct an antibody preference dataset consisting of about 30k antibody sequences with corresponding AF3 predicted structures and annotated preference labels. The dataset is built by labeling each sequence using AF3’s score and the pseudo log-likelihood (PLL) score from the antibody language model. (3) We introduce a novel AF3-based preference optimization framework to guide antigen-specific functional and plausible antibody generation. By leveraging AF3-based scoring reflecting both foldability and binding affinity, AAMFM is fine-tuned using Cal-DPO to generate high-quality, target-specific antibodies. (4) Experimental results show 
+
+state-of-the-art performance on multiple antibody design tasks, highlighting the effectiveness of combining multimodal foundation model, antigen-specific adapter and preference optimization for therapeutic antibody development. 
+
+## 2 Related Work 
+
+Protein Multimodal Language Models Protein Language Models (PLMs) have made significant strides in recent years by learning from large-scale protein sequence data to effectively capture protein interactions, structures, and functions [ 39 , 48 , 14 , 17 , 31 , 41 , 52 ]. Recently, the research trend has shifted from unimodal to multimodal approaches, enhancing model capabilities by incorporating additional structural or functional information. LMDesign [ 73 ] integrates geometric information into language models using an adapter, demonstrating superior performance compared to sequence-only models. ESM3 [ 19 ], a representative large-scale multimodal model, is jointly pre-trained on vast amounts of protein sequence, structure, and function data, enabling the generation of protein data across different modalities. DPLM-2 [ 60 ] extends discrete diffusion protein language model to the multimodal domain, focusing on learning the joint distribution of sequences and structures. In specific applications, S 2ALM[ 70 ] is an antibody-specific language model combining sequence and structure; however, it can’t design antibody binding to specific antigen. In contrast to these methods, our approach utilizes the powerful base model and fine-tunes it using multi-level finetune strategy. This strategy aims not only to achieve accurate antibody representation but also to effectively perform antigen-specific functional antibody design. 2Universal Pre -training Continue Pre -training   
+
+> Protein Foundation
+> Model
+> (ESM3,DPLM -2...)
+> OAS
+> (Paired Antibody)
+> Antibody Multi -modal
+> Model
+> (AAMFM -Base)
+> WYIEA…
+> Multi -modal Design Simple Generation
+> Antibody Embedding
+> ...YCXXXXXYR...
+> ...YC AREGR YR...
+> Guided Generation
+> Graph Encoder
+> (GearNet)
+> Epitope Interface
+> Encoder
+> AAMFM -SFT
+> Model
+
+AR__DAM_Y___S_ER 
+
+> Trasnformer blocks
+> FFN+Self -attention
+> Adapter block
+
+Antigen -specific de novo Antibody Design 
+
+# +
+
+Antibody framework seq 
+
+> Down/Up Proj.+Fusion
+
+AR EG DAM DYAM SGER 
+
++         
+
+> Graph
+> Construction
+> RGCN+Message Passing
+> Positional Encoding
+> Transformer Encoder
+> Concat.
+> Antigen -specific Adapter Supervised Fine -tuning
+> SAbDab
+> (AbAg -complex)
+> Stru. tok.
+> Seq. tok.
+> Antigen
+> Antibody UniRef, PDB,AFDB...
+> 01 1 1 1 0 0 0 0 1 1 1 0
+> Preference Alignment Tuning
+> Functional Antibody
+> Design
+> AAMFM -DPO
+> Model
+> AlphaFold3
+> Preference
+> Dataset
+> Label
+> Constrain
+> Antiberty
+> Label
+> Constrain
+> ... EGDAY ...
+> ... EYAGY ...
+> H1 FR1
+> L2 FR2 L1 FR1 L3 FR3
+> H3 FR3 H2 FR2
+> FR4
+> FR4
+> 01 1 1 1 0 0 0 0 1 1 1 0
+
+Antigen Epitope 
+
+site 
+
+Viable Property 
+
+Inviable Property Figure 1: Hierarchical training and inference pipeline of the proposed model, including pre-training, adapter-based SFT and preference optimization. During the inference phase, the model takes the antigen, epitope, and antibody framework region sequence as input, and outputs the antibody CDRs sequence and the complete antibody structure. 
+
+Computational Antibody Design Early antibody design methods were often limited to energy-based approaches [ 29 , 3]. Recently, deep learning approaches mainly follow two directions: antibody sequence design and sequence-structure co-design. The methods used for antibody sequence design include language models [ 51 , 42 , 58 , 18 ] and inverse folding models [ 12 , 22 , 61 ]. Antibody sequence-structure co-design methods mainly taking antibody-antigen complex as a graph and using graph networks, or using diffusion-based model co-design structure and sequence of antibody CDR [ 25 , 27 ,28 , 30 , 36 , 75 , 38 , 74 , 59 , 49 ]. Albeit powerful, existing co-design models are often constrained by the limited availability of training data, which makes it challenging for them to fully learn and capture the deep, complex features in protein. On the other hand, while language models generally possess strong representational capabilities, they typically exhibit weaker performance in generating functional antibodies specifically targeted specifically to a given antigen. To overcome these limitations, we propose a novel multimodal antibody language model. 
+
+## 3 Methods 
+
+3.1 Preliminary and task formulation ESM3 ESM3 is a large-scale, multimodal generative language model designed to jointly model and generate protein sequence, structure, and function [ 19 ]. A key methodological innovation of ESM3 is the discrete tokenization of all input modalities. While sequence is tokenized per amino acid, 3D atomic structure is uniquely represented by encoding local atomic neighborhoods around each residue into discrete tokens using a Vector Quantized Variational Autoencoder (VQ-VAE) [ 57 ]. Let z denote the structure tokens, obtained as: 
+
+z = quantize (encode struct (knn k=16 (xCα ), T )) (1) where xCα ∈ RL×3 denotes the backbone Cα coordinates and T ∈ SE (3) L the corresponding rigid transformations. The encoder processes the spatial context of each residue by selecting its 16 nearest 3neighbors and aggregates their relative geometric features before quantization. The encoded structure token can be inversely decoded to residue coordinates. These distinct token tracks are embedded and processed within a unified latent space by the trans-former blocks. ESM3 is trained using a generative masked language modeling (MLM) objective across all modalities. Unlike standard MLM with a fixed masking rate, ESM3 employs a noise sched-ule, sampling different masking rates during training. This allows the model to learn the conditional probabilities required for generating any modality from any combination of others, enabling flexible iterative generation from arbitrary prompts. 
+
+Task formulation An antibody is composed of a heavy chain and a light chain. The terminal portion of each heavy-light chain pair forms a complementary site that binds to a specific antigen epitope. The precise recognition and interaction surface within this site is formed by six key loops known as Complementarity-Determining Regions (CDRs): three on the heavy chain (CDR-H1, H2, H3) and three on the light chain (CDR-L1, L2, L3) [ 46 , 5]. The remaining regions typically form conserved framework regions. Therefore, our focus is on designing the complete CDR sequences and the full antibody structure. Given the antigen information Fag , epitope position I, and the antibody framework sequence sf , the model aims to jointly design the sequences of all six CDRs sc and the full antibody structure X.
+
+3.2 Multi-level pretraining and finetune strategies 
+
+As shown in Figure 1, we structure the model’s learning process in multiple stages. Initially, the model is trained on general protein sequences and structures, learning broad protein representations and basic generation patterns (for details, please refer to ESM3 [ 19 ]). However, antibody sequences and structures exhibit significant discrepancies compared to general proteins, such as their unique immunoglobulin fold domain and the highly variable CDRs that dictate their specificity. To enable the model to better understand and generate functional antibodies, we design the subsequent hierarchical post-training and fine-tuning strategies: 
+
+Antibody Domain Adaptation Pre-training Addressing the gap between the general model and the antibody domain, we first perform initial domain adaptation using a large-scale dataset specific to antibodies. Specifically, we additionally train the model using approximately 1.4 million paired antibody sequence-structure data from the Observed Antibody Space (OAS) database [ 42 ]. The structure of the corresponding sequences are predicted by AbodyBuilder2 [ 1] and IgFold [ 50 ], which has been proved useful in previous works [ 12 , 22 ]. The core objective of this stage is to familiarize the pre-trained model with antibody-specific sequence and general structure patterns, and the fundamental sequence-structure correspondence, thereby adapting it to the antibody biological space and laying the foundation for more refined downstream tasks. 
+
+Antigen-specific Supervised Fine-tuning and Preference Optimization After the model has been initially adapted to the antibody domain, we introduce higher-quality data for supervised fine-tuning (SFT). This stage utilizes data from Structural Antibody Database (SAbDab) [ 13 ], which contains a large number of high-resolution antibody structures determined by experimental methods, along with their corresponding authentic sequences. The experimental structural data helps the model learn more precise atomic-level interactions and conformational details. Considering that the ultimate goal of antibody design is often binding to a specific antigen, we incorporate antigen information through an adapter during this phase (section 3.3). To further enhance the quality of generated antibodies and align the model better with functional and plausible design objectives, we introduce an additional fine-tuning stage using a DPO-style method (section 3.4). 
+
+Training Objective We formulate the training objective similar to ESM3. Unlike general-purpose protein language models, antibodies exhibit a unique structural pattern: highly conserved framework regions and highly diverse CDRs. Applying a uniform masking probability across all positions fails to capture this distinction and may underemphasize the CDRs, which are functionally critical. To better capture these characteristics, we introduce a dynamic masking strategy tailored to different training stages. During post-training, we apply random masking across all positions with 70 % probability, and with the remaining 30 %, we mask all CDR residues while keeping the framework regions fully visible. During supervised fine-tuning, we adopt a 50% probability for masking across all positions, a 25% probability for fully masking the CDR regions, and a 25% probability for applying masking only within the CDRs. 4The mask m is applied to the input tokens x (representing sequence or structure tokens), and the model learns to predict the original identity of the masked tokens xi given the unmasked context x\m.The training objective L is defined as: 
+
+L = −Ex,m 
+
+"
+
+1
+
+|m|
+
+X
+
+> i∈m
+
+log p(xi|x\m)
+
+#
+
+(2) 
+
+3.3 Antigen Geometric-Epitope-aware Adapter 
+
+To integrate antigen geometric and antigen-antibody interface information in designing the antigen-specific antibody, we propose the Antigen Geometric-Epitope-aware Adapter. This module is designed as a lightweight adapter [ 24 ] integrated via a residual connection [ 20 ] after the output h of the final attention block of the model, which contains only 5.1M parameters ( ∼0.36% of the 1.4B-parameter base model). It computes an adjustment term ∆h to produce a refined output h′ = h + ∆ h. The designed adapter primarily consists of the following modules: Preference Optimization Fine -tuning   
+
+> AAMFM -DPO
+> (Policy Model)
+> Functional and Plausible Design
+> DPO dataset
+> AlphaFold3
+> Confidence
+> Functional Plausible
+> Reference Model
+> (SFT Model)
+> Init.
+> Preferred Dispreferred
+> ℒ-CalDPO
+> Antigen
+> Antiberty
+> Pll
+
+Figure 2: Illustration of the dataset curation pro-cess and the Cal-DPO framework. The contrastive-like approach aligns the model toward generating preferred functional sequences with higher proba-bility. 
+
+Antigen Feature Encoder The antigen graph 
+
+Gag is input into GearNet [ 71 ] and the output antigen geometric node feature fgeo is then pro-cessed using this module. To address the vari-ability in antigen lengths, a convolutional net-work projects the input features to a bottleneck dimension, yielding a geometric antigen rep-resentation hag = AntigenEncoder( fgeo ). If the complex does not have antigen ( fgeo is not provided), a learnable default feature is used instead. 
+
+Epitope Interface Encoder This module pro-cesses binary information I (with 1 indicat-ing epitope regions and 0 for non-epitope re-gions) representing the epitope site on the anti-gen. Similar to previous work [ 11 ], the inter-face information is first embedded and com-bined with learnable positional encodings. Sub-sequently, a Transformer encoder layer captures contextual information within the interface re-gion, outputting position-wise interface features 
+
+hep = InterfaceEncoder( I).
+
+Feature Fusion The backbone features h are down-projected, then concatenated with the pro-cessed antigen geometry and interface features 
+
+hag , hep . The concatenated result is fused via an MLP. The output feature M is mapped back to the original dimension via an up-projection layer, yielding the final adjustment term ∆h.This adjustment is added to the original input via a residual connection. This module effectively incorporates the anti-gen’s geometric information and epitope inter-face positions into the model’s representations, enhancing the antigen specificity of the model in antibody design tasks, thereby enabling the generation of antibodies with better functionality. 
+
+3.4 AlphaFold3-based Preference Optimization Training Objective Reinforcement Learning from Human Feedback (RLHF) [ 43 ] methods have demonstrated strong capabilities in aligning language models with human preferences across various domains. Algorithms such as Direct Preference Optimization (DPO) [ 47 , 63 ] simplifies RLHF by using contrastive learning on preference data, and has proven effective. 5As shown in Figure 2, to align our model with desired properties reflected in preference data, specifically focusing on CDRs, we employ Cal-DPO [ 64 ]. While DPO effectively optimizes for relative preferences between sequences, it focuses mainly on the relative values of implicit rewards associated with two responses while ignoring their actual values, resulting in suboptimal alignment with human preferences. Cal-DPO addresses this limitation by incorporating an additional calibration loss, encouraging the model’s output confidence to better reflect actual sequence quality (a comparison of preference optimization methods is provided in Appendix B). Let πθ denote the policy model (the model being fine-tuned) and πref be a frozen reference model (the frozen SFT model). As in standard DPO, the training dataset consists of preference tuples, training data consists of tuples (c, y w, y l), where c represents the input context (masked antibody sequence sf r , antigen features Gag , and interface information I), yw is the preferred CDR sequence, and yl is the rejected CDR sequence. The standard DPO loss is formulated as: 
+
+LDPO (θ; πref ) = −E(c,y w ,y l)∼D [log σ (β (ˆ rθ (c, y w) − ˆrθ (c, y l)))] (3) where σ is the sigmoid function, β is the DPO temperature parameter, and 
+
+ˆrθ (c, y ) = log πθ (y|c)
+
+πref (y|c) (4) represents the log-likelihood ratio between policy model and reference model. In our implementation, the log-likelihoods log πθ (y|c) and log πref (y|c) are both computed only over the tokens within the CDR regions instead of the whole sequence. Besides, we normalize the log-likelihoods by the number of CDR tokens to mitigate bias towards longer CDRs. Cal-DPO introduces an additional calibration loss term. Defining the target margin M = 1 /(2 β), the calibration loss encourages the log-likelihood ratios to align with this margin: 
+
+LCal (θ; πref ) = E(c,y w ,y l)∼D 
+
+h
+
+(ˆ rθ (c, y w) − M )2 + (ˆ rθ (c, y l) + M )2i
+
+(5) The final training loss is a weighted sum of the DPO and calibration terms (in our implementation, with a weighting factor λ = 1 for LCal ): 
+
+LCal-DPO = LDPO + λ · L Cal (6) 
+
+Preference Definition To construct the preference dataset, we first sample candidate sequences from the SFT model and deduplicate. Each sequence is then scored by Protenix [ 10 ], a reproduction of AlphaFold3, to obtain a structure-based estimate of antigen-binding confidence at the designed CDR– antigen interface, which we use as the primary oracle for antibody functionality. Relying solely on this score, however, risks reward hacking: the model may learn to exploit the structural oracle, producing sequences with inflated predicted binding scores that deviate from the natural antibody distribution. To counteract this, we introduce pseudo-log-likelihood (PLL) under the antibody language model AntiBERTy [ 51 ] as a sequence-level plausibility constraint, measuring compatibility with natural antibody statistics. Crucially, PLL is only weakly correlated with the AF3 score on our preference dataset (Spearman ρ = 0 .13 ), confirming that it acts as a nearly orthogonal signal rather than a redundant one. We therefore define preferences via a dual-threshold rule: given a candidate pair (s+, s −), s+ is labeled as preferred only if it simultaneously exceeds s− by at least 0.2 in AF3 score and 0.1 in PLL; pairs failing either condition are discarded. This strict dual-threshold criterion provides a clear, unambiguous preference signal while preventing the model from exploiting either metric in isolation. 
+
+## 4 Experiments 
+
+To evaluate the generative capabilities of our model, we conduct experiments on two primary tasks: de novo antibody co-design and epitope-binding antibody CDR-H3 co-design. In addition, we perform comprehensive ablation studies to assess the contributions of each component. Experiment details and ablation are provided in Section 4.3. 6Table 1: Results of full antibody design on SAbDab dataset Method Pll ↑ AF3-score ↑ PHR ↓ pTM ↑ ipTM ↑
+
+ESM3-open -1.40 0.846 0.400 0.876 0.839 Diffab -1.36 0.850 0.445 0.881 0.842 dyMEAN -1.23 0.842 0.465 0.874 0.840 AbX -0.96 0.862 0.480 0.892 0.855 
+
+AAMFM-SFT -0.91 0.870 0.465 0.890 0.865 
+
+AAMFM-CalDPO -0.87 0.892 0.443 0.908 0.888 
+
+Table 2: Results of CDRs design on SAbDab dataset 
+
+Method CDR-H1 CDR-H2 CDR-H3 AAR(%) ↑ RMSD ↓ AAR(%) ↑ RMSD ↓ AAR(%) ↑ RMSD ↓
+
+ESM3-open 67.06 0.94 49.54 0.89 32.19 3.31 Diffab 62.32 0.92 44.82 0.96 32.33 3.15 dyMEAN 75.71 1.09 66.67 0.98 38.46 3.51 AbX 79.92 0.85 69.85 0.76 43.24 2.80 
+
+AAMFM-SFT 81.94 0.90 70.86 0.90 40.32 2.54 AAMFM-CalDPO 80.12 0.87 71.59 0.92 39.88 2.65 Method CDR-L1 CDR-L2 CDR-L3 AAR(%) ↑ RMSD ↓ AAR(%) ↑ RMSD ↓ AAR(%) ↑ RMSD ↓
+
+ESM3-open 49.83 0.82 51.72 0.70 44.43 1.27 Diffab 48.07 0.86 52.22 0.56 43.31 1.39 dyMEAN 69.86 0.71 80.00 0.41 57.78 1.79 AbX 79.37 0.70 82.96 0.42 65.96 1.18 
+
+AAMFM-SFT 75.57 0.95 83.87 0.73 72.70 1.11 
+
+AAMFM-CalDPO 75.89 1.02 82.09 0.74 72.26 1.10 
+
+4.1 De novo Antibody Sequence-Structure Co-design Setup For model training, we adopt the open-source version of ESM3-open (1.4B) as the base model. The first-stage training is performed on a subset of OAS dataset for 2 epochs. In the second-stage supervised fine-tuning, we utilize a curated version of the SAbDab dataset containing experimentally determined antibody-antigen complex structures, training the model for 45 epochs to learn precise antigen-specific interactions. Following prior work [ 36 , 75 ], we filter out structures with resolution lower than 4Å and exclude antibodies that target non-protein antigens. We cluster antibodies based on 50% CDR-H3 sequence identity and strictly filter our training data against the RAbD dataset [ 3] to prevent data leakage. The resulting fine-tuned model is referred to as AAMFM-SFT . We then perform preference alignment fine-tuning using Cal-DPO. We first sample 13,000 candidate CDR sequences using the AAMFM-SFT model. These sequences are evaluated by Protenix and AntiBERTy. For each antigen, candidate sequences are combinatorially paired and filtered by the dual-threshold criterion, yielding approximately 30k preference pairs in total, which are used for training over 4 epochs. The resulting model is referred to as AAMFM-CalDPO .For model inference, the model takes antigen and the antibody framework sequence as input, and generates the sequences of all six CDRs along with the full antibody structure. Notably, only dyMEAN and our method require only the antibody framework sequence as input, while other methods rely on antibody framework structure. 
+
+Baselines For antibody sequence-structure co-design, we compare AAMFM with a series of methods, including: ESM3 [19 ], a multi-modal protein foundation model; Diffab [ 36 ], AbX [ 75 ], generative diffusion models; dyMEAN [28], a graph discriminative model. 
+
+Metrics We evaluate our designs by assessing both individual CDRs and the complete antibody. For the complete antibody sequence and structure, our evaluation includes: (1) the pseudo-log-likelihood (Pll) calculated by AntiBERTy to gauge sequence plausibility; (2) the AF3 score, derived from predicting the complex of the designed antibody and antigen, which comprehensively reflects the design’s foldability and its antigen-binding functionality; (3) the AF3 pTM, representing the 7Table 3: Results of CDR-H3 antibody design on SAbDab dataset Method Pll ↑ AF3-score ↑ A-RMSD ↓ RMSD ↓ AAR ↑ PHR ↓ ipTM ↑
+
+ESM3-open -1.88 0.854 2.02 3.32 33.04 0.392 0.848 Diffab -1.69 0.863 2.12 2.99 32.90 0.443 0.856 dyMEAN -1.57 0.863 1.69 3.32 39.49 0.433 0.857 GeoAB -1.60 0.856 1.41 1.67 40.40 0.413 0.850 AbX -1.46 0.877 2.06 3.06 43.14 0.509 0.871 
+
+AAMFM-SFT -1.20 0.879 1.55 2.43 40.55 0.432 0.878 
+
+AAMFM-CalDPO -1.18 0.894 1.66 2.62 39.91 0.438 0.890 
+
+average predicted confidence for each chain’s structure when the designed antibody and antigen are co-folded, indicating design foldability and plausibility; (4) the AF3 ipTM, specifically measures the predicted binding functionality between the designed antibody and the antigen; (5) the proportion of hydrophobic residues (PHR), which assess the antibodies specificity designed by the models. For individual CDRs, we use Amino Acid Recovery (AAR, %), representing the percentage of positions where the designed and native CDR sequences share the same amino acid, and Root Mean Square Deviation (RMSD), which measures the structural deviation of Cα atoms between the designed and native antibodies within the CDR region. 
+
+Results We fix the antibody framework sequence and simultaneously design the sequences of all six CDR regions along with the complete antibody structure. We generate 10 antibody samples for each antigen. Table 1 shows the overall evaluation results for full antibody design. Both variants of AAMFM demonstrate strong performance compared to existing state-of-the-art models. Notably, AAMFM-CalDPO achieves the best scores across all four key metrics-Pll, AF3-score, pTM, and ipTM—highlighting its strength in generating sequences that are functionally sound, plausible, and antigen-specific. Table 2 presents a fine-grained evaluation of each CDR region. AAMFM achieves state-of-the-art performance in 6 out of 12 subregions, with AAMFM-SFT and AAMFM-CalDPO ranking first in 4 and 2 subregions, respectively. This demonstrates AAMFM’s strong capability in capturing local structural and sequence features across both heavy- and light-chain CDRs, producing designs that closely match the natural antibody distribution. 
+
+4.2 Epitope-binding CDR-H3 Co-design Setup, Baselines and Metrics The overall experimental setup, baselines, and evaluation metrics largely same as those described in Section 4.1. This experiment differs in three aspects. First, only the CDR-H3 sequence is designed, while the full antibody structure is still generated. Second, we introduce an additional baseline, GeoAB [ 30 ], a graph model specifically designed for CDR-H3 co-design. Third, to focus more on local CDR-H3, we augment the evaluation metrics by modifying the calculation of the PLL score to apply only within the CDR-H3 region [69]. Original 
+
+> AbX
+> ipTM=0.83
+> AF3_score=0.83
+> Original
+> Ours
+> ipTM=0.87
+> AF3_score=0.89
+
+Figure 3: Visualization of the AF3 predicted structure of AbX and AAMFM-CalDPO designed CDR-H3 sequence. AAMFM achieves higher ipTM and AF3 score, highlighting its capability of functional design. 
+
+Results In this setting, we employ two variants of our model to design only the CDR-H3 sequence and the full an-tibody structure. Table 3 presents a comparison between our models and baseline methods across several eval-uation metrics. Our models consis-tently outperform state-of-the-art ap-proaches in terms of sequence plau-sibility (Pll) and functional quality (AF3-score and ipTM). They also exhibit competitive performance on other metrics such as AAR and RMSD, further demonstrating their effectiveness in viable and realis-tic antibody design. Furthermore, we include a representative case study (Figure 3) comparing the antibody CDR-H3 designed by AAMFM and AbX. This example highlights that AAMFM produces CDR-H3 sequences with superior functionality. 8Table 4: Ablation on CDRs design Method Pll ↑ AF3-score ↑ ipTM ↑ RMSD ↓ AAR ↑ PHR ↓
+
+ESM3-open -1.40 0.846 0.839 3.31 32.19 0.400 
+
+w/o SFT -0.89 0.876 0.869 2.49 39.59 0.445 w/o adapter -0.94 0.868 0.862 2.57 39.22 0.443 w/o epitope -0.91 0.883 0.870 2.66 38.98 0.437 w/o DPO (SFT) -0.91 0.870 0.865 2.54 40.32 0.465 AAMFM-CalDPO -0.87 0.892 0.888 2.65 39.88 0.443 
+
+4.3 Ablation and Analysis Setup and Metrics The experimental setup and evaluation metrics follow those described in Sec-tion 4.1. We identify four key components in our pipeline: SFT on antibody-antigen complex data, the antigen geometric-epitope-aware adapter, epitope conditioning, and Cal-DPO preference optimization. To assess the contribution of each component, we compare the full AAMFM-CalDPO model against the following ablation variants: (1) pretraining on OAS without subsequent SFT ( w/o SFT ); (2) performing SFT on SAbDab without the antigen adapter ( w/o adapter ); (3) disabling epitope input at inference by replacing the epitope mask with an all-zero tensor ( w/o epitope ); and (4) omitting the Cal-DPO stage and evaluating the SFT model directly ( w/o DPO ). For evaluation, we report PLL, AF3-score, and ipTM to assess overall sequence plausibility, foldability, and antigen-binding functionality, PHR to measure hydrophobicity, and CDR-H3-specific AAR and RMSD to evaluate local sequence recovery and structural accuracy. 
+
+Results As shown in Table 4, we design all six CDR regions along with the full antibody structure to evaluate the contribution of each component. Experimental results show that each component plays a distinct role in the overall pipeline. Although removing SFT still yields competitive structural metrics, it results in less stable downstream DPO optimization, confirming its essential role in adapting the model to antibody-antigen interaction patterns before preference optimization. Excluding the antigen adapter results in the most significant functional degradation, highlighting its critical role in geometric conditioning. Disabling epitope supervision degrades both foldability and antigen-binding confidence, while sequence recovery changes only marginally, suggesting that epitope conditioning primarily steers structural and functional compatibility rather than sequence identity. Although SFT encourages the model to memorize the native antibody distribution—reflected in higher AAR and lower CDR-H3 RMSD—it inherently constrains exploration of the functional sequence space. Cal-DPO addresses this by shifting the optimization objective from sequence memorization toward preference-guided generation, enabling broader exploration of the functional sequence space. The modest decrease mirrors the distributional shift commonly observed in RL-based post-training, representing an expected trade-off rather than a regression. Overall, Cal-DPO consistently improves sequence plausibility, foldability, and antigen-binding confidence, confirming that preference optimization effectively steers generation toward functional objectives. 
+
+## 5 Conclusion and Limitations 
+
+In this work, we present an antigen-specific antibody multi-modal foundation model AAMFM for functional design. This model leverages a powerful pre-trained protein language base model (ESM3) and uniquely integrates antibody sequence, structure, and specific antigen information, including geometric features and epitope sites, into a unified representation space using a lightweight adapter. Furthermore, AAMFM incorporates a novel finetune stage using Cal-DPO, leveraging preference signals extracted from a strong structural prior (AF3), thereby aligning the generation process with key objectives of functional and plausible antibody design. Experimental results demonstrate that AAMFM achieves state-of-the-art performance across multiple antibody design tasks. The main limitation of this work is that the designed antibodies have not yet been fully validated through in vitro experiments while we are actively collaborating with experimental research groups to pursue this. Another key future direction is to generalize the AAMFM framework beyond antibodies, extending it to the design of a broader class of protein complexes. 9References 
+
+[1] Brennan Abanades, Wing Ki Wong, Fergus Boyles, Guy Georges, Alexander Bujotzek, and Charlotte M Deane. Immunebuilder: Deep-learning models for predicting the structures of immune proteins. Communications Biology , 6(1):575, 2023. [2] Josh Abramson, Jonas Adler, Jack Dunger, Richard Evans, Tim Green, Alexander Pritzel, Olaf Ronneberger, Lindsay Willmore, Andrew J Ballard, Joshua Bambrick, et al. Accurate structure prediction of biomolecular interactions with alphafold 3. Nature , 630(8016):493–500, 2024. [3] Jared Adolf-Bryfogle, Oleks Kalyuzhniy, Michael Kubitz, Brian D Weitzner, Xiaozhen Hu, Yumiko Adachi, William R Schief, and Roland L Dunbrack Jr. Rosettaantibodydesign (rabd): A general framework for computational antibody design. PLoS computational bi-ology , 14(4):e1006112, 2018. [4] Rahmad Akbar, Philippe A Robert, Milena Pavlovi´ c, Jeliazko R Jeliazkov, Igor Snapkov, Andrei Slabodkin, Cédric R Weber, Lonneke Scheffer, Enkelejda Miho, Ingrid Hobæk Haff, et al. A compact vocabulary of paratope-epitope interactions enables predictability of antibody-antigen binding. Cell Reports , 34(11), 2021. [5] Bissan Al-Lazikani, Arthur M Lesk, and Cyrus Chothia. Standard conformations for the canonical structures of immunoglobulins. Journal of molecular biology , 273(4):927–948, 1997. [6] Rebecca F Alford, Andrew Leaver-Fay, Jeliazko R Jeliazkov, Matthew J O’Meara, Frank P DiMaio, Hahnbeom Park, Maxim V Shapovalov, P Douglas Renfrew, Vikram K Mulligan, Kalli Kappel, et al. The rosetta all-atom energy function for macromolecular modeling and design. 
+
+Journal of chemical theory and computation , 13(6):3031–3048, 2017. [7] Afra Amini, Tim Vieira, and Ryan Cotterell. Direct preference optimization with an offset. 
+
+arXiv preprint arXiv:2402.10571 , 2024. [8] Mohammad Gheshlaghi Azar, Zhaohan Daniel Guo, Bilal Piot, Remi Munos, Mark Rowland, Michal Valko, and Daniele Calandriello. A general theoretical paradigm to understand learning from human preferences. In International Conference on Artificial Intelligence and Statistics ,pages 4447–4455. PMLR, 2024. [9] Frank Breitling, Stefan Dübel, Thomas Seehaus, Iris Klewinghaus, and Melvyn Little. A surface expression vector for antibody screening. Gene , 104(2):147–153, 1991. [10] AML AI4Science Team ByteDance, Xinshi Chen, Yuxuan Zhang, Chan Lu, Wenzhi Ma, Jiaqi Guan, Chengyue Gong, Jincai Yang, Hanyu Zhang, Ke Zhang, et al. Protenix-advancing structure prediction through a comprehensive alphafold3 reproduction. bioRxiv , pages 2025–01, 2025. [11] Juntao Deng, Miao Gu, Pengyan Zhang, Mingyu Dong, Tao Liu, Yabin Zhang, and Min Liu. Nanobody–antigen interaction prediction with ensemble deep learning and prompt-based protein language models. Nature Machine Intelligence , 6(12):1594–1604, 2024. [12] Frédéric A Dreyer, Daniel Cutting, Constantin Schneider, Henry Kenlay, and Charlotte M Deane. Inverse folding for antibody sequence design using deep learning. arXiv preprint arXiv:2310.19513 , 2023. [13] James Dunbar, Konrad Krawczyk, Jinwoo Leem, Terry Baker, Angelika Fuchs, Guy Georges, Jiye Shi, and Charlotte M Deane. Sabdab: the structural antibody database. Nucleic acids research , 42(D1):D1140–D1146, 2014. [14] Ahmed Elnaggar, Michael Heinzinger, Christian Dallago, Ghalia Rehawi, Yu Wang, Llion Jones, Tom Gibbs, Tamas Feher, Christoph Angerer, Martin Steinegger, et al. Prottrans: Toward understanding the language of life through self-supervised learning. IEEE transactions on pattern analysis and machine intelligence , 44(10):7112–7127, 2021. [15] Kawin Ethayarajh, Winnie Xu, Niklas Muennighoff, Dan Jurafsky, and Douwe Kiela. Kto: Model alignment as prospect theoretic optimization. arXiv preprint arXiv:2402.01306 , 2024. 10 [16] Stefan Ewert, Annemarie Honegger, and Andreas Plückthun. Stability improvement of anti-bodies for extracellular and intracellular applications: Cdr grafting to stable frameworks and structure-based framework engineering. Methods , 34(2):184–199, 2004. [17] Noelia Ferruz, Steffen Schmidt, and Birte Höcker. Protgpt2 is a deep unsupervised language model for protein design. Nature communications , 13(1):4348, 2022. [18] Kaiyuan Gao, Lijun Wu, Jinhua Zhu, Tianbo Peng, Yingce Xia, Liang He, Shufang Xie, Tao Qin, Haiguang Liu, Kun He, et al. Pre-training antibody language models for antigen-specific computational antibody design. In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining , pages 506–517, 2023. [19] Thomas Hayes, Roshan Rao, Halil Akin, Nicholas J Sofroniew, Deniz Oktay, Zeming Lin, Robert Verkuil, Vincent Q Tran, Jonathan Deaton, Marius Wiggert, et al. Simulating 500 million years of evolution with a language model. Science , page eads0018, 2025. [20] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In Proceedings of the IEEE conference on computer vision and pattern recognition ,pages 770–778, 2016. [21] Fatima N Hitawala and Jeffrey J Gray. What does alphafold3 learn about antibody and nanobody docking, and what remains unsolved? In MAbs , volume 17, page 2545601. Taylor & Francis, 2025. [22] Magnus Haraldson Høie, Alissa Hummer, Tobias H Olsen, Broncio Aguilar-Sanjuan, Morten Nielsen, and Charlotte M Deane. Antifold: Improved antibody structure-based design using inverse folding. arXiv preprint arXiv:2405.03370 , 2024. [23] Hennie R Hoogenboom. Selecting and screening recombinant antibody libraries. Nature biotechnology , 23(9):1105–1116, 2005. [24] Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin De Laroussilhe, Andrea Gesmundo, Mona Attariyan, and Sylvain Gelly. Parameter-efficient transfer learning for nlp. In International conference on machine learning , pages 2790–2799. PMLR, 2019. [25] Wengong Jin, Jeremy Wohlwend, Regina Barzilay, and Tommi S Jaakkola. Iterative refinement graph neural network for antibody sequence-structure co-design. In International Conference on Learning Representations , 2022. [26] Peter T Jones, Paul H Dear, Jefferson Foote, Michael S Neuberger, and Greg Winter. Replacing the complementarity-determining regions in a human antibody with those from a mouse. Nature ,321(6069):522–525, 1986. [27] Xiangzhe Kong, Wenbing Huang, and Yang Liu. Conditional antibody design as 3d equivariant graph translation. In The Eleventh International Conference on Learning Representations , 2023. [28] Xiangzhe Kong, Wenbing Huang, and Yang Liu. End-to-end full-atom antibody design. In 
+
+Proceedings of the 40th International Conference on Machine Learning , pages 17409–17429, 2023. [29] Gideon D Lapidoth, Dror Baran, Gabriele M Pszolla, Christoffer Norn, Assaf Alon, Michael D Tyka, and Sarel J Fleishman. Abdesign: A n algorithm for combinatorial backbone design guided by natural conformations and sequences. Proteins: Structure, Function, and Bioinformatics ,83(8):1385–1406, 2015. [30] Haitao Lin, Lirong Wu, Yufei Huang, Yunfan Liu, Odin Zhang, Yuanqing Zhou, Rui Sun, and Stan Z Li. Geoab: Towards realistic antibody design and reliable affinity maturation. bioRxiv ,pages 2024–05, 2024. [31] Zeming Lin, Halil Akin, Roshan Rao, Brian Hie, Zhongkai Zhu, Wenting Lu, Nikita Smetanin, Robert Verkuil, Ori Kabeli, Yaniv Shmueli, et al. Evolutionary-scale prediction of atomic-level protein structure with a language model. Science , 379(6637):1123–1130, 2023. 11 [32] Aiwei Liu, Haoping Bai, Zhiyun Lu, Yanchao Sun, Xiang Kong, Simon Wang, Jiulong Shan, Al-bin Madappally Jose, Xiaojiang Liu, Lijie Wen, et al. Tis-dpo: Token-level importance sampling for direct preference optimization with estimated weights. arXiv preprint arXiv:2410.04350 ,2024. [33] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. Advances in neural information processing systems , 36:34892–34916, 2023. [34] Shilong Liu, Hao Cheng, Haotian Liu, Hao Zhang, Feng Li, Tianhe Ren, Xueyan Zou, Jianwei Yang, Hang Su, Jun Zhu, et al. Llava-plus: Learning to use tools for creating multimodal agents. In European Conference on Computer Vision , pages 126–142. Springer, 2024. [35] Wei Lu, Jixian Zhang, Jiahua Rao, Zhongyue Zhang, and Shuangjia Zheng. Alphafold3, a secret sauce for predicting mutational effects on protein-protein interactions. bioRxiv , pages 2024–05, 2024. [36] Shitong Luo, Yufeng Su, Xingang Peng, Sheng Wang, Jian Peng, and Jianzhu Ma. Antigen-specific antibody design and optimization with diffusion-based generative models for protein structures. Advances in Neural Information Processing Systems , 35:9754–9767, 2022. [37] Shitong Luo, Yufeng Su, Zuofan Wu, Chenpeng Su, Jian Peng, and Jianzhu Ma. Rotamer density estimator is an unsupervised learner of the effect of mutations on protein-protein interaction. 
+
+bioRxiv , pages 2023–02, 2023. [38] Karolis Martinkus, Jan Ludwiczak, Wei-Ching Liang, Julien Lafrance-Vanasse, Isidro Hotzel, Arvind Rajpal, Yan Wu, Kyunghyun Cho, Richard Bonneau, Vladimir Gligorijevic, et al. Abdif-fuser: full-atom generation of in-vitro functioning antibodies. Advances in Neural Information Processing Systems , 36:40729–40759, 2023. [39] Joshua Meier, Roshan Rao, Robert Verkuil, Jason Liu, Tom Sercu, and Alex Rives. Language models enable zero-shot prediction of the effects of mutations on protein function. Advances in neural information processing systems , 34:29287–29303, 2021. [40] Yu Meng, Mengzhou Xia, and Danqi Chen. Simpo: Simple preference optimization with a reference-free reward. Advances in Neural Information Processing Systems , 37:124198–124235, 2024. [41] Erik Nijkamp, Jeffrey A Ruffolo, Eli N Weinstein, Nikhil Naik, and Ali Madani. Progen2: exploring the boundaries of protein language models. Cell systems , 14(11):968–978, 2023. [42] Tobias H Olsen, Iain H Moal, and Charlotte M Deane. Ablang: an antibody language model for completing antibody sequences. Bioinformatics Advances , 2(1):vbac046, 2022. [43] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. Training language models to follow instructions with human feedback. Advances in neural information processing systems ,35:27730–27744, 2022. [44] Arka Pal, Deep Karkhanis, Samuel Dooley, Manley Roberts, Siddartha Naidu, and Colin White. Smaug: Fixing failure modes of preference optimisation with dpo-positive. arXiv preprint arXiv:2402.13228 , 2024. [45] Richard Yuanzhe Pang, Weizhe Yuan, He He, Kyunghyun Cho, Sainbayar Sukhbaatar, and Jason Weston. Iterative reasoning preference optimization. Advances in Neural Information Processing Systems , 37:116617–116637, 2024. [46] Leonard G Presta. Antibody engineering. Current Opinion in Structural Biology , 2(4):593–596, 1992. [47] Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, and Chelsea Finn. Direct preference optimization: Your language model is secretly a reward model. 
+
+Advances in Neural Information Processing Systems , 36:53728–53741, 2023. 12 [48] Roshan M Rao, Jason Liu, Robert Verkuil, Joshua Meier, John Canny, Pieter Abbeel, Tom Sercu, and Alexander Rives. Msa transformer. In International Conference on Machine Learning ,pages 8844–8856. PMLR, 2021. [49] Milong Ren, ZaiKai He, and Haicang Zhang. Multi-objective antibody design with constrained preference optimization. In The Thirteenth International Conference on Learning Representa-tions , 2025. [50] Jeffrey A Ruffolo, Lee-Shin Chu, Sai Pooja Mahajan, and Jeffrey J Gray. Fast, accurate antibody structure prediction from deep learning on massive set of natural antibodies. Nature communications , 14(1):2389, 2023. [51] Jeffrey A Ruffolo, Jeffrey J Gray, and Jeremias Sulam. Deciphering antibody affinity maturation with language models and weakly supervised learning. arXiv preprint arXiv:2112.07782 , 2021. [52] Jeffrey A Ruffolo, Stephen Nayfach, Joseph Gallagher, Aadyot Bhatnagar, Joel Beazer, Riffat Hussain, Jordan Russ, Jennifer Yip, Emily Hill, Martin Pacesa, et al. Design of highly functional genome editors by modeling the universe of crispr-cas sequences. BioRxiv , pages 2024–04, 2024. [53] Yaojie Shen, Xinyao Wang, Yulei Niu, Ying Zhou, Lexin Tang, Libo Zhang, Fan Chen, and Longyin Wen. Aipo: Improving training objective for iterative preference optimization. arXiv preprint arXiv:2409.08845 , 2024. [54] Zhende Song, Chenchen Wang, Jiamu Sheng, Chi Zhang, Gang Yu, Jiayuan Fan, and Tao Chen. Moviellm: Enhancing long video understanding with ai-generated movies. arXiv preprint arXiv:2403.01422 , 2024. [55] Jin Su, Chenchen Han, Yuyang Zhou, Junjie Shan, Xibin Zhou, and Fajie Yuan. Saprot: Protein language modeling with structure-aware vocabulary. bioRxiv , pages 2023–10, 2023. [56] Yunlong Tang, Jing Bi, Siting Xu, Luchuan Song, Susan Liang, Teng Wang, Daoan Zhang, Jie An, Jingyang Lin, Rongyi Zhu, et al. Video understanding with large language models: A survey. IEEE Transactions on Circuits and Systems for Video Technology , 2025. [57] Aaron Van Den Oord, Oriol Vinyals, et al. Neural discrete representation learning. Advances in neural information processing systems , 30, 2017. [58] Danqing Wang, YE Fei, and Hao Zhou. On pre-training language model for antibody. In The eleventh international conference on learning representations , 2023. [59] Rubo Wang, Fandi Wu, Xingyu Gao, Jiaxiang Wu, Peilin Zhao, and Jianhua Yao. Iggm: A generative model for functional antibody and nanobody design. bioRxiv , pages 2024–09, 2024. [60] Xinyou Wang, Zaixiang Zheng, YE Fei, Dongyu Xue, Shujian Huang, and Quanquan Gu. Dplm-2: A multimodal diffusion protein language model. In The Thirteenth International Conference on Learning Representations , 2025. [61] Zichen Wang, Yaokun Ji, Jianing Tian, and Shuangjia Zheng. Retrieval augmented diffusion model for structure-informed antibody design and optimization. The Thirteenth International Conference on Learning Representations , 2025. [62] JunJie Wee and Guo-Wei Wei. Benchmarking alphafold3’s protein-protein complex accuracy and machine learning prediction reliability for binding free energy changes upon mutation. 
+
+arXiv preprint arXiv:2406.03979 , 2024. [63] Talal Widatalla, Rafael Rafailov, and Brian Hie. Aligning protein generative models with experimental fitness via direct preference optimization. bioRxiv , pages 2024–05, 2024. [64] Teng Xiao, Yige Yuan, Huaisheng Zhu, Mingxiao Li, and Vasant Honavar. Cal-dpo: Calibrated direct preference optimization for language model alignment. Advances in Neural Information Processing Systems , 37:114289–114320, 2024. 13 [65] Wenyi Xiao, Zechuan Wang, Leilei Gan, Shuai Zhao, Wanggui He, Luu Anh Tuan, Long Chen, Hao Jiang, Zhou Zhao, and Fei Wu. A comprehensive survey of direct preference optimization: Datasets, theories, variants, and applications. arXiv preprint arXiv:2410.15595 , 2024. [66] Chuyan Xiong, Chengyu Shen, Xiaoqi Li, Kaichen Zhou, Jeremy Liu, Ruiping Wang, and Hao Dong. Aic mllm: Autonomous interactive correction mllm for robust robotic manipulation. 
+
+arXiv preprint arXiv:2406.11548 , 2024. [67] Dexuan Xu, Yanyuan Chen, Jieyi Wang, Yue Huang, Hanpin Wang, Zhi Jin, Hongxing Wang, Weihua Yue, Jing He, Hang Li, et al. Mlevlm: Improve multi-level progressive capabilities based on multimodal large language model for medical visual question answering. In Findings of the Association for Computational Linguistics ACL 2024 , pages 4977–4997, 2024. [68] John L Xu and Mark M Davis. Diversity in the cdr3 region of vh is sufficient for most antibody specificities. Immunity , 13(1):37–45, 2000. [69] Fei Ye, Zaixiang Zheng, Dongyu Xue, Yuning Shen, Lihao Wang, Yiming Ma, Yan Wang, Xinyou Wang, Xiangxin Zhou, and Quanquan Gu. Proteinbench: A holistic evaluation of protein foundation models. arXiv preprint arXiv:2409.06744 , 2024. [70] Mingze Yin, Hanjing Zhou, Jialu Wu, Yiheng Zhu, Yuxuan Zhan, Zitai Kong, Hongxia Xu, Chang-Yu Hsieh, Jintai Chen, Tingjun Hou, et al. S2alm: Sequence-structure pre-trained large language model for comprehensive antibody representation learning. arXiv preprint arXiv:2411.15215 , 2024. [71] Zuobai Zhang, Minghao Xu, Arian Rokkum Jamasb, Vijil Chenthamarakshan, Aurelie Lozano, Payel Das, and Jian Tang. Protein representation learning by geometric structure pretraining. In 
+
+The Eleventh International Conference on Learning Representations , 2023. [72] Rui Zhao, Qirui Yuan, Jinyu Li, Haofeng Hu, Yun Li, Chengyuan Zheng, and Fei Gao. Sce2drivex: A generalized mllm framework for scene-to-drive learning. arXiv preprint arXiv:2502.14917 , 2025. [73] Zaixiang Zheng, Yifan Deng, Dongyu Xue, Yi Zhou, Fei Ye, and Quanquan Gu. Structure-informed language models are protein designers. In International conference on machine learning , pages 42317–42338. PMLR, 2023. [74] Xiangxin Zhou, Dongyu Xue, Ruizhe Chen, Zaixiang Zheng, Liang Wang, and Quanquan Gu. Antigen-specific antibody design via direct energy-based preference optimization. arXiv preprint arXiv:2403.16576 , 2024. [75] Tian Zhu, Milong Ren, and Haicang Zhang. Antibody design using a score-based diffusion model guided by evolutionary, physical and geometric constraints. In Forty-first International Conference on Machine Learning , 2024. 14 A Experiment Details 
+
+A.1 Baseline Details DiffAb [36 ] We used DiffAb from the official GitHub repository (https://github.com/luost26/diffab). To ensure a fair comparison, we retrained DiffAb on the same dataset as our model, using the configuration file codesign_multicdrs.yml for 6 CDRs design and codesign_single.yml for CDR-H3 design. 
+
+dyMEAN [ 28 ] We used dyMEAN from the official GitHub repository (https://github.com/THUNLP-MT/dyMEAN). For consistency, dyMEAN was retrained on our dataset using the configuration file 
+
+multi_cdr_design.json for 6 CDRs design and single_cdr_design.yml for CDR-H3 design.. 
+
+AbX [74 ] We used AbX from the official GitHub reposi-tory (https://github.com/CarbonMatrixLab/AbX). The provided check-points(https://zenodo.org/records/14577013) were used for evaluation. 
+
+GeoAB [30 ] We used GeoAB from the official GitHub repository (https://github.com/Edapinenut/GeoAB). To ensure a fair comparison, GeoAB was retrained on the same dataset as our model and only can perform CDR-H3 codesign. 
+
+A.2 Metric Details Pll Pll is calculated by AntiBERTy [ 51 ] to gauge sequence plausibility. For CDR-H3, we modify the calculation of the Pll to apply only within the CDR-H3 region same as previous work[ 69 ] for fine-grained comparison. AntiBERTy can be accessed at https://github.com/jeffreyruffolo/AntiBERTy 
+
+AF3-related scores We adopted Protenix [ 10 ] for evaluation due to its fully open-source implementa-tion and its ability to extract evolutionary features using ESM2-3B embeddings, thereby avoiding the time-consuming MSA search. Specifically, we used version 0.4.0 from the constraint_esm branch of the GitHub repository (https://github.com/bytedance/Protenix/tree/constraint_esm) to evaluate the sequences. The evaluation metrics include pTM , ipTM , and the ranking score .
+
+Proportion of Hydrophobic Residues (PHR) Following previous works [ 74 , 69 ], we use PHR to assess the antibodies specificity designed by the models. This metric is calculated only at CDR-H3 region. PHR is defined as the proportion of hydrophobic amino acids—specifically Alanine (A), Valine (V), Isoleucine (I), Leucine (L), Methionine (M), Phenylalanine (F), Tryptophan (W), and Tyrosine (Y). The lower PHR means better specificity. 
+
+A.3 Dataset Preparation 
+
+For the synthetic dataset, we used a subset of the OAS database, which in-cludes approximately 1.4 million paired antibody sequences predicted by IgFold (https://data.graylab.jhu.edu/OAS_paired.tar.gz, https://data.graylab.jhu.edu/Jaffe2022.tar.gz) and ABodyBuilder (https://zenodo.org/records/7258553). We added Gaussian noise with a standard deviation of 0.1 Å to the atomic coordinates of all predicted protein structures. For the DPO dataset, we used AAMFM-SFT to generate sequences based on all PDB structures in the RAbD dataset. We sampled sequences across different temperatures ranging from 0.1 to 1.5, generating 30 CDR-region sequences per complex at each temperature. Each generated sequence was then evaluated using both AntiBERTy and Protenix to obtain scoring metrics for downstream finetune. 
+
+A.4 Implementation Details 
+
+Our model was developed and implemented using the PyTorch framework. All experiments are run on a single A800 GPU, with a memory storage of 80GB. We use ESM-3 (version 3.1.6) as the base model, specifically the open-source 1.4B parameter version available at https://github.com/evolutionaryscale/esm. In the first training stage (on the OAS subset), we used the AdamW optimizer with a learning rate of 5e-5 and a batch size of 8. Mixed-precision training with bfloat16 (bf16) was employed to accelerate training and reduce memory consumption. We trained the model for 2 epochs. 15 0 2500 5000 7500 10000 12500 15000 17500 20000         
+
+> Steps
+> 10
+> 5
+> 0
+> 5
+> Value
+> DPO
+> Preferred
+> Dispreferred
+> Margin
+> 02500 5000 7500 10000 12500 15000 17500 20000
+> Steps
+> Cal-DPO
+
+Figure 4: Training dynamic comparison between DPO and Cal-DPO In the second stage (Supervised Fine-Tuning, SFT), both the antigen and antibody sequences were fed into the model. During this phase, we trained additional adapter layers. To prevent overfitting, we froze the base model and trained only the adapters for the first 40 epochs using the AdamW optimizer with a learning rate of 1e-4 and a warm-up over 10% of the training steps. After 40 epochs, we unfroze the base model and continued training for an additional 5 epochs with a learning rate of 1e-5 using AdamW (the adapter’s learning rate is still 1e-4). Training was also conducted with bf16 mixed precision. Due to the increased input sequence length in this stage, we employed gradient accumulation with an effective batch size of 8 (batch size of 1 with accumulation steps set to 8). In the third stage (Cal-DPO), we used the AdamW optimizer with a learning rate of 5e-5 and trained the model for 4 epochs, using bf16 mixed precision. Due to the increased input sequence length in this stage, we employed gradient accumulation with an effective batch size of 8 (batch size of 1 with accumulation steps set to 8). 
+
+## B Additional Experimental Analysis 
+
+We compared the training process of DPO and Cal-DPO algorithms, as illustrated in Figure 4. While both methods exhibit an increasing margin (the difference between the log probabilities of preferred and dispreferred samples), we observed a key difference in their behavior. During standard DPO training, the log probabilities of both preferred and dispreferred sequences decrease simultaneously, indicating that the model may not fully capture the preference signal. In contrast, Cal-DPO maintains a relatively stable log probability for preferred sequences while decreasing the log probability of dispreferred ones. This behavior suggests that Cal-DPO more effectively enhances the model’s ability to favor preferred samples during generation. 
+
+## C Detailed Related Work 
+
+Multi-modal Large Language Models Multimodal large language models (MLLMs) refer to LLMs trained on multiple modalities beyond text, enabling them to process or generate diverse data types such as images and videos. In the visual domain, models like LLaVA [ 33 , 34 ] connect a vision encoder with an LLM to support general-purpose visual and language understanding. Similar strategies have been developed for multimodal video understanding [ 54 , 56 ]. MLLMs have also been proposed for embodied AI and robotics [66], medical applications [67], and autonomous driving [72]. In the protein modeling domain, several recent works have introduced structural modalities to enhance sequence-only models, improving their representation and generative capabilities. Notable examples include SaProt [ 55 ], LMDesign [ 73 ], ESM3 [ 19 ], DPLM-2 [ 60 ], and S 2ALM [ 70 ]. Inspired by this trend, AAMFM adopts a similar strategy to enhance multimodal antibody representations and improve the functionality of antibody design. 
+
+Direct Preference Optimization Direct Preference Optimization (DPO) methods [ 47 ] simplifies RLHF [ 43 ] by using contrastive learning on preference data, and has proven effective. However, the 16 standard DPO algorithm has certain limitations: it focuses solely on relative preferences, disregarding the absolute values of both preferred and dispreferred samples, and heavily relies on the quality of preference-pair data [ 65 ]. To address these issues, a series of improved algorithms have been proposed [7, 15, 40, 32]. IPO [8] mitigates overfitting by introducing an additional loss term. IRPO [ 45 ] explicitly incorporates the negative log-likelihood (NLL) of preferred samples into the loss, thereby increasing the probability of generating preferred outputs. Similarly, DPOP [ 44 ] and AIPO [ 53 ] add extra loss terms based on the Bradley-Terry model to prevent the probability of preferred samples from decreasing during training. In contrast to these methods that only emphasize the preferred samples, Cal-DPO [ 64 ] simultaneously considers the absolute values of both preferred and dispreferred samples. It enables the model to learn implicit rewards in contrastive preference learning, aligning model outputs with ground-truth rewards in accordance with human preferences. Owing to these advantages, we adopt Cal-DPO as an improved method to better align AAMFM with functional and plausible antibody design preferences. 
+
+## D Method Details 
+
+D.1 Model Details 
+
+We use ESM3-1.4B as our base model [ 19 ]. ESM3 is a bidirectional transformer architecture that integrates multimodal information from protein sequence, structure, and function. These modalities are first embedded and fused at the input layer, then processed through a stack of transformer blocks. At the output, shallow multi-layer perceptron (MLP) heads project the final hidden states into token probabilities corresponding to each modality. Instead of using modality-specific architectural components, ESM3 adopts a unified tokenization approach to represent the complexity of proteins in a shared multimodal feature space. This design enables efficient and scalable training. In particular, protein structures are tokenized using a discrete autoencoder that compresses 3D spatial information into discrete structural tokens. To incorporate antigen geometry and antigen-antibody interface features for antigen-specific antibody generation, we introduce the Antigen Geometric-Epitope-aware Adapter. Antigen 3D coordinates are first passed through a GNN (GearNet [ 71 ]) to obtain node embeddings, which are used as geometric features. These embeddings are projected into a unified feature space through a combination of MLPs, convolutional layer, and pooling layer. Meanwhile, epitope information is encoded as a binary matrix aligned with the antigen sequence (1 for epitope residues, 0 for other region), which is then passed through a learnable embedding layer that maps the binary values to an 8-dimensional space. These embeddings are combined with positional encodings and input into a Transformer encoder to obtain contextualized epitope representations. The resulting geometric and epitope features are concatenated with the last-layer output of ESM3’s base transformer (after projecting it from 1536 to 64 dimensions). The concatenated features are then mapped back to the original 1536-dimensional space and added to the base model’s final hidden states. 
+
+D.2 Direct Preference Optimization Details 
+
+Given a preference pair (yw, y l) under input context c (e.g., masked antibody sequence sf r , antigen features Gag , and interface information I), the Bradley–Terry (BT) model assumes a latent reward function r(y|c) and models the preference as: 
+
+P (yw ≻ yl | c) = exp( r(yw | c)) exp( r(yw | c)) + exp( r(yl | c)) . (7) In the standard reinforcement learning from human feedback (RLHF) framework [ 43 ], a reward model 
+
+rϕ is trained by maximizing the expected reward under the optimized policy πθ , while regularizing it towards the reference policy πref with a KL-divergence: 
+
+max 
+
+> πθ
+
+Ey∼πθ [rϕ(y | c)] − βD KL (πθ (y | c)∥πref (y | c)) . (8) The optimal solution for the reward model has a closed form: 17 π∗ 
+
+> θ
+
+(y | c) = πref (y | c) · exp( r∗(y | c)/β )
+
+Z (9) where Z is a normalization constant. This leads to the optimal reward model: 
+
+r∗(y | c) = β log πθ (y | c)
+
+πref (y | c) + β log Z. (10) Substituting Equation 10 into the Bradley-Terry model in Equation 7 and optimizing the log-likelihood, the Direct Preference Optimization (DPO) objective [47] becomes: 
+
+LDPO (θ; πref ) = −E(c,y w ,y l)∼D 
+
+
+
+log σ
+
+
+
+β log πθ (yw | c)
+
+πref (yw | c)
+
+
+
+− log σ
+
+
+
+β log πθ (yl | c)
+
+πref (yl | c)
+
+ 
+
+, (11) where σ(·) is the sigmoid function and β is a temperature parameter controlling preference sharpness. Cal-DPO introduces an additional calibration loss term. Defining the target margin M = 1 /(2 β), the calibration loss encourages the log-likelihood ratios to align with this margin: 
+
+LCal (θ; πref ) = E(c,y w ,y l)∼D 
+
+
+
+(log σ(β log πθ (yw | c)
+
+πref (yw | c) − M
+
+2
+
++ log σ
+
+
+
+β log πθ (yl | c)
+
+πref (yl | c) + M
+
+2#
+
+(12) The final training loss is a weighted sum of the DPO and calibration terms: 
+
+LCal-DPO = LDPO + λ · L Cal (13) 
+
+## E Broader Impacts 
+
+Our work has broad potential applications in biotechnology and therapeutic development. For instance, the ability to design functional antibodies that bind to specific antigens could contribute to the development of vaccines, or the engineering of agonists and antagonists that modulate specific immune pathways or signaling proteins. Such applications have the potential to advance precision medicine, immunotherapy, and the treatment of various diseases. We explicitly prohibit the use of our model for potentially harmful purposes, such as the development of biological weapons, targeting of human proteins for malicious intent, or any application that may pose significant ethical, safety, or biosecurity risks. 
+
+## F Codes 
+
+Our code is available at https://github.com/XL-S224/AAMFM .18

@@ -1,0 +1,1805 @@
+Title: GEqTrain: A Configuration-Driven Framework for Retargeting Equivariant Graph Neural Networks Across 3D Scientific Tasks
+
+URL Source: https://arxiv.org/pdf/2607.19083v1
+
+Published Time: Wed, 22 Jul 2026 01:16:59 GMT
+
+Number of Pages: 46
+
+Markdown Content:
+# GEqTrain: A Configuration-Driven Framework for Retargeting Equivariant Graph Neural Networks Across 3D Scientific Tasks 
+
+Daniele Angioletti 1, Marco Nobile 1, and Vittorio Limongelli 11Faculty of Biomedical Sciences, Euler Institute, Universit´ a della Svizzera italiana, 6900 Lugano, Switzerland 
+
+Abstract 
+
+Equivariant graph neural networks provide a powerful modeling language for three-dimensional scientific data, but their reuse is often limited by implementations tied to specific tasks, outputs, and training regimes. We present GEqTrain , a configuration-driven framework that separates dataset semantics, model composition, and training objectives. Raw data are mapped to typed node-, edge-, and graph-level fields, while model stacks, losses, and training workflows are assembled declaratively through Hydra configurations. A shared equivariant backbone and training infrastructure can therefore be retargeted to a new task primarily through configuration . We demonstrate this flexibility on three differ-ent problems handled within one software stack: coarse-grained-to-atomistic backmapping of biomolecular systems, prediction of NMR chemical shifts in molecular solids, and equiv-ariant generative modeling. Our aim is not to surpass individually optimized task-specific systems, but to show that a shared representation and training infrastructure can achieve competitive accuracy across qualitatively different tasks at the cost of a configuration change . We further introduce GEqDiff , a generative extension based on equivariant flow matching. GEqDiff treats user-defined equivariant fields as first-class gen-eration targets, jointly transporting Cartesian positions and non-scalar node fields spanning representations up to ℓ = 3 within a single equivariant flow. We validate this capability on a controlled synthetic benchmark inspired by protein secondary-structure motifs, showing that fields with heterogeneous transformation properties can be reconstructed jointly and with high fidelity. By reducing the software overhead of moving between predictive and generative, scalar and tensorial settings, GEqTrain aims to make equivariant modeling more reproducible, extensible, and reusable. 
+
+# 1 Introduction 
+
+Learning from three-dimensional scientific data is central to modern computational chemistry, materials science, and biomolecular modeling. In many of these settings, the targets of interest depend not only on composition and connectivity, but also on local geometry, conformation, and interactions in real space. This is evident in tasks such as atomistic property predic-tion, experimental-observable regression, coarse-grained backmapping, and structure genera-tion, where the relevant quantities are constrained by Euclidean symmetries and by the physical organization of matter in three dimensions [1–12]. Equivariant graph neural networks provide a natural modeling language for this regime. By construction, they encode how features should transform under rotations, translations, and, when appropriate, inversion, so that geometric information is processed as physical structure rather than as an arbitrary coordinate choice. This principle has enabled substantial progress across molecular property prediction, atomistic simulation, and protein modeling, and has pro-duced a rapidly growing family of architectures with different trade-offs in expressivity, locality, and computational cost [6, 7, 13–18]. However, progress in model design has not fully translated into reusable research software. Many implementations remain tightly coupled to a specific task family, output type, or ar-chitectural template, making it difficult to change input semantics, move between scalar and 1arXiv:2607.19083v1 [cs.LG] 21 Jul 2026 equivariant targets, or reuse the same stack across supervised and generative workflows. The bottleneck is therefore not only architectural design, but software abstraction: equivariant learn-ing frameworks must separate dataset semantics, geometric representations, model composition, and training objectives into modular, interchangeable components. 
+
+GEqTrain addresses this software gap as a configuration-driven framework for heteroge-neous equivariant learning problems. Raw dataset fields are mapped to internal typed node-, edge-, and graph-level fields ; geometry-derived quantities are constructed explicitly; and equivariant model stacks are assembled declaratively through Hydra-based configuration [19]. This design makes it possible to reuse the same framework across tasks that differ in input struc-ture, target type, and training objective. Figure 1 provides an overview of this configuration-driven workflow. GEqTrain emphasizes strictly local equivariant stacks, which are scientifically natural for many molecular interactions [20, 21] and enable memory-bounded chunked inference for node- and edge-local outputs, extending the accessible graph size under a fixed GPU-memory budget (Supplementary Fig. 1). We emphasize that GEqTrain is a methodological contribution: the benchmarks in this work are used to test whether heterogeneous tasks can be expressed within one reproducible and configurable stack, not to argue that a modular framework should supersede task-specialized systems optimized for a single benchmark. The present paper is biologically motivated, but intentionally broader in methodological scope than a single biomolecular application. Two case studies are drawn directly from molec-ular science: hierarchical coarse-grained backmapping of biomolecular systems and prediction of NMR chemical shifts in molecular solids, including scalar and tensorial local observables. To probe extensibility toward generative modeling settings relevant to ligand-oriented 3D design, we further introduce a controlled synthetic benchmark in which node states include Cartesian coordinates together with scalar and higher-order equivariant shape descriptors and dipole-like vectors. Although synthetic, this task isolates geometric ingredients that recur in molecular generation, namely the joint treatment of placement, orientation, local shape, and auxiliary descriptors within a single equivariant learning problem. Our contributions are as follows: 
+
+• We present GEqTrain, a configuration-driven framework for equivariant graph learning that separates dataset semantics, geometric representation, model composition, and train-ing objectives within a unified software stack. 
+
+• We introduce a modular local architecture built from reusable invariant and equivariant primitives, supporting scalar, equivariant, and mixed-output prediction settings while remaining compatible with scalable execution strategies. 
+
+• We show that the same framework-level abstractions can support both predictive and generative workflows, rather than requiring separate software ecosystems for supervised regression and 3D generation. 
+
+• We demonstrate this versatility on three substantially different settings: hierarchical biomolecular backmapping, NMR chemical-shift prediction with scalar and tensorial tar-gets, and a controlled equivariant generative benchmark potentially useful for 3D structure-based ligand design. 
+
+# 2 Related Work 
+
+Equivariant and geometry-aware graph neural networks have become central to modern molec-ular machine learning, spanning small-molecule property prediction, tensorial observables, and atomistic energy-and-force modeling. Early 3D graph models established the value of local geometric representations, while later architectures increasingly moved from invariant message 2passing toward explicitly equivariant treatments of vectorial and higher-order information. Rep-resentative milestones in this progression include SchNet, DimeNet, PaiNN, NequIP, Allegro, and related higher-order equivariant models, which together illustrate the shift from distance-based graph learning to tensorial and strictly local equivariant representations [6, 7, 14–16, 22, 23]. From a software perspective, the field is also moving from isolated model implementations toward reusable and interoperable infrastructure. Existing efforts span several levels of ab-straction. Libraries such as e3nn provide representation-theoretic primitives for equivariant neural networks, while atomistic-learning frameworks such as SchNetPack, TorchMD, and JAX MD provide reusable infrastructure for training, simulation, or differentiable molecular model-ing. In parallel, the metatensor ecosystem developed by the COSMO community has explicitly targeted interoperability in atomistic machine learning: metatensor provides metadata-rich tensor containers for atomistic data, metatomic defines portable interfaces between machine-learning models and simulation engines, and metatrain provides a common training interface for atomistic models across architectures and targets [24–29]. Highly optimized model-specific stacks such as NequIP, Allegro, and MACE have further demonstrated how software design can make equivariant interatomic potentials practical at scale [6, 7, 23]. GEqTrain is complemen-tary to these efforts. Rather than introducing a new low-level equivariant algebra or a single task-specialized architecture, it focuses on the interface between typed scientific data seman-tics, modular equivariant computation, and task-level objectives, with the aim of expressing heterogeneous predictive and generative workflows within one configuration-driven framework. A particularly relevant application area for our first case study is coarse-grained backmap-ping. Classical backmapping pipelines often rely on geometric reconstruction rules followed by relaxation, and remain valuable in many workflows, but recent machine-learning approaches increasingly formulate backmapping as a conditional generative problem. FlowBack uses flow matching to map coarse-grained configurations to atomistic structure distributions, CGBack employs diffusion-based reconstruction for large and complex coarse-grained biomolecular sys-tems, and MSBack explores constrained diffusion for highly coarse-grained proteins [30–33]. These methods highlight a broader shift toward generative multiscale reconstruction in settings where stereochemistry, packing, and conformational diversity must be recovered directly from coarse variables. In this context, our backmapping study is used to test whether GEqTrain can express a complex task-specific reconstruction pipeline while preserving a reusable equivariant feature-extraction stack. NMR chemical-shift prediction provides a different test case: instead of reconstructing co-ordinates, the model must learn a local structure–observable map whose target is physically defined by the electronic response of a nucleus to an external magnetic field. Earlier graph-based and 3D message-passing approaches already showed that geometric representations can recover local effects relevant to chemical shifts [34, 35]. More recent models have improved performance through larger datasets, task-specific architectures, ensemble strategies, and pre-training, including GT-NMR, GeqShift, and ensemble message-passing approaches [36–38]. In molecular solids, the ShiftML line of work provides a particularly relevant benchmark family: the original CSD-2k/CSD-500 setting evaluates isotropic shielding prediction under controlled DFT-relaxed crystal conditions, whereas ShiftML3 expands the scope to a larger dataset and to full shielding tensors using a specialized PET/nanoPET ensemble [39]. The generative case study is motivated by a different literature at the interface of biomolecu-lar interaction modeling and ligand-oriented 3D design. Recent work has made rapid progress in deep generative and interaction-aware models for protein–ligand structure prediction and design, including diffusion-based docking and structure-generation systems as well as broader multi-modal structure predictors [40–45]. Recent generative models have begun to exploit higher-order equivariant representations more directly. Symphony, for example, combines E(3)-equivariant message passing with spherical-harmonic projections to parameterize autoregressive distribu-3tions over atomic placements [46]. Clifford Diffusion Models instead encode molecular structures as graded Clifford multivectors and diffuse a joint latent state containing vector and higher-grade components [47]. In both cases, the additional equivariant representations primarily support the generation of molecular coordinates. The GEqDiff benchmark examines a complementary setting in which equivariant fields are not only internal representations, but explicit generative targets with prescribed irreps and field-specific velocity predictions. We introduce a synthetic LEGO benchmark that isolates geometric ingredients relevant to three-dimensional molecular modeling: Cartesian positions, local spherical-harmonic shape descriptors, and vector-valued directional attributes. These fields are jointly transported within a single flow-matching objec-tive while remaining separately declared, supervised, and evaluated. The benchmark therefore tests whether the typed abstractions of GEqTrain extend consistently from predictive learning to mixed-field generation, providing a controlled methodological basis for future applications involving molecular docking and design. 
+
+# 3 Model Configuration and Architecture 
+
+GEqTrain is a modular framework for building and training equivariant graph neural networks on structured three-dimensional scientific data. The empirical applications considered in this work are molecular and biomolecular, while the software abstractions are defined independently of a specific molecular target. Its design is inspired by flexible frameworks such as NequIP and Allegro [6, 7], while extending configurability beyond interatomic potentials to a broader range of prediction targets, data modalities, and training regimes. At the core of GEqTrain is a Hydra-based configuration tree [19] in which an experiment is assembled from dedicated configuration groups through Hydra’s defaults mechanism. This composition separates data semantics, model architecture, and optimization settings, while preserving a single reproducible experiment definition. An overview of this organization is shown in Figure 1, which summarizes how GEqTrain maps raw scientific data to typed internal fields (i.e. node-, edge-, and graph-level fields), constructs geometric features, applies a local equivariant interaction stack, and exposes task-specific readouts within a single configurable workflow. 
+
+3.1 Design principles and notation 
+
+The framework is built around two design principles. First, all tensors exchanged between modules carry an explicit semantic role (for example positions, node attributes, edge attributes, node features, or graph outputs). Second, the transformation behavior of learned features is declared explicitly through irreducible representations of O(3), so that invariant and equivariant quantities can be processed within a unified interface. 
+
+Transformation conventions. Throughout this work, we use the e3nn [24] notation of irre-ducible representations ( irreps ) of O(3). An irrep is identified by an angular order ℓ = 0 , 1, 2, . . . 
+
+and a parity label e/o , indicating whether the channel is even or odd under inversion. The no-tation mxle/o denotes m copies of the corresponding irrep. In particular, 1x0e denotes an invariant scalar channel, while 1x1o and 1x2e denote higher-order channels that transform equivariantly under rotations and inversion. At the network level, GEqTrain is designed to respect E(3) symmetries of three-dimensional molecular systems. Translation dependence is removed by expressing geometry through relative coordinates, while rotational and inversion behavior is controlled through irreps-aware equivari-ant operations. In the remainder of the manuscript, we use the term invariant for ℓ = 0 channels and equivariant for non-scalar channels that transform according to higher-order irreps. 4Notation. To keep the presentation uniform, we distinguish four levels of representation. Raw typed inputs are denoted by xi, xij , and xG for node-, edge-, and graph-level quantities. Their embedded versions are denoted by ai, aij , and aG. Geometry-derived edge attributes are written separately as an invariant radial embedding ρij and an equivariant angular embedding 
+
+ysh  
+
+> ij
+
+. Learned latent features inside the interaction stack are written as invariant edge states h(ℓ)
+
+> ij
+
+and equivariant edge states z(ℓ) 
+
+> ij
+
+at layer ℓ.
+
+3.2 Config-driven experiment composition 
+
+A GEqTrain experiment is assembled from Hydra configuration groups specifying the dataset interface, the ordered model stack, and the optimization setup. The top-level experiment file therefore remains intentionally compact: it declares which data definition, model definition, and training recipe are combined. This organization makes the experiment definition reproducible while avoiding hard-coded coupling between dataset conventions and model implementation. 
+
+3.3 Typed molecular representation 
+
+Given a molecular structure with atomic positions ri ∈ R3, GEqTrain constructs a directed radius graph 
+
+G = ( V, E), (i, j ) ∈ E ⇐⇒ i̸ = j and ∥rj − ri∥ ≤ rmax .
+
+Using directed edges is convenient because many modules are edge-centric and distinguish source and target roles explicitly. The framework does not assume a unique dataset convention. Instead, raw tensors from a file or dataloader are mapped to internal typed fields through configuration. For example, positions may be mapped to pos , categorical atomic identities to node types , graph-level targets to fields such as energy , and node-level targets to fields such as forces or chemical shifts .This typed-field abstraction is central to the framework: the model stack consumes named semantic fields rather than dataset-specific tensor layouts.             
+
+> 1train_dataset_list:
+> 2- dataset: npz
+> 3dataset_input: /path/to/train.npz
+> 4key_mapping:
+> 5coords: pos
+> 6atom_types: node_types
+> 7chemical_shifts: cs
+> 8Lattice: cell
+> 910 node_fields:
+> 11 - cs
+> 12 13 fixed_fields:
+> 14 - node_types
+
+Listing 1: Illustrative GEqTrain dataset mapping for a scalar node-level task. The data configuration in Listing 1 defines the interface between raw files and the inter-nal typed fields used by GEqTrain. Through key mapping , raw dataset keys are mapped to framework-level semantic names such as pos , node types , or task-specific targets. The dis-tinction between node fields , graph fields , and fixed fields specifies whether a quantity is interpreted as frame-dependent, graph-level, or constant for all frames in the corresponding data source. 5Datasets may be organized as collections of NPZ files, for example one system per file with one or more frames, or packed into a single NPZ archive using padded arrays together with companion mask fields to indicate valid entries. We defer the detailed discussion of storage choices to the Supplementary Information. 
+
+Geometric edge features. For each directed edge ( i, j ), the relative displacement, distance, and unit direction are 
+
+rij = rj − ri, dij = ∥rij ∥, ˆrij = rij 
+
+dij 
+
+.
+
+GEqTrain represents local geometry through two complementary edge attributes. The first is an invariant radial embedding 
+
+ρij = ϕ(dij ),
+
+where ϕ denotes a learnable or fixed radial basis expansion of interatomic distance. The second is an equivariant angular embedding 
+
+ysh  
+
+> ij
+
+= M
+
+> ℓ≤ℓmax
+
+Y (l)(ˆ rij ),
+
+obtained from spherical harmonics evaluated on the edge direction. The radial term provides scalar metric information, whereas the spherical harmonics provide angular information in irreps-compatible form. 
+
+Typed input attributes. After raw tensors have been mapped to semantic field names, GEqTrain uses a second configuration layer to declare how these fields enter the equivariant model. This declaration separates two independent aspects of an input: the domain on which it is defined, such as node, edge, or graph, and its transformation type , specified through scalar embeddings or explicit irreps. Invariant categorical or numerical node fields are declared under node attributes and are embedded into scalar channels. Examples include atom types, sequence indices, masks, condi-tioning vectors, or other quantities that should not rotate with the molecular frame. Tensor-valued node fields are declared separately under eq node attributes ; these fields must specify their irreducible representations and are embedded in a way that preserves their equivariant transformation behavior. Thus, node attributes and eq node attributes may both describe node-level quantities, but they differ in how those quantities transform and are processed by the equivariant stack. Listing 2 shows this distinction for the LEGO flow-matching benchmark. 
+
+3.4 Reference strictly local architecture 
+
+The default stack used to illustrate GEqTrain in this work follows a strictly local, edge-centric design. It can be summarized in four stages: input preparation, equivariant interaction on the cutoff graph, feature reduction, and task-specific readout. This is a reference architecture rather than the only architecture supported by the framework. 
+
+Input preparation. The first stage prepares all fields required by the interaction backbone. Gradient tracking can be enabled for differentiable inputs such as positions when derivative targets will later be recovered from a scalar prediction. User-defined node, edge, and graph attributes are embedded into typed internal fields. In parallel, geometric edge features ρij and 
+
+ysh  
+
+> ij
+
+are constructed from the radius graph. After this stage, each edge carries the information needed for local equivariant processing: task-defined attributes together with invariant and angular geometric context. 61 node_attributes:  
+
+> 2
+
+sequence_position:  
+
+> 3
+
+attribute_type: categorical  
+
+> 4
+
+embedding_mode: positional  
+
+> 5
+
+num_types: 48  
+
+> 6
+
+embedding_dimensionality: 16  
+
+> 7
+
+branch_kind:  
+
+> 8
+
+attribute_type: categorical  
+
+> 9
+
+embedding_mode: one_hot  
+
+> 10
+
+num_types: 4  
+
+> 11
+
+ligand_mask:  
+
+> 12
+
+attribute_type: numerical  
+
+> 13
+
+embedding_dimensionality: 1  
+
+> 14
+
+pocket_mask:  
+
+> 15
+
+attribute_type: numerical  
+
+> 16
+
+embedding_dimensionality: 1  
+
+> 17
+
+conditioning:  
+
+> 18
+
+attribute_type: numerical  
+
+> 19
+
+embedding_dimensionality: 64  
+
+> 20 21
+
+eq_node_attributes:  
+
+> 22
+
+shape_features:  
+
+> 23
+
+attribute_type: numerical  
+
+> 24
+
+irreps: 1x0e + 1x1o + 1x2e + 1x3o  
+
+> 25
+
+embedding_dimensionality: 16  
+
+> 26
+
+dipole_direction:  
+
+> 27
+
+attribute_type: numerical  
+
+> 28
+
+irreps: 1x1o  
+
+> 29
+
+embedding_dimensionality: 3 
+
+Listing 2: Declaration of invariant and equivariant node attributes in the LEGO flow-matching benchmark. Both blocks define node-level inputs, but node attributes are embedded as invariant scalar information, whereas eq node attributes declares tensor-valued inputs with explicit irreps. 7Figure 1: Overview of the GEqTrain workflow. Raw dataset tensors are mapped to typed node-, edge-, and graph-level fields through configuration. Geometry-derived attributes, including radial and angular edge embeddings, are then constructed on a radius graph and processed by a reusable local equivariant interaction backbone. The resulting latent features are reduced and decoded into task-specific outputs, which feed into a unified training workflow handling multi-task loss aggregation, backpropagation, and metric evaluation to support heterogeneous applications such as backmapping, scalar property prediction, and equivariant generative modeling. 8Equivariant interaction on directed edges. The computational core is an Interaction Module composed of one or more InteractionLayer s. The reference backbone used in this work is strictly local: all updates are defined on the radius graph and depend only on edge-local attributes, geometric embeddings, and reductions over neighboring edges. This locality makes the interaction channels fixed by the cutoff graph, which keeps the model compatible with memory-controlled and chunked execution on large molecular systems, while leaving non-local or attention-based extensions as optional architectural choices. At layer ℓ, the module maintains an invariant edge state h(ℓ) 
+
+> ij
+
+and, when requested by the configuration, an equivariant edge state z(ℓ) 
+
+> ij
+
+. At a high level, each interaction layer performs three operations: (h(0)  
+
+> ij
+
+, z(0)  
+
+> ij
+
+) = Φ init (ai, a j , a ij , ρ ij , ysh  
+
+> ij
+
+), (1) 
+
+c(ℓ) 
+
+> i
+
+= Reduce 
+
+
+
+{ Φenv (h(ℓ) 
+
+> ij
+
+, z(ℓ) 
+
+> ij
+
+) : j ∈ N (i) }
+
+
+
+, (2) (h(ℓ+1)  
+
+> ij
+
+, z(ℓ+1)  
+
+> ij
+
+) = Φ int 
+
+
+
+h(ℓ) 
+
+> ij
+
+, z(ℓ) 
+
+> ij
+
+, c(ℓ)
+
+> i
+
+
+
+. (3) Here, Φ init denotes the initialization of edge-local latent features from typed attributes and geometry, Φ env builds edge contributions to a source-centered local environment, and Φ int applies the actual equivariant update, typically involving irreps-aware tensor products and residual mixing. N (i) represents the neighbourhood of atom i.
+
+Feature reduction. Because the backbone is edge-centric, downstream predictions usually require a change of semantic level. GEqTrain therefore provides explicit reduction stages. Edge features can be reduced to node-level representations, and node features can in turn be pooled to graph-level representations when the task requires a global output. This separation between interaction and reduction makes the stack easier to reuse across node-, edge-, and graph-level prediction problems. 
+
+Task-specific readout. Predictions are produced by readout modules that map a selected latent field to user-declared output irreps. This allows scalar, equivariant, or mixed outputs to be expressed within the same framework-level interface. For a graph property such as total energy, node-level contributions may first be predicted and then reduced to a graph scalar. For derivative observables such as forces, the framework can recover the target by differentiating a scalar prediction with respect to positions rather than by introducing a separate force-specific interaction backbone. 
+
+# 4 Generative Extension via Equivariant Flow Matching 
+
+To demonstrate that GEqTrain extends beyond prediction, we introduce GEqDiff , a genera-tive extension built on the same typed-tensor and modular-stack abstractions described above. Although the framework can also express diffusion-style forward noising processes, here we fo-cus on equivariant flow matching , which provides a natural continuous-time formulation for jointly transporting heterogeneous invariant and equivariant node fields. The novelty of GEqDiff is not the flow-matching formulation itself, which follows the standard linear-path construction, but the object being generated : GEqDiff transports higher-order equivariant node fields as first-class targets , assigning each field (coordinates, spherical-harmonic shape de-scriptors, dipole-like vectors) its own velocity target and an irreps-matched readout head, so that heterogeneous invariant and equivariant quantities are denoised jointly and consistently. Diffusion-based alternatives are summarized in the Supplementary Information. 94.1 Flow Matching over Mixed Equivariant Fields 
+
+A central design goal of GEqDiff is to support generative modeling over mixed node states rather than Cartesian coordinates alone. Let 
+
+X = {x(m)}Mm=1 
+
+denote the set of fields to be corrupted and generated jointly, where each field may corre-spond, for example, to Cartesian positions, invariant scalar descriptors, or equivariant tensor features. In the current implementation, these fields are specified explicitly through a list of 
+
+corrupt fields , allowing each component to have its own velocity target and corruption set-tings. For each field x(m), GEqDiff defines a continuous interpolation between data and noise, 
+
+x(m) 
+
+> τ
+
+= α(τ ) x(m) + σ(τ ) ξ(m), τ ∈ [0 , 1] ,
+
+where ξ(m) is sampled noise of matching shape. The corresponding flow-matching target is the scheduler velocity 
+
+u(m) 
+
+> τ
+
+= ˙ α(τ ) x(m) + ˙ σ(τ ) ξ(m).
+
+In the present implementation, the default FlowMatchingScheduler uses the linear path 
+
+α(τ ) = 1 − τ, σ(τ ) = τ, 
+
+for which the target simplifies to 
+
+u(m) 
+
+> τ
+
+= ξ(m) − x(m).
+
+The training objective is then written as 
+
+LFM =
+
+> M
+
+X
+
+> m=1
+
+λm Eτ, x,ξ
+
+
+
+ˆu(m) 
+
+> τ
+
+− u(m)
+
+> τ
+> 2
+
+
+
+.
+
+This formulation naturally accommodates mixed invariant and equivariant quantities while preserving the appropriate transformation behavior of each output channel. The field-wise corruption mechanism also supports masked generation. In particular, each field may be centered before corruption, selectively noised through a Boolean mask, and op-tionally left partially corrupted or uncorrupted outside the mask. 
+
+4.2 Integration into the GEqTrain Stack 
+
+The transition from predictive to generative modeling is implemented by adding a genera-tive front end to the GEqTrain stack. In the flow-matching setting, this front end samples a continuous time variable τ , constructs interpolated noisy states for selected fields, stores the corresponding velocity targets, and appends a sinusoidal time embedding to the conditioning features used by the downstream network. The equivariant interaction backbone, edge encod-ings, reductions, and readout modules are then reused without changing their basic interface. This design separates three concerns that would otherwise be entangled in a task-specific implementation. First, the dataset and attribute interface declares which quantities exist and how they transform under rotations, e.g. positions, scalar node labels, vector fields, or higher-order tensorial descriptors. Second, the generative front end specifies which of these fields are transported during training, which entries are masked or kept fixed, and which velocity target is written for each transported field. Third, the readout heads predict field-specific velocities with output irreps matching the corresponding transported quantities. For example, coordinates and dipole directions require vector-valued 1x1o velocity heads, whereas the LEGO shape descriptor requires a mixed scalar–tensorial head with irreps 1x0e + 1x1o + 1x2e + 1x3o .10 The practical consequence is that mixed-field generation is expressed as a configuration-level extension of the same typed-tensor stack used for predictive tasks. The model does not require a separate hard-coded architecture for each generated quantity: adding or removing a transported field amounts to changing the declared field, its noising/interpolation rule, and the corresponding irreps-aware readout. Compact YAML examples of the flow-matching front end and the matching velocity heads are reported in the Supplementary Information. 
+
+# 5 Experiments and Results 
+
+5.1 Case Study: Hierarchical Coarse-Grained Backmapping with HEroBM 
+
+To showcase GEqTrain’s capabilities on a complex, multi-scale modeling challenge, we present its application in the HEroBM (Hierarchical Equivariant representation for optimised BackMap-ping) framework [48]. HEroBM was originally developed and trained using GEqTrain, relying on its standard modules complemented by a custom module for the hierarchical reconstruction process. The results presented in this work, however, originated from an enhanced version of the HEroBM model. Specifically, the input features were improved from the original HEroBM publication to include sequence connectivity information (as detailed in the Results paragraph), demonstrating GEqTrain’s flexibility in facilitating rapid model refinement and experimenta-tion. 
+
+Task: The task addressed by HEroBM is coarse-grained (CG) backmapping , which in-volves reconstructing full atomistic coordinates from reduced, coarse-grained representations of molecular systems. While CG models are invaluable for simulating large biomolecular systems over extended timescales, phenomena often inaccessible to full atomistic simulations due to computational cost, they inherently lose fine-grained structural details. Backmapping is there-fore crucial for retrieving this atomistic information, allowing for detailed analysis of specific interactions (like hydrogen bonds), validation of CG simulation accuracy, and investigation of system properties that depend on atomic-level resolution. HEroBM employs an SE(3)-equivariant graph neural network (EGNN) to predict the dis-tance vectors of atoms relative to hierarchically defined anchor points (which can be CG beads or other atoms within the same bead). This ”one-shot” approach is designed to produce high-fidelity atomistic reconstructions directly from the CG model, with broad applicability across diverse molecular systems (proteins, lipids, small organic molecules) and various CG mapping schemes. The motivation is to enable accurate and efficient backmapping for large, complex biochemical systems, which are often challenging for existing methods. 
+
+Dataset: The HEroBM framework was benchmarked on a diverse range of molecular systems to showcase its broad applicability. For proteins, two main datasets were utilized: 
+
+• The PDB3k dataset , derived from the Top8000 and PISCES sets [49, 50], consists of 2.9k protein structures filtered from the PDB29k dataset (prepared by the authors of cg2all [51]). For this dataset, 2900 samples were used for training and 72 for validation, employing the Martini 3.0 coarse-grained mapping with a cutoff radius of 7.0 ˚ A and approximately 5 atoms per bead [52]. 
+
+• The PED (Protein Ensemble Database) dataset [53] was also used, with training, validation, and testing splits identical to those in the GenZProt and DiAMoNDBack studies for consistency [54, 55]. This involved 3900 training samples and 80 validation samples, also using Martini 3.0 mapping, a 7.0 ˚ A cutoff, and an average of 5 atoms per bead. Beyond proteins, HEroBM’s capabilities were extended to other molecular types: 11 • Lipid bilayers: A dataset of lipid bilayers composed of 1-palmitoyl-2-oleoyl-sn-glycero-3-phosphocholine (POPC) and cholesterol (CHL) molecules was generated. This dataset comprised 100 frames from an atomistic simulation, with 10 frames (2920 lipid molecules) used for training and 5 frames (1460 lipid molecules) for validation. The Martini 3.0 mapping for lipids was applied, with a 10.0 ˚ A cutoff radius and an average of 6 atoms per bead. 
+
+• Small organic molecules: The A2A antagonist ligand ZMA was used as a test case. Atomistic MD trajectory frames, used to define the Martini CG mapping of ZMA, served as the structural input. The dataset included 1,000 entries, with 200 frames for training and 100 for validation, using a custom CG mapping, a 7.0 ˚ A cutoff, and an average of 4 atoms per bead. In all cases, the input to the model consisted of the coarse-grained representations (coordinates and bead types), and the target output was the reconstruction of the corresponding all-atom structures. Dataset CG 2AT CG 2ALL HEroBM HEroBM A2A
+
+P DB 29 k BB - 0.08 ± 0.02 0.07 ± 0.02 0.61 ± 0.10 ALL - 0.31 ± 0.05 0.24 ± 0.03 0.81 ± 0.06 
+
+P ED 00055 BB 0.88 ± 0.05 0.07 ± 0.01 0.14 ± 0.04 0.64 ± 0.07 SC 1.36 ± 0.03 1.22 ± 0.03 0.54 ± 0.05 1.00 ± 0.03 
+
+P ED 00090 BB 1.14 ± 0.06 0.09 ± 0.01 0.15 ± 0.05 0.90 ± 0.09 SC 1.47 ± 0.02 1.27 ± 0.02 0.62 ± 0.04 1.01 ± 0.02 
+
+P ED 00151 BB 0.93 ± 0.05 0.07 ± 0.01 0.07 ± 0.02 0.82 ± 0.10 SC 1.19 ± 0.05 1.06 ± 0.03 0.59 ± 0.06 0.95 ± 0.04 
+
+P ED 00218 BB 0.81 ± 0.02 0.08 ± 0.01 0.13 ± 0.03 0.62 ± 0.09 SC 1.30 ± 0.03 1.02 ± 0.03 0.62 ± 0.03 1.02 ± 0.02 
+
+A2A BB 0.51 ± 0.02 0.11 ± 0.01 0.11 ± 0.01 0.11 ± 0.02 
+
+SC 1.34 ± 0.02 1.14 ± 0.02 0.43 ± 0.01 0.38 ± 0.01 
+
+Table 1: RMSD values (in ˚ A units) of reconstructed structures with respect to original atomistic structures. The table presents the average RMSD and standard deviation calculated over the test dataset for each model. The top results for each row are highlighted in bold. 
+
+Results: The HEroBM framework, powered by GEqTrain, achieves high accuracy and versa-tility in backmapping diverse molecular systems. The results presented here advance upon the originally published HEroBM methodology [48], which itself produced strong outcomes. While the original work already leveraged GEqTrain, we subsequently refined the model by incorpo-rating new features. Specifically, the input for each coarse-grained bead was augmented with two scalar features indicating the presence of preceding and succeeding beads in the polymer sequence. This enhancement, easily integrated through GEqTrain’s configuration, contributes to the improved results and highlights the framework’s utility for iterative model develop-ment. Performance was benchmarked against state-of-the-art methods like CG2AT and cg2all, with key results for proteins summarized in Table 1. On the general protein benchmark using the P DB 29 k test set, HEroBM demonstrated high data efficiency. Despite being trained on the P DB 3k subset, which is approximately ten times smaller than the data used for cg2all, HEroBM achieved comparable or improved accuracy for protein backmapping. Both methods yielded Root Mean Square Deviation (RMSD) values below 0.2 ˚ A for backbone atoms (HEr-oBM: 0 .07 ± 0.02 ˚ A; cg2all: 0.08 ± 0.02 ˚ A) and below 0.5 ˚ A for all heavy atoms (HEroBM: 12 0.24 ± 0.03 ˚ A; cg2all: 0 .31 ± 0.05 ˚ A), representing the lowest RMSD among the methods com-pared here. For the challenging task of backmapping intrinsically disordered proteins (IDPs) from the P ED dataset using Martini 3.0 mapping, HEroBM consistently outperformed other methods in reconstructing side chain (SC) structures, achieving the lowest RMSD values across all tested PED entries (e.g., 0 .54 ± 0.06 ˚ A for P ED 00055 SC, compared to 1 .22 ± 0.03 ˚ A for cg2all and 1 .36 ± 0.03 ˚ A for CG2AT). Furthermore, HEroBM showcased strong transfer learning capabilities. A model trained ex-clusively on a single G protein-coupled receptor (GPCR) system, A2A (denoted HEroBM A2A), demonstrated remarkable performance when applied to the P ED datasets, outperforming both CG2AT and cg2all in side chain reconstruction and CG2AT for backbone atoms in these distinct systems. For instance, on P ED 00055 side chains, HEroBM A2A achieved 1 .00 ± 0.03 ˚ A. When trained and tested on A2A itself, HEroBM A2A produced highly accurate backbone (0 .11 ± 0.02 ˚A) and side chain (0 .38 ± 0.01 ˚ A) reconstructions. HEroBM was also evaluated in a more challenging low-information regime, in which the coarse-grained representation retains only the Cα atom of each residue. In this setting, the backmapping task becomes substantially more difficult, since the model must reconstruct the full atomistic structure starting from a highly reduced input, with no explicit side-chain in-formation and only limited local structural context. For this application, we used the same dataset construction described in the original HEroBM study, consisting of 49 553 structures from 78 systems for training, 6 738 structures from 7 systems for validation, and the PED systems reported in Table 2 for testing. We compare the Cα-only HEroBM models with recent generative baselines reported by Han et al. [56] and Zhang et al. [57], who evaluated GenZProt [54], DiAMoNDBack [55], Latent Diffusion Backmapping (LDB) and LatCPB models on the same four PED systems. Their protocol samples each protein structure ten times and reports the mean and standard deviation of the resulting metrics. Because that work reports a single RMSD value per PED system rather than separate backbone and side-chain RMSDs, we list those values only in the “ALL” rows of Table 2. This avoids implying a backbone/side-chain decomposition that was not reported in the original source. As in the Martini 3.0 application, we augmented the coarse-grained graph with directional information encoding the presence of preceding and succeeding residues along the sequence. This provides an explicit notion of chain directionality, which is otherwise absent in a pure 
+
+Cα trace. The effect of this modification is reported in Table 2, where the updated model is directly compared with the previous Cα-only HEroBM version. Directionality consistently improves backbone reconstruction across all four PED test systems, reducing the BB RMSD from 0 .62 to 0 .56 ˚ A on P ED 55 , from 0 .81 to 0 .69 ˚ A on P ED 90 , from 0 .63 to 0 .41 ˚ A on P ED 151 ,and from 0 .52 to 0 .44 ˚ A on P ED 218 . A similar trend is observed for side chains, with SC RMSD decreasing for all systems. Despite the severe reduction in input information, the updated model achieves BB RMSD values between 0 .41 ± 0.06 ˚ A and 0 .69 ± 0.05 ˚ A, indicating that the local backbone geometry can still be recovered with high fidelity in the Cα-only setting. The RMSD computed over all heavy atoms ranges from 1 .25 ± 0.07 ˚ A to 1 .73 ± 0.07 ˚ A, confirming that the reconstructed structures remain overall close to the atomistic reference. As expected, the largest contribution to the residual error arises from the side chains, which remain intrinsically more ambiguous to reconstruct in intrinsically disordered proteins when only Cα positions are provided. This comparison also clarifies a methodological distinction between deterministic recon-struction and generative backmapping. Generative models are attractive because a single coarse-grained configuration may correspond to multiple compatible atomistic arrangements. However, diversity is useful only if the generated structures remain consistent with the atom-istic conditional distribution associated with the coarse-grained input. In practical multiscale workflows, accurate backmapping and ensemble generation need not be solved by the same 13 Table 2: C α-trace backmapping performance on PED systems. HEroBM values are reported separately for heavy backbone atoms (BB), heavy side-chain atoms (SC), and all heavy atoms (ALL), comparing the previous C α-only model with the updated model including directional sequence information. GenZProt, DiAMoNDBack, LDB, and LatCPB report only global RMSD values in the corresponding studies and are therefore included only in the ALL rows. Values for GenZProt, DiAMoNDBack, and LDB are taken from Han et al. [56]; LatCPB values are taken from Zhang et al. [57] Dataset Atoms HEroBM (prev.) HEroBM (+dir.) GenZProt [54] DiAMoNDBack [55] LDB [56] LatCPB [57]                                                                                                                                             
+
+> P ED 00055 BB 0.62 ±0.06 0.56 ±0.05 –––SC 2.61 ±0.13 2.07 ±0.14 –––ALL 1.87 ±0.09 1.51 ±0.10 1.839 ±0.002 1.843 ±0.008 1.689 ±0.009 1.695
+> P ED 00090 BB 0.81 ±0.05 0.69 ±0.05 –––SC 2.50 ±0.12 2.37 ±0.11 –––ALL 1.86 ±0.07 1.73 ±0.07 2.070 ±0.003 1.958 ±0.014 1.857 ±0.020 1.758
+> P ED 00151 BB 0.63 ±0.09 0.41 ±0.06 –––SC 2.07 ±0.08 1.69 ±0.11 –––ALL 1.58 ±0.08 1.25 ±0.07 1.629 ±0.001 1.769 ±0.008 1.673 ±0.005 1.539
+> P ED 00218 BB 0.52 ±0.03 0.44 ±0.04 –––SC 2.50 ±0.08 2.13 ±0.06 –––ALL 1.80 ±0.04 1.53 ±0.04 1.800 ±0.002 1.637 ±0.012 1.622 ±0.015 1.563
+
+model: one can reconstruct high-fidelity atomistic structures from coarse-grained frames and then rely on atomistic relaxation or molecular dynamics to recover local equilibrium fluctua-tions. The present results therefore suggest that, at least for Cα-trace protein backmapping under paired-reference evaluation, a one-shot equivariant reconstruction model can outperform current generative alternatives in structural fidelity, while leaving open whether generative sam-pling provides additional value when evaluated against explicit ensemble-level observables. We stress that the relevant point here is methodological: the improvement over the originally published HEroBM was obtained by adding two scalar connectivity features through configuration alone , with no change to the underlying equivariant engine, illustrating how the framework supports rapid, low-overhead model refinement. 
+
+5.2 Case Study: NMR Chemical Shift Prediction in Molecular Solids 
+
+NMR chemical shifts are local probes of atomic structure: they report how the electronic en-vironment around a nucleus shields it from an external magnetic field. In molecular solids, this makes chemical shifts particularly useful for structure validation and NMR crystallogra-phy, where candidate crystal structures can be ranked by comparing experimental shifts with computed ones. The standard computational route relies on first-principles GIPAW-DFT cal-culations, which are accurate but expensive when many structures or large candidate pools must be screened. Machine learning therefore provides a natural surrogate problem: given an atomistic crystal structure, predict the DFT-computed shielding or shift associated with each atomic environment. We use this task as a controlled structure–observable benchmark for GEqTrain. Unlike the backmapping task, where the output is a geometry, chemical-shift prediction asks the same equivariant graph stack to produce local scalar observables. 
+
+Controlled scalar benchmark on CSD-2k/CSD-500. We first evaluate GEqTrain on the original ShiftML benchmark, where models are trained on the CSD-2k set of DFT-relaxed molecular crystals containing H, C, N and O, and evaluated on the held-out CSD-500 test set. This setting is useful because it isolates the scalar prediction problem: the model is trained only on isotropic shieldings, without tensorial targets, without pretraining and without ensemble 14 averaging. Results are shown in Table 3. Table 3: Prediction accuracies for isotropic chemical shifts/shieldings on the molecular-solid benchmark. Values are RMSEs in ppm. The first block reports models evaluated directly on the original CSD-500 benchmark. The second block provides contextual modern-reference values from ShiftML2/3 on a comparable H/C/N/O relaxed subset of the newer CSD-test set. 
+
+Model 1H 13 C 15 N 17 O Training setting 
+
+ShiftML1.0 (KRR) 0.49 4.30 13.30 17.70 ShiftML1 only; SOAP/KRR Unzueta GNN a 0.49 4.06 9.90 14.40 GNN; pooled molecular data MR-3D-DenseNet 0.37 3.30 10.20 15.30 ShiftML1 only; voxelized 3D grids GEqTrain 0.41 3.41 9.82 13.80 ShiftML1 only; single model 
+
+NMRNet b 0.35 3.21 9.45 13.03 self-supervised pretraining + fine-tuning ShiftML2 c 0.47 4.07 12.52 19.50 larger ShiftML2 pool + thermal distortions ShiftML3 c 0.39 1.97 5.71 9.91 tensorial dataset; PET/nanoPET ensemble     
+
+> aReported GNN model trained on a broader molecular compilation.
+> bUses self-supervised geometric pretraining before NMR fine-tuning.
+> cNot evaluated on the original CSD-500 ; included as contextual modern-reference values on a comparable H/C/N/O relaxed subset of the newer CSD-test set.
+
+On the original CSD-500 benchmark, GEqTrain remains competitive with methods trained under comparable data conditions. In particular, it is close to MR-3D-DenseNet, improving its errors for 15 N and 17 O while being slightly worse for 1H and 13 C. It also remains in the same accuracy range as NMRNet, despite NMRNet relying on a substantially more elaborate pretraining-and-fine-tuning strategy. This is the appropriate interpretation of the benchmark: GEqTrain is not presented as a specialized NMR architecture, but as a general equivariant framework that can be retargeted to local scalar observables and reach competitive accuracy from scratch. The comparison with ShiftML2 and ShiftML3 should be read only as field context. As dis-cussed in the ShiftML3 supplementary material, the original CSD-500 and the newer CSD-test set have limited structural overlap, and differences in DFT convergence parameters and pseu-dopotentials make direct numerical comparison delicate. ShiftML2 and ShiftML3 are therefore shown as modern reference points rather than as strict competitors in the same benchmark protocol. 
+
+Extension to the ShiftML3 tensorial dataset. We next evaluate the same framework on the newer ShiftML3 dataset, where the target information includes not only isotropic shieldings but also tensorial shielding components. In this setting, the data cover a broader chemical space, include more nuclei, and expose the physical fact that chemical shielding is fundamentally tensorial, even when only its isotropic component is used for many applications. For this experiment we train a single GEqTrain model over all nuclei, with a shared equiv-ariant trunk and two node-level readouts: one scalar head for σiso , and one tensorial head for the non-scalar irreducible shielding components σtensor .On the isotropic component, the single GEqTrain model reaches accuracies close to, and slightly better than, ShiftML2, but remains below ShiftML3. This ordering is expected and is scientifically useful. ShiftML3 is an NMR-specialized model using an ensemble of nanoPET models. GEqTrain, by contrast, is evaluated here as a single shared model using the same configurable infrastructure employed in the other case studies. The result therefore positions GEqTrain as a competitive and reusable framework, rather than as a task-specialized replace-ment for ShiftML3. 15 Table 4: Isotropic shielding prediction on the ShiftML3 CSD-test split. ShiftML2 and ShiftML3 values are reported on the same CSD-test setting. GEqTrain is trained as a single shared model over all nuclei, without ensemble averaging. Errors are in ppm. 
+
+Nucleus ShiftML2 ShiftML3 GEqTrain single 
+
+MAE RMSE MAE RMSE MAE RMSE 
+
+> 1
+
+H 0.39 0.51 0.33 0.43 0.37 0.49 
+
+> 13
+
+C 3.15 4.63 1.58 2.32 2.83 3.98 
+
+> 15
+
+N 10.29 15.72 5.00 10.41 9.86 14.78 
+
+> 17
+
+O 16.11 22.96 7.51 11.45 15.11 21.20 
+
+5.3 Case study III: a deterministic LEGO benchmark for mixed-field equiv-ariant generation 
+
+As a third case study, we consider a synthetic benchmark designed to test a capability that is not directly exposed by standard coordinate-only generative tasks: the joint generation of node positions, higher-order geometric descriptors, and vector-valued attributes 
+
+within a single equivariant model. We stress at the outset that this is a controlled, synthetic benchmark with procedurally generated structures and paired references; it isolates a geometric capability (joint generation of position, local shape and orientation) rather than modeling a physical system. Its role is to test whether the framework can express and train mixed-field equivariant generation, not to demonstrate chemical realism. The purpose is to probe whether the same typed framework can support generative modeling over heterogeneous node states, including Cartesian coordinates, tensor-like shape descriptors, and dipole-like vectors. Each node in the benchmark carries three coupled target quantities: a position ri ∈ R3,a shape descriptor si represented by a 16-dimensional coefficient vector corresponding to the irreps 1x0e + 1x1o + 1x2e + 1x3o , and a dipole-like vector μi ∈ R3. The resulting task therefore extends beyond geometric denoising in Cartesian space and instead requires coher-ent reconstruction of multiple properties that must remain mutually compatible throughout sampling. 
+
+Task: The generative problem is formulated as conditional reconstruction of a connected subassembly from its surrounding context. Given a complete LEGO-like assembly, we partition the structure into a fixed context and a diffused substructure, analogous to the receptor–ligand split used in other conditional generative settings. The context nodes are kept fixed, while the selected subassembly is corrupted and then reconstructed by the model. Importantly, corruption and reconstruction are applied jointly to all target fields associated with the diffused nodes, namely positions, shape descriptors, and dipole vectors. The model must therefore recover not only where the missing bricks should be placed, but also which local shape state they should realize and which dipole orientation they should carry. In the present implementation, GEqDiff performs direct flow matching on all three channels. The position head predicts a velocity field for Cartesian coordinates, the shape head predicts a velocity in the 16-dimensional shape space, and the dipole head predicts a velocity in the 3-dimensional dipole space. 
+
+Dataset: The LEGO dataset is generated procedurally from simple, idealized structural mo-tifs. Each structure starts from a scaffold resembling a beta sheet, an alpha helix, or a mixed topology combining the two. The scaffold defines the ordered three-dimensional positions of the LEGO elements and their local connectivity. Brick identities are then assigned by deterministic rules: 1x1 , 1x2 and T-shaped bricks form straight segments, while L-shaped bricks define turns. 16 Figure 2: Procedural LEGO benchmark. (a) Representative alpha-helix-like LEGO assembly. (b) Spherical-harmonic surface rendering of the shape descriptors associated with the alpha-helix-like structure. (c) Representative beta-sheet-like LEGO assembly. (d) Corresponding spherical-harmonic surface rendering. (e) Primitive brick vocabulary used by the deterministic construction rules, including 1x1 , 1x2 , L-shaped, and T-shaped elements. The surface renderings are used only to visualize the equivariant shape channel; the dataset itself is generated from procedural scaffold and brick-assignment rules. Once the brick structure is fixed, local shape descriptors and dipole-like vectors are computed from it and used as additional equivariant fields in the generative task. This pipeline yields a structured assembly in which each node has a position, a shape state, and a dipole-like vector attribute assigned from local context. The benchmark is a controlled test of mixed-field generation under equivariance, in which geometry, local shape identity, and directional attributes must be generated consistently. Figure 2 summarizes the construction visually. Panels (a,c) show representative alpha-helix-like and beta-sheet-like brick assemblies, while panels (b,d) show the corresponding spherical-harmonic surface renderings used to visualize the shape channel. Panel (e) shows the primitive brick vocabulary used by the deterministic assignment rules. The smooth surfaces are visual-izations of the local shape descriptors. 
+
+Results: The quantitative assessment of the LEGO benchmark is structured to isolate the contribution of each equivariant channel to the overall generative coherence. The quantitative analysis asks two separate questions: first, does adding non-coordinate equivariant fields desta-bilize the generation of a geometrically valid subassembly? Second, can the same flow-matching model reconstruct the additional shape and vector-valued channels with useful fidelity? We therefore report metrics for geometry, shape, dipoles, and pose separately. A qualitative sampling trajectory is shown in Figure 3 for an example from the mixed scaffold family. The upper row shows the evolution of the brick-level coordinate representation, while the lower row shows the same sampling stages rendered through the spherical-harmonic shape surfaces. The visualization illustrates that the model does not only place the diffused subassembly in space, but also reconstructs the associated local shape field during the same flow process. 
+
+Validity is a continuous geometric score on a 0–100 scale that penalizes volumetric overlaps, severe brick clashes, and disconnected components. Validity (raw) is evaluated directly on the 17 Figure 3: Example mixed-field generation trajectory on the LEGO benchmark. (a) Brick-level representation of a mixed-topology sample at three stages of the reverse flow, from an initially corrupted state to the final generated assembly. (b) Corresponding visualization of the predicted spherical-harmonic shape descriptors at the same stages. The example illustrates the joint reconstruction of coordinates and equivariant shape features during sampling. continuous decoded coordinates, whereas Validity (vox) is evaluated after projecting the gen-erated anchors onto the discrete LEGO lattice. Their difference therefore measures the extent to which geometric penalties arise from sub-lattice placement errors. Shape is a composite fidelity score combining error in the generated 16-dimensional spherical-harmonic descriptor, decoded brick-type accuracy, and decoded orientation similarity. Dipoles combines directional and magnitude agreement of the generated dipole-like vectors with the paired reference field. Pose (vox) is an exponentially weighted score based on the mean and maximum displacement of the generated anchors and the maximum displacement of the fixed context after lattice projection. Exact definitions and calibration constants are provided in the Supplementary Information. The qualitative trajectory in Figure 3 shows the intended behavior of the benchmark: co-ordinates and shape descriptors are denoised together, rather than generated in separate post-processing steps. The quantitative results are summarized in Table 5. For the motif-specific full models, lattice projection removes the geometric penalties measured by the benchmark: both the alpha-helix-like and beta-sheet-like regimes obtain maximal voxelized validity and pose scores of 100. Their raw validity scores are lower, at 85.18 and 81.32, respectively, showing that residual overlap or connectivity penalties remain in the continuous decoded coordinates before projection onto the lattice. The non-coordinate channels are also reconstructed consistently, with shape fidelity scores of 90.94 and 89.91 and dipole fidelity scores of 99.44 and 97.84 for the alpha-helix-like and beta-sheet-like regimes, respectively. The mixed benchmark is the more informative setting because it combines heterogeneous scaffold grammars. A coordinate-only model obtains raw and voxelized validity scores of 86.89 and 100, respectively, confirming that the positional reconstruction problem is learnable in isolation. The single-channel models obtain a shape fidelity score of 92.30 and a dipole fidelity score of 98.45. Most importantly, the full mixed-field model jointly transports coordinates, shape descriptors, and dipole-like vectors while retaining near-maximal voxelized validity and pose scores of 99.00. Its shape and dipole scores, 91.87 and 98.45, remain close to those of the corresponding single-channel models. The lower raw validity score of 83.25 shows that joint generation does not remove continuous off-lattice placement errors; however, most of the associated geometric penalty disappears after projection onto the discrete lattice. In conclusion, GEqDiff can formulate and train a single flow-matching model over coor-dinates together with higher-order equivariant shape descriptors and vector-valued attributes, without catastrophic interference between the generated fields. The gap between raw and voxelized validity further indicates that many apparent geometric failures are small off-lattice 18 Table 5: Performance on the LEGO benchmark across structural motifs and diffused field combinations. All entries are scores on a 0–100 scale, with larger values indicating better performance; they should not be interpreted as percentages of samples passing a binary criterion. Validity (raw) is evaluated directly after flow integration and decoding, whereas Validity (vox) is evaluated after projection onto the discrete LEGO lattice. Shape is a composite score combining continuous descriptor fidelity, decoded brick-type accuracy, and orientation similarity. Dipoles measures directional and magnitude fidelity of the generated vector field. Pose (vox) measures anchor preservation relative to the fixed context after lattice projection. Dashes indicate channels that are not generated by the corresponding ablation. Values are means over 1000 test assemblies, with 4 generated samples per assembly. Model variant Validity (raw) Validity (vox) Shape Dipoles Pose (vox) Alpha: coord+shape+dipole 85.18 100 90.94 99.44 100 Beta: coord+shape+dipole 81.32 100 89.91 97.84 100 Mixed: coord 86.89 100 - - 100 Mixed: shape - - 92.30 - -Mixed: dipole - - - 98.45 -Mixed: coord+shape+dipole 83.25 99.00 91.87 98.45 99.00 inaccuracies rather than failures of the underlying scaffold grammar. 
+
+# 6 Discussion 
+
+A recurring bottleneck in equivariant deep learning is not architectural but organizational: adapting an existing EGNN implementation to a new dataset, feature space, training pro-tocol, or scientific question typically requires non-trivial re-engineering of task-specific code. GEqTrain addresses this by treating dataset semantics, geometric representations, and training objectives as separable configuration layers, so that models, attributes, losses, and workflows can be composed from reusable building blocks rather than re-implemented for each application. The main contribution of GEqTrain is therefore organizational : it lowers the cost of moving between tasks, output types and training regimes by making them configuration choices over a shared equivariant stack. It is complementary to, not competitive with, highly optimized single-purpose systems (e.g. dedicated backmapping pipelines, pre-trained chemical-shift models, or specialized 3D generators), which remain the right tools when maximal per-task accuracy is the only objective. Second, within this configurable interface, GEqDiff extends the target space of equivariant generation from coordinates-plus-scalars to coupled higher-order equivariant fields, a novel capability that becomes scientifically relevant when geometry must be generated together with orientation, local shape, or polarization-like attributes. The three case studies reported here test whether this design holds up across settings that differ substantially in target type and training regime. The NMR results show that the same general-purpose stack can be applied to scalar re-gression in a data-limited molecular benchmark. HEroBM provides a more demanding struc-tural test. Hierarchical backmapping requires mapping single coarse-grained beads to complex, multi-atom geometries, which inherently requires staged coordinate reconstruction. GEqTrain separates the equivariant feature extraction from the task-specific topology, using a dedicated reconstruction module appended to the pipeline. This demonstrates how complex, domain-specific structural generation can be integrated as a task layer without changing the underlying equivariant engine. The results on the LEGO benchmark show that the generative target space can be extended beyond Cartesian coordinates to include higher-order shape descriptors and vector-valued at-19 tributes. The full mixed-field model maintains 99% voxelized validity and pose preservation on the heterogeneous mixed benchmark while reconstructing the shape and dipole channels with accuracies comparable to the corresponding single-channel ablations. The strict raw validity is lower, which exposes small continuous off-lattice inaccuracies before voxelization, but the near-perfect voxelized validity indicates that the generated samples usually preserve the intended discrete scaffold after projection to the lattice. Thus, the main message is that auxiliary equiv-ariant fields can be included as first-class generative targets in the equivariant flow-matching process. Many scientific generative problems are not naturally coordinate-only: one may want to generate positions together with local shape descriptors, orientation fields, polarization-like vectors, pharmacophore occupancy, or other tensorial quantities coupled to geometry. The LEGO task demonstrates that such mixed-field objectives can be expressed within the typed GEqTrain/GEqDiff interface when the corresponding fields are provided as model inputs and outputs. However, transfer to physically meaningful systems remains an open problem. The current benchmark uses procedural rules and paired references, and therefore does not test thermodynamic weighting, chemical validity, long-range physical consistency, or multimodal sampling over realistic molecular configurations. Two design features are worth making explicit. First, the current interaction backbone em-phasizes local message passing, which supports memory-bounded chunked execution for large node- and edge-level problems. This extends the accessible system size under a fixed memory budget, although serial chunk construction and evaluation increase inference time (Supplemen-tary Fig. 1). At the same time, tasks dominated by long-range couplings or global context will likely benefit from extensions based on global pooling, cross-scale communication, or hybrid atten-tion mechanisms, which are supported within the GEqTrain framework and depend on the architecture of choice. Second, the Hydra-based configuration system provides a clear route to reproducibility, systematic ablation, and structured reuse across experiments. As a future research direction, we plan to put pressure on the framework’s organizing principle through multi-target settings with jointly regressed scalar and equivariant outputs, larger heterogeneous datasets, and generative tasks with structured physicochemical condition-ing. Examples include protein-pocket shape, pharmacophore occupancy, ligand orientation, and polarization-like vector fields, where the geometric vocabulary introduced in the LEGO bench-mark becomes directly relevant but must be evaluated under realistic physical constraints. In conclusion, GEqTrain aims to show that a typed, configuration-driven interface over data semantics, geometry, and training objectives reduces the cost of moving between scalar predic-tion, structural reconstruction, and mixed-field generative modeling. The present case studies support this organizational principle while also clarifying its current limits: the framework makes such experiments easier to define and ablate, but scientific validity still depends on the quality of the data, targets, and evaluation protocols used for each domain. 
+
+# 7 Code, Data, and Reproducibility 
+
+GEqTrain is available under the MIT license at https://github.com/limresgrp/GEqTrain .The repository contains the training and inference framework, the Hydra configuration files defining the experiments, environment-setup utilities, automated tests, and tutorials for con-structing datasets and training scalar and tensorial equivariant models. In particular, the chemical-shift tutorial provides the preprocessing scripts, dataset definitions, and experiment, data, model, and training configurations used for the molecular-solid NMR workflow. The GEqDiff generative extension is available under the MIT license at https://github. com/limresgrp/GEqDiff . It contains the complete LEGO workflow, including procedural dataset generation, construction of masked flow-matching datasets, training configurations, 20 sampling, quantitative evaluation, and visualization scripts. The HEroBM backmapping implementation is available under the MIT license at https: //github.com/limresgrp/HEroBM . The repository includes the configuration and preprocess-ing infrastructure used for backmapping, deployed model support, an end-to-end tutorial, and detailed command-line documentation. 
+
+# References 
+
+1. Haghighatlari, M. et al. NewtonNet: a Newtonian message passing network for deep learn-ing of interatomic potentials and forces. Digital Discovery 1, 333–343. issn : 2635-098X (3 2022). 2. Stokes, J. M. et al. A Deep Learning Approach to Antibiotic Discovery. Cell 180, 688– 702.e13. issn : 00928674 (4 Feb. 2020). 3. Gaudelet, T. et al. Utilizing graph machine learning within drug discovery and develop-ment. Briefings in Bioinformatics 22. issn : 1467-5463 (6 Nov. 2021). 4. Abate, C., Decherchi, S. & Cavalli, A. Graph neural networks for conditional de novo drug design. WIREs Computational Molecular Science 13. issn : 1759-0876 (4 July 2023). 5. Unke, O. T. et al. Machine Learning Force Fields. Chemical Reviews 121. PMID: 33705118, 10142–10186. eprint: https://doi.org/10.1021/acs.chemrev.0c01111 . https://doi. org/10.1021/acs.chemrev.0c01111 (2021). 6. Batzner, S. et al. E(3)-equivariant graph neural networks for data-efficient and accurate interatomic potentials. Nature Communications 13, 2453. issn : 2041-1723 (1 May 2022). 7. Musaelian, A. et al. Learning local equivariant representations for large-scale atomistic dynamics. Nature Communications 14, 579. issn : 2041-1723 (1 Feb. 2023). 8. Ko, T. W., Finkler, J. A., Goedecker, S. & Behler, J. A fourth-generation high-dimensional neural network potential with accurate electrostatics including non-local charge transfer. 
+
+Nature Communications 12, 398. issn : 2041-1723 (1 Jan. 2021). 9. Reiser, P. et al. Graph neural networks for materials science and chemistry. Communica-tions Materials 3, 93. issn : 2662-4443 (1 Nov. 2022). 10. Xie, T. & Grossman, J. C. Crystal Graph Convolutional Neural Networks for an Accurate and Interpretable Prediction of Material Properties. Phys. Rev. Lett. 120, 145301. https: //link.aps.org/doi/10.1103/PhysRevLett.120.145301 (14 Apr. 2018). 11. Jumper, J. et al. Highly accurate protein structure prediction with AlphaFold. Nature 
+
+596, 583–589. issn : 0028-0836 (7873 Aug. 2021). 12. Bronstein, M. M., Bruna, J., Cohen, T. & Velickovic, P. Geometric Deep Learning: Grids, Groups, Graphs, Geodesics, and Gauges. CoRR abs/2104.13478. arXiv: 2104.13478 .
+
+https://arxiv.org/abs/2104.13478 (2021). 13. Satorras, V. G., Hoogeboom, E. & Welling, M. E(n) Equivariant Graph Neural Networks 
+
+in Proceedings of the 38th International Conference on Machine Learning (eds Meila, M. & Zhang, T.) 139 (PMLR, July 2021), 9323–9332. https://proceedings.mlr.press/ v139/satorras21a.html .14. Sch¨ utt, K. T., Sauceda, H. E., Kindermans, P.-J., Tkatchenko, A. & M¨ uller, K.-R. SchNet – A deep learning architecture for molecules and materials. The Journal of Chemical Physics 
+
+148. issn : 0021-9606 (24 June 2018). 15. Gasteiger, J., Groß, J. & G¨ unnemann, S. Directional Message Passing for Molecular Graphs 
+
+2022. arXiv: 2003.03123 [cs.LG] . https://arxiv.org/abs/2003.03123 .21 16. Sch¨ utt, K., Unke, O. & Gastegger, M. Equivariant message passing for the prediction of tensorial properties and molecular spectra in Proceedings of the 38th International Confer-ence on Machine Learning (eds Meila, M. & Zhang, T.) 139 (PMLR, July 2021), 9377– 9388. https://proceedings.mlr.press/v139/schutt21a.html .17. Aykent, S. & Xia, T. GotenNet: Rethinking Efficient 3D Equivariant Graph Neural Net-works in The Thirteenth International Conference on Learning Representations (2025). 
+
+https://openreview.net/forum?id=5wxCQDtbMo .18. Baek, M. et al. Accurate prediction of protein structures and interactions using a three-track neural network. Science 373, 871–876. issn : 0036-8075 (6557 Aug. 2021). 19. Yadan, O. Hydra - A framework for elegantly configuring complex applications Github. 2019. https://github.com/facebookresearch/hydra .20. Kohn, W. Density Functional and Density Matrix Method Scaling Linearly with the Num-ber of Atoms. Phys. Rev. Lett. 76, 3168–3171. https://link.aps.org/doi/10.1103/ PhysRevLett.76.3168 (17 Apr. 1996). 21. Behler, J. & Parrinello, M. Generalized Neural-Network Representation of High-Dimensional Potential-Energy Surfaces. Phys. Rev. Lett. 98, 146401. https://link.aps.org/doi/10. 1103/PhysRevLett.98.146401 (14 Apr. 2007). 22. Gilmer, J., Schoenholz, S. S., Riley, P. F., Vinyals, O. & Dahl, G. E. Neural message passing for Quantum chemistry in Proceedings of the 34th International Conference on Machine Learning - Volume 70 (JMLR.org, Sydney, NSW, Australia, 2017), 1263–1272. 23. Batatia, I., Kovacs, D. P., Simm, G., Ortner, C. & Csanyi, G. MACE: Higher Order Equiv-ariant Message Passing Neural Networks for Fast and Accurate Force Fields in Advances in Neural Information Processing Systems (eds Koyejo, S. et al. ) 35 (Curran Associates, Inc., 2022), 11423–11436. https : / / proceedings . neurips . cc / paper _ files / paper / 2022/file/4a36c3c51af11ed9f34615b81edb5bbc-Paper-Conference.pdf .24. Geiger, M. & Smidt, T. e3nn: Euclidean Neural Networks 2022. https://arxiv.org/ abs/2207.09453 .25. Sch¨ utt, K. T., Hessmann, S. S. P., Gebauer, N. W. A., Lederer, J. & Gastegger, M. SchNet-Pack 2.0: A neural network toolbox for atomistic machine learning. The Journal of Chem-ical Physics 158, 144801. issn : 0021-9606. eprint: https://pubs.aip.org/aip/jcp/ article-pdf/doi/10.1063/5.0138367/18281212/144801_1_5.0138367.pdf . https: //doi.org/10.1063/5.0138367 (Apr. 2023). 26. Doerr, S. et al. TorchMD: A Deep Learning Framework for Molecular Simulations. Journal of Chemical Theory and Computation 17, 2355–2363. issn : 1549-9618. https://doi.org/ 10.1021/acs.jctc.0c01343 (Apr. 2021). 27. Schoenholz, S. & Cubuk, E. D. JAX MD: A Framework for Differentiable Physics in Ad-vances in Neural Information Processing Systems (eds Larochelle, H., Ranzato, M., Had-sell, R., Balcan, M. & Lin, H.) 33 (Curran Associates, Inc., 2020), 11428–11441. https:// proceedings.neurips.cc/paper_files/paper/2020/file/83d3d4b6c9579515e1679aca8cbc8033-Paper.pdf .28. Bigi, F. et al. Metatensor and metatomic: Foundational libraries for interoperable atomistic machine learning. The Journal of Chemical Physics 164, 064113 (2026). 29. metatrain developers. metatrain: Train, fine-tune, and manipulate machine learning mod-els for atomistic systems 2026. https://github.com/metatensor/metatrain .30. Jones, M. S., Khanna, S. & Ferguson, A. L. FlowBack: A Generalized Flow-Matching Approach for Biomolecular Backmapping. Journal of Chemical Information and Modeling 
+
+65, 672–692. issn : 1549-9596. https : / / doi . org / 10 . 1021 / acs . jcim . 4c02046 (Jan. 2025). 22 31. Berlaga, A., Jones, M. S. & Ferguson, A. L. FlowBack-Adjoint: Physics-Aware and Energy-Guided Conditional Flow-Matching for All-Atom Protein Backmapping 2025. arXiv: 2508. 03619 [physics.chem-ph] . https://arxiv.org/abs/2508.03619 .32. Ugarte La Torre, D. & Sugita, Y. CGBack: Diffusion Model for Backmapping Large-Scale and Complex Coarse-Grained Molecular Systems. Journal of Chemical Information and Modeling 65, 9974–9986. issn : 1549-9596. https://doi.org/10.1021/acs.jcim.5c01281 
+
+(Oct. 2025). 33. Waltmann, C., Wang, Y., Yang, C., Kim, S. & Voth, G. A. MSBack: Multiscale Backmap-ping of Highly Coarse-Grained Proteins Using Constrained Diffusion. Journal of Chemical Theory and Computation 21, 6184–6193. issn : 1549-9618. https://doi.org/10.1021/ acs.jctc.5c00459 (June 2025). 34. Yang, Z., Chakraborty, M. & White, A. D. Predicting chemical shifts with graph neural networks. Chem. Sci. 12, 10802–10809. http://dx.doi.org/10.1039/D1SC01895G (32 2021). 35. Han, C., Zhang, D., Xia, S. & Zhang, Y. Accurate Prediction of NMR Chemical Shifts: Integrating DFT Calculations with Three-Dimensional Graph Neural Networks. Journal of Chemical Theory and Computation 20, 5250–5258. issn : 1549-9618. https://doi.org/ 10.1021/acs.jctc.4c00422 (June 2024). 36. Chen, H., Liang, T., Tan, K., Wu, A. & Lu, X. GT-NMR: a novel graph transformer-based approach for accurate prediction of NMR chemical shifts. Journal of Cheminformatics 16, 
+
+132. issn : 1758-2946. https://doi.org/10.1186/s13321-024-00927-9 (Nov. 2024). 37. B˚ ankestad, M., Dorst, K. M., Widmalm, G. & R¨ onnols, J. Carbohydrate NMR chemical shift prediction by GeqShift employing E(3) equivariant graph neural networks. RSC Adv. 
+
+14, 26585–26595. http://dx.doi.org/10.1039/D4RA03428G (36 2024). 38. Williamson, D. et al. Chemical shift prediction in 13C NMR spectroscopy using ensem-bles of message passing neural networks (MPNNs). Journal of Magnetic Resonance 368, 
+
+107795. issn : 1090-7807. https : //www. sciencedirect.com/science /article/pii/ S1090780724001794 (2024). 39. Kellner, M. et al. A Deep Learning Model for Chemical Shieldings in Molecular Organic Solids Including Anisotropy. The Journal of Physical Chemistry Letters 16, 8714–8722. 
+
+https://doi.org/10.1021/acs.jpclett.5c01819 (Aug. 2025). 40. Lu, W. et al. DynamicBind: predicting ligand-specific protein-ligand complex structure with a deep equivariant generative model. Nature Communications 15, 1071. issn : 2041-1723. https://doi.org/10.1038/s41467-024-45461-2 (Feb. 2024). 41. Qiao, Z., Nie, W., Vahdat, A., Miller, T. F. & Anandkumar, A. State-specific protein– ligand complex structure prediction with a multiscale deep generative model. Nature Ma-chine Intelligence 6, 195–208. issn : 2522-5839. https://doi.org/10.1038/s42256-024-00792-z (Feb. 2024). 42. Bryant, P., Kelkar, A., Guljas, A., Clementi, C. & No´ e, F. Structure prediction of protein-ligand complexes from sequence information with Umol. Nature Communications 15, 4536. 
+
+issn : 2041-1723. https://doi.org/10.1038/s41467-024-48837-6 (May 2024). 43. Abramson, J. et al. Accurate structure prediction of biomolecular interactions with Al-phaFold 3. Nature 630, 493–500. issn : 1476-4687. https://doi.org/10.1038/s41586-024-07487-w (June 2024). 44. Schneuing, A. et al. Structure-based drug design with equivariant diffusion models. Nature Computational Science 4, 899–909. issn : 2662-8457. https://doi.org/10.1038/s43588-024-00737-x (Dec. 2024). 23 45. Passaro, S. et al. Boltz-2: Towards Accurate and Efficient Binding Affinity Prediction. 
+
+bioRxiv. eprint: https://www.biorxiv.org/content/early/2025/06/18/2025.06.14. 659707.full.pdf . https://www.biorxiv.org/content/early/2025/06/18/2025.06. 14.659707 (2025). 46. Daigavane, A., Kim, S. E., Geiger, M. & Smidt, T. Symphony: Symmetry-Equivariant Point-Centered Spherical Harmonics for 3D Molecule Generation in The Twelfth Interna-tional Conference on Learning Representations (2024). https://openreview.net/forum? id=MIEnYtlGyv .47. Liu, C., Vadgama, S., Ruhe, D., Bekkers, E. & Forr´ e, P. Clifford Group Equivariant Dif-fusion Models for 3D Molecular Generation 2025. arXiv: 2504.15773 [cs.LG] . https: //arxiv.org/abs/2504.15773 .48. Angioletti, D., Raniolo, S. & Limongelli, V. HEroBM: A deep equivariant graph neural network for high-fidelity backmapping from coarse-grained to all-atom structures. The Journal of Chemical Physics 163, 074114. issn : 0021-9606. eprint: https://pubs.aip. org / aip / jcp / article - pdf / doi / 10 . 1063 / 5 . 0280330 / 20655606 / 074114 \ _1 \ _5 . 0280330.pdf . https://doi.org/10.1063/5.0280330 (Aug. 2025). 49. Hintze, B. J., Lewis, S. M., Richardson, J. S. & Richardson, D. C. Molprobity’s ulti-mate rotamer-library distributions for model validation. Proteins: Structure, Function, and Bioinformatics 84, 1177–1189. eprint: https://onlinelibrary.wiley.com/doi/ pdf/10.1002/prot.25039 . https://onlinelibrary.wiley.com/doi/abs/10.1002/ prot.25039 (2016). 50. Wang, G. & Dunbrack Roland L., J. PISCES: a protein sequence culling server. Bioinfor-matics 19, 1589–1591. issn : 1367-4803. eprint: https://academic.oup.com/bioinformatics/ article- pdf/19/12/1589/48904552/bioinformatics\_19\_12\_1589.pdf . https: //doi.org/10.1093/bioinformatics/btg224 (Aug. 2003). 51. Pang, Y. T., Yang, L. & Gumbart, J. C. From simple to complex: Reconstructing all-atom structures from coarse-grained models using cg2all. Structure 32, 5–7. issn : 09692126 (1 Jan. 2024). 52. Souza, P. C. T. et al. Martini 3: a general purpose force field for coarse-grained molecular dynamics. Nature Methods 18, 382–388. issn : 1548-7091. https : / / www . nature . com / articles/s41592-021-01098-3 (4 Apr. 2021). 53. Lazar, T. et al. PED in 2021: a major update of the protein ensemble database for intrin-sically disordered proteins. Nucleic Acids Research 49, D404–D411. issn : 0305-1048 (D1 Jan. 2021). 54. Chemically transferable generative backmapping of coarse-grained proteins (JMLR.org, Honolulu, Hawaii, USA, 2023). 55. Jones, M. S., Shmilovich, K. & Ferguson, A. L. DiAMoNDBack: Diffusion-Denoising Au-toregressive Model for Non-Deterministic Backmapping of C-alpha Protein Traces. Journal of Chemical Theory and Computation 19, 7908–7923. issn : 1549-9618 (21 Nov. 2023). 56. Han, X. et al. Constraint Decoupled Latent Diffusion for Protein Backmapping 2025. arXiv: 
+
+2410.13264 [cs.LG] . https://arxiv.org/abs/2410.13264 .57. Zhang, R. et al. Exploit Your Latents: Coarse-Grained Protein Backmapping with Latent Diffusion Models. Proceedings of the AAAI Conference on Artificial Intelligence 39, 1111– 1119. issn : 2374-3468. https://ojs.aaai.org/index.php/AAAI/article/view/32098 
+
+(2026) (Apr. 11, 2025). 24 Supplementary Information for GEqTrain: A Configuration-Driven Framework for Retargeting Equivariant Graph Neural Networks Across 3D Scientific Tasks 
+
+Daniele Angioletti 1, Marco Nobile 1, and Vittorio Limongelli 11Faculty of Biomedical Sciences, Euler Institute, Universit´ a della Svizzera italiana, 6900 Lugano, Switzerland July 22, 2026 
+
+# 1 Irreducible representations and spherical harmonics in e3nn 
+
+GEqTrain uses the e3nn convention for irreducible representations ( irreps ) of O(3) [1, 2]. An irrep is indexed by an angular order l and a parity p ∈ { +1 , −1}, written in the code as e
+
+(even) or o (odd). The corresponding feature block has dimension 2 l + 1, so that l = 0 yields one component, l = 1 yields three components, and l = 2 yields five components. Direct sums of such blocks are written as strings such as 64x0e for representing a tensor of 64 scalar invariant quantities or 1x1o + 1x2e + 1x3o for heterogeneous tensor composed of higher-order equivariant channels. Spherical harmonics provide a canonical way to construct such angular channels from relative directions. For an edge direction ˆ rij , the real spherical harmonics Y l(ˆ rij ) form an equivariant basis of dimension 2 l + 1, satisfying 
+
+Y l(Rˆr) = Dl(R) Y l(ˆ r),
+
+which makes them a natural choice for angular edge features in equivariant graph networks. In GEqTrain, these features are computed by SphericalHarmonicEdgeAngularAttrs , while radial distance information is encoded separately through invariant basis expansions (e.g. by projecting onto Gaussian or Bessel functions). 
+
+# 2 Hydra Configuration for Scalar NMR Prediction 
+
+The current GEqTrain framework uses Hydra composition to assemble an experiment from separate /data , /model , and /train configuration groups (see Listing 1). To provide a concrete example aligned with the scalar NMR task discussed in the main text, we report here a compact configuration for predicting (scalar) chemical shifts on organic crystals in periodic boundary conditions. The full repository additionally supports richer multitask variants, including joint prediction of scalar and tensorial observables, but these extensions are not required for the scalar-only results discussed in the present study. The content of Listing 1 can be saved in a file experiment.yaml (an arbitrary name) such to then execute the experiment. 
+
+Packed NPZ datasets and masking for variable-size examples. The dataset interface shown in Listing 2 illustrates the simplest case, in which input fields such as pos and node types 
+
+and the target field cs iso are read from an NPZ source and mapped to internal GEqTrain field 11 defaults:        
+
+> 2- /base
+> 3- /data: cs_scalar
+> 4- /model: cs_scalar_local
+> 5- /train: cs_scalar
+> 6- _self_
+> 78root: /path/to/myproj
+> 9run_name: cs_scalar_local
+
+Listing 1: Compact Hydra experiment composition for scalar chemical-shift prediction. names through key mapping . In practice, GEqTrain supports two complementary NPZ-based storage patterns: a dataset may be represented as a collection of NPZ files, for example one file per molecular system, with each file containing one or more frames. In this regime, quantities that are shared across all frames of a file can be declared as fixed fields (e.g., atom types usually remain the same from frame to frame). Alternatively, for large datasets it is often more efficient to pack many examples into a single NPZ archive. When the number of atoms varies across examples, arrays are typically padded to a common size and accompanied by boolean mask fields whose names follow the convention <field> mask . These masks specify which rows correspond to valid entries and which correspond to padding. In this regime, fields that were previously constant within a per-system file may instead be stored as frame-dependent padded arrays, and are therefore declared as ordinary node fields rather than fixed fields. A minimal masked configuration is shown in Listing 3. Here, pos , node types , and cs iso 
+
+are each paired with a corresponding mask field. During dataset processing, the masks are used to discard padded rows before constructing the internal data object. In the packed repre-sentation, node types is no longer stored once per system as a frame-invariant array, but as a padded per-example tensor aligned with pos . The accompanying mask field node types mask 
+
+ensures that only the valid rows are retained. 
+
+Normalization GEqTrain also supports dataset-level normalization of selected input or tar-get fields through the normalization block. Each field is first optionally transformed by a monotonic map, such as signed log1p or yeo johnson [3], and then standardized either glob-ally or per node type. Importantly, the transformation parameters and standardization statis-tics, e.g. means and standard deviations, are fitted only on the training dataset. The same training-fitted parameters are then reused to standardize validation, test, and inference inputs, avoiding split-specific rescaling and preventing information leakage from evaluation data. In the scalar NMR example above, mode: per type:1x0e indicates that the isotropic chemical shift is treated as a scalar field and standardized separately for each atom type. During training, losses are evaluated on the transformed and normalized targets. During evaluation, GEqTrain applies the corresponding inverse transformation and inverse standard-ization when computing standard regression-style metrics, so that reported errors such as MAE are expressed again in the original physical units. For equivariant fields, the current implemen-tation applies mean centering only to scalar irreps, while higher-order components are scaled but not shifted, preserving invertibility of the representation. 
+
+Training objective and evaluation setup. Listing 4 shows a compact optimization and evaluation setup for the scalar NMR task. Training objectives in GEqTrain are defined as weighted sums of field-specific loss components. If ˆ ym denotes the prediction associated with 21 train_dataset_list:  
+
+> 2
+
+- dataset: npz  
+
+> 3
+
+dataset_input: /path/to/train/folder  
+
+> 4
+
+key_mapping:  
+
+> 5
+
+pos: pos  
+
+> 6
+
+atom_types: node_types  
+
+> 7
+
+cs_iso: cs_iso  
+
+> 8
+
+Lattice: cell  
+
+> 910
+
+validation_dataset_list:  
+
+> 11
+
+- dataset: npz  
+
+> 12
+
+dataset_input: /path/to/valid/folder  
+
+> 13
+
+key_mapping:  
+
+> 14
+
+pos: pos  
+
+> 15
+
+atom_types: node_types  
+
+> 16
+
+cs_iso: cs_iso  
+
+> 17
+
+Lattice: cell  
+
+> 18 19
+
+node_fields:  
+
+> 20
+
+- cs_iso  
+
+> 21 22
+
+fixed_fields:  
+
+> 23
+
+- node_types  
+
+> 24 25
+
+normalization:  
+
+> 26
+
+cs_iso:  
+
+> 27
+
+mode: per_type:1x0e  
+
+> 28
+
+transform: yeo_johnson  
+
+> 29 30
+
+num_types: 21 # Atoms from H to Ca, including unknown atom type X  
+
+> 31
+
+avg_num_neighbors: 30 
+
+Listing 2: Scalar-only dataset configuration pointing to multiple npz dataset files in a folder, each representing a single system, potentially with multiple frames. target field m, the total objective takes the generic form 
+
+L = X
+
+> m
+
+λm Lm(ˆ ym, y m) ,
+
+where both the weights λm and the underlying loss functionals are declared in the configura-tion. This makes it possible to combine several loss terms on the same target field, or to mix node-, edge-, and graph-level supervision within a single training run. Evaluation metrics are configured separately from the training objective and may therefore use different functionals, such as in the example, reporting L1Loss even when training with a Log-Cosh regression loss. By default, NaN values are treated as invalid targets: non-finite entries propagate through the loss or metric computation and cause the run to fail. For datasets with intentionally missing or undefined labels, this behavior can be changed for the corresponding loss or metric by setting 
+
+ignore nan: true , in which case only finite prediction–target pairs contribute to the reported value. When relevant, metrics can also be aggregated per species through PerSpecies: true .The quantity used for model selection is specified by metrics key . In the example Listing 4, 
+
+validation loss selects the checkpoint with the best validation loss. The direction of im-provement is controlled by metric criteria : decreasing is appropriate for losses and errors, whereas increasing is used for scores where larger values are better, such as accuracy or AUROC. We show only the subset of optimization hyperparameters needed to interpret the 31 train_dataset_list:               
+
+> 2- dataset: npz
+> 3dataset_input: /path/to/train/masked.npz
+> 4key_mapping:
+> 5pos: pos
+> 6pos__mask__: pos__mask__
+> 7atom_types: node_types
+> 8atom_types__mask__: node_types__mask__
+> 9cs_iso: cs_iso
+> 10 cs_iso__mask__: cs_iso__mask__
+> 11 12 node_fields:
+> 13 - node_types
+> 14 - cs_iso
+> 15 # No need to map __mask__ fields
+> 16 # they inherit their corresponding field type (node, edge, graph)
+
+Listing 3: Scalar-only dataset configuration using a single masked npz containing multiple systems, padded and masked. example; the remaining optimizer and scheduler settings are standard training controls and are omitted here for brevity. 
+
+Configuring the model stack. Listing 5 illustrates how a GEqTrain model is specified declaratively in configuration space. Rather than constructing a monolithic architecture in code, the model is defined as an ordered stack of modules, each operating on named internal fields and passing its outputs to subsequent stages. In this example, the first entries reuse common 
+
+stack blocks presets for node input attributes and for radial and angular edge geometry, after which task-specific modules are instantiated explicitly through their target declarations. The stack then applies attribute embedding, local equivariant interaction, edge-to-node reduction, and a final readout head producing the target field cs iso with output irreps 1x0e .This example also illustrates an important feature of GEqTrain: a scalar observable does not require a purely scalar internal representation. Although the final readout is scalar, the in-termediate embedding and interaction stages include both invariant and equivariant channels, allowing the model to remain symmetry-aware throughout the computation while matching the physical type of the observable at the output level. For readability, the listing relies on reusable stack blocks presets for common processing stages. Later sections unpack the main module types underlying this stack and describe in more detail how interaction, reduction, and readout are implemented. 
+
+Filtering Nodes for Training GEqTrain provides built-in functionality for selectively fil-tering nodes based on their type, enabling users to specialize models for specific atom cate-gories without modifying the underlying dataset. This is achieved using the special keyword 
+
+node types , along with two configuration options: 
+
+• keep type names : specifies a list of node types (using regular expressions) to retain for training. 
+
+• exclude type names from edges : specifies node types whose edges to neighboring nodes should be removed during graph construction. This mechanism allows, for example, training a model to predict properties only for heavy atoms, without needing to manually create multiple ‘.npz‘ datasets for each subset of atoms. An example YAML configuration demonstrating node filtering is shown in Listing 6. 41 loss_coeffs:  
+
+> 2
+
+- cs_iso:  
+
+> 3
+
+- 1.0  
+
+> 4
+
+- geqtrain.train.LogCoshLoss  
+
+> 56
+
+metrics_components:  
+
+> 7
+
+- cs_iso:  
+
+> 8
+
+- L1Loss  
+
+> 9
+
+- PerSpecies: true # Show marginal on each atom type  
+
+> 10 11
+
+metrics_key: validation_loss  
+
+> 12
+
+metric_criteria: decreasing  
+
+> 13 14
+
+batch_size: 8  
+
+> 15
+
+validation_batch_size: 16  
+
+> 16
+
+max_epochs: 10000  
+
+> 17
+
+learning_rate: 1.e-4 
+
+Listing 4: Minimal training objective and evaluation block for scalar chemical shift prediction. In this example: 
+
+• type names assigns a human-readable label to each node type index, where the num-ber of entries must match the num types parameter defined under node attributes: node types .
+
+• keep type names selects nodes to keep when building dataset (dropping all nodes not corresponding to any of those) 
+
+• exclude type names from edges ensures that, when constructing the local graph around a selected atom (e.g., Carbon), edges connecting to neighboring atoms of type Hydrogen are ignored, effectively limiting the graph neighborhood to heavy atoms only. This filtering mechanism is particularly useful for tasks such as: 
+
+• Specialized prediction (e.g., chemical shifts only for one atomic type). 
+
+• Simplifying the local chemical environment during message passing. 
+
+• Reducing computational complexity by pruning unnecessary nodes and edges without modifying the underlying original data file. By leveraging regular expressions for node selection and edge exclusion, GEqTrain allows users to adaptively define multiple training regimes from a single dataset, promoting efficient experi-mentation without extensive data preprocessing. 
+
+# 3 GEqTrain Model Architecture 
+
+Molecular graph representation and notation 
+
+In GEqTrain, each sample is represented as a directed geometric graph 
+
+G = ( V, E),
+
+51 defaults:  
+
+> 2
+
+- /model/stack_blocks: common  
+
+> 3
+
+- _self_  
+
+> 45
+
+model:  
+
+> 6
+
+stack:  
+
+> 7
+
+- ${stack_blocks.node_input_attrs}  
+
+> 8
+
+- ${stack_blocks.edge_radial_attrs}  
+
+> 9
+
+- ${stack_blocks.edge_angular_attrs}  
+
+> 10
+
+- _target_: geqtrain.nn.EmbeddingAttrs  
+
+> 11
+
+name: attrs  
+
+> 12
+
+node_out_irreps: 64x0e  
+
+> 13
+
+edge_out_irreps: 64x0e  
+
+> 14
+
+edge_eq_out_irreps: 8x1o+8x2e  
+
+> 15
+
+- _target_: geqtrain.nn.InteractionModule  
+
+> 16
+
+num_layers: 2  
+
+> 17
+
+latent_dim: 128  
+
+> 18
+
+eq_latent_multiplicity: 8  
+
+> 19
+
+output_ls: [0,1,2]  
+
+> 20
+
+- ${stack_blocks.edge_pooling}  
+
+> 21
+
+- _target_: geqtrain.nn.ReadoutModule  
+
+> 22
+
+name: head_cs  
+
+> 23
+
+field: node_features  
+
+> 24
+
+out_field: cs_iso  
+
+> 25
+
+out_irreps: 1x0e 
+
+Listing 5: Scalar-target local model stack for NMR chemical-shift prediction.  
+
+> 1
+
+type_names: [X, H, He, Li, Be, B, C, N, O, F]  
+
+> 23
+
+# --- Node and edge filtering --- #  
+
+> 4
+
+keep_type_names: [H, C, N, O]  
+
+> 5
+
+exclude_type_names_from_edges:  
+
+> 6
+
+- H # Exclude edges between central atoms and neighboring H atoms 
+
+Listing 6: Example YAML configuration for filtering nodes and edges based on atom types. whose nodes correspond to atoms or coarse-grained sites and whose edges are constructed from a local neighborhood criterion. Given positions ri ∈ R3, the directed edge set is 
+
+E = {(i, j ) : i̸ = j, ∥rij ∥ ≤ rmax }, rij = rj − ri.
+
+For periodic systems, rij is understood as the lattice-aware relative displacement produced by neighbor construction. As in the main text, we distinguish three levels of representation. Raw typed inputs are denoted by xi, xij , and xG for node-, edge-, and graph-level quantities. Their embedded coun-terparts are denoted by ai, aij , and aG. Geometry-derived edge attributes are written separately as an invariant radial embedding ρij and an equivariant angular embedding ysh  
+
+> ij
+
+. This notation is intended to separate what a quantity means from how it is later processed inside the interaction stack. This distinction is particularly useful in GEqTrain, where the same model skeleton may be reused across tasks with different data semantics. For example, atom types, NMR chemical shifts, graph-level energies, and externally supplied equivariant descriptors are all introduced as typed fields through configuration, even though they play different physical roles in the final model. 6Typed attribute embedding 
+
+The first learned stage of the stack converts user-provided typed inputs into internal attribute fields that can be consumed by subsequent equivariant modules. 
+
+EmbeddingInputAttrs : maps raw typed attributes to invariant and, when present, equivariant internal tensors. For a categorical input field f associated with node i, the module applies either one-hot encoding or a learned embedding, 
+
+ϕf (xfi ) = 
+
+
+
+onehot( xfi ), if one-hot encoding is requested ,
+
+Ef [xfi ], if a learnable embedding table is used ,
+
+while continuous invariant inputs are passed through directly after type registration. The resulting invariant node input attributes are concatenated into a single field, 
+
+ain  
+
+> i
+
+= f ∈F inv ϕf (xfi ),
+
+and equivariant inputs, if present, are concatenated analogously into an equivariant field ain 
+
+> i, eq
+
+.The same logic applies to edge- and graph-level typed inputs. Conceptually, this module performs the transition from dataset semantics to model-ready typed tensors. It does not yet combine user-defined attributes with geometry; rather, it prepares them in a form that can later be fused with geometric information in a representation-consistent way. 
+
+EmbeddingAttrs : consolidates the available invariant and equivariant typed inputs into the canonical internal attribute fields used by the rest of the stack, such as node attrs , node eq attrs ,
+
+edge attrs , and edge eq attrs . In practice, this module acts as the bridge between raw user-facing typed inputs and the internal representation expected by interaction blocks and readout modules. In the local stacks considered in this work, the most common pattern is that node input attributes are embedded first, while geometry-derived edge fields are constructed in parallel and then made available to the interaction backbone. More general tasks may additionally include explicit edge- or graph-level typed input attributes through the same configuration mechanism. 
+
+Geometry-derived edge encodings 
+
+In addition to user-defined typed attributes, GEqTrain constructs edge-local geometric descrip-tors directly from the molecular graph. These geometry-derived fields provide the metric and angular context required for equivariant local interaction. For each directed edge ( i, j ), we define 
+
+dij = ∥rij ∥, ˆrij = rij 
+
+dij 
+
+.
+
+BasisEdgeRadialAttrs : maps the scalar edge distance dij to an invariant radial embedding 
+
+ρij = ϕ(dij ),
+
+where ϕ denotes a radial basis expansion, optionally modulated by a cutoff envelope. This field carries purely invariant metric information and is used to inform scalar latent channels or to gate equivariant interactions. 7SphericalHarmonicEdgeAngularAttrs : maps the unit direction ˆ rij to an equivariant angular embedding expressed in spherical harmonics, 
+
+ysh  
+
+> ij
+
+= M
+
+> l≤lmax
+
+Y (l)(ˆ rij ).
+
+This construction supplies the directional information required to build higher-order equivariant channels. In contrast to the radial embedding, which is invariant, ysh  
+
+> ij
+
+transforms according to the irreducible representations selected by the truncation order lmax .Together, ρij and ysh  
+
+> ij
+
+define the geometry-derived edge context used throughout the local interaction stack. They are kept conceptually distinct from user-defined edge attributes because they arise deterministically from positions and graph construction, rather than from external annotations or dataset-specific metadata. 
+
+Scalar and equivariant primitives 
+
+The local interaction stack in GEqTrain is built from a small set of reusable low-level primitives that separate invariant processing from equivariant processing while preserving a common in-terface. Throughout this section, we follow the conventions introduced in the main text and in the preceding supplementary sections: scalar features are denoted by s, equivariant features by 
+
+q, and their associated transformation types are declared explicitly through O(3) irreps. The role of the primitives is then as follows: ScalarMLPFunction processes invariant channels only, 
+
+SO3 Linear applies equivariant linear mixing within matched irrep types, SO3 LayerNorm nor-malizes irreps tensors in a representation-aware manner, and EquivariantScalarMLP combines these ingredients into a hybrid scalar–equivariant processing block. 
+
+ScalarMLPFunction : is the basic fully connected block for invariant channels. Given an input 
+
+s ∈ Rdin , it constructs a standard multilayer perceptron with user-configurable hidden dimen-sions, nonlinearity, optional dropout, optional weight normalization, and an optional LayerNorm 
+
+inserted before the first linear layer [4]. If the chosen nonlinearity is swiglu , intermediate widths are doubled before gating; if zero init last layer weights is enabled, the last linear layer is initialized with a reduced scale, such to make the last layer of the ScalarMLPFunction output values around zero. Thus, in abstract form, 
+
+ϕMLP (s) = LK ◦ σK−1 ◦ LK−1 ◦ · · · ◦ σ1 ◦ L1 ◦ Norm( s),
+
+where the exact choice of normalization, nonlinearity, dropout, and bias is configuration-dependent. This module is used whenever GEqTrain must process invariant latent channels or generate scalar-dependent modulation weights. 
+
+SO3 Linear : implements a fully connected SO (3) /O (3)-equivariant linear map that mixes only 
+
+multiplicities within matching irrep types, i.e. between channels with the same angular order l
+
+and parity. If 
+
+q = M
+
+> α
+
+q(α), q(α) ∈ Rmin  
+
+> α×(2 lα+1)
+
+,
+
+and the output contains the same irrep type with multiplicity mout  
+
+> α
+
+, then the action of the layer on that block is 
+
+eq(α) = W (α)q(α), W (α) ∈ Rmout   
+
+> α×min
+> α
+
+,
+
+with the (2 lα + 1)-dimensional irrep axis left untouched. In the implementation this map supports both flat tensors of shape ( B, dim) and channel-wise tensors of shape ( B, m, dim /m )when a common multiplicity exists. It can use internal learnable weights or externally supplied packed weights, and bias is added only to scalar output blocks ( l = 0). 8SO3 LayerNorm : provides irreps-aware normalization for tensors whose irreps share a common multiplicity. The implementation groups contiguous blocks with the same angular order l,reshapes them to separate the irrep dimension from the multiplicity dimension, computes a single batch-wise normalization factor per contiguous l-group, rescales the group, and then restores the original layout. Three normalization modes are supported: norm , which uses the sum of squared components over the irrep dimension; component , which uses their mean; and 
+
+std , which is identical to component but includes an additional factor 1 /√Nl, where Nl is the number of distinct angular orders present, to improve stability with depth. Scalar bias, when enabled, is added only to l = 0 groups and is stored in channel-wise form. Denoting a contiguous 
+
+l-group by qg, the operation can be summarized as 
+
+eqg = qg
+
+pstat( qg) + ε · λl + b(0)  
+
+> g
+
+,
+
+where stat depends on the selected normalization mode, λl = 1 for norm /component and λl =1/√Nl for std , and b(0)  
+
+> g
+
+is nonzero only for scalar groups. 
+
+EquivariantScalarMLP : is the main hybrid primitive used throughout the interaction stack. It accepts either a single tensor containing both scalar and equivariant channels, or an explicit split input ( s, q). Likewise, it can return either a concatenated output or a split pair of scalar and equivariant outputs. Internally, the module separates scalar irreps from higher-order equivariant irreps and processes the two branches with coupled but distinct mechanisms. If scalar input channels are present, they define the invariant stream. When an additional scalar conditioning tensor c is provided, the input scalars are first modulated through FiLM, 
+
+sc =
+
+(
+
+FiLM( s; c), if conditioning is provided ,s, otherwise , FiLM( s; c) = γ(c) ⊙ s + β(c).
+
+The scalar output is then obtained as 
+
+es = ϕMLP (sc).
+
+Thus, when both s and c are available, conditioning acts by modifying the scalar input repre-sentation before the scalar MLP. The equivariant branch applies an equivariant linear map to the equivariant features q. By default, an Allegro-style [5] Linear is used when the input and output irreps have compatible common multiplicities; otherwise, the implementation falls back to SO3 Linear , which is less optimized but handles mixed multiplicities. The weights of this equivariant map are chosen according to the available invariant information: 
+
+eq =
+
+
+
+Lint (q), if no scalar input and no conditioning are used ,Lext (q; ψ(sc)) , if scalar input channels are present ,Lext (q; ψ(c)) , if no scalar input is present but conditioning is available .
+
+Importantly, in the second case the equivariant weights are generated from the same conditioned scalar representation sc that feeds the scalar MLP, not from the scalar output es. Therefore, 
+
+es is the scalar output branch, while sc is the invariant control signal used to parameterize the equivariant linear readout. The module also supports channel-wise output formatting when the multiplicity structure permits it. In split-output mode, if the requested equivariant output itself contains scalar irreps, the scalar input channels can be merged back into the equivariant readout input so that those scalar components are produced consistently by the equivariant branch. In this sense, 
+
+EquivariantScalarMLP acts as a configurable bridge between invariant conditioning, scalar latent, and equivariant feature processing. 9Role in the local interaction stack. These primitives reappear repeatedly in the higher-level modules discussed below. In particular, EquivariantScalarMLP is used to generate the initial latent state from concatenated scalar and equivariant edge inputs, to embed edge con-tributions into local environments, to project tensor-product outputs back to mixed scalar– equivariant latent states, and to perform the final projection to the requested output irreps. 
+
+SO3 LayerNorm is applied immediately after tensor-product contraction in each interaction layer, and SO3 Linear is used explicitly in the initial and final latent projections whenever an equiv-ariant linear map with externally generated or mixed-multiplicity weights is required. 
+
+InteractionModule : is the core local interaction backbone used in the reference GEqTrain stack. It operates on a directed radius graph and maintains, for each edge ( i, j ), a pair of latent states: an invariant edge state h(ℓ) 
+
+> ij
+
+∈ Rdh and an equivariant edge state z(ℓ) 
+
+> ij
+
+, where ℓ denotes the interaction depth. It constructs an initial mixed scalar–equivariant latent representation from typed attributes and geometry, refines it through a sequence of local interaction layers, and projects the final latent state to the requested output irreps. The module validates which invariant and equivariant node and edge fields are actually present in irreps in , computes the dimension of any optional conditioning tensors, and precomputes the irreps required by the tensor-product path of each layer. 
+
+Initial latent construction. The initial invariant edge latent is built by concatenating the radial embedding with any available invariant edge attributes and the invariant attributes of the source and target nodes, 
+
+eh(0)  
+
+> ij
+
+= ρij ∥ aij ∥ ai ∥ aj ,
+
+where absent terms are simply omitted. The initial equivariant edge latent is constructed anal-ogously from the spherical-harmonic edge embedding together with any available equivariant edge attributes and source/target node equivariant attributes, 
+
+ez(0)  
+
+> ij
+
+= ysh  
+
+> ij
+
+∥ aij, eq ∥ ai, eq ∥ aj, eq .
+
+Because concatenation of irreps-carrying tensors may require a canonical ordering, the im-plementation applies a precomputed permutation before projection. The pair ( eh(0)  
+
+> ij
+
+, ez(0)  
+
+> ij
+
+) is then mapped to the recurrent latent state ( h(0)  
+
+> ij
+
+, z(0)  
+
+> ij
+
+) by an EquivariantScalarMLP , using 
+
+SO3 Linear for the equivariant projection and returning the equivariant output in channel-wise format. 
+
+Conditioning and output irreps. InteractionModule supports conditioning on node or edge fields; it computes the corresponding dimension by concatenating edge-level conditioning directly and node-level conditioning twice, once for the source node and once for the target node. 
+
+InteractionLayer : Each InteractionLayer takes the current edge states ( h(ℓ) 
+
+> ij
+
+, z(ℓ) 
+
+> ij
+
+) and pro-duces updated states ( h(ℓ+1)  
+
+> ij
+
+, z(ℓ+1)  
+
+> ij
+
+). The first step is to build an equivariant edge contribution to the local environment by applying an EquivariantScalarMLP to the current latent pair, 
+
+e(ℓ) 
+
+> ij
+
+= Ψ env 
+
+
+
+h(ℓ) 
+
+> ij
+
+, z(ℓ) 
+
+> ij
+
+; cij 
+
+
+
+,
+
+where cij denotes the optional conditioning tensor. These edge contributions are then aggregated over all outgoing edges of the same source node using scatter sum ,
+
+u(ℓ) 
+
+> i
+
+= X 
+
+> j∈N (i)
+
+e(ℓ) 
+
+> ij
+
+.
+
+10 Optionally, the aggregated node environment is optionally refined through a MACE-style [6] equivariant product block in the intermediate layers, and is then normalized by SO3 LayerNorm .Finally, the normalized node environment is broadcast back to each outgoing edge through its source node, yielding an edge-local environment u(ℓ) 
+
+> ij
+
+= u(ℓ) 
+
+> i
+
+.
+
+Optional attention weighting. When attention is enabled, the edge contributions e(ℓ) 
+
+> ij
+
+are reweighted before node aggregation. Queries are generated from the invariant attributes of the source node and keys from the current scalar edge state, both reshaped into ( m, d ) head structure, where m is the equivariant multiplicity and d is the attention head dimension. The attention logits are 
+
+ω(ℓ) 
+
+> ijm
+
+= ⟨Q(ℓ)
+
+> ijm
+
+, K (ℓ)
+
+> ijm
+
+⟩√d ,
+
+optionally clipped to a symmetric interval, and normalized with a softmax over edges sharing the same source node. The resulting weights multiply the edge environment contributions before summation. Thus, attention does not replace local aggregation, but modulates the contribution of each edge to its source-centered environment. 
+
+Tensor-product interaction. The interaction step combines the current equivariant edge state with the broadcast source-centered environment through a tensor product, 
+
+t(ℓ) 
+
+> ij
+
+= T
+
+
+
+z(ℓ) 
+
+> ij
+
+, u(ℓ)
+
+> ij
+
+
+
+.
+
+In the implementation this tensor product is realized by an Allegro-style Contracter with precomputed instructions restricted to those output irreps for which a valid path exists. The resulting tensor-product output is subsequently normalized by a second SO3 LayerNorm . A final 
+
+EquivariantScalarMLP then maps the normalized tensor-product features to a new invariant state and a new equivariant state, (bh(ℓ+1)  
+
+> ij
+
+, bz(ℓ+1)  
+
+> ij
+
+) = Ψ proj 
+
+
+
+t(ℓ) 
+
+> ij
+
+; cij 
+
+
+
+.
+
+For intermediate layers this projection returns a channel-wise equivariant latent of the same recurrent type, whereas the last interaction layer projects to the pruned final equivariant latent required by the output head. 
+
+Residual latent updates. Invariant latents are updated through a variance-preserving resid-ual stream. If γℓ denotes the learnable residual update coefficient for layer ℓ, the implementation combines old and new latents as 
+
+h(ℓ+1)  
+
+> ij
+
+= 1
+
+q
+
+1 + γ2
+
+> ℓ
+
+h(ℓ) 
+
+> ij
+
++ γℓ
+
+q
+
+1 + γ2
+
+> ℓ
+
+bh(ℓ+1)  
+
+> ij
+
+.
+
+The coefficient γℓ is obtained by applying a sigmoid to a learnable parameter and scaling it by 
+
+residual update max . No residual update is applied in the first layer, because the initial latent and first updated latent need not share the same dimensionality. Equivariant residual updates are applied only when explicitly enabled and only when the new equivariant state has the same shape as the previous one. 
+
+Final output projection. After the recurrent stack has produced the final latent state (h(L) 
+
+> ij
+
+, z(L) 
+
+> ij
+
+), a last EquivariantScalarMLP maps it to the requested output field in flat form, 
+
+oij = Ψ out 
+
+
+
+h(L) 
+
+> ij
+
+, z(L) 
+
+> ij
+
+; cij 
+
+
+
+,
+
+and stores the result under out field .11 Readout modes. ReadoutModule supports both single-field and split invariant/equivariant inputs and outputs. For scalar prediction, the invariant part of the latent representation is processed by an MLP, ˆy(0) = MLP( s),
+
+while equivariant channels, when requested, are mapped through irrep-preserving linear opera-tors, ˆy(l> 0) = EqLin( u).
+
+A useful implementation detail is that the module can write both a full mixed output field and a scalar-only auxiliary field. In the scalar-only variant used for the present paper, this flexibility is not required and the final readout is simply out irreps: 1x0e .
+
+Chunked execution for large local graphs. The strict locality of node- and edge-level stacks also permits inference to be decomposed into memory-bounded subgraphs, with each chunk evaluating a subset of center nodes and their complete local receptive fields. The imple-mentation and empirical memory–runtime scaling of this strategy are described in Section 7.2. 
+
+Readout and Graph-Level Heads 
+
+ReadoutModule : maps node/edge/graph features to target fields, supporting scalar and equiv-ariant outputs, optional conditioning, optional residual mixing, and scalar bias. For scalar channel with conditioning vector c:
+
+s′ = γ(c) ⊙ s + β(c), ˆy(0) = MLP( s′).
+
+Equivariant outputs are produced by equivariant linear maps with either internal weights or weights generated from scalar/conditioning features: ˆy(l> 0) = EqLin  u; W (s′ or c) .
+
+NodewiseReduce : for graph-level prediction from node outputs: 
+
+gb = X
+
+> i: batch( i)= b
+
+xi,
+
+with optional concatenation of an auxiliary residual field before pooling and optional learnable bias. 
+
+# 4 Implementation Details for Generative Modules 
+
+Discrete diffusion module. In addition to the flow-matching front-end described in the main text, GEqDiff also provides a discrete-time diffusion module through ForwardDiffusionModule .This module samples an integer timestep t ∈ { 0, . . . , T train − 1}, encodes it through a sinusoidal embedding, and applies the corresponding noising coefficients αt and σt returned by a con-figurable NoiseScheduler . In the current implementation, atomic coordinates are centered graph-wise before corruption, Gaussian noise is sampled and centered in the same way, and the perturbed coordinates are constructed as 
+
+xt = αtx + σtϵ,
+
+with the training target stored as the sampled noise ϵ. The module also registers scalar condi-tioning fields such as the timestep embedding and diffusion coefficients. 12 Sampling schedulers for diffusion and flow matching. GEqDiff provides scheduler mod-ules for both denoising diffusion and flow-matching objectives. These modules sample a time variable, compute the corresponding data and noise scales, corrupt the selected input fields, and write the associated training targets back into the data dictionary. In the flow-matching case, the target is the scheduler velocity, i.e. the derivative of the interpolated state with respect to the sampled time variable. For a field x(f ), the scheduler defines an interpolated corrupted state 
+
+x(f ) 
+
+> τ
+
+= α(τ ) x(f ) + σ(τ ) ϵ(f ),
+
+where ϵ(f ) is field-specific noise and α(τ ), σ(τ ) are the data and noise scales returned by the scheduler. The corresponding flow-matching supervision target is 
+
+u(f ) 
+
+> τ
+
+= ˙ α(τ ) x(f ) + ˙ σ(τ ) ϵ(f ).
+
+When a binary corruption mask M (f ) is provided, these quantities are applied only to the selected entries: ˜x(f ) 
+
+> τ
+
+= M (f ) ⊙ x(f ) 
+
+> τ
+
++
+
+
+
+1 − M (f )
+
+⊙ x(f ), ˜u(f ) 
+
+> τ
+
+= M (f ) ⊙ u(f ) 
+
+> τ
+
+.
+
+Thus, unmasked entries remain fixed by default and receive a zero target. If no mask is specified, 
+
+M (f ) = 1 and the whole field is corrupted. Optional centering can be applied before corruption, and noise can be centered independently, allowing the reference frame and the noised region to be controlled separately. The field-wise noising/interpolation process is configured through the corrupt fields list, as shown in Listing 7. Each entry specifies the input field to perturb, the output velocity target to generate, and optional masking or centering rules. Different fields can therefore be transported with different preprocessing choices within the same forward module. In the LEGO benchmark, coordinates, shape descriptors, and dipole-like vectors are perturbed jointly but with separate target fields. Coordinates are centered using pocket mask to define the fixed context, while coordinate noise is centered over the generated region specified by ligand mask .The shape and dipole fields are instead perturbed only on generated nodes without additional centering. This makes the conditional generation task explicit: the model observes the fixed scaffold/pocket fields and learns to predict the flow velocities for the masked generated/ligand fields. The output side mirrors the same field-wise structure. Each transported field is assigned a readout head whose output irreps match the representation of the corresponding velocity target. Coordinates and dipole directions use vector-valued 1x1o heads, while the shape descriptor uses the mixed representation transported in the benchmark. 
+
+# 5 Tensorial Shielding Prediction on the ShiftML3 Dataset 
+
+5.1 Dataset and evaluation split 
+
+To test tensorial target prediction in GEqTrain, we used the tensor-containing molecular-solid dataset introduced with ShiftML3 [7]. The dataset contains DFT-computed chemical shielding tensors for molecular crystals sampled from the Cambridge Structural Database, together with thermally distorted structures. In the present supplementary analysis, we report results for the H, C, N, and O nuclei used in the main chapter comparison. We evaluate the model on the ShiftML3 CSD-test split. This is the hold-out test set defined by the ShiftML3 authors, constructed to avoid leakage between relaxed and thermally distorted structures derived from the same CSD identifier. 13 1 - _target_: geqdiff.nn.ForwardFlowMatchingModule  
+
+> 2
+
+name: flow_matching  
+
+> 3
+
+Tmax: 100  
+
+> 4
+
+flow_target_parameterization: scheduler_velocity  
+
+> 5
+
+flow_time_parameterization: tau  
+
+> 6
+
+t_embedder_kwargs:  
+
+> 7
+
+embedding_dim: 64  
+
+> 8
+
+corrupt_fields:  
+
+> 9
+
+- field: pos  
+
+> 10
+
+out_field: velocity  
+
+> 11
+
+center: true  
+
+> 12
+
+center_mask_field: pocket_mask  
+
+> 13
+
+center_noise: true  
+
+> 14
+
+noise_center_mask_field: ligand_mask  
+
+> 15
+
+mask_field: ligand_mask  
+
+> 16 17
+
+- field: shape_features  
+
+> 18
+
+out_field: shape_features_velocity  
+
+> 19
+
+center: false  
+
+> 20
+
+mask_field: ligand_mask  
+
+> 21 22
+
+- field: dipole_direction  
+
+> 23
+
+out_field: dipole_direction_velocity  
+
+> 24
+
+center: false  
+
+> 25
+
+mask_field: ligand_mask 
+
+Listing 7: Field-wise noising/interpolation configuration used for the LEGO flow-matching task. 
+
+5.2 GEqTrain configuration for NMR experiments 
+
+The model was trained with a joint scalar–tensor objective. The scalar head predicts the isotropic shielding target, while the tensorial head predicts the non-scalar irreducible shielding components. The loss is 
+
+L = Liso + 10 Ltensor , (1) where both terms use a LogCosh loss. Metrics are reported as MAE and RMSE per atomic species and are computed only on the masked center atoms used as prediction targets. The model uses a local cutoff of 6 .0 ˚ A, 16 radial basis functions, and spherical harmonics up to lmax = 2. Scalar node and edge embeddings use 512 channels. Equivariant edge features include 8 × l = 1 and 8 × l = 2 channels. The interaction block uses two message-passing layers, attention-based aggregation, a latent dimension of 512, equivariant latent multiplicity 8, and outputs scalar, vector, and rank-2 irreducible features. Two readout heads are used: 
+
+cs iso : 1 × 0e, (2) 
+
+cs tensor : 1 × 1e + 1 × 2e. (3) Training used AdamW with learning rate 10 −4, exponential learning-rate decay with γ = 0 .98, batch size 2, validation batch size 4, and a maximum of 250 epochs. 
+
+5.3 Irreducible tensor-component errors 
+
+Table 1 reports RMSEs for the non-scalar shielding components on the ShiftML3 CSD-test 
+
+split. To make the connection with the ShiftML3 tensor terminology explicit, we label the l = 1 14 1 - _target_: geqtrain.nn.ReadoutModule  
+
+> 2
+
+name: position_head  
+
+> 3
+
+field: node_features  
+
+> 4
+
+out_field: velocity  
+
+> 5
+
+out_irreps: 1x1o  
+
+> 67
+
+- _target_: geqtrain.nn.ReadoutModule  
+
+> 8
+
+name: shape_head  
+
+> 9
+
+field: node_features  
+
+> 10
+
+out_field: shape_features_velocity  
+
+> 11
+
+out_irreps: 1x0e + 1x1o + 1x2e + 1x3o  
+
+> 12 13
+
+- _target_: geqtrain.nn.ReadoutModule  
+
+> 14
+
+name: dipole_direction_head  
+
+> 15
+
+field: node_features  
+
+> 16
+
+out_field: dipole_direction_velocity  
+
+> 17
+
+out_irreps: 1x1o 
+
+Listing 8: Readout heads used to predict field-specific flow velocities in the LEGO flow-matching task. block as the antisymmetric sector and the l = 2 block as the symmetric traceless sector. The values, however, are computed directly in the irreducible representation used for training. For a nucleus type Z and irreducible order l, the reported error is RMSE Z,l =
+
+vuut 1
+
+NZ (2 l + 1) 
+
+X
+
+> i:zi=Z
+> 2l+1
+
+X
+
+> m=1
+
+ ˆT (l) 
+
+> i,m
+
+− T (l)
+
+> i,m
+
+2
+
+, (4) where T (l) 
+
+> i,m
+
+denotes the target irreducible shielding component of atom i, after applying the same inverse normalization used for evaluation of physical-unit errors. All values are in ppm. Table 1: RMSEs for non-scalar irreducible shielding components on the ShiftML3 CSD-test 
+
+split. The labels connect the GEqTrain irreducible blocks to the corresponding tensor sectors: the l = 1 block represents the antisymmetric sector, while the l = 2 block represents the symmetric traceless sector. Errors are computed in the native irreducible representation used for training and are reported in ppm. 
+
+Nucleus RMSE σantisym / l = 1 RMSE σsym ,tr / l = 2 
+
+> 1
+
+H 0.72 0.96 
+
+> 13
+
+C 4.38 5.00 
+
+> 15
+
+N 9.83 15.08 
+
+> 17
+
+O 12.80 20.17 This table complements the isotropic shielding results in the main text. The scalar bench-mark evaluates the usual NMR target σiso , whereas the tensorial analysis tests whether the same GEqTrain configuration can learn local observables with prescribed non-scalar transformation behavior. 
+
+# 6 LEGO benchmark 
+
+This section describes the synthetic LEGO benchmark used to evaluate mixed-field equivariant generation in GEqDiff. The benchmark is designed as a controlled test case to assess whether 15 a single typed equivariant architecture can jointly generate Cartesian positions, higher-order shape descriptors, and vector-valued attributes. Each generated assembly is represented as a graph 
+
+G = ( V, E),
+
+where each node i ∈ V corresponds to a LEGO-like brick or brick element. Each node carries three target fields: 
+
+xi = ( ri, si, μi) ,
+
+where ri ∈ R3 is the anchor position, si ∈ R16 is a shape descriptor, and μi ∈ R3 is a dipole-like vector. The shape descriptor is stored as a 16-dimensional coefficient vector corresponding to the representation content 
+
+1x0e + 1x1o + 1x2e + 1x3o .
+
+The dipole-like vector is treated as a direct vector-valued target, with both orientation and magnitude encoded in μi.
+
+6.1 Discrete procedural generation 
+
+LEGO structures are generated on a discrete three-dimensional lattice. A turtle-like construc-tion rule sequentially places brick anchors and updates a local orthonormal frame using axis-aligned rotations from the cubic grid symmetry group. This makes connectivity and relative orientation explicit, while keeping the generation process simple and reproducible. Extended bricks such as 1x2 , L-shaped, and T-shaped elements are represented by finite voxel footprints. During generation, each proposed placement is checked against a global occu-pancy grid. Placements that would introduce overlaps are rejected, and failed trajectories are resampled. Thus, all accepted structures are connected and overlap-free by construction. 
+
+6.2 Procedural scaffold grammars 
+
+The structures are sampled from three simple grammars inspired by secondary-structure-like motifs: 
+
+• Beta-sheet-like scaffolds: Compact, locally planar assemblies formed by alternating runs of 1x1 and 1x2 bricks, punctuated by tight 180 ◦ U-turns implemented using paired 
+
+L-shape bricks. The parity of the turns is strictly alternated to fold the beta-sheet densely without self-intersection. 
+
+• Alpha-helix-like scaffolds: Discrete helical assemblies built from a deterministic peri-odic brick grammar. The helix generator uses a fixed local phase progression and chiral frame updates so that each sample follows a consistent alpha-helix-like pattern. 
+
+• Mixed scaffolds: Heterogeneous assemblies created by alternately sequencing beta-sheet-like and alpha-helix-like segments. Because the discrete turtle maintains a strict absolute frame, the transition between domains is contiguous, with the first element of the new motif initialized from the terminal position and local frame of the preceding segment. The precise sampling parameters used for the final experiments are reported in Table 2. These parameters control the distribution over scaffold classes and the number of nodes. 16 Table 2: Generation parameters for the deterministic scaffold LEGO benchmark. Parameter Value/range Scaffold classes beta-sheet-like, alpha-helix-like, mixed Number of source assemblies (train, valid, test) 1,000, 50, 100 Number of extracted conditional examples per source 5Node-count range 8-40 Diffused-subassembly size range 4-12 
+
+6.3 Roles, shape descriptors, and dipoles 
+
+The exact structural role ρi and local affine frame of every node are intrinsically determined by the L-system’s generative path. These roles denote specific local motifs, such as terminal elements, beta-sheet bodies, helical bodies, or turn junctions. For each node i, the known role and frame deterministically dictate a target discrete brick type bi and orientation qi. Rather than using these discrete labels directly as generative targets, they are mapped to a continuous shape descriptor si ∈ R16 . This descriptor corresponds to the spherical-harmonic signature of the brick’s exposed faces, yielding a continuous, higher-order equivariant representation: (bi, q i, si) = fshape (ρi, ti, ni, bi),
+
+where ( ti, ni, bi) is the local orthonormal frame derived from the sequence tangent, normal, and binormal. Similarly, a dipole-like vector μi ∈ R3 is directly calculated based on the role and local frame: 
+
+μi = fdipole (ρi, ti, ni, bi).
+
+This controlled directional attribute tests whether the generative model can preserve vector-valued information coupled to local geometry. This formulation ensures that the target signals for both the 16-dimensional shape channel and the 3D vector-valued dipole are mathematically consistent with the underlying discrete assembly. 
+
+6.4 Conditional reconstruction and flow matching 
+
+The learning task is formulated as conditional reconstruction of a connected subassembly. For each complete assembly, a connected subset of nodes L ⊂ V is selected as the diffused region, while the complement C = V \ L acts as fixed context. For each diffused node i ∈ L , the model must jointly reconstruct its position, shape, and dipole: ( ri, si, μi). The benchmark uses direct flow matching over these three mixed-field channels. For each target field y ∈ { r, s, μ}, we define a linear interpolation between a noise sample y0 and the data sample y1:
+
+yt = (1 − t)y0 + ty 1, t ∈ [0 , 1] ,
+
+with target velocity ut = y1 − y0. The training objective is the sum of channel-wise velocity-matching losses: 
+
+LLEGO = λrLr + λsLs + λμLμ,
+
+where each term minimizes the squared L2 error between the network’s predicted velocity 
+
+vθ(yt, t, G, C) and the target ut.
+
+6.5 Decoding and visualization 
+
+At sampling time, the flow-matching velocity field is integrated from t = 0 to t = 1 to obtain continuous generated predictions: (ˆ ri, ˆsi, ˆμi). Because the shape channel ˆ si is an equivariant 17 tensor of spherical-harmonic coefficients, we employ two complementary methods to interpret and visualize it: 
+
+• Continuous Surface Rendering: The predicted spherical-harmonic coefficients ˆ si di-rectly parameterize a smooth radial surface field around each node. Rendering these surfaces allows for direct visual inspection of the flow-matching trajectory, showing how the continuous shape representation smoothly evolves across steps without discrete ap-proximation artifacts. 
+
+• Discrete Brick Decoding: For quantitative geometric evaluation and final macroscopic visualization, the continuous shape tensor is mapped back to a rigid building block. This is achieved via nearest-neighbor matching in the shape-feature space against a library of prototype exemplars P:(ˆbi, ˆqi) = argmin 
+
+> (b,q )∈P
+
+∥ˆsi − s(b, q )∥2 .
+
+This decoding step yields a discrete brick type ˆbi and orientation ˆ qi, which are plotted as exact interlocking meshes to assess the structural validity and physical clashes of the final assembly. This dual representation cleanly separates the continuous geometric tensors learned by the network from the discrete macroscopic structures they encode. 
+
+6.6 Evaluation metrics 
+
+All LEGO samples are evaluated in two anchor modes. In the raw mode, metrics are com-puted from the continuous anchors produced by the sampler. In the voxelized mode, sampled anchors are first snapped to the nearest lattice site, while all other decoded quantities are kept unchanged. The voxelized mode is the default reporting mode because the task is defined on a discrete LEGO lattice and small continuous coordinate errors should not be confused with topological errors. Let L denote the masked/designable bricks and let the unmasked bricks be the fixed context. For paired evaluations, the generated structure is scored against its corresponding reference structure. The score card contains absolute validity, relative validity, shape fidelity, dipole fidelity, and pose fidelity. 
+
+Absolute validity. Validity measures intrinsic geometric soundness of the decoded assembly, without forcing it to match the reference. Bricks are expanded into their occupied unit voxels after applying the decoded type and rotation. For each pair of occupied voxels with displacement ∆, the continuous overlap contribution is 
+
+v(∆) = Y
+
+> a∈{ x,y,z }
+
+max(0 , 1 − | ∆a|).
+
+Pair overlaps are summed over all voxel pairs belonging to two different bricks. To avoid over-penalizing numerical near misses, each brick-pair overlap is reduced by a tolerance τov = 0 .01 before contributing to the effective overlap, 
+
+Veff = X
+
+> i<j
+
+max(0 , V ij − τov ).
+
+Pairs with Vij > 0.08 are counted as severe overlaps. Connectivity is computed from face-contact edges whose continuous contact area is larger than 0 .12. If K is the number of connected components and Nsev is the number of severe-overlap pairs, the implemented validity score is 
+
+Svalid = 100 exp( −12 .0 Veff − 0.9 Nsev )max(1 , √K) .
+
+18 A structure is additionally flagged as “valid-like” when Veff ≤ 0.02, Nsev = 0, and K = 1. 
+
+Dipole fidelity. Dipoles are represented as direct three-dimensional vectors, with the vector direction encoding orientation and polarity and the norm encoding interaction strength. The cosine diagnostic is averaged over the designable set after normalizing nonzero vectors. If both sampled and reference dipoles are zero, the pair contributes a cosine of 1; if exactly one is zero, it contributes 0. The magnitude diagnostic is RMSE |μ| =
+
+"
+
+1
+
+|L| 
+
+X
+
+> i∈L
+
+(∥ ˆμi∥2 − ∥ μi∥2)2
+
+#1/2
+
+.
+
+The scalar score uses three terms: direction agreement Cμ = (1+cos μ)/2, magnitude agreement 
+
+Mμ = exp[ −(RMSE |μ|/0.28) 2], and an energy-alignment term. The energy term compares the sampled and reference contact energies computed from the same polar-contact energy used dur-ing dataset generation. In the implementation, the energy field is read as weighted dipole energy 
+
+when present, otherwise as dipole total energy . With ∆ Eμ = Esample  
+
+> μ
+
+− Eref  
+
+> μ
+
+, the score is 
+
+Sμ = 100 [0 .60 Cμ + 0 .20 Mμ + 0 .20 exp( −| ∆Eμ|/1.5)] .
+
+The reported diagnostics include the mean cosine, angular error in degrees, magnitude RMSE, energy difference, and energy-alignment term. 
+
+Pose fidelity. Pose fidelity measures whether designable anchors return to the paired reference positions while fixed-context anchors remain unchanged. Let dmean  
+
+> L
+
+and dmax  
+
+> L
+
+be the mean and maximum displacement of designable anchors, and let dmax fixed be the maximum displacement of fixed-context anchors. The implemented score is 
+
+Spose = 100 exp ( −dmean  
+
+> L
+
+/0.50 − dmax  
+
+> L
+
+/1.20 − 1.2 dmax fixed ) .
+
+# 7 Computational Scaling and Execution Strategies 
+
+GEqTrain provides two complementary mechanisms for computational scaling. Distributed Data Parallel training increases throughput by replicating the model across GPUs and distribut-ing minibatches, whereas chunked execution reduces the peak memory required to evaluate a single large local graph. These mechanisms therefore address training-throughput scaling and single-system memory scaling, respectively. 
+
+7.1 Distributed Multi-GPU Training with PyTorch DDP 
+
+GEqTrain uses PyTorch Distributed Data Parallel (DDP) for synchronous data-parallel training across multiple GPUs. Each process owns a complete model replica and processes a distinct portion of the minibatch, with gradients synchronized before each optimization step. DDP can reduce wall-clock training time and increase the effective batch size.. This distributed capability is activated by passing the --ddp flag to the training script. The framework supports two primary methods for launching distributed runs: using torchrun for single multi-GPU machines and using SLURM for High-Performance Computing (HPC) clusters. 
+
+Using torchrun on a Single Machine For a single workstation or server with multiple GPUs, torchrun is the standard and recommended launcher. It automatically manages the setup of the distributed environment. To start a training run, you specify the number of GPUs to use with the --nproc per node 
+
+argument. For example, to train on 4 GPUs, the command is: 19 torchrun --nproc_per_node=4 \ geqtrain/scripts/train.py \ path/to/conf.yaml \ --ddp 
+
+Important Considerations and Tips 
+
+• Selecting Specific GPUs : To restrict training to a subset of available GPUs, you can use the CUDA VISIBLE DEVICES environment variable. For instance, to use only GPUs 0 and 2, you would set export CUDA VISIBLE DEVICES=0,2 before running the torchrun 
+
+command. 
+
+• NCCL Hangs Workaround : On some systems, low-level hardware or driver conflicts can cause the training process to hang during initialization. If this occurs, setting the environment variable export NCCL P2P DISABLE=1 forces a more robust, albeit potentially slower, communication path that can resolve the issue. 
+
+Using SLURM on an HPC Cluster On HPC clusters managed by the SLURM workload manager, distributed training is typically launched via a submission script. This approach allows for precise resource allocation and leverages SLURM’s infrastructure to manage inter-process communication. The process involves creating an sbatch script that requests the necessary resources (nodes, GPUs per task, etc.) and sets up the environment. For DDP to work correctly, two environ-ment variables, MASTER ADDR and MASTER PORT , must be set so that all processes know how to communicate with the master process (rank 0). These can be configured automatically within the SLURM script. Instead of using torchrun , the training can be launched with srun , explicitly passing the communication details via command-line arguments to the script:   
+
+> # This command would be placed inside an sbatch script
+> srun geqtrain-train config.yaml \ --ddp \ --master-addr $MASTER_ADDR \ --master-port $MASTER_PORT
+
+The training script accepts --master-addr and --master-port to facilitate this setup. Acomplete example of a SLURM submission script ( train.sbatch ) is provided in the project’s 
+
+README.md file. 
+
+7.2 Memory-Bounded Inference through Chunked Execution 
+
+Chunking strategy. For strictly local node- and edge-level stacks, GEqTrain can evaluate a single molecular graph as a sequence of memory-bounded subgraphs rather than through one monolithic forward pass. When chunking is enabled, the framework iteratively selects a subset of source, or center, nodes whose induced local neighborhoods fit within the user-defined 
+
+batch max atoms limit. The corresponding subgraph is evaluated, its center-node outputs are retained, and execution proceeds to the remaining centers until the complete graph has been covered. Because each prediction depends only on the receptive field of its associated center node, this decomposition preserves the semantics of strictly local message passing. Chunking is not applied to graph-level objectives, for which the output or loss can depend jointly on all nodes and cannot in general be reconstructed from independent local evaluations. 20 Synthetic scaling benchmark. We quantified the resulting memory–runtime trade-off using a 28.96-million-parameter GEqTrain interaction model on synthetic sparse graphs with N nodes and fixed out-degree 32, corresponding to 32 N directed edges. Benchmarks were performed on a single NVIDIA RTX A6000 GPU with 47.4 GB of memory; inference times are averages over three executions following one warm-up run. For monolithic full-graph inference, peak CUDA reserved memory increased approximately linearly with graph size, reaching 44.94 GB at 6,882 nodes and 220,224 edges. The next eval-uated size, containing 11,012 nodes, resulted in an out-of-memory error. Once execution was divided into multiple chunks, peak memory was instead controlled primarily by the chunk bud-get rather than the total graph size. Both the 1,000- and 2,000-node chunk settings successfully processed graphs containing 28,192 nodes and 902,144 edges, the largest systems tested. This reduction in peak memory comes at the cost of repeated subgraph construction and serial evaluation. At 6,882 nodes, mean inference time increased from 8.04 s for full-graph exe-cution to 56.39 s and 49.45 s for chunk budgets of 1,000 and 2,000 nodes, respectively. Chunking therefore provides a configurable memory–throughput trade-off and should be interpreted as a mechanism for memory-bounded inference rather than as a runtime optimization. The synthetic fixed-degree graphs isolate scaling with graph size at constant sparsity and are not intended to reproduce the topology or throughput of a particular molecular system. 
+
+# References 
+
+1. Geiger, M. & Smidt, T. e3nn: Euclidean Neural Networks 2022. https://arxiv.org/abs/ 2207.09453 .2. Geiger, M. et al. Euclidean neural networks: e3nn version 0.5.0. Apr. 2022. https://doi. org/10.5281/zenodo.6459381 .3. Yeo, I.-k. & Johnson, R. A. A new family of power transformations to improve normality or symmetry. Biometrika 87, 954–959. https://api.semanticscholar.org/CorpusID: 123605687 (2000). 4. Xiong, R. et al. On Layer Normalization in the Transformer Architecture in Proceedings of the 37th International Conference on Machine Learning International Conference on Machine Learning (PMLR, Nov. 21, 2020), 10524–10533. https : / / proceedings . mlr . press/v119/xiong20b.html (2026). 5. Musaelian, A. et al. Learning local equivariant representations for large-scale atomistic dynamics. Nature Communications 14, 579. issn : 2041-1723 (1 Feb. 2023). 6. Batatia, I., Kovacs, D. P., Simm, G., Ortner, C. & Csanyi, G. MACE: Higher Order Equiv-ariant Message Passing Neural Networks for Fast and Accurate Force Fields in Advances in Neural Information Processing Systems (eds Koyejo, S. et al. ) 35 (Curran Associates, Inc., 2022), 11423–11436. https://proceedings.neurips.cc/paper_files/paper/2022/ file/4a36c3c51af11ed9f34615b81edb5bbc-Paper-Conference.pdf .7. Kellner, M. et al. A Deep Learning Model for Chemical Shieldings in Molecular Organic Solids Including Anisotropy. The Journal of Physical Chemistry Letters 16, 8714–8722. 
+
+https://doi.org/10.1021/acs.jpclett.5c01819 (Aug. 2025). 21 Figure 1: Memory and runtime scaling of full and chunked GEqTrain inference. A28.96-million-parameter model was evaluated on synthetic directed graphs with fixed out-degree 32 on a single NVIDIA RTX A6000 GPU with 47.4 GB of memory. Top: peak CUDA memory reserved by the PyTorch allocator. Bottom: mean wall-clock inference time over three executions following one warm-up. Before the chunk budget is exceeded, chunked execution reduces to a single subgraph and has similar memory requirements to full-graph inference. Full-graph memory grows approximately linearly and inference fails with an out-of-memory error at 11,012 nodes. Chunked execution bounds peak memory and successfully processes 28,192 nodes, the largest graph tested, while introducing additional runtime because subgraphs are evaluated sequentially. 22

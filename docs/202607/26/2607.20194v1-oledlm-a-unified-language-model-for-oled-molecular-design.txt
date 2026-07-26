@@ -1,0 +1,660 @@
+Title: OLEDLM: A Unified Language Model for OLED Molecular Design
+
+URL Source: https://arxiv.org/pdf/2607.20194v1
+
+Published Time: Thu, 23 Jul 2026 01:14:08 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# OLEDLM: A U NIFIED LANGUAGE MODEL FOR OLED MOLECULAR DESIGN 
+
+Fukang Wen 1,5 , Yuchong Tang 1,5 , Jingyuan Li 2,3,5 , Beichen Wang 1,5 , Yixuan Jiang 1,5 , Xiaoyi Jiang 1,5 ,Yaxuan Liu 4, Shunyu Wang 4, Zuoqiang Shi 1,2,5 , Yi Zhu 1,2,5 , Yanan Zhu 4,*, †, Pipi Hu 2,5,*, ‡
+
+> 1
+
+Tsinghua University 
+
+> 2
+
+Beijing Institute of Mathematical Sciences and Applications 
+
+> 3
+
+Wuhan University 
+
+> 4
+
+Shenzhen MSU-BIT University 
+
+> 5
+
+MathonAI Team 
+
+July 23, 2026 
+
+## ABSTRACT 
+
+The development of organic light-emitting diode (OLED) materials faces the compounded challenges of an astronomically large chemical space, stringent quantum-chemical constraints, and a scarcity of labeled data. Although the question of OLED generation is important, few models have been trained effectively for this specific domain. We propose an inverse molecular design framework based on causal language models: given target optoelectronic properties (e.g., excitation energy, oscillator strength), our model directly generates OLED SMILES sequences satisfying the specified constraints. We employ a multi-stage strategy: first, we establish a foundational chemical language model using a LLaMA-style transformer architecture. To the best of our knowledge, this represents the first successful adaptation of LLMs specifically for the OLED domain, bridging the gap between generic molecular generation and the stringent structural requirements of optoelectronic materials. Second, we fine-tune property predictors based on a BERT model pre-trained on our large-scale OLED dataset. Then, we perform Reinforcement Learning on our fine-tuned model, leveraging our property predictor, for better SMILES generation. Finally, through DFT verification, we demonstrate that our framework can efficiently navigate the OLED chemical space, generating novel candidates with high structural validity and optimized optoelectronic properties. 
+
+## 1 Introduction 
+
+The discovery of high-performance organic light-emitting diode (OLED) materials involves navigating an immensely vast chemical space to identify structures that simultaneously satisfy stringent optoelectronic constraints, such as specific singlet energy levels ( S1) and high oscillator strength ( f ). Traditional discovery pipelines, relying on high-throughput screening or heuristic modification, are often constrained by the prohibitive cost of Quantum Mechanics simulations and the limitations of human intuition. Recently, Generative AI has emerged as a transformative paradigm [ 1, 2 ], shifting the focus from screening existing libraries to the de novo design of materials with targeted properties [3, 4, 5, 6]. In particular, Large Language Models trained on Simplified Molecular Input Line Entry System (SMILES) strings have demonstrated remarkable proficiency in learning the language of chemistry [ 7, 8]. Recent studies suggest that Transformer-based architectures, originally designed for natural language, can effectively capture complex chemical syntax and structural semantics [ 9 , 10 ]. In this work, we leverage a LLaMA-style Transformer for OLED molecule generation and employ Reinforcement Learning to align conditional generation, significantly improving the precision of property-targeted OLED molecule design. 
+
+> *
+
+Corresponding author 
+
+> †
+
+zhuyn@smbu.edu.cn 
+
+> ‡
+
+hpp@bimsa.cn arXiv:2607.20194v1 [cs.LG] 22 Jul 2026 A PREPRINT - J ULY 23, 2026 Specifically, we adopt Group Relative Policy Optimization (GRPO) [ 11 ] to align the generative model with target properties. GRPO estimates advantages by sampling a group of molecular candidates for each condition and ranking them relative to the group mean, providing stable training without requiring a separate value network. 
+
+Our contributions are as follows: 
+
+1. OLED-Specific Chemical Language Model: We curate a large-scale OLED-relevant molecular dataset and pre-train a LLaMA-style Transformer from scratch, establishing a foundational model capable of unconditional generation of valid, novel OLED molecular structures. 2. Domain-Adaptive Property Predictor: We collect 10,000 OLED molecules with expensive DFT-computed optoelectronic properties ( S1, f ) and train specialized BERT-based predictors that significantly outperform general-purpose encoders such as MoLFormer-XL on OLED-specific tasks. 3. Conditional Supervised Fine-Tuning: We develop a property-conditioned SFT strategy using discrete control tokens, enabling the model to generate OLED molecules that satisfy user-specified S1 and f targets. 4. GRPO-Based Alignment: Building upon our SFT model, we employ the property predictors as reward models within a Group Relative Policy Optimization (GRPO) framework, further improving the precision of conditional generation without the instability of critic-based RL methods. 
+
+## 2 Related Work 
+
+2.1 Encoder-only Models for Molecular Representation 
+
+The BERT architecture [ 12 ], originally designed for masked language modeling in NLP, has been successfully adapted to the chemical domain. Models such as ChemBERTa [ 13 ] and MoLFormer-XL [ 14 ] utilize bidirectional attention mechanisms to learn rich molecular representations from massive SMILES datasets. These models typically serve as powerful encoders for downstream predictive tasks. In our framework, distinct from these general-purpose encoders, we leverage a customized BERT-style architecture specifically as a property predictor. By training on domain-specific OLED datasets, our BERT module acts as a rigorous evaluator, providing high-fidelity feedback to guide the generation process. 
+
+2.2 Large Language Models for De Novo Design 
+
+Autoregressive Transformer models, exemplified by LLaMA [ 15 ], have demonstrated exceptional capability in modeling discrete sequential data. In the context of material science, SMILES strings can be treated as a “chemical language.” Recent studies have shown that decoder-only Transformers can learn the syntax of valid molecules and generate novel structures [ 16 ]. Our work adopts the LLaMA architecture to ensure training stability and long-range dependency modeling in complex molecular sequences. 
+
+2.3 Conditional Generation and Supervised Fine-Tuning 
+
+The “Pretrain-Finetune” paradigm has become the de facto standard in generative AI. While “Instruction Tuning” [ 17 ]enables models to follow natural language commands, molecular generation often requires precise control over physical properties rather than open-ended dialogue. Approaches like CTRL [ 18 ] or property-conditioned fine-tuning introduce control codes into the input sequence. In this work, we implement a Conditional Supervised Fine-Tuning (SFT) strategy. Instead of vague natural language prompts, we condition the LLaMA model on quantized property tokens (e.g., specific 
+
+S1 and f ranges), effectively teaching the model to map desired optoelectronic criteria to specific chemical structures. 
+
+2.4 Reinforcement Learning for Alignment 
+
+A fundamental limitation of SFT for property-conditioned generation is the sparsity of supervision signal. The labeled dataset of (property, SMILES) pairs is inherently small compared to the vast chemical space. If trained for too few epochs, the model fails to learn the implicit mapping between property tokens and molecular structures, resulting in poor conditional generation. Conversely, training for too many epochs leads to memorization and mode collapse, where the model simply reproduces training examples rather than generalizing. To address this dilemma, we adopt Reinforcement Learning (RL) after SFT. Instead of directly exposing the model to (property, SMILES) pairs, RL uses a property predictor as a reward signal to guide generation, providing dense, differentiable feedback without overfitting to specific examples. Traditional RL methods like PPO [ 19 ] rely on a Value Network (Critic) to estimate advantages, which is difficult to train in the rugged landscape of chemical properties. Recently, Group Relative Policy Optimization, 2A PREPRINT - J ULY 23, 2026 
+
+Figure 1: Overview of our unified bidirectional OLED molecular design framework. Starting from a 9M SMILES pre-training corpus, we train two complementary models via self-supervised learning: (1) OLED-BERT for property prediction, and (2) OLED-LLaMA for molecular generation. The 9k DFT-verified dataset enables fine-tuning OLED-BERT into specialized S1 and f predictors, while guiding conditional SFT of OLED-LLaMA. The predictors then serve as reward models to further refine the generator via GRPO, achieving precise property-conditioned molecular design. introduced in DeepSeekMath [ 11 ], proposed a critic-free approach that estimates advantages by sampling a group of outputs and normalizing rewards relative to the group mean. We identify GRPO as uniquely suited for molecular discovery, as it effectively solves the “Critic Bottleneck” by leveraging the generative model itself to provide a stable, group-relative baseline. 
+
+2.5 AI for OLED Materials Discovery 
+
+Machine learning has been increasingly applied to OLED discovery, primarily for screening existing libraries or optimizing continuous representations (e.g., VAE latent spaces) [ 20 ]. However, these methods often struggle with validity decoding or lack precise control over specific optoelectronic properties. De novo generative approaches targeting strict multi-objective optimization—specifically high oscillator strength ( f ) for efficiency and precise singlet energy ( S1) for color purity—remain scarce. To the best of our knowledge, our work is the first to integrate GRPO-based Reinforcement Learning with a LLaMA-style backbone to achieve high-fidelity de novo design of OLED emitters that satisfy these conflicting constraints. 
+
+## 3 Methodology 
+
+3.1 Domain-Adaptive Property Predictor 
+
+To guide the generative model toward high-performance OLED candidates, we require a robust reward model capable of accurately predicting singlet energy ( S1) and oscillator strength ( f ). While general-purpose chemical language models like MoLFormer-XL exist, they are typically pre-trained on broad, heterogeneous datasets (e.g., PubChem, ZINC) that may not adequately capture the specific electronic structure nuances of conjugated OLED materials. Our experiments demonstrated that fine-tuning such off-the-shelf models on OLED-specific data yielded significantly higher prediction errors compared to our domain-adaptive approach (see Section 4). Consequently, we adopted a domain-adaptive pre-training strategy. We trained a BERT-style encoder from scratch on a curated dataset of 9 million SMILES strings using the Masked Language Modeling (MLM) objective. This allows the model to learn a specialized chemical vocabulary and syntax relevant to organic semiconductors. For the downstream property prediction task, we employed a partial fine-tuning approach: we froze the initial layers of the encoder and fine-tuned only the final transformer layers and the regression head on our labeled dataset of 9,000 DFT-calculated samples. This strategy effectively mitigates overfitting to the small amount of labeled data while retaining the rich feature extraction capabilities learned during pre-training. Our internal evaluations show this specialized predictor 3A PREPRINT - J ULY 23, 2026 achieves a Mean Absolute Error (MAE) of 0.12 eV for S1 (R2 = 0 .69 ) and 0.06 for f (R2 = 0 .68 ), providing reliable feedback for the subsequent reinforcement learning stage. 
+
+3.2 Generative Backbone and Tokenization 
+
+We model molecular generation as a causal language modeling task. Our backbone is a LLaMA-style Transformer, incorporating Rotary Positional Embeddings, RMSNorm, and SwiGLU activation functions. These architectural choices ensure training stability and effective long-range dependency modeling, which are critical for generating valid, complex molecular strings. We utilize a custom SMILES tokenizer designed to treat chemical substructures and symbols as discrete tokens, enabling the model to process molecular strings as a structured language. Similar to its success in natural language, this architecture demonstrates strong generalization capabilities in learning the probabilistic distribution of valid chemical structures. 
+
+3.3 Conditional Supervised Fine-Tuning (SFT) 
+
+To align the model’s output with desired physical properties, we implement Conditional Supervised Fine-Tuning. Unlike standard “instruction tuning” which typically relies on natural language prompts, our approach explicitly conditions the generation on quantized property values using discrete control codes. We map continuous properties ( S1, f ) into specific tokens (e.g., <s1> , <num_2> , <dot> , <res_50> ) which are prepended to the SMILES sequence. We construct a supervised dataset where each OLED molecule is paired with its ground-truth property tokens. By optimizing the conditional log-likelihood log P (SMILES |Properties ), the model learns to associate specific property constraints with corresponding structural motifs. This stage provides a “warm-start” policy that roughly adheres to target conditions, serving as a stable initialization for reinforcement learning. 
+
+Mitigating Memorization in SFT. In practice, we encountered a critical challenge: when training exclusively on the small amount of property-labeled dataset, the model rapidly memorizes specific SMILES strings rather than learning the underlying structure-property relationships. This memorization manifests as severely degraded generation diversity, rendering the model unsuitable for subsequent RL fine-tuning. To address this, we employ a mixed-data training strategy: we augment the SFT dataset with 10 × the volume of unlabeled SMILES from the pre-training corpus. Crucially, we re-sample this auxiliary data at each epoch, ensuring the model encounters diverse molecular structures throughout training. This approach effectively prevents catastrophic forgetting of the learned chemical grammar while mitigating overfitting to the small labeled set. Empirically, we observe that direct SFT on high-quality DFT-labeled data leads to rapid overfitting within a few epochs, whereas our mixed-data strategy maintains the next-token prediction accuracy at levels comparable to the pre-trained model, indicating preserved generalization capability. 
+
+3.4 Alignment via Group Relative Policy Optimization 
+
+A fundamental limitation of SFT for property-conditioned molecular generation is the training dilemma. The LLaMA architecture excels at memorizing specific SMILES strings due to its powerful autoregressive capability. However, this strength becomes a weakness during conditional fine-tuning: when trained with property tokens prepended to SMILES sequences, the model tends to memorize the exact (property, SMILES) pairs from training data rather than learning the underlying structure-property relationships. Training for too few epochs results in poor conditional generation, while training for too many epochs causes mode collapse. More critically, introducing property tokens into the training sequences disrupts the learned chemical syntax, leading to a significant drop in SMILES validity. To address this dilemma, we adopt Reinforcement Learning, which provides dense feedback through a reward model without requiring the model to memorize specific property-SMILES pairs. 
+
+GRPO: Group Relative Policy Optimization. We employ Group Relative Policy Optimization (GRPO). Instead of estimating the value of incomplete states, GRPO samples a group of complete outputs {o1, . . . , o G} for each condition 
+
+q and uses their relative performance as a self-referential baseline. The advantage for each sample is: 
+
+Ai = R(oi) − mean ({R(oj )}Gj=1 )
+
+std ({R(oj )}Gj=1 ) + ϵ (1) where ϵ is a small constant for numerical stability. By comparing complete OLED molecules against each other, GRPO sidesteps the unstable value estimation step entirely. 4A PREPRINT - J ULY 23, 2026 
+
+Reward Function. Our reward function R(x) for a generated OLED molecule x with target properties (S∗ 
+
+> 1
+
+, f ∗) is defined as: 
+
+R(x) = Ivalid (x) ·  − α|S1(x) − S∗ 
+
+> 1
+
+| − γ|f (x) − f ∗| + (1 − Ivalid (x)) · λpenalty (2) where Ivalid (x) is an indicator function for RDKit-parseable SMILES, S1(x) and f (x) are the BERT predictor estimates, and λpenalty < 0 penalizes invalid structures. 
+
+KL Regularization. A common failure mode in molecular RL is mode collapse, where the policy converges to a small set of high-reward OLED molecules. To mitigate this, we introduce KL divergence regularization against the reference SFT model πref , ensuring the agent explores the chemical space without exploiting “holes” in the reward model. The full GRPO objective is: 
+
+LGRPO (θ) = Eq, {oi}
+
+"
+
+1
+
+G
+
+> G
+
+X
+
+> i=1
+
+
+
+min  ρiAi, clip (ρi)Ai
+
+ − βD KL (πθ ∥πref )
+
+#
+
+(3) where ρi(θ) = πθ (oi|q)  
+
+> πθold (oi|q)
+
+is the importance sampling ratio and β controls the regularization strength. In our implemen-tation, we approximate the KL term using the absolute difference in log-probabilities for training stability. 
+
+## 4 Experiments 
+
+4.1 Experimental Setup 4.1.1 Dataset 
+
+To construct a dedicated dataset for model pretraining and fine-tuning, we independently generated an OLED synthesis dataset with a scale of 9 million molecules. All molecular structures in this dataset were constructed in accordance with chemical rules, following a specific generation protocol: novel molecular structures were synthesized via site-specific substitution based on common molecular parent cores and substituents. In addition, we acquired a 10,000-scale OLED dataset by extracting relevant information from patents and literature, for which we obtained Singlet Energy ( S1) and Oscillator Strength ( f ) as dataset labels through density functional theory (DFT) calculations under the conditions of the B3LYP functional and the 6-31G** basis set. This labeled dataset was split into 9,000 samples for training and 1,000 samples for evaluation (500 for validation, 500 for testing). All data are presented in the form of canonical SMILES. As a standardized and unique version of the Simplified Molecular-Input Line-Entry System (SMILES), canonical SMILES generates a unique string for the same molecule via a fixed algorithm, thus eliminating the ambiguity of multiple encodings for identical molecular structures. This ensures the uniqueness and uniformity of molecular structure characterization, effectively avoiding errors in data statistics and structure matching. 
+
+4.1.2 Model Architecture 
+
+Our generative backbone is a LLaMA-style Transformer with the following specifications: hidden dimension of 768, 12 transformer layers, 12 attention heads, and SwiGLU activation in the feed-forward network. We employ Rotary Position Embeddings (RoPE) with θ = 10000 and RMSNorm for layer normalization. The model supports sequences up to 512 tokens and contains approximately 100M parameters. The tokenizer uses a custom SMILES vocabulary of 147 base tokens extended to 265 tokens with property control codes (e.g., <s1> , <f> , <num_X> , <dot> , <res_YY> ) for conditional generation. For the domain-adaptive property predictor, we train a BERT-style encoder (768 hidden dimensions, 12 layers, 12 heads, 
+
+∼86M parameters) using Masked Language Modeling on the pre-training corpus. The predictor is then fine-tuned for 
+
+S1 and f regression tasks separately, with mean pooling over token embeddings followed by a 2-layer MLP regression head. 
+
+4.1.3 Baselines 
+
+We compare four generation settings. The Unconditional model samples from the pretrained generator without property controls. SFT is conditionally fine-tuned for 3 epochs, while SFT-20x is trained for 20 epochs to expose the effect of extended supervised training. GRPO starts from the SFT policy and is optimized with the proposed reward. PPO 5A PREPRINT - J ULY 23, 2026 and an LSTM generator adapted from LumiGen are evaluated separately as controlled algorithmic and architectural comparisons, respectively. 
+
+4.1.4 GRPO Configuration 
+
+Our GRPO implementation employs a group size of G = 20 samples per property condition. We sample property targets from the empirical distribution of the training set to ensure the model learns practically relevant OLED profiles. We set the KL regularization coefficient β = 0 .5 and impose a validity soft-penalty of −1.0 (scaled) for SMILES that fail RDKit parsing. Training proceeds for 1,000 steps with a learning rate of 10 −5 using the AdamW optimizer. 
+
+4.1.5 Evaluation Metrics 
+
+We evaluate all methods on: • Validity (%): Percentage of generated SMILES that pass RDKit parsing and represent valid molecular structures. • S1 MAE (eV): Mean absolute error between the BERT predictor’s estimate of S1 on the generated OLED molecule and the target value. • f MAE: Mean absolute error for oscillator strength prediction. • Uniqueness (%): Percentage of unique valid OLED molecules among all valid generations. • Novelty (%): Percentage of valid OLED molecules not present in the training set. 
+
+4.1.6 Evaluation Protocol 
+
+We evaluate the main generation benchmark by sampling 10,000 SMILES sequences per method. For the unconditional model, we sample directly from the pretrained LLaMA backbone starting from the <bos> token. For the conditional models, we sample target property pairs (S1, f ) from the empirical distribution of the training set, encode each pair as property tokens, and generate the corresponding SMILES. All generations use temperature T = 1 .0, top-k = 50 , and top-p = 0 .95 sampling. We compute validity via RDKit parsing, property alignment via BERT predictor inference, uniqueness among valid generations, and novelty against the labeled training set. The PPO–GRPO comparison uses 100 matched generations and is therefore treated as an algorithmic ablation rather than a replacement for the 10,000-sample benchmark. 
+
+4.2 Main Results 
+
+Table 1: Comparison of generation quality across methods. GRPO achieves the best validity while maintaining high novelty. SFT-20x shows strong property alignment but suffers from memorization (low novelty). Results averaged over 10,000 generated samples.                            
+
+> Method Valid. S1MAE fMAE Uniq. Novel Unconditional 74.9 N/A N/A 100.0 100.0 SFT 82.9 0.28 0.20 90.2 89.4 SFT-20x 91.9 0.19 0.12 75.8 58.0
+> GRPO 98.3 0.25 0.15 67.2 94.4
+
+GRPO vs. SFT. The SFT baseline (3 epochs) achieves moderate validity (82.9%) with property alignment errors of 
+
+S1 MAE: 0.28 eV and f MAE: 0.20. GRPO dramatically improves validity to 98.3% while reducing f MAE by 25% (0.20 → 0.15). This demonstrates that RL-based alignment with explicit validity rewards can substantially enhance structural correctness beyond supervised learning. 
+
+The SFT Memorization Problem. Extended SFT training (SFT-20x, 20 epochs) reveals a critical limitation: while it achieves the best property alignment ( S1 MAE: 0.19, f MAE: 0.12), the novelty rate collapses to 58.0%, indicating severe memorization of training examples. This confirms our hypothesis that SFT struggles to learn generalizable structure-property relationships, instead memorizing specific (property, SMILES) pairs from the limited labeled dataset. 6A PREPRINT - J ULY 23, 2026 
+
+Property–novelty trade-off. The results expose different failure modes for extended SFT and RL. SFT-20x achieves the lowest predictor errors ( S1 MAE: 0.19, f MAE: 0.12), but its novelty falls from 89.4% for SFT to 58.0%, consistent with increased retrieval of labeled training molecules. GRPO has lower uniqueness than SFT (67.2% versus 90.2%), indicating concentration on high-reward structural motifs, but retains 94.4% novelty. Thus, the lower uniqueness of GRPO should not by itself be interpreted as training-set memorization. Together with its 98.3% validity and competitive property alignment, this result suggests that GRPO offers a more favorable trade-off for de novo discovery, where generating novel candidates is an essential objective. 
+
+4.3 DFT Validation 
+
+To provide rigorous experimental validation beyond predictor-based evaluation, we conduct DFT calculations on generated OLED molecules. We sample target property pairs (S∗ 
+
+> 1
+
+, f ∗) that span the training distribution, covering diverse regions of the property space (Figure 2). Using identical target conditions, we generate OLED molecules from three models: (1) the GRPO-aligned model, (2) the SFT model trained for 3 epochs (SFT), and (3) the SFT model trained for 20 epochs (SFT-20x). Due to the prohibitive computational cost of DFT calculations (each molecule requires geometry optimization and TD-DFT excited state calculations at the B3LYP/6-31G** level), the initial submission reported only four matched converged conditions. We subsequently completed the remaining calculations and now report 20 converged molecules per method in Table 2. Table 2: Expanded DFT validation results comparing ground-truth quantum-chemical properties against target values. We report the mean absolute error and variance over 20 converged molecules per method. 
+
+METHOD n S1 MAE ( EV) f MAE S1 VAR f VAR 
+
+SFT-20 X 20 0.138 0.076 0.045 0.010 
+
+GRPO 20 0.260 0.134 0.095 0.026 SFT 20 0.339 0.166 0.181 0.059 
+
+The expanded validation resolves the original sample-size limitation: 20 molecules per method reached convergence and were evaluated independently of the BERT reward model. SFT-20x achieves the lowest DFT error, but this result should be interpreted alongside its low novelty (58.0%), consistent with memorization of training examples. GRPO maintains 94.4% novelty while achieving lower DFT error than SFT. Thus, the expanded DFT results support the claim that the predictor-based reward provides useful signal on generated molecules, while also showing that SFT-20x remains stronger when only property accuracy is considered. 1.0 1.5 2.0 2.5 3.0 3.5 4.0         
+
+> S1(eV)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> f (Oscillator Strength)
+> Property Distribution: Scatter + Density Contour
+> Training Set (n=9000)
+> Matched Samples (n=20)
+> 1.0 1.5 2.0 2.5 3.0 3.5 4.0
+> S1(eV)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> f (Oscillator Strength)
+> Property Distribution: 2D Histogram
+> Matched Samples (n=20)
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> Density
+> 0
+> 50
+> 100
+> 150
+> 200
+> 250
+> 300
+> 350
+> 400
+> Count
+
+Figure 2: Joint property distribution for DFT validation target selection. Left: Scatter plot with kernel density estimation contours showing the training set distribution (blue, n=9,000) and matched DFT validation samples (red, n=20). Right: 2D histogram with matched sample overlay. The 20 target pairs span diverse regions of the property space, covering 
+
+S1 ∈ [2 .25 , 3.07] eV and f ∈ [0 .002 , 0.53] .7A PREPRINT - J ULY 23, 2026 
+
+4.4 Baseline and Algorithm Comparison 4.4.1 GRPO versus PPO 
+
+To isolate the contribution of the policy-optimization algorithm, we compare GRPO and PPO using the same LLaMA+SFT checkpoint, reward model, KL coefficient ( β = 0 .5), and 1,000 training steps. On a matched set of 100 generated molecules, both methods achieve 100% validity. GRPO obtains lower property errors, whereas PPO produces higher uniqueness and novelty. The controlled comparison is reported in Table 3. Because it uses 100 rather than 10,000 generations, it should be interpreted as an algorithmic comparison rather than as the main generation benchmark. Table 3: Controlled comparison between GRPO and PPO on 100 generated molecules. The two methods use the same generator initialization, reward model, and training configuration. GRPO provides lower property errors, whereas PPO retains higher uniqueness and novelty.               
+
+> Metric GRPO PPO Validity (%) 100 100
+> S1MAE (eV) 0.250 0.267
+> fMAE 0.130 0.178 Uniqueness (%) 89 99
+> Novelty (%) 86 93
+
+GRPO therefore provides better target-property control in this matched comparison, while PPO retains a diversity advantage. PPO also required explicit implementation checks for per-token importance ratios, KL computation, and dropout consistency to remain stable, whereas the GRPO training configuration was stable without these additional interventions. 
+
+4.4.2 LSTM/LumiGen observation 
+
+For a broader architecture comparison, we also tested an LSTM-based conditional generator adapted from LumiGen on the OLED data. The LSTM collapsed on the substantially longer OLED SMILES sequences (approximately 80 characters), producing only nine trivial fragments such as “CC”. Consequently, no meaningful generation metrics could be computed. We treat this result as an architecture feasibility observation rather than a quantitative baseline. 
+
+4.5 Ablation Studies 4.5.1 Reward Model / Predictor Ablation 
+
+The quality of the BERT-based property predictor directly impacts GRPO’s effectiveness. We compare our domain-adaptive BERT against general-purpose molecular encoders, varying the number of unfrozen layers, the regression-head dimension, and the pre-training mask ratio. The results are reported on the held-out validation set of 500 OLED molecules. 
+
+Domain-adaptive pretraining. Table 4 reveals a performance gap between general-purpose molecular encoders and our domain-adaptive models. ChemBERTa, pre-trained on 77M drug-like molecules from ZINC, achieves only 
+
+R2 ≈ 0.34 –0.40 for S1 and R2 ≈ 0.30 –0.35 for f , while MoLFormer-XL trained on 1.1B molecules from PubChem and ZINC reaches R2 ≈ 0.65 for S1 and R2 ≈ 0.61 for f . In contrast, our OLED-BERT models achieve R2 ≈ 0.69 
+
+for S1 and R2 ≈ 0.68 for f , despite being pre-trained on only 9M OLED-relevant SMILES. This performance advantage is consistent with distribution shift between general molecular databases and OLED materials. OLED emitters occupy a specialized chemical subspace characterized by extended π-conjugated systems, boron–nitrogen heterocycles, and donor–acceptor motifs that may be underrepresented in drug-focused datasets. Domain-adaptive pretraining can therefore provide a more relevant reward signal for downstream RL. 
+
+Architecture and held-out test results. The ablation results suggest that larger hidden dimensions improve perfor-mance, while the optimal number of unfrozen layers varies by property: S1 prediction benefits from minimal fine-tuning, whereas f prediction improves with more adaptation. OLED-BERT-0.25 slightly outperforms OLED-BERT-0.15 for oscillator-strength prediction, suggesting that a higher masking ratio may encourage learning of global molecular features. 8A PREPRINT - J ULY 23, 2026 Table 4: Comprehensive predictor ablation results on the held-out validation set (500 OLED molecules). We compare four backbone models across configurations: unfrozen layers (1 or 2) and MLP hidden dimensions. Our domain-adaptive OLED-BERT models significantly outperform general-purpose encoders. Bold indicates best; underline indicates second best. 
+
+MODEL PRE -TRAINING DATA UNFREEZE HIDDEN S1 MAE S1 R2 f MAE f R 2
+
+CHEM BERT A ZINC (77M) 1 256 0.202 0.34 0.108 0.30 1 512 0.193 0.38 0.108 0.32 1 768 0.192 0.40 0.108 0.35 2 256 0.202 0.34 0.108 0.30 2 512 0.193 0.38 0.108 0.32 2 768 0.192 0.40 0.108 0.35 MOLF ORMER -XL PUB CHEM (1.1B) 1 256 0.153 0.60 0.081 0.55 1 512 0.145 0.62 0.083 0.53 1 768 0.144 0.63 0.080 0.56 2 256 0.139 0.65 0.075 0.61 2 512 0.137 0.65 0.082 0.55 2 768 0.134 0.65 0.081 0.56 OLED-BERT-0.15 OLED (9M) 1 256 0.148 0.60 0.071 0.63 1 512 0.124 0.69 0.071 0.64 1 768 0.124 0.69 0.071 0.64 2 256 0.135 0.64 0.091 0.52 2 512 0.190 0.40 0.072 0.64 2 768 0.260 0.26 0.067 0.68 
+
+OLED-BERT-0.25 OLED (9M) 1 256 0.148 0.60 0.082 0.58 1 512 0.129 0.67 0.073 0.64 1 768 0.124 0.69 0.073 0.64 2 256 0.137 0.63 0.067 0.68 2 512 0.135 0.64 0.065 0.68 2 768 0.131 0.66 0.064 0.68 
+
+Because the predictor is used as a reward model, we separately evaluate the selected predictor on a held-out test set of 500 molecules with DFT ground truth. It achieves an S1 MAE of 0.158 eV with R2 = 0 .51 and an f MAE of 0.078 with R2 = 0 .58 . These results do not eliminate distribution shift, but they show that the reward model provides a non-trivial proxy before the independent DFT evaluation. 
+
+4.5.2 Reward and Training Objective Ablations Validity Reward Contribution. We ablate the discrete validity penalty term in the reward function. Table 5: Impact of validity penalty on GRPO performance. Explicit validity rewards improve structural correctness without harming property alignment. 
+
+VALIDITY REWARD VALID . S1 MAE f MAE UNIQ .WITH PENALTY 97.4 0.29 0.20 93.2 WITHOUT PENALTY 88.5 0.29 0.20 96.9 
+
+Without validity penalties, the model occasionally generates syntactically incorrect SMILES that happen to receive favorable property predictions from the reward model, achieving only 88.5% validity. Adding an explicit validity penalty significantly improves structural correctness to 97.4% while maintaining identical property alignment ( S1 MAE: 0.29, f MAE: 0.20). Interestingly, removing the validity constraint slightly increases uniqueness (96.9% vs 93.2%), suggesting that some diverse structural patterns may be discouraged by strict validity enforcement. 
+
+Effect of KL Regularization Coefficient β. The KL penalty balances property optimization against distribution drift from the SFT reference policy. Table 6 examines this trade-off. 9A PREPRINT - J ULY 23, 2026 Table 6: Effect of KL regularization strength β on GRPO performance. Moderate regularization ( β = 0 .5) achieves optimal balance.                        
+
+> βVALID .S1MAE fMAE UNIQ .0.0 (N OKL) 98.8 0.28 0.18 84.2 0.1 98.4 0.29 0.20 88.9 0.5 97.5 0.27 0.21 93.8 1.0 96.4 0.29 0.21 95.7
+
+Without KL regularization ( β = 0 ), the model achieves the lowest f MAE (0.18) and highest validity (98.8%), but shows reduced uniqueness (84.2%) compared to higher β values. Increasing β progressively improves uniqueness: from 84.2% at β = 0 to 95.7% at β = 1 .0. Moderate regularization ( β = 0 .5) achieves the best S1 MAE (0.27) while maintaining good diversity (93.8% uniqueness). Higher values ( β = 1 .0) slightly degrade validity (96.4%) and property alignment, as the policy remains too constrained to the SFT distribution. 
+
+4.6 Molecular Quality and Diversity Analysis 
+
+We additionally evaluate synthetic accessibility and distributional diversity on 150 DFT-validated molecules, with 50 molecules from each of GRPO, SFT, and SFT-20x. These analyses are complementary to the property-alignment metrics: SA scores provide a computational proxy for synthetic accessibility, while scaffold- and fragment-level metrics characterize structural novelty and reuse of chemically plausible building blocks. Table 7: Synthetic accessibility (SA) score statistics on generated molecules. Lower scores indicate higher estimated synthetic accessibility.                 
+
+> Method Mean Std. Min Max
+> GRPO 3.77 0.52 3.00 5.69 SFT 4.02 0.53 3.11 5.77 SFT-20x 3.96 0.60 2.53 5.59
+
+The mean SA score is lowest for GRPO, although this result should be interpreted only as a computational proxy and not as evidence of successful laboratory synthesis. Table 8: MOSES-style structural-quality metrics evaluated on 50 DFT-validated molecules per method against the 10,000-molecule reference set.                      
+
+> Metric GRPO SFT SFT-20x Novelty 0.980 0.940 0.920 Scaffold similarity 0.154 0.295 0.284 Fragment similarity 0.943 0.969 0.970 SNN 0.764 0.779 0.825 Internal diversity 0.620 0.702 0.713 Unique scaffolds 49/50 48/50 48/50
+
+GRPO has the lowest scaffold similarity to the reference set and the highest novelty, indicating exploration of new backbone arrangements rather than direct retrieval of known structures. Its fragment similarity remains high, suggesting that the generated molecules reuse chemically plausible building blocks while combining them into novel scaffolds. The lower internal-diversity score than SFT should be interpreted together with the scaffold results: GRPO may reuse successful local motifs while still generating scaffolds that are distant from the reference distribution. Cross-method Tanimoto similarity under matched (S1, f ) targets is approximately 0.31, further indicating that the methods discover structurally distinct solutions. 
+
+## 5 Limitations 
+
+Several limitations remain. First, although the expanded DFT study now contains 20 converged molecules per method, it is still small relative to the size of the OLED chemical space and does not constitute experimental synthesis validation. 10 A PREPRINT - J ULY 23, 2026 Second, the BERT predictor is used as a scalable reward proxy during RL, so distribution shift between generated molecules and the labeled dataset remains a potential source of error. The independent DFT evaluation reduces but does not eliminate this concern. Third, the main generation benchmark and the additional GRPO–PPO comparison use different sample sizes (10,000 and 100, respectively); the controlled comparison should therefore be interpreted as an algorithmic ablation rather than a replacement for the larger benchmark. Finally, the current evaluation uses SA scores and scaffold-based statistics as computational proxies for synthesizability and diversity; laboratory feasibility, reaction yield, stability, and device-level OLED performance require future experimental validation. 
+
+## 6 Conclusion 
+
+We presented a framework for de novo OLED material design that combines a LLaMA-style generative model with Group Relative Policy Optimization (GRPO). By eliminating the need for a value network, the method addresses the critic-estimation challenge in the rugged landscape of chemical properties. The expanded independent DFT evaluation shows that GRPO achieves S1 MAE = 0 .260 eV and f MAE = 0 .134 over 20 converged molecules, while maintaining high generation novelty. In the controlled PPO comparison, GRPO provides better property alignment, and its scaffold-level analysis indicates low similarity to the reference set with plausible fragment usage. At the same time, SFT-20x achieves lower DFT error at the cost of substantial novelty loss, highlighting the central trade-off between property precision and genuinely novel molecular discovery. 
+
+## References 
+
+[1] John Jumper, Richard Evans, Alexander Pritzel, Tim Green, Michael Figurnov, Olaf Ronneberger, Kathryn Tunyasuvunakool, Russ Bates, Augustin Žídek, Anna Potapenko, et al. Highly accurate protein structure prediction with alphafold. Nature , 596:583–589, 2021. [2] Claudio Zeni, Robert Pinsler, Daniel Zügner, Andrew Fowler, Matthew Horton, Xiang Fu, Zilong Wang, Aliaksan-dra Shysheya, Jonathan Crabbé, et al. A generative model for inorganic materials design. Nature , 639:624–632, 2025. [3] Martin Simonovsky and Nikos Komodakis. Graphvae: Towards generation of small graphs using variational autoencoders. In Artificial Neural Networks and Machine Learning – ICANN 2018 , volume 11139 of Lecture Notes in Computer Science , pages 412–422, 2018. [4] Marcus Olivecrona, Thomas Blaschke, Ola Engkvist, and Hongming Chen. Molecular de-novo design through deep reinforcement learning. Journal of Cheminformatics , 9(48), 2017. [5] Emiel Hoogeboom, Victor Garcia Satorras, Clément Vignac, and Max Welling. Equivariant diffusion for molecule generation in 3d. In International Conference on Machine Learning , 2022. [6] Minkai Xu, Lantao Yu, Yang Song, Chence Shi, Stefano Ermon, and Jian Tang. Geodiff: A geometric diffusion model for molecular conformation generation. In International Conference on Learning Representations , 2022. [7] Gengmo Zhou, Zhifeng Gao, Qiankun Ding, Hang Zheng, Hongteng Xu, Zhewei Wei, Linfeng Zhang, and Guolin Ke. Uni-mol: A universal 3d molecular representation learning framework. In International Conference on Learning Representations , 2023. [8] Jeff Guo and Philippe Schwaller. Augmented memory: Sample-efficient generative molecular design with reinforcement learning. JACS Au , 4(6):2160–2172, 2024. [9] Liying Cui, Qing Li, Yanchang Zhang, Jiao Zhang, Zhe Wang, Jiankang Chen, and Bing Zheng. Machine learning-assisted high-throughput screening of transparent organic light-emitting diode anode materials. Chemical Science , 2024. [10] Hyung Suk Kim, Hyung Jin Cheon, Sang Hoon Lee, Junho Kim, Seunghyup Yoo, Yun-Hi Kim, and Chihaya Adachi. Advancing efficiency in deep-blue oleds: Exploring a machine learning–driven multiresonance tadf molecular design. Science Advances , 11(4), 2025. [11] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Mingchuan Zhang, YK Li, Y Wu, and Daya Guo. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. [12] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. Bert: Pre-training of deep bidirectional transformers for language understanding. arXiv preprint arXiv:1810.04805 , 2018. [13] Seyone Chithrananda, Gabriel Grand, and Bharath Ramsundar. Chemberta: Large-scale self-supervised pretraining for molecular property prediction. arXiv preprint arXiv:2010.09885 , 2020. 11 A PREPRINT - J ULY 23, 2026 [14] Jerret Ross, Brian Belgodere, Vijil Chenthamarakshan, Inkit Padhi, Youssef Mroueh, and Payel Das. Large-scale chemical language representations capture molecular structure and properties. Nature Machine Intelligence ,4(12):1256–1264, 2022. [15] Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timothée Lacroix, Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal Azhar, et al. Llama: Open and efficient foundation language models. arXiv preprint arXiv:2302.13971 , 2023. [16] Daniel Flam-Shepherd, Kevin Zhu, and Alán Aspuru-Guzik. Language models can learn complex molecular distributions. Nature Communications , 13(1):3293, 2022. [17] Jason Wei, Maarten Bosma, Vincent Y Zhao, Kelvin Guu, Adams Wei Yu, Brian Lester, Nan Du, Andrew M Dai, and Quoc V Le. Finetuned language models are zero-shot learners. arXiv preprint arXiv:2109.01652 , 2021. [18] Nitish Shirish Keskar, Bryan McCann, Lav R Varshney, Caiming Xiong, and Richard Socher. Ctrl: A conditional transformer language model for controllable generation. arXiv preprint arXiv:1909.05858 , 2019. [19] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. [20] Rafael Gómez-Bombarelli, Jennifer N Wei, David Duvenaud, José Miguel Hernández-Lobato, Benjamín Sánchez-Lengeling, Dennis Sheberla, Jorge Aguilera-Iparraguirre, Timothy D Hirzel, Ryan P Adams, and Alán Aspuru-Guzik. Automatic chemical design using a data-driven continuous representation of molecules. ACS Central Science , 4(2):268–276, 2018. 12 A PREPRINT - J ULY 23, 2026 
+
+## A Density Functional Theory (DFT) 
+
+Density Functional Theory (DFT) is a pivotal quantum mechanical computational method for investigating the electronic structure of many-electron systems. Its core tenet is to simplify the N -electron wave function Ψ( r1, r2, . . . , rN ) to the spatial electron density ρ(r), thereby reducing the dimensionality of the problem from 3N to 3. This theory is founded on the Hohenberg-Kohn Theorems: the external potential Vext (r) is a unique functional of the ground-state density, meaning all ground-state properties of a system are uniquely determined by ρ(r); the theorems also formulate the variational principle for energy, defining the total energy functional E[ρ] of the system, which attains its minimum value at the true ground-state density. For the practical solution of this functional, Kohn and Sham introduced a non-interacting reference system, decomposing the total energy into the following form: 
+
+E[ρ] = Ts[ρ] + 
+
+Z
+
+ρ(r)Vext (r)dr + 12
+
+Z ρ(r)ρ(r′)
+
+|r − r′| drdr′ + Exc [ρ] (4) where Ts[ρ] denotes the kinetic energy of non-interacting electrons, the second and third terms represent the nuclear-electron attraction potential energy and the classical electron-electron repulsion energy (Hartree term), respectively. The final term Exc [ρ] is the exchange-correlation energy, which encapsulates all unknown quantum mechanical many-body effects. To find the energy minimum, the self-consistent Kohn-Sham equations are derived via the method of variation: 
+
+
+
+− 12 ∇2 + Veff (r)
+
+
+
+ψi(r) = ϵiψi(r) (5) in which the effective potential is given by Veff (r) = Vext + VH + Vxc , and the exchange-correlation potential is defined as the functional derivative Vxc (r) = δE xc [ρ] 
+
+> δρ (r)
+
+. Since the exact form of Exc remains unknown, approximate schemes such as the Local Density Approximation (LDA) and Generalized Gradient Approximation (GGA) are commonly adopted in practical applications. The entire calculation process is implemented iteratively via the Self-Consistent Field (SCF) method until the electron density or total energy meets the predefined convergence criterion. Endowed with excellent computational efficiency and reliable accuracy for handling large atomic systems, DFT has become an indispensable tool in computational chemistry and computational materials science. 
+
+## B DFT Validation Sample Selection 
+
+The 20 target property pairs for DFT validation were selected to cover diverse regions of the training distribution. Figure 3 shows the marginal distributions of S1 and f for both the training set and the matched samples, demonstrating comprehensive coverage of the property space. 
+
+## C RDKit Cheminformatics Platform 
+
+RDKit is an open-source computational platform dedicated to molecular modeling and cheminformatics processing. It abstracts chemical molecules as attributed graphs G = ( V, E ) consisting of vertices (atoms) and edges (chemical bonds). In processing molecular structures, RDKit parses standardized representations such as SMILES and SDF, converting chemical topological structures into machine-processable adjacency matrices and atomic attribute vectors. RDKit features three core functional modules as follows: 
+
+Molecular Fingerprinting. To enable the integration of chemical structures with machine learning algorithms, RDKit provides a variety of molecular fingerprinting algorithms, with the hash-based Morgan fingerprint being the most representative. This algorithm iteratively collects information on atoms and their local neighborhood environments, mapping the local chemical environment to a fixed-length binary vector V. This representation can capture the substructural features of molecules, and the similarity between molecules is quantified by the Tanimoto coefficient Tc,thus facilitating chemical space clustering and similarity screening. 
+
+Conformational Space Search and Force Field Optimization. For studies involving three-dimensional molecular properties, RDKit uses the Distance Geometry method to randomly generate initial 3D coordinates of molecules within the bounds of constraints such as bond lengths and bond angles. Subsequently, RDKit invokes built-in force fields (e.g., the Universal Force Field (UFF) or Merck Molecular Force Field 94 (MMFF94)) to perform energy minimization on the potential energy surface, providing high-quality initial structures for high-level quantum chemical calculations. 13 A PREPRINT - J ULY 23, 2026 1.0 1.5 2.0 2.5 3.0 3.5           
+
+> S1(eV)
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> 3.5
+> Density
+> S1Marginal Distribution
+> Training (n=9000)
+> Matched (n=20)
+> 0.00 0.25 0.50 0.75 1.00 1.25 1.50
+> f(Oscillator Strength)
+> 0
+> 1
+> 2
+> 3
+> 4
+> Density
+> fMarginal Distribution
+> Training (n=9000)
+> Matched (n=20)
+
+Figure 3: Marginal distributions of target properties. The training set distribution (blue, n=9000) is compared with the matched DFT validation samples (red, n=20). The selected samples cover the high-density regions of the training distribution while ensuring diversity in both S1 and oscillator strength f .
+
+Chemical Descriptor Calculation. In addition to topological features, RDKit can calculate more than 200 physico-chemical descriptors, such as the octanol-water partition coefficient (logP), molar refractivity, Topological Polar Surface Area (TPSA), and molecular weight. These parameters are obtained via weighted summation using empirical formulas and Group Contribution Methods, serving as key indicators for evaluating the pharmacokinetic properties of molecules. 
+
+## D Scientific Analysis of Generated Molecules 
+
+This section presents representative OLED molecules generated by our GRPO-aligned model across different property buckets. Each figure shows the 2D structure (top), 3D conformation (bottom), target properties, and SMILES representation. From a chemical perspective, the structures generated exhibit the following characteristics: 1. Among the 50 OLED molecules generated within the S1 ∈ [2 .5, 3] eV interval, there are 10 with B/N/O back-bones, 1 with a B/O/O backbone, and the remaining 39 are B/N/N backbones, accounting for approximately 80% of the total. 2. The generated structures include both classical mono-MR frameworks with symmetrically substituted groups (e.g., rl_bucket1_idx2 , rl_bucket2_idx0 , and rl_bucket3_idx2 ), as well as large conjugated sys-tems extended through fusion with heteroatoms such as N or S based on mono-MR frameworks (e.g., 
+
+rl_bucket5_idx4 , rl_bucket2_idx6 , and rl_bucket3_idx0 ). The corresponding molecular SMILES, 2D structures, and 3D conformations are presented as follows. 14 A PREPRINT - J ULY 23, 2026 
+
+Figure 4: Generated OLED molecules from Bucket 1 (1-3). 
+
+Figure 5: Generated OLED molecules from Bucket 1 (4-6). 15 A PREPRINT - J ULY 23, 2026 
+
+Figure 6: Generated OLED molecules from Bucket 1 (7-9). 
+
+Figure 7: Generated OLED molecules from Bucket 1 (10). 16 A PREPRINT - J ULY 23, 2026 
+
+Figure 8: Generated OLED molecules from Bucket 2 (1-3). 
+
+Figure 9: Generated OLED molecules from Bucket 2 (4-6). 17 A PREPRINT - J ULY 23, 2026 
+
+Figure 10: Generated OLED molecules from Bucket 2 (7-9). 
+
+Figure 11: Generated OLED molecules from Bucket 2 (10). 18 A PREPRINT - J ULY 23, 2026 
+
+Figure 12: Generated OLED molecules from Bucket 3 (1-3). 
+
+Figure 13: Generated OLED molecules from Bucket 3 (4-6). 19 A PREPRINT - J ULY 23, 2026 
+
+Figure 14: Generated OLED molecules from Bucket 3 (7-9). 
+
+Figure 15: Generated OLED molecules from Bucket 3 (10). 20 A PREPRINT - J ULY 23, 2026 
+
+Figure 16: Generated OLED molecules from Bucket 4 (1-3). 
+
+Figure 17: Generated OLED molecules from Bucket 4 (4-6). 21 A PREPRINT - J ULY 23, 2026 
+
+Figure 18: Generated OLED molecules from Bucket 4 (7-9). 
+
+Figure 19: Generated OLED molecules from Bucket 4 (10). 22 A PREPRINT - J ULY 23, 2026 
+
+Figure 20: Generated OLED molecules from Bucket 5 (1-3). 
+
+Figure 21: Generated OLED molecules from Bucket 5 (4-6). 23 A PREPRINT - J ULY 23, 2026 
+
+Figure 22: Generated OLED molecules from Bucket 5 (7-9). 
+
+Figure 23: Generated OLED molecules from Bucket 5 (10). 24 A PREPRINT - J ULY 23, 2026 
+
+## E Pseudocode of Algorithm 
+
+E.1 BERT Algorithm 1 BERT Masked Language Model Pretraining 
+
+Require: Dpretrain (large-scale SMILES dataset), ρ (mask ratio) 
+
+Ensure: θbert (pretrained BERT parameters) 
+
+1: Loss: Lmlm = − P 
+
+> i∈M
+
+log P (xi|x\M ; θbert )
+
+2: Initialize θbert randomly 
+
+3: for epoch = 1 to num_epochs do 
+
+4: for batch ∈ DataLoader( Dpretrain ) do 
+
+5: xmasked , y, M ← RANDOM MASK (batch , ρ )
+
+6: H ← BERT_E NCODER (xmasked ; θbert ); ˆy ← MLM_H EAD (H)
+
+7: Lmlm ← − P 
+
+> i∈M
+
+log P (ˆ yi = yi); θbert ← θbert − η∇L mlm 
+
+8: end for 
+
+9: end for 
+
+10: return θbert 
+
+Algorithm 2 BERT Property Predictor Fine-tuning 
+
+Require: Dlabeled = {(smiles i, y i)} (labeled data), θbert (pretrained), nfreeze (frozen layers) 
+
+Ensure: θpred (property predictor parameters) 
+
+1: Loss: Lmse = 1
+
+> N
+
+PNi=1 (ˆ yi − yi)2
+
+2: θpred ← { θbert , θ head } {Freeze first nfreeze layers} 
+
+3: for epoch = 1 to num_epochs do 
+
+4: for (smiles , y ) ∈ DataLoader( Dlabeled ) do 
+
+5: x ← TOKENIZE (smiles ); H ← BERT_E NCODER (x; θbert )
+
+6: hpool ← MEAN POOLING (H); ˆy ← REGRESSION HEAD (hpool ; θhead )
+
+7: Lmse ← (ˆ y − y)2; θpred ← θpred − η∇L mse 
+
+8: end for 
+
+9: end for 
+
+10: return θpred 
+
+E.2 LLaMA Algorithm 3 LLaMA Autoregressive Pretraining 
+
+Require: Dpretrain (large-scale SMILES dataset) 
+
+Ensure: θllama (pretrained LLaMA parameters) 
+
+1: Loss: Lntp = − PTt=1 log P (xt|x<t ; θ)
+
+2: Initialize θllama randomly 
+
+3: for epoch = 1 to num_epochs do 
+
+4: for batch ∈ DataLoader( Dpretrain ) do 
+
+5: x ← [BOS ] ⊕ TOKENIZE (batch ) ⊕ [EOS ]
+
+6: xin ← x[: −1] ; y ← x[1 :] 
+
+7: ˆy ← LL AMA (xin ; θllama )
+
+8: Lntp ← − P 
+
+> t
+
+log P (ˆ yt = yt); θllama ← θllama − η∇L ntp 
+
+9: end for 
+
+10: end for 
+
+11: return θllama 
+
+25 A PREPRINT - J ULY 23, 2026 
+
+Algorithm 4 LLaMA Conditional Generation Fine-tuning (SFT) 
+
+Require: Dcond = {(pi, smiles i)} (conditional data), θllama (pretrained) 
+
+Ensure: θsft (fine-tuned parameters) 
+
+1: Loss: Lsft = − PTt=1 log P (xt|c, x <t ; θ)
+
+2: θsft ← EXTEND VOCAB (θllama ) {Add property tokens} 
+
+3: for epoch = 1 to num_epochs do 
+
+4: for (p, smiles ) ∈ DataLoader( Dcond ) do 
+
+5: c ← ENCODE PROPERTIES (p)
+
+6: x ← c ⊕ [BOS ] ⊕ TOKENIZE (smiles ) ⊕ [EOS ]
+
+7: xin ← x[: −1] ; y ← x[1 :] 
+
+8: ˆy ← LL AMA (xin ; θsft )
+
+9: Lsft ← − P 
+
+> t
+
+log P (ˆ yt = yt); θsft ← θsft − η∇L sft 
+
+10: end for 
+
+11: end for 
+
+12: return θsft 
+
+E.3 GRPO (Group Relative Policy Optimization) Algorithm 5 GRPO with BERT Predictor Rewards 
+
+Require: θsft (SFT model), θpred (BERT predictors), Dtrain (training data), G (group size), β (KL weight) 
+
+Ensure: θpolicy (optimized policy) 
+
+1: θpolicy ← θsft , θref ← θsft (frozen) 
+
+2: for step = 1 to num_steps do 
+
+3: // Sampling and Generation 
+
+4: for i = 1 to batch_size do 
+
+5: pi ∼ D train , ci ← ENCODE PROPERTIES (pi)
+
+6: for g = 1 to G do 
+
+7: si,g ← GENERATE (ci; θpolicy ); S ← S ∪ { (si,g , pi)}
+
+8: end for 
+
+9: end for 
+
+10: // Reward: R(x) = Ivalid [−α|S1 − S∗ 
+
+> 1
+
+| − γ|f − f ∗|] + (1 − Ivalid )λ
+
+11: for (s, p) ∈ S do 
+
+12: ˜s ← EXTRACT SMILES (s)
+
+13: r ← λpenalty if ¬VALID (˜ s) else −α|S1(˜ s) − S∗ 
+
+> 1
+
+| − γ|f (˜ s) − f ∗|
+
+14: r.append (r)
+
+15: end for 
+
+16: // Advantage: Ai = ( R(oi) − μg )/(σg + ϵ)
+
+17: R ← RESHAPE (r, [B, G ]) ; μg , σ g ← MEAN (R), STD (R)
+
+18: A ← (R − μg )/(σg + ϵ); a ← FLATTEN (A)
+
+19: // Policy Optimization 
+
+20: log πθ , log πref ← LOG PROB (S; θpolicy ), LOG PROB (S; θref )
+
+21: ρi ← exp(log πθ − log πθold ); DKL ← | log πθ − log πref |
+
+22: L ← − 1
+
+> G
+
+P 
+
+> i
+
+min( ρiAi, clip (ρi)Ai) + βD KL 
+
+23: // Parameter Update 
+
+24: θpolicy ← θpolicy − η∇L 
+
+25: end for 
+
+26: return θpolicy 
+
+26
