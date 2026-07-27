@@ -1,0 +1,1244 @@
+Title: TriGlue: a Biology-Inspired Generative Model for Generating Molecular Glue-Induced Ternary Complex
+
+URL Source: https://arxiv.org/pdf/2607.22143v1
+
+Published Time: Mon, 27 Jul 2026 00:35:41 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# TriGlue: a Biology-Inspired Generative Model for Generating Molecular Glue-Induced Ternary Complex 
+
+Yuliang Yan 1, Shuo Yan 1, Haochun Tang 2,1 , Yiqin Sun 3, Enyan Dai 1
+
+> 1
+
+The Hong Kong University of Science and Technology (Guangzhou) 
+
+> 2
+
+Jilin University 
+
+> 3
+
+University of Sydney 
+
+## Abstract 
+
+Molecular glue degraders have emerged as a promising strategy for targeted protein degradation by inducing ternary complex formation between an E3 ubiquitin ligase and a target protein. Despite their therapeutic potential, computational design of molecular glues remains largely unexplored. Unlike conventional structure-based drug design, molecular glue design is governed by the unknown protein-protein interface and requires the simultaneous modeling of ligand generation, protein-protein docking, and ternary complex assembly. In this work, we formulate molecular glue design as a ternary complex generation problem and propose a biology-inspired generative framework, TriGlue . Motivated by the mechanism of molecular glue action, we decompose ternary complex generation into two coupled stages: interface estimation and interface-conditioned complex generation. First, we develop an SE(3)-equivariant interface estimation module that predicts a geometrically constrained protein-protein interface from unbound monomer structures. Second, we introduce an interface-conditioned ternary flow match-ing network that jointly generates the molecular glue and predicts the rigid-body transformation required to assemble the ternary complex. Extensive experiments demonstrate that TriGlue generates chemically valid molecules and produces plausible ternary complexes, which highlight the potential of biology-inspired gen-erative modeling for accelerating molecular glue discovery. Our code is available at 
+
+https://anonymous.4open.science/r/molecular-glue-design-806B .
+
+## 1 Introduction ①
+
+> ⑥
+> ②
+> ③
+> ④
+> ⑤
+
+Figure 1: MGDs in targeted protein degradation. Recently, molecular glue degraders (MGDs) have emerged as a rapidly growing strategy in targeted protein degradation [ 1, 2, 3, 4, 5]. As illustrated in Fig. 1, the mechanism of molecular glue degraders (MGDs) proceeds as follows: The molecular glue binds to the E3 ubiquitin ligase and remodels its inter-action surface. This remodeled interface recruits and stabilizes the association of the target protein (POI), forming a ternary complex. Then, the E2 enzyme transfers ubiquitin molecules to the POI, resulting in ubiquitination, and the ubiquitinated POI is recognized by the proteasome and degraded, completing the targeted protein degradation process. Molecular glues are typically structurally simple, drug-like, and increasingly clinically validated [ 6]. Therefore, molecular glue development has become a rapidly emerging focus in modern drug discovery [7, 8, 9]. Accelerating the discovery of molecular glues remains a central objective. Traditional molecular glue discovery has largely relied on expensive and labor-intensive experimental screening, and to date, only 
+
+> Preprint. arXiv:2607.22143v1 [cs.LG] 24 Jul 2026
+
+a few hundred molecular glues have been identified [ 10 , 11 , 12 ]. AI-based approaches have recently propelled drug discovery [ 13 , 14 , 15 , 16 ]. However, these methods are not suitable for molecular glue design, where ligand generation, protein docking, and ternary complex formulation must be considered simultaneously. Fundamentally, they are designed for binary protein–ligand binding and typically assume the existence of a predefined binding pocket on a single protein. DeepTernary [ 17 ]introduces an SE(3)-equivariant network for ternary complex structure prediction. However, it focuses on predicting structures for known ligands and does not address de novo drug design. Therefore, we pursue generative drug design tailored to ternary molecular glue systems. Molecular glue design is to generate a small molecule that induces an E3 ubiquitin ligase and a target protein to form a productive ternary complex. Achieving this goal requires the simultaneous optimiza-tion of three tightly coupled components: the molecule-induced E3 ligase–target protein interface, the novel small molecule, and the rigid-body transformation that positions the two proteins into a coherent ternary complex. This gives rise to two major challenges. First , the success of molecular glue design is determined by the formation of a compatible ligand-mediated protein–protein interface, which ulti-mately dictates whether a stable ternary complex can form. However, this interface is unknown prior to complex assembly and cannot be directly observed from the unbound proteins. Second , molecular glue design requires interface-conditioned generative modeling that jointly produces a novel ligand and the rigid-body transformation aligning the two proteins simultaneously. This involves tightly coupled dependencies across three components: the ligand structure, the protein–protein docking pose, and the interface geometry that stabilizes their interaction. To address these challenges, we propose a biology-inspired generative framework named TriGlue .(i) We develop an SE(3)-equivariant interface estimation module that predicts a protein–protein interface from the two monomer structures, providing a geometrically constrained and biologically meaningful structural prior. (ii) We introduce an interface-conditioned ternary flow matching network that jointly generates the molecular glue and predicts the rigid-body rotation and translation required for protein–protein docking under the guidance of the estimated interface. In summary, our main contributions are as follows: • We investigate the novel problem of molecular glue design for ternary complexes. • We propose a biology-inspired generative framework that decomposes ternary complex generation into interface estimation and interface-conditioned ternary flow generation. • Extensive experiments demonstrate the effectiveness of the proposed framework in generating valid small molecules and plausible ternary complexes. 
+
+## 2 Preliminaries 
+
+2.1 Molecular Glue-Induced Ternary Complex Formation Mechanistic Overview. Molecular glue drives ternary complex formation by binding to one protein and reshaping its surface to recruit a second partner, thereby inducing or stabilizing a protein–protein interaction. They remodel the interaction landscape and convert transient encounters into stable assemblies, rather than acting as simple binders. Molecular glues can modulate protein function, localization, or stability through cooperative interactions among the ligand and both proteins, which explains their growing importance in therapeutic discovery. 
+
+Molecular Glue-induced Protein-protein Interface. Molecular glue activity is determined by the creation of a ligand-mediated protein–protein interface. The ligand occupies the interfacial region and stabilizes complementary surface patches from both proteins, effectively bridging them and reducing the tendency of the complex to dissociate. Therefore, the molecular glue-induced protein–protein interface serves as an important biological prior to form the ternary complex. 
+
+Dynamic Ternary Complex Assembly. Ternary complex formation is inherently dynamic. The two proteins typically start from unbound conformations and undergo rigid-body rearrangements as ligand binding stabilizes the complex. The final ternary structure therefore emerges from a coupled process involving ligand placement, protein docking, and cooperative stabilization. This dynamic view naturally motivates a generative formulation that jointly models ligand structure and protein motion, aligning the learning objective with the underlying biological mechanism. 22.2 Problem Formulation 
+
+Formally, we formulate molecular-glue-induced ternary complex design as a generative modeling task. Specifically, a ternary complex is defined as C = ( R, M, T ), where R and T denote the receptor and target proteins, and M is a small molecule that induces their association. Each protein is represented as a residue-level graph G = ( V, E), where node i corresponds to residue identity AA i
+
+with C α coordinate Xi ∈ R3, and edges are constructed using a k-nearest-neighbor scheme. The ligand is represented as a molecular graph GM = ( VM, EM), where each node corresponds to an atom type ai with coordinate xi ∈ R3. During generation, the bound ternary complex is unknown. We are given a receptor protein R in its bound conformation, an unbound target protein ˜T with unknown pose, and a ligand M to be generated. The bound target structure is related to the unbound structure by a closed-form rigid-body transformation: 
+
+XT = RX ˜T + t, R ∈ SO(3) , t ∈ R3. (1) 
+
+Problem 1. Given a bound receptor protein R and an unbound target protein ˜T , molecular glue-induced ternary complex design is formulated as learning the conditional distribution: 
+
+p(C | R , ˜T ). (2) (a) Binding Interface Modeling with Ellipsoid Alignment                                    
+
+> Interface Model
+> 𝒢 ℛ
+> 𝒢 𝒯 #Y𝒯 #
+> Yℛ
+> KVirtual Interface Points Ellipsoid Parametrized Interface
+> 𝜇 ℛ,Σℛ
+> 𝜇 𝒯 #,Σ𝒯 #
+> 𝜇 ̂ℛ,Σ'ℛ
+> 𝜇 ̂𝒯 #,Σ'𝒯 #
+> Align
+> Align
+> Bound
+> 𝐗 𝒯 #,AA𝒯 #
+> 𝐗 ℛ,AAℛ
+> (b) Complex Reconstruction with Ternary Flow Network ×𝑇
+> Unbound
+> Latent
+> Ternary
+> Encoder
+> Atom Type Predict
+> Rigid Transformation Update
+> Iterative Residual Refine ×𝑀
+> Message
+> Passing
+> Coordinate Update
+> Intra -
+> Extra -
+> Ternary Denoise Block
+> 𝐑 $
+> 𝐭 $
+> Coord 𝐱 $
+> Yℛ,Y𝒯 #,𝐑 ∗,𝐭 ∗Interface
+> Priori
+> Rigid
+> Transformation
+> Monome r
+> Protein s
+> Atom 𝐚 $
+> 𝑥 𝑦
+> 𝑧 SO 3
+> 𝑥 𝑦
+> 𝑧 ℝ!
+> Molecule
+> 𝐱 /&,𝐚 /&
+> CCCCCC
+> 𝐑 0&
+> 𝐭 ̂&
+> Ternary
+> Complex
+
+Figure 2: Framework of our interface-conditioned ternary flow network TriGlue. 
+
+## 3 Method 
+
+Following the biological process of molecular glue-induced ternary complex formation, we formulate TriGlue as a biology-inspired generative framework. As shown in Fig. 2, we factorize ternary complex generation into two coupled modules: an interface estimation module that infers a global virtual interface from two monomer proteins, and an interface-conditioned complex generation module that jointly generates the molecular glue and estimates the inter-protein rigid-body transformation to assemble a coherent ternary complex. This factorization aligns the generative process with the biological mechanism where a glue-mediated protein–protein interface guides subsequent ternary complex assembly. The factorized design raises two key challenges. (i) the inferred interface should be constrained in a geometrically meaningful manner to ensure its utility in ternary complex modeling; (ii) the predicted interface should effectively guide a unified generative process that simultaneously produces a novel molecular glue and drives the rigid-body assembly of the two proteins. To address these challenges, we constrain the estimated interface with an ellipsoid-parameterized geometry. We further inject interface information through an interface-conditioned ternary flow network. We next describe the factorization process and the two corresponding modules in detail. 33.1 Biology-Inspired Factorization of Ternary Complex Generation 
+
+Inspired by the mechanism of molecular glue-induced ternary complex formation, we decompose the Problem 1 into two sub-goals: interface estimation and interface-conditioned complex generation. Specifically, this decomposition leads to two coupled probabilistic components: one estimates the molecular glue-induced interface between the two proteins, and the other generates the ternary complex conditioned on the inferred interface as follows: 
+
+p(C | R , ˜T ) = p(IR, I ˜T | R , ˜T )
+
+| {z }
+
+> Interface Estimation
+
+· p (R, M, T ) | I R, I ˜T , R, ˜T | {z }
+
+> Interface-Conditioned Complex Generation
+
+, (3) where IR and I ˜T denote the sets of interface residues, whose C α atoms lie within 8˚A of the binding partner in the complex. This biology-inspired factorization brings two key benefits: (i) It faithfully matches the mechanism of molecular-glue action; (ii) It transforms the challenging joint modeling problem into two tractable sub-tasks. We next present our approach for modeling both components. 
+
+3.2 Interface Estimation under Ellipsoidal Geometric Constraints 
+
+Protein–protein interface governs the process of molecular glue design, yet such information is unavailable when only monomer structures are given. This absence prevents the direct incorporation of biologically grounded geometric constraints during generation. We introduce an interface estimation module that infers a Global Virtual Interface from the two monomer structures. We then align this virtual interface with an Ellipsoid Parameterized Representation of the physical protein–protein interface. In the following, we present the detailed formulation of this module. 
+
+Protein Encoder . Characterizing the interface first requires encoding each monomer protein to obtain latent representations. Given two proteins GR and G ˜T , we encode them with EGNN [ 18 ]to obtain the invariant features FR ∈ Rd×N , F ˜T ∈ Rd×M and SE(3)-equivariant coordinates 
+
+ZR ∈ R3×N , Z ˜T ∈ R3×M as follows: 
+
+FR, ZR, F ˜T , Z ˜T = EGNN( GR, G ˜T ), (4) where N, M is the node (residue) number and d is the hidden dimension. 
+
+Global Virtual Interface . To capture protein–protein interaction regions in a compact, geometry-aware manner, we map each protein to a fixed set of K virtual interface points [ 19 ], denoted as 
+
+YR, Y ˜T ∈ R3×K . The interface modeling in Eq. (3) is further approximated as: p(YR, Y ˜T | R , ˜T ).Specifically, we represent each virtual point as an attention-weighted aggregation of coordinates: 
+
+yR,k =
+
+> N
+
+X
+
+> i=1
+
+αk 
+
+> R,i
+
+zR,i , y ˜T ,k =
+
+> M
+
+X
+
+> j=1
+
+αk  
+
+> ˜T,j
+
+z ˜T ,j , (5) where the attention weights are computed via cross-protein feature attention: 
+
+αk 
+
+> R,i
+
+= softmax 
+
+ 1
+
+√d f ⊤R,i Wk 
+
+> R
+
+ϕ(F ˜T )
+
+
+
+, αk  
+
+> ˜T,j
+
+= softmax 
+
+ 1
+
+√d f ⊤  
+
+> ˜T,j
+
+Wk 
+
+> ˜T
+
+ϕ(FR)
+
+
+
+. (6) Here, yR,k denotes the k-th virtual point of protein R, fR,i and zR,i denote the feature and coordinate of residue i, Wk 
+
+> R
+
+∈ Rd×d is a learnable projection matrix for head k, and ϕ(·) is an average pooling operator. The same formulation is applied symmetrically to the protein ˜T . Our global virtual interface summarizes a soft surface region, yielding a unified interface representation. 
+
+Ellipsoid Parametrized Interface Alignment . The underlying interaction region is expected to satisfy finer-grained geometric priors that capture its precise position and directional spread in 3D space. We introduce an ellipsoid-parametrized representation of the ground-truth interface and encourage the global virtual interface Y to reflect the geometric structure. Specifically, given the interface residue set I, we summarize its spatial distribution using a Gaussian ellipsoid parameterized by a centroid μ and a covariance matrix Σ, which capture the location and anisotropic extent of the interaction region, respectively. More details are included in Appendix B. To parameterize the geometry of the virtual interface, we compute the empirical mean and covariance of the predicted virtual points as follows: 
+
+ˆμ = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+yk, ˆΣ = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+(yk − ˆμ)( yk − ˆμ)⊤. (7) 4We align the virtual interface with the ground-truth ellipsoid by minimizing the discrepancy between their first- and second-order moments: 
+
+Lellip = ∥ ˆμ − μ∥22 + ∥ ˆΣ − Σ∥2 
+
+> F
+
+. (8) The ellipsoid-parameterized interface provides conditioning information for subsequent generative design. We provide the proof of the equivariance in Appendix F. 
+
+3.3 Interface-Conditioned Generation with Ternary Flow Network 
+
+Ternary complex formation requires jointly determining the molecular glue structure and the rigid-body docking of the two proteins. Effectively integrating the learned interface prior into the generative process remains non-trivial. We therefore introduce an interface-conditioned generative framework that jointly models molecular conformation and protein–protein docking within a unified multi-modality flow matching formulation. Formally, conditioned on the learned interface, the complex generation distribution is further factorized as three independent components: 
+
+p (R, M, T ) | I M, I ˜T , R, ˜T
+
+| {z }
+
+> condition := ⋆
+
+ = p M | I R, I ˜T , R, ˜T  · p T | I R, I ˜T , R, ˜T 
+
+= p(x | ⋆) · p(a | ⋆) · p(R, t | ⋆). (9) Generally, three flows are modeled, each equipped with a specialized architecture: (i) Rigid Transfor-mation Flow models p(R, t | ⋆) and predicts the rigid-body rotation and translation that place the target protein into its ternary-complex pose. (ii) Coordinate Flow models p(x | ⋆) and generates the three-dimensional coordinates of ligand atoms. (iii) Atom Type Flow models p(a | ⋆) and predicts the chemical identities of ligand atoms. Details of these components are described next. 
+
+Rigid Transformation Flow for p(R, t | ⋆). Predicting the rigid-body transformation that restores the target protein pose is highly dependent on interface geometry, making direct estimation challeng-ing. We therefore use the global virtual interfaces to obtain an initial docking transformation and further refine it through an iterative module to approximate the final rigid-body configuration. Conversely, we first utilize our interface model to generate the virtual interface YR and Y ˜T . Then, we predict the first-order rigid transformation with the Differentiable Kabsch Model [ 19 ]. We form the cross-covariance matrix as A = Y ˜T YR, and decompose it with single value decomposition as 
+
+A = U2SU ⊤ 
+
+> 1
+
+. The resulting rotation R∗ and translation t∗ are given by: 
+
+R∗ = U2
+
+1 0 00 1 00 0 d
+
+!
+
+U⊤ 
+
+> 1
+
+, t∗ = ˆ μ ˜T − R∗ ˆμR, d = sign(det( U2U⊤ 
+
+> 1
+
+)) . (10) The first-order transformation (R∗, t∗) and the virtual interface Y ˜T are subsequently refined through an iterative Rigid Transformation (RT) block ΦRT (·). At each iteration, the ith layer of the mod-ule predicts residual updates in the Lie algebra space and translation, conditioned on the current transformation, noised input, and the two virtual interfaces. The refinement proceeds as: 
+
+∆ω, ∆t = Φ (i) 
+
+> RT
+
+(Rt, tt, R∗, t∗, YR, Y ˜T ), (11) 
+
+R∗ = exp([∆ ω×]) R∗, (12) 
+
+t∗ = t∗ + ∆ t, (13) 
+
+Y ˜T = R∗Y ˜T + t∗, (14) where ∆ω is a predicted tangent vector in the tangent space so 3, and exp( ·) denotes the exponential map from so 3 to SO(3) . The noisy input (Rt, tt) is obtained from two conditional flows: (i) For rotations, given noise R0 ∼ U (SO(3)) and the target rotation R1 ∼ p(R | ⋆), the Riemannian conditional flow [20] is defined as the geodesic interpolation between the R0 and R1:
+
+Rt = ψt(R0 | R1) = exp R0
+
+ t · log R0 (R1), (15) where exp and log denote the Riemannian exponential and logarithm maps on SO(3) . t is the timestep. (ii) For translations, given noise t0 ∼ N (0, σ 2I) and ground-truth t1 ∼ p(t | ⋆), the Euclidean conditional flow [21] is defined as a linear interpolation as follows: 
+
+tt = ψt(t0 | t1) = t · t1 + (1 − t) · t0. (16) 5The conditional flow matching is utilized to train the model, and the objective is formulated as: 
+
+LRT = Et∼U (0 ,1) 
+
+∥
+
+
+
+log Rt ( ˆR1) − log Rt (R1)
+
+
+
+/(1 − t)∥22 + ∥ˆt1 − t1∥22
+
+. (17) where ( ˆR1, ˆt1) is the final output prediction of ΦRT (·).
+
+Latent Ternary Encoder . Modeling ternary complexes requires representations that remain invariant to input structures while placing all components in a unified latent space to capture their interactions. To be specific, given the input GR, G ˜T , and G ˜M (noised graph from GM), we encode them with the 
+
+Invariant Point Attention block [22]: 
+
+HR, H ˜T , h ˜M = IPA( GR, G ˜T , G ˜M), (18) where HR, H ˜T , and h ˜M denote invariant representations that encode both sequence and structural information, which are subsequently used by the denoising networks. 
+
+Coordinate Flow for p(x | ⋆). Generating ligand atomic coordinates from random noise is par-ticularly challenging when the binding pocket is unknown. We first leverage the predicted rigid transformation to pre-align the target protein, providing a geometry that is consistent with the inferred interface. Then, we integrate the unified latent representations with the current coordinates and design two complementary message passing: one capturing interactions between the proteins and the ligand, and the other modeling intra-ligand geometric dependencies, to progressively update coordinates. Specifically, the first-order transformation is utilized to correct the coordinate of the target protein: 
+
+ˆXT = R∗X ˜T + t∗
+
+| {z }
+
+> Interface-Correction
+
+. (19) Then, a bi-level message passing network is constructed to denoise the molecular coordinates. Without loss of generality, for each xi ∈ x, we adopt the linear interpolation in Euclidean space to obtain the noised coordinate as: xi,t = txi, 1 + (1 − t)xi, 0, where xi, 0 ∼ N (0 , I 3) is the prior and xi, 1 ∼ p(xi)
+
+is the data distribution. Then, we update the coordinate via the intrinsic self-update and the extrinsic protein-molecule update with the Coordinate block Φx(·):
+
+ˆxi, 1 = xi,t + X
+
+> j∈V I
+
+(xi,t − xj,t )ϕintra 
+
+ hi, hj , ∥xi,t − xj,t ∥22, t | {z }
+
+> Intrinsic Update
+
++ X
+
+> k∈V E
+
+(xi,t − Xk) ϕextra 
+
+ hi, Hk, ∥xi,t − Xk∥22, t | {z }
+
+> Extrinsic Update
+
+, (20) where ϕ(·) is MLP. VI and VE denote the sets of neighbors for node i corresponding to intra-molecular connections within the ligand and inter-molecular interactions with the two proteins, respectively. The Φx block outputs the coordinate ˆx1, and the objective is formulated as follows: 
+
+Lcoor = Et∼U (0 ,1) 
+
+∥ˆxi, 1 − xi, 1∥22
+
+. (21) 
+
+Atom Type Flow for p(a | ⋆). Recovering ligand atom identities is formulated as a continuous flow on the probability simplex. Each atom’s identity ai ∈ a is mapped to a scaled soft one-hot logit vector [ 23 ], which lies on the probability simplex ∆|A|− 1, where |A| denotes the total number of atom types. The conditional flow is defined as a linear interpolation between the prior ai, 0 ∼ N (0, K 2I|A| )
+
+and the target ai, 1: ψt(ai, 0 | ai, 1) = tai, 1 + (1 − t)ai, 0, and K is a scale constant. The atom type is predicted through the Atom Type block Φa(·) and the training objective is: 
+
+ˆa1 = Φ a(HR, H ˜T , H ˜M, at, t ), Ltype = Et∼U (0 ,1) 
+
+∥ˆa1 − a1∥22
+
+. (22) 
+
+Training Objective . Finally, we balance the gradients of all flows using weighting coefficients λi
+
+and jointly train the entire ternary denoising framework as follows: 
+
+Lflow = ( λ1, λ 2) · L RT + λ3 · L coor + λ4 · L type . (23) We provide the details of the model architecture and the flow matching in the Appendix C and D. 
+
+Sampling . We provide the detailed sampling algorithm in the Appendix E. 64 Experiment 
+
+In this section, we conduct experiments to answer the following research questions: • RQ1: Can TriGlue generate high-quality molecular glues while accurately docking the two proteins into a reasonable ternary complex? • RQ2: How accurate and geometrically meaningful are the ellipsoid interfaces predicted by TriGlue? • RQ3: How does interface conditioning affect the performance of TriGlue? 
+
+4.1 Experimental Setup Dataset . We utilize TernaryDB [ 17 ] for training and evaluation, which contains 22 , 303 ternary complexes curated from the Protein Data Bank [ 24 ], covering diverse proteins and drug-like ligands. Moreover, to prevent data leakage, complexes are clustered by protein sequence similarity using MMseqs2 [ 25 ], and clusters overlapping with known molecular glue complexes are excluded from training to construct non-overlapping validation and test splits. Detailed statistics are in Appendix G.1 
+
+Baselines . Since no existing method jointly performs de novo molecular glue generation and ternary complex reconstruction, we evaluate representative baselines separately for each sub-task. For molec-ular generation, we compare with three structure-based design methods, AR [26 ], TargetDiff [13 ], and PocketXMol [16 ]. For protein-protein docking, we adopt DeepTernary [ 17 ], EquiDock [ 19 ], and DiffDock-PP [27]. Detailed baseline descriptions are provided in Appendix G.2. 
+
+Training Details . For the interface modeling module, the EGNN encoder consists of 4 layers with a hidden dimension of 128. The model is trained using the AdamW optimizer [ 28 ] with an initial learning rate of 5 × 10 −4 and a cosine annealing schedule for 1200 epochs. For the ternary denoising network, we stack two IPA blocks as the encoder with a hidden dimension of 128. Training is performed using the AdamW optimizer with a linear learning rate decay from 5 × 10 −4 to 4 × 10 −4
+
+for 800 epochs. The loss weights for the joint training objective are set to {0.008 , 1.0, 1.0, 10 .0}. All experiments are conducted on 8 NVIDIA L40 GPUs. Appendix G.3 provides more details. 
+
+Evaluation Metrics . We evaluate performance from two perspectives. For molecular generation, we report AutoDock Vina-based affinity metrics ( Vina , Vina min , Vina dock ) [ 29 ], the high-affinity ratio ( Aff ), and molecular property metrics ( QED , SA ). For ternary-complex reconstruction, we measure ligand pose accuracy using RMSD and protein docking quality using DockQ [ 30 ] and its success rate (DockQ > 0.23 ). We provide more details in Appendix G.4. Table 1: Performance comparison on generated molecules.                                                                      
+
+> Method RMSD (↓)Vina score ( ↓)Vina min ( ↓)Vina dock ( ↓)QED ( ↑)SA ( ↑)Aff ( ↑)
+> Avg Avg Med Avg Med Avg Med Avg Med Avg Med Avg AR 8.16 2.17 8.76 9.04 3.62 3.69 -4.39 -4.87 0.51 0.54 0.54 0.53 0.53 TargetDiff 6.27 1.99 -2.11 -6.09 -4.83 -6.74 -7.55 -7.86 0.47 0.53 0.55 0.58 0.65 PocketXMol 6.74 0.91 -6.17 -6.14 -6.88 -6.88 -7.69 -7.65 0.47 0.49 0.79 0.78 0.69 TriGlue 5.22 1.41 -6.23 -6.79 -6.77 -7.37 -8.28 -8.85 0.67 0.77 0.58 0.66 0.79
+
+4.2 Ternary Complex Generation 
+
+To answer RQ1 , the evaluation is conducted from two complementary perspectives: • The quality and placement of the generated molecules. Here, all baselines are provided with pocket information and use their best sampling strategies. As shown in Tab. 1, even without access to binding pockets, TriGlue achieves the most accurate ligand placement in the reconstructed complexes, yielding the lowest average RMSD (5.22). Meanwhile, TriGlue generates ligands with strong predicted binding affinity: all affinity-related metrics outperform the baselines except for Vina min, which is slightly lower than PocketXMol. In terms of molecular properties, TriGlue produces more drug-like molecules (QED 0.67), while the SA score is worse than PocketXMol. We attribute this to PocketXMol being trained on a substantially larger dataset ( ∼ 10 8 molecules), which provides broader coverage of chemical space. 7• The docking accuracy of the unbound target protein. DeepTernary predicts rigid transformations from complex sequences, whereas DiffDock and EquiDock take the two protein structures as input. As shown in Fig. 3, compared with DeepTernary, TriGlue achieves better overall performance with a higher acceptance rate (35.2% vs. 30.8%). Although DeepTernary attains a higher best-case performance, its results exhibit a heavier long-tail distribution. 
+
+Figure 3: DockQ results. PDB ID: 1S9D_A_E                   
+
+> DockQ : 0.29
+> Vina Dock: -8.65
+> QED: 0.67
+> PDB ID: 2P1Q_B_C
+> DockQ : 0.31
+> Vina Dock: -6.96
+> QED: 0.71
+> PDB ID: 3OGL_B_Q
+> DockQ : 0.51
+> Vina Dock: -9.80
+> QED: 0.83
+> PDB ID: 7BQV_A_B
+> DockQ : 0.23
+> Vina Dock: -10.67
+> QED: 0.86
+
+Figure 4: Serval ternary complexes generated by TriGlue. 
+
+4.3 Ellipsoid-Parameterized Interface Prediction 
+
+To further answer RQ2 , we evaluate estimated interface ellipsoids on the held-out TernaryDB test split and compare against PeSTo [ 31 ] and ScanNet [ 32 ]. Residue-level interface predictions from these methods are converted into ellipsoids. We report geometry- and distribution-aware metrics, including JSD, Wasserstein-2 distance (W2), Center-L2, and LogDet error (see Appendix G.5). As shown in Tab. 2, our method consistently outperforms both baselines across all metrics, achieving substantially lower divergence and improved geometric alignment with ground-truth interface ellipsoids. Table 2: Ellipsoid interface estimation on the test set. 
+
+Method JSD ↓ W2 Dist ↓ Center-L2 ↓ LogDet Error ↓
+
+Ours 0.47 ± 0.15 12.65 ± 7.89 10.99 ± 7.47 3.83 ± 5.01 PeSTo 0.68 ± 0.04 58.26 ± 46.03 57.39 ± 46.25 8.00 ± 11.54 ScanNet 0.68 ± 0.04 58.96 ± 45.34 57.57 ± 45.85 10.20 ± 12.92 4OIC_A_B_A8S 
+
+> 3P1Q_A_P_FSC
+> 6UE5_A_C_Q5J
+> 4DRH_A_B_RAP
+> 5GWO_C_A_A8S
+> 2O98_A_P_FSC
+
+Figure 5: T-SNE of the interface model’s hidden states. 
+
+Interface Model Captures the Potential Protein-Protein Interface Pattern. To further answer RQ2 , we analyze the learned interface repre-sentations. We first cluster the ternary complexes in the test set by struc-tural and functional similarity, yielding several groups represented by one or two complexes (e.g., 2O98_A_P_FSC ). Six representative groups are selected, and the two proteins in each complex are encoded by the interface model. As shown in Fig. 5, the resulting features are visualized using t-SNE [ 33 ]. Interestingly, the embeddings form compact and well-separated clusters that closely align with the structural grouping of the complexes, indicating that the model captures transferable, high-level interface geometry and interaction patterns rather than fitting samples. 84.4 Ablation Study TriGlue vs 
+
+> TriGlue w/o corr
+> TriGlue vs
+> TriGlue w/o elli
+> 0%
+> 20%
+> 40%
+> 60%
+> 80%
+> 100%
+> Win Rate (RMSD)
+> 84%
+> 16%
+> 78%
+> 22%
+> TriGlue
+> w/o corr
+> TriGlue
+> w/o elli
+> TriGlue
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> DockQ
+
+Figure 6: Ablation study. To answer RQ3 , we conduct an in-depth ablation study to evaluate the effect of interface injection in TriGlue. We consider two ablated variants: (i) TriGlue w/o elli , which removes the ellip-soid interface prior (Eq. (11)); and (ii) TriGlue w/o corr , which disables the interface correction (Eq. (19)). We report the RMSD win rate of TriGlue against the two ablated variants, and the DockQ scores of all three models. As shown in Fig. 6, we observe that: • Both TriGlue w/o elli and TriGlue w/o corr exhibit substantially weaker docking performance for the unbound target protein, reflected by lower RMSD win rates and reduced DockQ scores. This observation is consistent with our hypothesis that accurate modeling of the protein-protein interface is critical for ternary complex generation. • Notably, removing the interface correction module results in a more pronounced drop in per-formance. The average DockQ decreases from 0.22 to 0.15, and ligand placement accuracy is also significantly affected. We attribute this behavior to the increased structural noise introduced by the unconstrained rigid-body pose of the unbound protein. Without interface correction, the stochasticity in protein positioning hampers the model’s ability to reliably interpret and exploit interface cues during generation. 
+
+## 5 Related Work 
+
+Flow Matching has emerged as an efficient paradigm for generative modeling by learning a continuous-time vector field that transports samples from a simple prior to the data distribution [ 34 ], which demonstrates strong performance in Euclidean domains, particularly in applications such as image [ 35 ], video generation [ 36 ], and robotics [ 37 ]. Euclidean flow matching has been further generalized to non-Euclidean space, e.g., Riemannian manifolds [ 20 ], enabling principled modeling of structured objects like protein backbone [38], and discrete DNA sequence [39]. 
+
+Deep Learning for Protein Design has advanced rapidly following the emergence of AlphaFold [ 22 ], which revolutionized computational biology through highly accurate protein structure prediction. This breakthrough has catalyzed a broad spectrum of generative approaches, including RFDiffusion for enzyme design [ 40 , 41 ], SE(3)-Diffusion for protein backbone generation [ 42 ], Boltzgen for binder design [ 43 ], and peptide design [ 44 , 23 , 45 ]. Subsequent efforts have extended these advances to protein complexes, exemplified by AlphaMultimer [ 46 ] and AlphaFold3 [ 47 ], enabling accurate modeling of multi-chain assemblies. However, these approaches primarily focus on pairwise inter-actions and do not explicitly address ternary complex design, such as molecular glue degrader or PROTAC-mediated systems. DeepTernary [ 17 ] predicts ternary structures from given sequences, whereas our work targets the de novo design of molecular glue-induced ternary complexes. 
+
+## 6 Conclusion 
+
+In this work, we investigate the problem of molecular glue design from a generative modeling perspective. Unlike conventional structure-based drug design, molecular glue discovery requires the coordinated modeling of ligand generation, protein–protein docking, and ternary complex assembly under unknown interface conditions. To address this challenge, we propose TriGlue, a biology-inspired generative framework that decomposes ternary complex generation into interface estimation and interface-conditioned complex generation. Specifically, an SE(3)-equivariant interface module is introduced to infer geometrically meaningful protein–protein interfaces from unbound structures, while an interface-conditioned ternary flow network jointly generates the molecular glue and pre-dicts the rigid-body transformation required for ternary complex assembly. Extensive experiments demonstrate that TriGlue achieves strong performance in both molecular generation and ternary complex reconstruction, producing chemically valid molecules and structurally plausible complexes. Overall, our results highlight the promise of biology-inspired generative modeling for molecular glue discovery and provide a new direction for AI-driven targeted protein degradation. 9References 
+
+[1] Janet M Sasso, Rumiana Tenchov, DaSheng Wang, Linda S Johnson, Xinmei Wang, and Qiongqiong Angela Zhou. Molecular glues: the adhesive connecting targeted protein degrada-tion to the clinic. Biochemistry , 2022. [2] Pamela Y Ting, Sneha Borikar, John Ryan Kerrigan, Noel M Thomsen, Eamon Aghania, Amelia E Hinman, Alejandro Reyes, Nicolas Pizzato, Barna D Fodor, Fabian Wu, et al. A molecular glue degrader of the wiz transcription factor for fetal hemoglobin induction. Science ,2024. [3] Oliver Hsia, Matthias Hinterndorfer, Angus D Cowan, Kentaro Iso, Tasuku Ishida, Rama-subramanian Sundaramoorthy, Mark A Nakasone, Hana Imrichova, Caroline Schätz, Andrea Rukavina, et al. Targeted protein degradation via intramolecular bivalent glues. Nature ,627(8002):204–211, 2024. [4] Georg Petzold, Pablo Gainza, Stefano Annunziato, Ilaria Lamberto, Peter Trenh, Laura A McAllister, Bradley DeMarco, Laura Schwander, Richard D Bunker, Mary Zlotosch, et al. Mining the crbn target space redefines rules for molecular glue–induced neosubstrate recognition. 
+
+Science , 389(6755):eadt6736, 2025. [5] Yanfen Liu, Jieyun Bai, Dong Li, and Yong Cang. Routes to molecular glue degrader discovery. 
+
+Trends in Biochemical Sciences , 2025. [6] Hojong Yoon, Justine C Rutter, Yen-Der Li, Benjamin L Ebert, et al. Induced protein degradation for therapeutics: past, present, and future. The Journal of Clinical Investigation , 2024. [7] Jan Krönke, Namrata D Udeshi, Anupama Narla, Peter Grauman, Slater N Hurst, Marie McConkey, Tanya Svinkina, Dirk Heckl, Eamon Comer, Xiaoyu Li, et al. Lenalidomide causes selective degradation of ikzf1 and ikzf3 in multiple myeloma cells. Science , 2014. [8] Gang Lu, Richard E Middleton, Huahang Sun, MarkVic Naniong, Christopher J Ott, Constan-tine S Mitsiades, Kwok-Kin Wong, James E Bradner, and William G Kaelin Jr. The myeloma drug lenalidomide promotes the cereblon-dependent destruction of ikaros proteins. Science ,2014. [9] Junichi Yamamoto, Tetsufumi Suwa, Yuki Murase, Shumpei Tateno, Hirotaka Mizutome, Tomoko Asatsuma-Okumura, Nobuyuki Shimizu, Tsutomu Kishi, Shuji Momose, Masahiro Kizaki, et al. Arid2 is a pomalidomide-dependent crl4crbn substrate in multiple myeloma cells. 
+
+Nature Chemical Biology , 2020. [10] Emil Bulatov and Alessio Ciulli. Targeting cullin–ring e3 ubiquitin ligases for drug discovery: structure, assembly and small-molecule modulation. Biochemical Journal , 2015. [11] Alice Shi Ming Li, Serah Kimani, Brian Wilson, Mahmoud Noureldin, Héctor González-Álvarez, Ahmed Mamai, Laurent Hoffer, John P Guilinger, Ying Zhang, Moritz von Rechenberg, et al. Discovery of nanomolar dcaf1 small molecule ligands. Journal of Medicinal Chemistry , 2023. [12] Hai-Tsang Huang, Ryan J Lumpkin, Ryan W Tsai, Shuyao Su, Xu Zhao, Yuan Xiong, James Chen, Nada Mageed, Katherine A Donovan, Eric S Fischer, et al. Ubiquitin-specific proximity labeling for the identification of e3 ligase substrates. Nature Chemical Biology , 20(9):1227– 1236, 2024. [13] Jiaqi Guan, Wesley Wei Qian, Xingang Peng, Yufeng Su, Jian Peng, and Jianzhu Ma. 3d equiv-ariant diffusion for target-aware molecule generation and affinity prediction. In International Conference on Learning Representations (ICLR) , 2023. [14] Jiaqi Guan, Xiangxin Zhou, Yuwei Yang, Yu Bao, Jian Peng, Jianzhu Ma, Qiang Liu, Liang Wang, and Quanquan Gu. Decompdiff: Diffusion models with decomposed priors for structure-based drug design. In International Conference on Machine Learning (ICML) . PMLR, 2023. [15] Sirine Ayadi, Leon Hetzel, Johanna Sommer, Fabian J Theis, and Stephan Günnemann. Unified guidance for geometry-conditioned molecular generation. In Neural Information Processing Systems (NeurIPS) , 2024. 10 [16] Xingang Peng, Ruihan Guo, Fenglin Guo, Ziyi Wang, Jiayu Sun, Jiaqi Guan, Yinjun Jia, Yan Xu, Yanwen Huang, Muhan Zhang, et al. Unified modeling of 3d molecular generation via atomic interactions with pocketxmol. Cell , 2026. [17] Fanglei Xue, Meihan Zhang, Shuqi Li, Xinyu Gao, James A Wohlschlegel, Wenbing Huang, Yi Yang, and Weixian Deng. Se (3)-equivariant ternary complex prediction towards target protein degradation. Nature Communications , 16(1):5514, 2025. [18] Vıctor Garcia Satorras, Emiel Hoogeboom, and Max Welling. E (n) equivariant graph neural networks. In International Conference on Machine Learning (ICML) , 2021. [19] Octavian-Eugen Ganea, Xinyuan Huang, Charlotte Bunne, Yatao Bian, Regina Barzilay, Tommi S Jaakkola, and Andreas Krause. Independent se (3)-equivariant models for end-to-end rigid protein docking. In International Conference on Learning Representations (ICLR) ,2022. [20] Ricky T. Q. Chen and Yaron Lipman. Flow matching on general geometries. In International Conference on Learning Representations (ICLR) , 2024. [21] Xingchao Liu, Chengyue Gong, et al. Flow straight and fast: Learning to generate and transfer data with rectified flow. In International Conference on Learning Representations (ICLR) , 2022. [22] John Jumper, Richard Evans, Alexander Pritzel, Tim Green, Michael Figurnov, Olaf Ron-neberger, Kathryn Tunyasuvunakool, Russ Bates, Augustin Žídek, Anna Potapenko, et al. Highly accurate protein structure prediction with alphafold. Nature , 596(7873):583–589, 2021. [23] Jiahan Li, Chaoran Cheng, Zuofan Wu, Ruihan Guo, Shitong Luo, Zhizhou Ren, Jian Peng, and Jianzhu Ma. Full-atom peptide design based on multi-modal flow matching. In International Conference on Machine Learning (ICML) , 2024. [24] Helen M Berman, John Westbrook, Zukang Feng, Gary Gilliland, Talapady N Bhat, Helge Weissig, Ilya N Shindyalov, and Philip E Bourne. The protein data bank. Nucleic Acids Research , 28(1):235–242, 2000. [25] Martin Steinegger and Johannes Söding. Mmseqs2 enables sensitive protein sequence searching for the analysis of massive data sets. Nature Biotechnology , 35(11):1026–1028, 2017. [26] Shitong Luo, Jiaqi Guan, Jianzhu Ma, and Jian Peng. A 3d generative model for structure-based drug design. In Neural Information Processing Systems (NeurIPS) , 2021. [27] Mohamed Amine Ketata, Cedrik Laue, Ruslan Mammadov, Hannes Stark, Menghua Wu, Gabriele Corso, Céline Marquet, Regina Barzilay, and Tommi S Jaakkola. Diffdock-pp: Rigid protein-protein docking with diffusion models. In ICLR 2023-Machine Learning for Drug Discovery Workshop , 2023. [28] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In International Conference on Learning Representations , 2019. [29] O Trott and AJ Olson. Autodock vina: improving the speed and accuracy of docking with a new scoring function, efficient optimization, and multithreading. Journal of Computational Chemistry , 31(2):455–461, 2010. [30] Sankar Basu and Björn Wallner. Dockq: a quality measure for protein-protein docking models. 
+
+PloS one , 2016. [31] Lucien F Krapp, Luciano A Abriata, Fabio Cortés Rodriguez, and Matteo Dal Peraro. Pesto: parameter-free geometric deep learning for accurate prediction of protein binding interfaces. 
+
+Nature Communications , 14(1):2175, 2023. [32] Jérôme Tubiana, Dina Schneidman-Duhovny, and Haim J Wolfson. Scannet: an interpretable geometric deep learning model for structure-based protein binding site prediction. Nature Methods , 19(6):730–739, 2022. 11 [33] Laurens van der Maaten and Geoffrey Hinton. Visualizing data using t-sne. Journal of Machine Learning Research (JMLR) , 9(86):2579–2605, 2008. [34] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matthew Le. Flow matching for generative modeling. In International Conference on Learning Representations (ICLR) , 2023. [35] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas Müller, Harry Saini, Yam Levi, Dominik Lorenz, Axel Sauer, Frederic Boesel, et al. Scaling rectified flow trans-formers for high-resolution image synthesis. In International Conference on Machine Learning (ICML) , 2024. [36] Adam Polyak, Amit Zohar, Andrew Brown, Andros Tjandra, Animesh Sinha, Ann Lee, Apoorv Vyas, Bowen Shi, Chih-Yao Ma, Ching-Yao Chuang, et al. Movie gen: A cast of media foundation models. arXiv preprint arXiv:2410.13720 , 2024. [37] Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, et al. π0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 , 2024. [38] Joey Bose, Tara Akhound-Sadegh, Guillaume Huguet, Kilian FATRAS, Jarrid Rector-Brooks, Cheng-Hao Liu, Andrei Cristian Nica, Maksym Korablyov, Michael M. Bronstein, and Alexan-der Tong. SE(3)-stochastic flow matching for protein backbone generation. In International Conference on Learning Representations (ICLR) , 2024. [39] Hannes Stark, Bowen Jing, Chenyu Wang, Gabriele Corso, Bonnie Berger, Regina Barzilay, and Tommi Jaakkola. Dirichlet flow matching with applications to dna sequence design. In 
+
+International Conference on Machine Learning (ICML) , pages 46495–46513, 2024. [40] Joseph L Watson, David Juergens, Nathaniel R Bennett, Brian L Trippe, Jason Yim, Helen E Eisenach, Woody Ahern, Andrew J Borst, Robert J Ragotte, Lukas F Milles, et al. De novo design of protein structure and function with rfdiffusion. Nature , 620(7976):1089–1100, 2023. [41] Woody Ahern, Jason Yim, Doug Tischer, Saman Salike, Seth M Woodbury, Donghyo Kim, Indrek Kalvet, Yakov Kipnis, Brian Coventry, Han Raut Altae-Tran, et al. Atom-level enzyme active site scaffolding using rfdiffusion2. Nature Methods , pages 1–10, 2025. [42] Jason Yim, Brian L Trippe, Valentin De Bortoli, Emile Mathieu, Arnaud Doucet, Regina Barzilay, and Tommi Jaakkola. Se (3) diffusion model with application to protein backbone generation. In International Conference on Machine Learning (ICML) , 2023. [43] Hannes Stark, Felix Faltings, MinGyu Choi, Yuxin Xie, Eunsu Hur, Timothy John O’Donnell, Anton Bushuiev, Talip Uçar, Saro Passaro, Weian Mao, Mateo Reveiz, Roman Bushuiev, Tomáš Pluskal, Josef Sivic, Karsten Kreis, Arash Vahdat, Shamayeeta Ray, Jonathan T. Goldstein, Andrew Savinov, Jacob A. Hambalek, Anshika Gupta, Diego A. Taquiri-Diaz, Yaotian Zhang, A. Katherine Hatstat, Angelika Arada, Nam Hyeong Kim, Ethel Tackie-Yarboi, Dylan Boselli, Lee Schnaider, Chang C. Liu, Gene-Wei Li, Denes Hnisz, David M. Sabatini, William F. DeGrado, Jeremy Wohlwend, Gabriele Corso, Regina Barzilay, and Tommi Jaakkola. Boltzgen: Toward universal binder design. bioRxiv , 2025. [44] Haitao Lin, Odin Zhang, Huifeng Zhao, Dejun Jiang, Lirong Wu, Zicheng Liu, Yufei Huang, and Stan Z Li. Ppflow: Target-aware peptide design with torsional flow matching. In International Conference on Machine Learning (ICML) , 2024. [45] Xiangzhe Kong, Rui Jiao, Haowei Lin, Ruihan Guo, Wenbing Huang, Wei-Ying Ma, Zihua Wang, Yang Liu, and Jianzhu Ma. Peptide design through binding interface mimicry with pepmimic. Nature Biomedical Engineering , pages 1–16, 2025. [46] Richard Evans, Michael O’Neill, Alexander Pritzel, Natasha Antropova, Andrew Senior, Tim Green, Augustin Žídek, Russ Bates, Sam Blackwell, Jason Yim, et al. Protein complex prediction with alphafold-multimer. biorxiv , 2021. 12 [47] Josh Abramson, Jonas Adler, Jack Dunger, Richard Evans, Tim Green, Alexander Pritzel, Olaf Ronneberger, Lindsay Willmore, Andrew J Ballard, Joshua Bambrick, et al. Accurate structure prediction of biomolecular interactions with alphafold 3. Nature , 630(8016):493–500, 2024. [48] Shanshan Gu, Danrui Cui, Xiaoyu Chen, Xiufang Xiong, and Yongchao Zhao. Protacs: an emerging targeting technique for protein degradation in drug discovery. BioEssays , 2018. [49] Stuart L Schreiber. The rise of molecular glues. Cell , 2021. [50] Steven M Banik, Kayvon Pedram, Simon Wisnovsky, Green Ahn, Nicholas M Riley, and Carolyn R Bertozzi. Lysosome-targeting chimaeras for degradation of extracellular proteins. 
+
+Nature , 2020. [51] Adam D Cotton, Duy P Nguyen, Josef A Gramespacher, Ian B Seiple, and James A Wells. De-velopment of antibody-based protacs for the degradation of the cell-surface immune checkpoint protein pd-l1. Journal of the American Chemical Society , 2021. [52] Matthieu Schapira, Matthew F Calabrese, Alex N Bullock, and Craig M Crews. Targeted protein degradation: expanding the toolbox. Nature Reviews Drug Discovery , 2019. [53] Kusal TG Samarasinghe and Craig M Crews. Targeted protein degradation: A promise for undruggable proteins. Cell Chemical Biology , 2021. [54] Lin Zhao, Jia Zhao, Kunhong Zhong, Aiping Tong, and Da Jia. Targeted protein degradation: mechanisms, strategies and application. Signal Transduction and Targeted Therapy , 2022. [55] Guangcai Zhong, Xiaoyu Chang, Weilin Xie, and Xiangxiang Zhou. Targeted protein degra-dation: advances in drug discovery and clinical practice. Signal Transduction and Targeted Therapy , 2024. [56] Jeffrey A Dewey, Clémence Delalande, Saara-Anne Azizi, Vivian Lu, Dionysios Antonopoulos, and Gyorgy Babnigg. Molecular glue discovery: current and future approaches. Journal of Medicinal Chemistry , 2023. [57] Hossam Nada, Yongseok Choi, Sungdo Kim, Kwon Su Jeong, Nicholas A Meanwell, and Kyeong Lee. New insights into protein–protein interaction modulators in drug discovery and therapeutic advance. Signal Transduction and Targeted Therapy , 2024. [58] AEA Lopez-Girona, D Mendy, T Ito, K Miller, AK Gandhi, J Kang, S Karasawa, G Carmel, P Jackson, M Abbasian, et al. Cereblon is a direct protein target for immunomodulatory and antiproliferative activities of lenalidomide and pomalidomide. Leukemia , 2012. [59] Haijuan Yang, Derek G Rudge, Joseph D Koos, Bhamini Vaidialingam, Hyo J Yang, and Nikola P Pavletich. mtor kinase structure, mechanism and regulation. Nature , 2013. [60] Robin CE Deutscher, Christian Meyners, Maximilian L Repity, Wisely Oki Sugiarto, Jürgen M Kolos, Edvaldo VS Maciel, Tim Heymann, Thomas M Geiger, Stefan Knapp, Frederik Lermyte, et al. Discovery of fully synthetic fkbp12-mtor molecular glues. Chemical Science , 2025. [61] James P Griffith, Joseph L Kim, Eunice E Kim, Michael D Sintchak, John A Thomson, Matthew J Fitzgibbon, Mark A Fleming, Paul R Caron, Kathy Hsiao, and Manuel A Navia. X-ray structure of calcineurin inhibited by the immunophilin-immunosuppressant fkbp12-fk506 complex. Cell , 82(3):507–522, 1995. 13 Appendix Contents 
+
+A Terminology 15 B Ellipsoid Construction 16 C Architecture 17 D Flow Matching 19 E Sample Algorithm 20 F Proofs 21 G Experimental Details 21 
+
+G.1 Dataset Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 G.2 Baseline Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 G.3 Training Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 G.4 Evaluation Metric Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 G.5 Ellipsoid Interface Prediction Metric Details . . . . . . . . . . . . . . . . . . . . . 24 
+
+H Group Analysis 25 I Broader Impacts 25 
+
+14 A Terminology 
+
+Table 3 provides supplementary introductions to the biological background and abbreviations of the technical terms that appear in this paper. Table 3: Terminology list. Terminology Abbreviation Description 
+
+Target Protein POI The specific protein intended to be modulated, inhibited, stabilized, or degraded by a therapeutic molecule or biological mechanism in order to achieve a desired biological or therapeutic effect. 
+
+Targeted Protein Degradation TPD A therapeutic strategy that eliminates disease-related proteins by harnessing the cell’s natural protein disposal machinery rather than inhibiting protein activity directly. 
+
+Proteasome – A large multisubunit protease complex that degrades ubiquitin-tagged proteins and maintains protein quality control in cells. 
+
+Molecular Glue Degrader MGD A small molecule that induces interaction between an E3 ligase and a target protein, promoting ubiquitination and subsequent proteasomal degradation. 
+
+Proteolysis Targeting Chimeras PROTACs Heterobifunctional molecules that bind a protein of interest via a target warhead and recruit an E3 ligase via a second ligand, connected by a chemical linker that controls ternary complex geometry. 
+
+E3 Ligase – An enzyme that recognizes substrate proteins and catalyzes ubiquitin transfer from E2 enzymes, determining substrate specificity in the ubiquitin proteasome system. 
+
+Ubiquitin – A conserved regulatory protein that can be attached to substrates to mark them for degradation or regulate signaling pathways. 
+
+Ubiquitination – A post-translational modification in which ubiquitin, a small regulatory protein, is covalently attached to lysine residues on a substrate protein through an enzymatic cascade involving E1, E2, and E3 enzymes, commonly marking the protein for proteasomal degradation or altering its cellular function. Traditional drug discovery has long relied on inhibitors to modulate protein activity directly, yet this approach faces limitations when targeting certain disease-related proteins. Targeted protein degradation (TPD) [ 48 , 49 , 50 , 51 ] has emerged as a transformative therapeutic paradigm, which harnesses the cell’s intrinsic proteolytic machinery, such as the proteasome and lysosomal pathways, to selectively degrade disease-associated proteins, in contrast to traditional small-molecule inhibitors that merely block protein function [52, 53, 54, 55]. Here, we provide additional information related to molecular glues. 
+
+Molecular Glue is a class of small molecules that modulate protein–protein interactions by enhancing the affinity between specific proteins within cells. These compounds can either induce novel protein interactions (type I) or stabilize existing ones (type II), providing an alternative therapeutic approach to traditional drug discovery. Notably, molecular glues offer a means to target proteins once considered 15 “undruggable” by conventional strategies. They function through diverse mechanisms, e.g., promoting targeted protein degradation or disrupting essential protein functions, and hold potential for treating a range of diseases, including cancer and neurodegenerative disorders. Molecular glues can be functionally classified based on their mechanism of action in modulating protein–protein interactions: type I glues stabilize non-native or novel PPIs, while type II glues enhance the stability of native, pre-existing interactions. • Type I Molecular glues induce non-native protein–protein interactions that effectively block or “shield” a protein’s endogenous activity. Rather than promoting protein degradation, these compounds typically stabilize inactive conformations or obscure critical functional regions of the target protein. This interference prevents the protein from participating in its normal biological processes, such as by blocking active sites, disrupting ligand binding, or inhibiting native protein–protein interactions [54, 56]. • Type II Molecular glues stabilize endogenous protein–protein interactions by modulating protein conformation or dynamics. Depending on the context, they can either inhibit or enhance protein activity by locking interacting partners into specific functional states. A notable example is lenalidomide, an immunomodulatory drug that binds cereblon (CRBN) and reprograms it to target transcription factors such as IKZF1 and IKZF3 for proteasomal degradation in multiple myeloma [54]. Generally, Molecular Glues employ two primary mechanisms to modulate protein-protein interactions: allosteric regulation and direct bridging. • Allosteric Regulation . In the context of allosteric regulation, molecular glues interact with a primary protein, triggering conformational rearrangements that generate or reinforce novel binding interfaces. These newly formed interfaces facilitate the recruitment of a secondary protein [ 57 ]. E.g., lenalidomide associates with the E3 ubiquitin ligase cereblon (CRBN), altering its structural configuration to enable the recruitment and subsequent ubiquitination of neo-substrates like IKZF1 and IKZF3, leading to their degradation [58]. • Direct Bridging . Unlike allosteric modulation, direct bridging entails the molecular glue simultaneously binding to two proteins at their interface, effectively connecting them. A classic example is rapamycin, which binds both FKBP12 and mTOR to form a stable ternary complex, thereby suppressing mTOR’s kinase function [ 59 ]. Although such direct bridging mechanisms do occur, they are relatively rare compared to allosteric modulation. The latter is more prevalent among molecular glues because it leverages the inherent flexibility of protein conformations to induce new interaction surfaces, even in the absence of pre-defined binding sites [60]. 
+
+## B Ellipsoid Construction 
+
+Given an interface residue set I (either IR or I ˜T ), we approximate its spatial distribution using a Gaussian ellipsoid parameterized by a centroid μ and covariance matrix Σ. This representation provides a compact description of the interface location, spatial extent, and principal orientation in 3D space. Formally, the centroid is computed as the mean of the C α coordinates: 
+
+μ = 1
+
+|I| 
+
+X
+
+> i∈I
+
+Xi, (24) and the covariance matrix is estimated as: 
+
+Σ = 1
+
+|I| 
+
+X
+
+> i∈I
+
+(Xi − μ)( Xi − μ)⊤, (25) where Xi ∈ R3 denotes the C α coordinate of residue i.The resulting Gaussian ellipsoid N (μ, Σ) captures the global geometry of the interface: the mean encodes the interface center, while the eigenstructure of Σ reflects its spatial spread and principal axes. This compact parameterization serves as the geometric representation used throughout our framework for interface alignment and evaluation. 16 C Architecture 
+
+Algorithm 1 Invariant Point Attention (IPA)  
+
+> 1:
+
+Input: single feature {si}, pair features {zij }, residue frame {Ti} 
+
+> 2:
+
+qhi , k hi , v hi ← LinearNoBias (si) ▷ h = 1 , . . . , N head  
+
+> 3:
+
+˜qhp i , ˜khp i ← LinearNoBias (si) ▷ p = 1 , . . . , N query points  
+
+> 4:
+
+˜vhp i ← LinearNoBias (si) ▷ p = 1 , . . . , N point values  
+
+> 5:
+
+bhij ← LinearNoBias (zij ) 
+
+> 6:
+
+wC ←
+
+q 29Nquery , wL ←
+
+q 1 
+
+> c
+> 7:
+
+ahij ← softmax j
+
+
+
+wL · (qhi )⊤khj − w2
+
+> C
+> 2
+
+P 
+
+> p
+
+∥Ti ˜qhi,p − Tj ˜khj,p ∥22
+
+ 
+
+> 8:
+
+˜ohi ← P 
+
+> j
+
+ahij zij  
+
+> 9:
+
+ohi ← P 
+
+> j
+
+ahij vhj 
+
+> 10:
+
+˜oh,p i ← T −1
+
+> i
+
+ P 
+
+> j
+
+ahij Tj ˜vhj,p 
+
+ 
+
+> 11:
+
+˜si ← Linear 
+
+
+
+concat h,p (˜ ohi , o hi , ˜oh,p i , ∥˜oh,p i ∥)
+
+ 
+
+> 12:
+
+return {˜si}
+
+In this section, we provide the implementation details of our neural network architecture. 
+
+Latent Ternary Encoder . We adopt Invariant Point Attention (IPA) [ 22 ] to encode the proteins and ligand in the ternary flow network. As shown in Algorithm 1, the IPA block jointly attends over scalar features, pairwise relational features, and 3D coordinates. The key design principle is SE(3) invariance: the model’s predictions remain unchanged under global rotations and translations of the input structure. IPA augments attention with geometric queries and keys represented as points in 3D space. During attention computation, the similarity between residues depends not only on feature similarity but also on the relative spatial configuration between these points. The resulting attention weights therefore encode both biochemical context and geometric compatibility, allowing the network to iteratively refine spatial representations. 
+
+Node (single) features. For each protein’s residue, we form the single feature by concatenating: (i) a learned amino-acid embedding; (ii) heavy-atom coordinates expressed in the local frame defined by the N–C α–C; and (iii) backbone dihedral descriptors with chain-aware validity masking. For the ligand, each atom is embedded by a learned atom-type embedding as the single feature. The ligand does not have the residue frame. So we set the rotation matrix as the identity matrix and the translation as the atom’s coordinate to construct the local coordinate system. 
+
+Pair (edge) features. For protein residue pairs (i, j ), the pair feature encodes: (i) a learned embedding of the ordered amino-acid pair; (ii) sequence separation along the same chain (clipped integer offset, zeroed across chains); (iii) all-pairs heavy-atom distances summarized by Gaussian radial-basis activations whose scale is conditioned on the amino-acid pair; and (iv) pairwise backbone dihedral channels. For ligand atom pairs (i, j ), we use Gaussian-bump encodings of the interatomic distance together with an MLP on the normalized displacement rij /∥rij ∥.All of the single (pair) features are mapped into a unified dimension. Given the input GR, G ˜T , and 
+
+G ˜M (noised graph from GM), we encode them with the Invariant Point Attention block [22]: 
+
+HR, H ˜T , h ˜M = IPA( GR, G ˜T , G ˜M), (26) where HR, H ˜T , and h ˜M denote invariant single representations that encode both sequence and structural information, which are subsequently used by the denoising networks. 
+
+Rigid Transformation Block . The ΦRT is designed as a lightweight global network that predicts an incremental rigid transformation from a compact interface-level representation. At each layer i, ΦRT i
+
+uses a fixed-length global descriptor that summarizes the current alignment state and noised context, and predicts the residual rotation vector and translation vector. 17 Specifically, given the virtual interface point sets YR and Y ˜T , we first compute their centroids: 
+
+μ1 = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+yR,k , μ2 = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+y ˜T ,k . (27) We then construct a global rigid-state descriptor by concatenating: 
+
+H = Concat (R∗, t∗, μ1, μ2, Rt, tt, ct) , (28) where ct is a low-dimensional context vector obtained by projecting the timestep embedding. The descriptor h is processed by a shared multi-layer perceptron trunk 
+
+h = MLP trunk (H), (29) which produces a latent global representation capturing the relative pose between the proteins and the timestep. Two linear heads predict rotation and translation updates: 
+
+∆ω = RotHead (h), (30) 
+
+∆t = TransHead (h), (31) 
+
+R∗ = exp([∆ ω×]) R∗, (32) 
+
+t∗ = t∗ + ∆ t, (33) 
+
+Y ˜T = R∗Y ˜T + t∗, (34) Notably, rotation is parameterized using the continuous 6D representation and converted to a valid rotation matrix via Gram–Schmidt orthogonalization. Finally, after T iterations, block ΦRT outputs the prediction ˆR1, ˆt1.
+
+Coordinate Block . The ΦX refines ligand atom positions that jointly model intra-ligand geometry and protein–ligand interactions. Given ligand coordinates Xt = {xi,t }Ni=1 at step t, the block predicts denoised coordinates through iterative message passing. Ligand atom features are first projected into a latent space with an IPA block and enriched with protein context using cross-attention. Specifically, ligand single features attend to the concatenated single features of the two proteins, allowing each atom to capture biochemical context: 
+
+hi = CrossAttn (hi, HR, H ˜T ). (35) The block performs L EGNN-style updates. At each layer, ligand features are updated using messages from three interaction types: ligand–ligand, ligand– receptor protein, ligand–target protein. For any pair of nodes (i, j ), messages depend only on invariant features: 
+
+mij = ϕ hi, hj , ∥xi,t − xj,t ∥2, t ,
+
+and are aggregated via residual updates to produce refined atom embeddings. After each feature update, coordinates are refined using a bi-level message passing with the messages: 
+
+ˆxi = xi,t + X
+
+> j∈V I
+
+(xi,t − xj,t )ϕintra (hi, hj , ∥xi,t − xj,t ∥2, t )
+
+| {z }
+
+> Intrinsic ligand update
+
++ X
+
+> k∈V E
+
+(xi,t − Xk)ϕextra (hi, Hk, ∥xi,t − Xk∥2, t )
+
+| {z }
+
+> Protein-conditioned update
+
+, (36) where ϕ(·) is MLP, and only ligand coordinates are updated. Feature and coordinate updates are repeated for multiple layers, yielding a coarse-to-fine denoising process. Finally, the Φx block outputs the predicted coordinate ˆx1.
+
+Atom Type Block. To predict the atom type, we first form a joint protein context from single representations: 
+
+HP = Concat (HR, H ˜T ) . (37) Then, we update the ligand hidden state via cross-attention: 
+
+h∗˜M = CrossAttn (h ˜M, HP ) . (38) Finally, the atom-type distribution is predicted with timestep embedding ct:
+
+ˆa1 = Φ a
+
+ h∗˜M, ct
+
+ . (39) We sample the atom type from the distribution to decode the ligand. 18 D Flow Matching 
+
+Conditional Flow Matching . The conditional flow matching (CFM) framework [ 34 ] offers an approach to learn a probability time-dependent flow ψt : [0 , 1] × Rd → Rd that transforms samples from a simple base distribution p0 into a target data distribution p1 ≈ q. The flow and its corre-sponding vector field ut : [0 , 1] × Rd → Rd are governed by the ordinary differential equation (ODE): ddt xt = ut(xt), where xt = ψt(x0). However, it is challenging to model this vector field directly due to the complexity of its closed-form solution. Instead, CFM circumvents this limitation by conditioning the flow and vector field on a specific data pair: a sample x0 ∼ p0 and a target 
+
+x1 ∼ p1. This leads to a tractable formulation of the interpolated trajectory xt = ψt(x0 | x1) and the conditional vector field ut(xt | x1) = ddt xt. Hence, the standard CFM training loss is formulated as: 
+
+LCFM (θ) = Et∼U (0 ,1) vt(ψt(x0 | x1)) − ddt xt
+
+> 22
+
+, (40) where U(0 , 1) is a uniform distribution and vt is a neural network parameterized by θ.Based on the CFM, our Ternary Flow Network involves three types of flow: 
+
+Euclidean CFM for Coordinate. The Euclidean conditional flow interpolates between Gaussian noise xi, 0 ∼ N (0, I 3) and the data distribution xi, 1 ∼ p(xi | ⋆):
+
+ψt(xi, 0 | xi, 1) = txi, 1 + (1 − t)xi, 0 (41) The target vector field is: 
+
+ut = ddt ψt = xi, 1 − xi, 0. (42) The CFM loss is: 
+
+Lcoord = Et∼U (0 ,1) ∥vθ (xi,t , t, ⋆ ) − (xi, 1 − xi, 0)∥22 . (43) 
+
+Simplex CFM for Atom Type . Following PepFlow [ 23 ], we map the discrete atom type ai to a continuous logit space si ∈ R|A| via soft one-hot encoding with a scale constant K > 0:
+
+si[j] = 
+
+K, j = ai,
+
+−K, otherwise . (44) This yields a sharp probability distribution softmax (si) concentrated on the true type, corresponding to a point on the probability simplex ∆|A|− 1. We define the conditional flow in the logit space as a linear interpolation between the prior si, 0 ∼ N (0, K 2I|A| ) and the target si, 1 derived from ai:
+
+ψt(si, 0 | si, 1) = tsi, 1 + (1 − t)si, 0. (45) The associated vector field is: 
+
+ut(si,t | si, 1, si, 0) = ddt ψt = si, 1 − si, 0. (46) Similar to the Euclidean CFM, a neural network vθ is trained to predict this vector field, and the CFM loss is: 
+
+Ltype = Et∼U (0 ,1) 
+
+h
+
+∥vθ (si,t , t, ⋆ ) − (si, 1 − si, 0)∥22
+
+i
+
+. (47) 
+
+Riemannian CFM for Rigid Transformation . Following [ 38 ], we predict (R, t) within the flow matching framework, where the interpolation of orientations is performed along geodesics on SO(3) ,and translations are handled in Euclidean space. For rotation, we employ geodesic interpolation on SO(3) , which serves as the manifold counterpart of linear interpolation in Euclidean space and guarantees shortest-path evolution. Formally, given a random prior R0 ∼ U (SO(3)) and a target rotation R1 ∼ p(R | ⋆), the conditional flow is: 
+
+ψt(R0 | R1) = exp R0
+
+ t · log R0 (R1), (48) where exp and log denote the Riemannian exponential and logarithm maps on SO(3) , computable via Rodrigues’ formula. The associated vector field is defined as: 
+
+ut(Rt | R0, R1) = ddt ψt = log Rt (R1)1 − t . (49) 19 Then the CFM objective is formulated as: 
+
+L = Et∼U (0 ,1) 
+
+"
+
+vθ (Rt, t, ⋆ ) − log Rt (R1)1 − t
+
+> 22
+
+#
+
+. (50) For translations, a Euclidean conditional flow is defined between t0 ∼ N (0, σ 2I) and t1 ∼ p(t | ⋆),and the corresponding CFM obejctive L has the same form with Eq. (43). 
+
+Reparameterized CFM Objectives. Following the reparameterization strategy [ 23 ], instead of predicting the ground-truth conditional vector field, we directly predict the target data and compute the vector field implicitly from the reconstructed target. For the Euclidean flow, let ˆxi, 1 = vθ (xi,t , t, ⋆ )
+
+denote the reconstructed ligand coordinate, we reparameterized the objective in Eq. (43) as: 
+
+Lcoord = Et∼U (0 ,1) ∥ut(xi,t | ˆxi, 1, xi, 0) − ut(xi,t | xi, 1, xi, 0)∥22 (51) 
+
+= Et∼U (0 ,1) ∥(ˆ xi, 1 − xi, 0) − (xi, 1 − xi, 0)∥22 (52) 
+
+= Et∼U (0 ,1) ∥ˆxi, 1 − xi, 1∥22 . (53) Similarly, the other CFM objectives are reformulated as follows: 
+
+Ltype = Et∼U (0 ,1) ∥ˆsi, 1 − si, 1∥22 . (54) 
+
+Lrot = Et∼U (0 ,1) 
+
+
+
+log Rt ( ˆR1) − log Rt (R1)
+
+
+
+/(1 − t) 22
+
+. (55) 
+
+Ltrans = Et∼U (0 ,1) ˆt1 − t1 
+
+> 22
+
+. (56) In this work, we utilize the reparameterized CFM objectives to train our model. 
+
+## E Sample Algorithm 
+
+Algorithm 2 Sampling with Interface-Conditioned Ternary Flow Network  
+
+> 1:
+
+Input: receptor protein GR, target protein G ˜T . 
+
+> 2:
+
+(YR, Y ˜T ) = InterfaceModel (GR, G ˜T ) ▷ Estimate global virtual interface  
+
+> 3:
+
+(R⋆, t⋆) = DifferentiableKabschAlign (YR, Y ˜T ) ▷ Compute first-order rigid transformation  
+
+> 4:
+
+ˆXT = R∗X ˜T + t∗ ▷ Interface correction  
+
+> 5:
+
+Sample initial noisy state R0, t0, x0, a0 
+
+> 6:
+
+for t = 1 to N do  
+
+> 7:
+
+ˆR tN , ˆt tN , ˆx tN , ˆa tN = TernaryFlowNet (R t−1
+
+> N
+
+, t t−1
+
+> N
+
+, x t−1
+
+> N
+
+, a t−1
+
+> N
+
+, YR, Y ˜T ) 
+
+> 8:
+
+R tN = exp R t−1
+
+> N
+
+
+
+∆t · log R t−1
+
+> N
+
+( ˆR tN )
+
+
+
+▷ Update rotation  
+
+> 9:
+
+t tN = t t−1
+
+> N
+
++ (ˆ t tN − t0)∆ t ▷ Update translation  
+
+> 10:
+
+x tN = x t−1
+
+> N
+
++ (ˆ x tN − x0)∆ t ▷ Update coordinate  
+
+> 11:
+
+a tN = a t−1
+
+> N
+
++ (ˆ a tN − a0)∆ t ▷ Update atom type  
+
+> 12:
+
+end for  
+
+> 13:
+
+Decode complex C from { ˆR1, ˆt1, ˆx1, ˆa1} 
+
+> 14:
+
+return C
+
+Algorithm 2 summarizes the sampling procedure of TriGlue. Given two unbound proteins, the inter-face model first predicts the global virtual interfaces and computes an initial rigid-body transformation through differentiable Kabsch alignment. The estimated transformation is then used to correct the target protein coordinates, providing an interface-consistent initialization for subsequent generation. Starting from noisy rotations, translations, ligand coordinates, and atom types, the ternary flow network iteratively predicts the denoised states conditioned on the estimated interfaces. The rotational component is updated along the SO(3) geodesic, while translations, ligand coordinates, and atom types are progressively refined using Euler steps. After N iterations, the final rigid transformation and ligand structure are decoded into the ternary complex. 20 F Proofs 
+
+SE(3) Equivariance of Virtual Interface and Ellipsoid Parameters. Theorem 1. The virtual interface points {yk}Kk=1 and the elliposid parameters ( ˆ μ, ˆΣ) defined in Sec. 3.2 are SE(3)-equivariant. Proof. Consider a rigid-body transformation (R, t) ∈ SE(3) applied to all residue coordinates: 
+
+z′ 
+
+> i
+
+= Rz i + t. (57) We first prove that the virtual interface points are equivariant. Since the attention weights are computed from EGNN invariant features, they remain unchanged under SE(3). Thus, we have: 
+
+y′ 
+
+> k
+
+= X
+
+> i
+
+αki z′ 
+
+> i
+
+= X
+
+> i
+
+αki (Rz i + t) (58) 
+
+= R X
+
+> i
+
+αki zi + t = Ry k + t. (59) Hence yk are SE(3)-equivariant. Then, it is not hard to obtain that: 
+
+ˆμ′ = 1
+
+K
+
+X
+
+> k
+
+y′ 
+
+> k
+
+= 1
+
+K
+
+X
+
+> k
+
+(Ry k + t) = R ˆμ + t, (60) and the centered coordinates satisfy: 
+
+y′ 
+
+> k
+
+− ˆμ′ = R(yk − ˆμ), (61) which yields: 
+
+ˆΣ′
+
+= 1
+
+K
+
+X
+
+> k
+
+(y′ 
+
+> k
+
+− ˆμ′)( y′ 
+
+> k
+
+− ˆμ′)⊤ (62) 
+
+= R ˆΣR ⊤. (63) Therefore, (yk, ˆμ, ˆΣ) transform equivariantly under SE(3). 
+
+## G Experimental Details 
+
+G.1 Dataset Details 
+
+We use the molecular-glue-induced ternary-complex split derived from TernaryDB 1 [ 17 ]. Each sample contains two protein components, including a target protein and an E3 ligase, and one small-molecule ligand extracted from an experimentally resolved ternary complex. Protein lengths are calculated based on the number of resolved C α residues in the curated protein PDB files. Ligand descriptors are computed from the per-complex SDF files using RDKit. QED denotes the quantitative estimate of drug-likeness. Detailed statistics are provided in Tab. 4. For numerical descriptors, we report the median, with the minimum and maximum values. Table 4: Summary statistics of the training and held-out molecular-glue test splits. Numerical descriptors are reported as Median (Minimum, Maximum) .                       
+
+> Component Statistic Training set Test set
+> Complex Number of ternary complexes 21,481 94
+> Sequence-pair overlap with training set –0/94
+> Protein Length of E3 ligase 321 (3, 1765) 227 (107, 826) Length of target protein 125 (3, 1759) 76 (2, 512)
+> Molecular Glue
+> Number of heavy atoms 32 (2, 100) 25 (10, 69) Molecular weight (Da) 506.20 (26.04, 1464.07) 385.85 (136.15, 980.31) Number of rings 1 (0, 24) 3 (0, 13) Number of aromatic rings 0 (0, 7) 0 (0, 5) QED 0.24 (0.02, 0.93) 0.54 (0.12, 0.88)
+> 1https://doi.org/10.5281/zenodo.15514874
+
+21 G.2 Baseline Details Baselines . Our framework jointly performs de novo molecular glue generation and reconstructs the unbound target protein into the ternary-complex coordinate frame. However, no existing method evaluates both aspects simultaneously. Therefore, we select and compare representative baselines separately for each task. Overall, these baselines span a broad spectrum of representative methods: (i) Molecular design method. To assess the quality of generated molecular glues, three structure-based drug design methods are considered: AR 2 [ 26 ], TargetDiff 3 [ 13 ], and PocketXMol 4 [ 16 ], which perform de novo small-molecule generation conditioned on protein binding pockets. (ii) Ternary complex structure prediction method. DeepTernary 5 [17 ] is the first model designed for ternary complex structure prediction. We adopt it to dock the unbound protein back into the ternary complex, thereby evaluating the ability to model the complex structure. (iii) Protein-protein docking method. To further evaluate the rigid-body docking capability, we include two representative protein-protein docking approaches: EquiDock 6 [ 19 ] and DiffDock-PP 7 [27], which predict the relative pose of interacting proteins from their unbound structures. All of the baselines are implemented with the official code. 
+
+G.3 Training Details 
+
+The proposed framework consists of two stages: interface estimation and interface-conditioned ternary flow generation. All experiments were conducted using the Adam optimizer with an initial learning rate of 5 × 10 −4.
+
+Interface Estimation Module . The interface estimation model was trained for 1200 epochs with a batch size of 8 using distributed training on 8 GPUs. Node and edge embedding dimensions were set to 128 and 64, respectively. The SE(3)-equivariant encoder adopted a two-block IPA architecture with 8 attention heads, 8 query/key points, and 12 value points. A lightweight sequence transformer with 2 layers and 4 attention heads was further employed for sequence feature integration. The interface conditioner used a feature dimension of 128 and graph construction with 16 nearest neighbors. 
+
+Interface-Conditioned Ternary Flow Network . The ternary flow model was trained for 800 epochs with a batch size of 2 and gradient accumulation of 32, resulting in an effective batch size of approximately 64 samples per optimization step. The pretrained interface estimation module was frozen during this stage. The coordinate, atom-type, rotation, and translation objectives were jointly optimized with loss weights of 10 .0, 1.0, 1.0, and 0.008 , respectively. Gradient clipping with a maximum norm of 50 was applied to stabilize training. For flow matching, translations were modeled with Euclidean conditional flow matching using Gaussian noise with σ = 1 .0, while rotations were modeled on SO(3) using Riemannian flow matching. Atom types were represented on the probability simplex with simplex scale constant 
+
+K = 5 .0 and 25 atom categories, where atom identities were defined based on elemental type together with hybridization and aromaticity information. During sampling, the model performed 50 iterative denoising steps. 
+
+Dataset Split . The ternary complex dataset was divided into training and validation subsets using a 95%/5% split. Unless otherwise specified, all experiments used a random seed of 42. Training the interface model takes approximately 2 days, training the ternary flow network requires about 5 days, and sampling a single complex takes around 40 seconds. 
+
+G.4 Evaluation Metric Details 
+
+We evaluate the models from the following two perspectives: 
+
+> 2https://github.com/luost26/3D-Generative-SBDD
+> 3https://github.com/guanjq/targetdiff
+> 4https://github.com/pengxingang/PocketXMol
+> 5https://github.com/youqingxiaozhua/DeepTernary
+> 6https://github.com/octavian-ganea/equidock_public
+> 7https://github.com/ketatam/DiffDock-PP
+
+22 (i) Molecular generation . We assess the generated ligands with respect to binding and physicochem-ical properties. Binding affinity is estimated using AutoDock Vina [ 29 ], including the Vina score ,the minimized Vina score ( Vina min ) after local relaxation, and the redocking Vina score ( Vina dock ) that reflects the best achievable binding affinity. The high-affinity ratio ( Aff ) is defined as the proportion of generated molecules whose Vina dock surpasses that of the reference ligand for each target. To further examine chemical quality, we evaluate standard molecular property metrics, including quantitative estimation of drug-likeness ( QED ) and the synthetic accessibility ( SA ) score. (ii) Ternary-complex reconstruction . We evaluate the structural accuracy of the generated complex from both ligand and protein perspectives. Ligand pose accuracy is measured using the root-mean-square deviation ( RMSD ) between predicted and reference ligand coordinates. Protein docking accuracy is assessed using the DockQ score [ 30 ], and we additionally report the success rate with DockQ greater than 0.23, which is commonly regarded as indicating acceptable docking quality. 
+
+Root Mean Square Deviation (RMSD) . Ligand pose quality is assessed using the RMSD between the predicted ligand coordinates and the reference (ground truth) coordinates. Let xi ∈ R3 denote the predicted coordinate of the i-th ligand atom and x∗ 
+
+> i
+
+∈ R3 denote the corresponding reference coordinate. Given N ligand atoms, RMSD is defined as: 
+
+RMSD = 
+
+vuut 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+∥xi − x∗ 
+
+> i
+
+∥22. (64) Lower RMSD values indicate higher agreement between the predicted ligand pose and the reference structure. 
+
+AutoDock Vina-based Binding Metrics. To evaluate the predicted protein-ligand binding quality of generated molecular glues, we report three AutoDock Vina-based scores: Vina score, Vina min, and Vina dock. Let P denote the protein binding environment, M denote a generated molecule, and 
+
+ˆx denote its generated 3D conformation. We write EVina (P, M, x) as the AutoDock Vina scoring function, which approximates the protein-ligand binding free energy in kcal/mol. More negative values indicate stronger predicted binding affinity. The Vina score is computed on the generated ligand pose without further pose optimization: 
+
+VinaScore( M ) = EVina (P, M, ˆx). (65) This metric evaluates whether the model directly generates a chemically plausible and energetically favourable binding pose. 
+
+Vina score further performs local energy minimization around the generated pose before scoring: 
+
+VinaMin( M ) = min   
+
+> x∈N (ˆ x)
+
+EVina (P, M, x), (66) where N (ˆ x) denotes the local conformational neighbourhood explored during minimization. Com-pared with the Vina score, Vina min is less sensitive to small local geometric errors in the generated conformation. 
+
+Vina dock evaluates the molecule after a full re-docking procedure: 
+
+VinaDock( M ) = min   
+
+> x∈Ω( P,M )
+
+EVina (P, M, x), (67) where Ω( P, M ) denotes the docking search space of possible ligand poses in the binding region. This metric estimates the best binding score achievable by the generated molecule under the docking protocol, rather than only evaluating the initially generated pose. For all three Vina-based metrics, lower values are better. 
+
+Quantitative Estimate of Drug-likeness (QED). Drug-likeness is evaluated using the Quantitative Estimate of Drug-likeness (QED), which summarizes how similar a molecule is to known drug-like compounds. QED combines multiple molecular descriptors, including molecular weight, lipophilicity, topological polar surface area, hydrogen bond donors and acceptors, aromatic rings, rotatable bonds, and structural alerts. Given descriptor-specific desirability functions dk(M ) ∈ [0 , 1] and weights wk,QED is computed as a weighted geometric mean: 
+
+QED( M ) = exp 
+
+PKk=1 wk log dk(M )
+
+PKk=1 wk
+
+!
+
+. (68) 23 QED ranges from 0 to 1, where larger values indicate more favourable drug-like properties. 
+
+Synthetic Accessibility (SA). Synthetic accessibility measures how easy a generated molecule is expected to be synthesized. The commonly used raw synthetic accessibility score is based on fragment contributions and molecular complexity penalties: 
+
+SAscore raw (M ) = Sfrag (M ) + Scomplexity (M ) + Scorrection (M ). (69) Here, Sfrag (M ) reflects whether the molecule contains fragments frequently observed in known synthesized compounds, while Scomplexity (M ) penalizes structural features that make synthesis difficult, such as large rings, complex ring systems, stereochemical complexity, and large molecular size. Since the raw SA score is usually defined such that lower values indicate easier synthesis, while our table reports SA with a larger-is-better direction, we use a normalized synthesizability score: 
+
+SA( M ) = clip 
+
+ 10 − SAscore raw (M )9 , 0, 1
+
+
+
+. (70) Under this convention, larger SA values indicate molecules that are predicted to be easier to synthesize. 
+
+High Affinity Rate (Aff). Following common evaluation protocols in target-aware molecule genera-tion, Aff measures the proportion of generated molecules whose predicted binding affinity is stronger than that of the reference ligand for the same target. Let sdock  
+
+> t,j
+
+denote the Vina dock score of the j-th generated molecule for target t, and let sref  
+
+> t
+
+denote the corresponding score of the reference ligand. Since lower Vina scores indicate stronger predicted binding, Aff is defined as: 
+
+Aff = 1
+
+|T | 
+
+X
+
+> t∈T
+
+1
+
+KtKtX
+
+> j=1
+
+I sdock  
+
+> t,j
+
+< s ref 
+
+> t
+
+ , (71) where T is the set of test targets, Kt is the number of generated molecules for target t, and I[·] is the indicator function. Higher Aff values indicate that a larger fraction of generated molecules are predicted to bind more strongly than the reference ligand. 
+
+DockQ. For protein–protein docking, model quality is evaluated using DockQ, a continuous score in the range [0 , 1] that summarizes interface accuracy by combining three complementary aspects. (i) The fraction of native contacts ( Fnat ) measures how many residue–residue contacts observed in the reference complex are correctly reproduced in the prediction, reflecting interface contact recovery. (ii) The interface RMSD (iRMSD) quantifies the structural deviation of backbone atoms for residues located at the binding interface after superposition of the complexes, capturing local interface accuracy. (iii) The ligand RMSD (LRMSD) measures the backbone deviation of the ligand protein after aligning the receptor, reflecting the global placement of the binding partner. These three components are smoothly combined into a single score: 
+
+DockQ = 13 Fnat + 11 +   iRMSD 1.5
+
+2 + 11 +   LRMSD 8.5
+
+2
+
+!
+
+. (72) 
+
+G.5 Ellipsoid Interface Prediction Metric Details 
+
+Each interface is represented as a Gaussian ellipsoid N (μ, Σ) , where μ ∈ R3 denotes the ellipsoid center and Σ ∈ R3×3 is a symmetric positive definite (SPD) matrix describing its orientation and spatial extent. Given a prediction (μp, Σp) and reference (μr , Σr ), we evaluate complementary geometric and distributional discrepancies using the following metrics. 
+
+Center-L2 . This metric measures the Euclidean distance between predicted and reference ellipsoid centers: 
+
+dcenter = ∥μp − μr ∥2. (73) 
+
+LogDet Error . Differences in ellipsoid scale are quantified by comparing the log-determinants of the covariance matrices: 
+
+dlog det = |log det(Σ p) − log det(Σ r )| . (74) 24 Wasserstein-2 distance (W2 Dist) . This geometry-aware distance jointly evaluates discrepancies in both the ellipsoid center and shape: 
+
+W 22 = ∥μp − μr ∥22 + Tr 
+
+
+
+Σp + Σ r − 2
+
+
+
+Σ1/2 
+
+> r
+
+ΣpΣ1/2
+
+> r
+
+1/2
+
+, (75) and we report W2 = pW 22 .
+
+Jensen–Shannon divergence (JSD) . Distributional similarity between the predicted and reference Gaussian densities is assessed using JSD: 
+
+JSD( P ∥Q) = 12 KL( P ∥M ) + 12 KL( Q∥M ), M = 12 (P + Q), (76) where P = N (μr , Σr ) and Q = N (μp, Σp). Because M is a Gaussian mixture rather than a single Gaussian, JSD is estimated via Monte Carlo: 
+
+dJSD = 12
+
+ 1
+
+N
+
+X
+
+> xi∼P
+
+log p(xi)
+
+m(xi) + 1
+
+N
+
+X 
+
+> yj∼Q
+
+log q(yj )
+
+m(yj )
+
+ , (77) where m(·) = 12
+
+ p(·) + q(·).
+
+## H Group Analysis 
+
+We evaluate the structural quality of the generated ternary complexes from a structure prediction perspective. For each group, molecular glues sampled by TriGlue on the test set are combined with the sequences of the two proteins and fed into AlphaFold3 [ 47 ] for complex structure prediction, after which pTM and ipTM confidence are computed. As shown in Fig. 7, AlphaFold3 predicts structurally reasonable ternary complexes for most groups, providing additional evidence for the quality of the sampled molecular glues. An exception is observed for the 6TZ8 family, which corresponds to the immunosuppressant drug FK506 [61 ], while TriGlue also achieves a relatively low DockQ score of 0.13 for this group. 4DRH 1KKQ 1R8Q 1RE0 2O98 2OVM 2P1O 6TZ8  
+
+> 0.0
+> 0.5
+> 1.0 pTM
+> ipTM
+
+Figure 7: pTM and ipTM confidence by group. 
+
+## I Broader Impacts 
+
+This work introduces a generative framework for molecular glue design, a modality with the potential to expand the druggable proteome and accelerate the discovery of therapies for diseases that remain difficult to treat using conventional small-molecule approaches. By enabling the computational exploration of ternary complex formation, our approach may reduce experimental trial-and-error, shorten early-stage drug discovery timelines, and lower research costs, which could ultimately improve access to novel therapeutics and benefit public health. Furthermore, the proposed biology-inspired generative modeling paradigm may stimulate interdisciplinary collaboration across machine learning, structural biology, and medicinal chemistry. 25

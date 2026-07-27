@@ -6,47 +6,38 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-26
-- 运行时间：2026-07-26 21:11:04 UTC
+- 最新运行日期：2026-07-27
+- 运行时间：2026-07-27 21:52:40 UTC
 - 运行状态：成功
-- 本次总论文数：9
-- 精读区：2
-- 速读区：7
+- 本次总论文数：6
+- 精读区：5
+- 速读区：1
 
 ### 今日简报（AI）
-今日共推荐9篇论文，其中精读2篇分别聚焦抗体设计（ABOPD）和3D修复（3D-GIMP），速读7篇涵盖扩散模型适配等。最值得关注的是ABOPD通过在线策略蒸馏优化抗体CDR设计，以及3D-GIMP结合PatchMatch实现高效3D高斯修复。建议重点关注抗体设计领域的最新方法，以及3D修复中传统算法与新型表示的融合趋势。
-- 详情：[/202607/26/README](/202607/26/README)
+今日精选6篇论文，其中5篇精读、1篇速读。最值得关注的是《TriGlue》提出的生物启发分子胶生成模型（9.0分）和《MotifRole-Diff》的风险最优角色掩码扩散方法（8.0分）。建议优先阅读这两篇论文，深入理解分子建模与图扩散的前沿思路。
+- 详情：[/202607/27/README](/202607/27/README)
 
 ### 精读区论文标签
-1. [ABOPD: Antibody CDR Design via On-Policy Distillation](/202607/26/2607.18835v1-abopd-antibody-cdr-design-via-on-policy-distillation)  
+1. [TriGlue: a Biology-Inspired Generative Model for Generating Molecular Glue-Induced Ternary Complex](/202607/27/2607.22143v1-triglue-a-biology-inspired-generative-model-for-generating-molecular-glue-induced-ternary-complex)  
+   标签：评分：9.0/10、query:pocket-lig
+   evidence：用于分子胶诱导三元复合物生成的生成模型，与蛋白质-配体复合物预测相关
+2. [MotifRole-Diff: Risk-Optimal Role-Aware Corruption for Masked Molecular Graph Diffusion](/202607/27/2607.21634v1-motifrole-diff-risk-optimal-role-aware-corruption-for-masked-molecular-graph-diffusion)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：使用扩散模型和同策略蒸馏进行抗体CDR设计
-2. [3D-GIMP: When 3D Gaussian Inpainting Meets PatchMatch](/202607/26/2607.20789v1-3d-gimp-when-3d-gaussian-inpainting-meets-patchmatch)  
+   evidence：使用掩码离散扩散进行分子图生成
+3. [Property-Guided Diffusion for Inverse Design of Crystalline Materials](/202607/27/2607.21849v1-property-guided-diffusion-for-inverse-design-of-crystalline-materials)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：基于扩散模型和PatchMatch的3D场景修复
+   evidence：扩散模型用于三维晶体生成并带属性引导
+4. [Closed-Loop Generative Selection: Convergence, Memory, and Noisy Oracles](/202607/27/2607.22211v1-closed-loop-generative-selection-convergence-memory-and-noisy-oracles)  
+   标签：评分：8.0/10、query:diff-gen
+   evidence：分子生成深度学习的理论分析
+5. [Twins: Learn to Predict Unified Representations with Focal Loss](/202607/27/2607.22531v1-twins-learn-to-predict-unified-representations-with-focal-loss)  
+   标签：评分：8.0/10、query:diff-gen
+   evidence：扩散Transformer用于统一多模态表示学习与生成
 
 ### 速读区论文标签
-1. [DuSPiT: Dual-Branch Sub-Patch Pixel Diffusion Transformer](/202607/26/2607.18510v1-duspit-dual-branch-sub-patch-pixel-diffusion-transformer)  
+1. [ROMS-IMLE: A Minimalist Approach to Competitive Single-Step Generative Modelling](/202607/27/2607.19332v1-roms-imle-a-minimalist-approach-to-competitive-single-step-generative-modelling)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：像素空间扩散Transformer架构
-2. [Antigen-specific Antibody Multi-modal Foundation Model for Functional Antibody Design](/202607/26/2607.20057v1-antigen-specific-antibody-multi-modal-foundation-model-for-functional-antibody-design)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：基于深度学习的抗原特异性抗体生成，与分子生成相关
-3. [Source-Prior-Driven Selective Adaptation for Efficient Diffusion Model Finetuning](/202607/26/2607.20913v1-source-prior-driven-selective-adaptation-for-efficient-diffusion-model-finetuning)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：扩散模型微调方法
-4. [DiFA: Inference-Time Forward-Process Alignment for Diffusion Models](/202607/26/2607.17972v1-difa-inference-time-forward-process-alignment-for-diffusion-models)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：扩散模型推理时对齐方法
-5. [GEqTrain: A Configuration-Driven Framework for Retargeting Equivariant Graph Neural Networks Across 3D Scientific Tasks](/202607/26/2607.19083v1-geqtrain-a-configuration-driven-framework-for-retargeting-equivariant-graph-neural-networks-across-3d-scientific-tasks)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：面向3D分子任务的等变GNN重定向框架
-6. [OLEDLM: A Unified Language Model for OLED Molecular Design](/202607/26/2607.20194v1-oledlm-a-unified-language-model-for-oled-molecular-design)  
-   标签：评分：6.0/10、query:diff-gen
-   evidence：使用语言模型进行OLED分子设计
-7. [CAFE: A Co-folding Approach for Fragment Exploration of Allosteric and Cryptic Binding Sites](/202607/26/biorxiv-10-64898-2026-07-19-739466-v1-cafe-a-co-folding-approach-for-fragment-exploration-of-allosteric-and-cryptic-binding-sites)  
-   标签：评分：6.0/10、query:pocket-lig
-   evidence：探索变构结合位点的方法，与口袋特异性分子生成相关
+   evidence：挑战生成模型中多步变换的必要性，提出竞争性单步生成方法
 
 
 <div class="dpr-home-promo-card">

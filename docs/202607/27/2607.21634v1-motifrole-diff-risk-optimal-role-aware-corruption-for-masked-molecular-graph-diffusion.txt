@@ -1,0 +1,931 @@
+Title: MotifRole-Diff: Risk-Optimal Role-Aware Corruption for Masked Molecular Graph Diffusion
+
+URL Source: https://arxiv.org/pdf/2607.21634v1
+
+Published Time: Mon, 27 Jul 2026 00:01:34 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# MotifRole-Diff : Risk-Optimal Role-Aware Corruption for Masked Molecular Graph Diffusion 
+
+# Tasfia Nuzhat Ornee, Elias Hossain, Ivan Garibay, Niloofar Yousefi 
+
+University of Central Florida tasfia.ornee@ucf.edu 
+
+Abstract 
+
+Masked discrete diffusion for molecular graph generation typ-ically applies a uniform corruption schedule to all tokens in a lossless graph-to-sequence representation, implicitly treating structurally heterogeneous molecular components as equally difficult and equally important to reconstruct. However, dif-ferent molecular graph token roles exhibit substantial varia-tion in denoising difficulty and their influence on the decoded molecule, motivating role-specific corruption strategies. We introduce MotifRole-Diff , a role-aware corruption process that allocates masking rates according to empirically mea-sured denoising difficulty and graph-level perturbation im-pact while preserving the model architecture, clean sequence space, and lossless molecular-graph decoder. We formulate schedule selection as the risk-optimal allocation of a fixed masking budget across token roles. Our theorem characterizes optimality for the modeled role-weighted residual risk, while downstream generation performance is evaluated empirically. Under matched architecture, training budget, and sampling compute, MotifRole-Diff improves validity on QM9 from 0.905 to 0.944 while reducing FCD from 1.701 to 1.609, and on MOSES improves validity from 0.920 to 0.938 while reduc-ing FCD from 2.125 to 1.850. Role-wise diagnostics further show improved reconstruction across molecular graph token categories. Together, these matched-compute results indicate that structurally informed corruption is a more effective mask-ing strategy than uniform schedules for serialized molecular graph diffusion. 
+
+# Introduction 
+
+Generating valid, novel, and diverse molecular graphs is a fundamental problem in computational molecular discov-ery, and diffusion models have become one of the strongest paradigms for molecular graph generation (Jo, Lee, and Hwang 2022a; Vignac et al. 2023a; Chen et al. 2023). Masked discrete language modeling (MDLM) (Sahoo et al. 2024), built on discrete denoising diffusion (Austin et al. 2021; Campbell et al. 2022), provides a scalable formulation by serializing molecular graphs into token sequences, denois-ing them in parallel, and reconstructing the original graph through a lossless decoder, combining exact reconstruction with the efficiency of sequence modeling. This approach depends fundamentally on graph serializa-tion. Prior work has shown that serialization order influ-ences sequence-model efficiency (Diamant et al. 2023; Jang, Lee, and Ahn 2024), while hierarchical molecular generators demonstrate the importance of preserving chemically mean-ingful motifs (Jin, Barzilay, and Jaakkola 2018a, 2020). Ex-isting masked discrete diffusion models, however, apply an identical corruption schedule to every token position (Austin et al. 2021; Sahoo et al. 2024), implicitly assuming that all se-rialized tokens are equally difficult to reconstruct and equally important for recovering the molecular graph. That assumption is often incorrect. Serialized molecu-lar graphs contain structurally distinct token roles: bound-ary markers, serialization syntax, motif-interior atoms and bonds, and interface tokens connecting substructures. Errors on these roles are not equally consequential, since some are reconstructed reliably with little effect on the decoded graph while others are harder to recover or disproportionately dis-rupt validity and connectivity, yet existing graph-to-sequence diffusion methods do not ask whether corruption should de-pend on these differences. We call this property role hetero-geneity , and hypothesize that masked molecular diffusion is therefore not only order-sensitive but also role-sensitive : uni-form corruption is appropriate only when roles have compa-rable structural importance, and otherwise corruption should follow measured structural risk. To investigate this hypothesis, we introduce MotifRole-Diff , a role-sensitive framework for masked discrete molec-ular diffusion. We extend the lossless SENT representa-tion (Chen, Krimmel, and Borgwardt 2026) with the motif-aware serialization mSENT , exposing four structural token roles while preserving decoder compatibility. We quantify each role’s reconstruction difficulty and graph-level conse-quence using controlled perturbation experiments, then de-rive a role-aware corruption process by allocating a fixed masking budget according to measured structural risk. The resulting absorbing diffusion formulation generalizes stan-dard MDLM and reduces to uniform corruption when all token roles possess identical structural criticality. Our hypothesis gives rise to four research questions. (RQ1) 
+
+Do serialized token roles differ significantly in reconstruction difficulty and graph-level structural consequence? (RQ2) 
+
+Can role-aware corruption be derived as a principled con-strained allocation of a fixed masking budget? (RQ3) Does empirically informed role-aware corruption outperform uni-form masking, and do the gains stem from informed structural allocation rather than mere non-uniformity? (RQ4) Does arXiv:2607.21634v1 [cs.LG] 20 Jul 2026 motif-aware serialization improve motif locality while pre-serving the lossless decoding guarantees of SENT? Throughout, architecture, optimization, compute, and ex-pected masking rate are held constant so that differences arise only from serialization and corruption design. Our contribu-tions are fourfold: 1. Characterizing role heterogeneity in serialized molec-ular diffusion (RQ1). We identify structural token roles as an overlooked property of graph serialization and show that they differ systematically in reconstruction difficulty and graph-level structural consequence. 2. A principled role-aware corruption process (RQ2). 
+
+We formulate corruption scheduling as constrained structural-risk minimization under a fixed masking bud-get, yielding a role-aware absorbing diffusion process that generalizes standard MDLM and recovers uniform cor-ruption as a special case. 3. Controlled evaluation of role-aware corruption (RQ3). 
+
+Under matched settings, MotifRole-Diff improves gen-eration quality over uniform MDLM at equal compute; because the schedule is derived from measured criticali-ties rather than set arbitrarily, the gain reflects informed structural allocation rather than non-uniform corruption alone. 4. A motif-aware role-preserving serialization (RQ4). We introduce mSENT, a motif-aware extension of SENT that preserves the original lossless decoder while improving motif locality and exposing four interpretable structural token roles. 
+
+# Preliminaries and Problem Formulation 
+
+Notation. A molecular graph G = ( V, E, X, A ) has atoms 
+
+V , bonds E, features X, and adjacency A. A lossless serial-ization T (· ; π) maps G under a traversal order π to a token se-quence zπ = T (G; π) with decoder D(zπ ) ∼= G and |zπ | =
+
+O(|V | + |E|). The motif-aware tokenizer assigns atoms to motif blocks μ : V → { 1, . . . , K } and tags each token with a role ri ∈ R = {special , syntax , interior , interface } (Ta-ble 1); πr denotes the fraction of role-r tokens. Table 1: Token roles induced by motif-aware serialization.           
+
+> Role Meaning Consequence of error Special control / [MASK] tokens invalid boundary or padding Syntax grammar, reset, delimiters malformed or undecodable graph Interior atoms/bonds within one motif local motif corruption; occasional scaffold / atom-bond change Interface cross-motif attachment tokens attachment ambiguity and possible connectivity error; highest single-token perturbation impact
+
+Masked discrete diffusion. An absorbing forward process replaces each token of a clean sequence z0 by [MASK] with probability αt at diffusion time t, and a denoiser pθ recon-structs the masked tokens under the absorbing-state ELBO, 
+
+LMDLM = Ez0,t,M t
+
+h
+
+w(t)X
+
+> i∈Mt
+
+− log pθ
+
+ z(i)0 | zt, t i
+
+. (1) The rate αt is token-agnostic: every position is corrupted identically regardless of role, and a confidence-based sampler reveals tokens in the reverse process. 
+
+Role exposure and budget. For a role-dependent schedule 
+
+{α(r) 
+
+> t
+
+}, let ρr = Et[α(r) 
+
+> t
+
+] be the average exposure of role r
+
+and ¯ρ = P 
+
+> r
+
+πr ρr the total masking budget. Uniform MDLM is the case ρr ≡ ¯ρ. Fixing ¯ρ equalizes the expected number of masked tokens, so schedules sharing ¯ρ are matched in budget and, under a shared backbone, in compute. 
+
+Problem statement. Given R, the frequencies {πr }, and a fixed budget ¯ρ, we seek the role-dependent schedule mini-mizing the expected graph-level reconstruction error at equal budget, 
+
+min  
+
+> ρ
+
+E[∆ graph (ρ)] 
+
+s.t. P 
+
+> r
+
+πr ρr = ¯ ρ, ρmin ≤ ρr ≤ ρmax . (2) This reallocates a fixed budget across roles rather than adding noise or capacity; the Theoretical Analysis makes E[∆ graph ]
+
+concrete and derives the risk-optimal allocation. 
+
+# Role Sensitivity: A Diagnostic 
+
+On a lightweight probe denoiser pθ0 trained with uni-form masking, we measure for each role r the difficulty 
+
+Dr = Ei:ri=r [− log pθ0 (z(i)0 | zt, t )] and top-1 error Er ,with t ∼ U (0 .05 , 0.95) . Figure 1(a) reports a monotone, large ordering, interface ≫ interior > syntax ≫ special (probe NLL Dr = 0 .11 /0.23 /0.35 nats and top-1 error 
+
+Er = 4 .2/8.8/12 .9% for syntax/interior/interface; special 
+
+≈ 0). The fully trained uniform MDLM reproduces the same 
+
+role ordering at larger absolute magnitudes (Table 4), so it is the ordering, not the probe’s absolute scale, that we rely on. This heterogeneity is the headroom MotifRole-Diff ex-ploits. 
+
+# MotifRole-Diff 
+
+Motivated by this role heterogeneity, we make the corruption schedule role-dependent. Although we evaluate it on molecu-lar graphs, the framework applies to any losslessly serialized graph with identifiable token roles. Figure 1 previews the construction on real QM9 values. Let Λ( t) = R t 
+
+> 0
+
+β(s) ds 
+
+be the base schedule and γr > 0 a per-role exponent. The absorbing process becomes role-dependent, 
+
+α(r) 
+
+> t
+
+= 1 − exp   − γr Λ( t), (3) so γr < 1 masks role r less (visible longer, revealed ear-lier) and γr > 1 masks it more. Uniform γr ≡ 1 recovers MDLM exactly. The clean sequence, grammar, and decoder are unchanged, so DSENT (z0) ∼= G for any grammar-valid z0
+
+(Lemma 1). 0   
+
+> 0.1
+> 0.2
+> 0.3
+> 0
+> 5
+> 10
+> 15
+> Dr (NLL)
+> Er (%)
+> Spec Syn Intr Intf
+> (a) measured difficulty
+> γ⋆r (η=2 )
+> γ=1
+> Intf
+> 0.44
+> Intr
+> 1.07
+> Syn
+> 2.37
+> (b) derived rate
+
+Figure 1: Measured difficulty and the derived schedule, on real QM9 values. (a) Measured role difficulty on the probe denoiser: probe NLL Dr (teal, left axis) and top-1 recon-struction error Er (navy, right axis). Both rank interface hardest and special trivial. (b) Risk-optimal rates γ⋆r from Eq. 9 at η=2 (Table 2): the hardest role (interface) is pro-tected (γ < 1) and easier roles corrupted more ( γ > 1), at a fixed masking budget. The lossless decoder is untouched. 
+
+Inverse-exposure loss weighting. Protected (low-γ) roles are masked less often and would otherwise be under-trained. We reweight the per-token loss by inverse exposure, 
+
+w(t, r i) = 1Pr( i ∈ Mt | ri) + ϵ , (4) which is a no-op at γr ≡ 1 (w ≡ 1). 
+
+Role-aware sampling. Motif roles are not directly ob-served for masked tokens at generation time, but they need not be: the denoiser already induces a distribution over the clean token at each position, and the tokenizer supplies a training token–role prior P (r | v). We therefore estimate a 
+
+soft role distribution qi(r) = P 
+
+> v
+
+pθ (xi=v | zt) P (r | v) at every masked position i and carry the same predetermined role rates γr used in training into the reverse process, giv-ing each position an expected exponent γi = P 
+
+> r
+
+qi(r) γr
+
+and a role-aware reverse unmasking probability punmask  
+
+> i
+
+=(a(i) 
+
+> s
+
+− a(i) 
+
+> t
+
+)/(1 − a(i) 
+
+> t
+
+) with a(i) 
+
+> t
+
+= exp( −γiΛ( t)) . Positions are then revealed by the combined confidence-and-schedule score log max v pθ (xi=v | zt) + log punmask  
+
+> i
+
+. Algorithm 1 states the full procedure; the γr are fixed before sampling, so reverse sampling reuses the derived schedule end-to-end rather than deferring it to training alone. 
+
+Computational overhead. MotifRole-Diff reparameter-izes the forward corruption rather than adding a module: identical 3.32 M parameters, no extra forward passes, and only two O(L) table operations per training step (the per-token exponent γri and the inverse-exposure weight) and per reverse step, plus a one-time schedule solve over |R| =4 
+
+roles. Wall-clock therefore matches MDLM within run-to-run noise ( ∼ 1.25 min/epoch; 87 .4 vs. 91 .8 s per 1000 sam-ples on one TITAN RTX). Full comparisons appear in Sup-plementary Table S3. 
+
+# Theoretical Analysis 
+
+The theory formalizes one claim: if serialized roles differ in reconstruction difficulty and graph-level impact, uniform masking is not risk-optimal, and a role-aware schedule should 
+
+Algorithm 1 Role-aware sampling with predetermined role 
+
+γ’s 
+
+Require: denoiser pθ ; length L; reverse steps {t → s}; role rates γspecial , γ syntax , γ interior , γ interface ; token–role prior 
+
+P (r | v); noise schedule Λ( ·); reveal counts kt;
+
+[MASK] , [BOS] , [EOS] ; clip floor ϵ
+
+Ensure: generated graph ˆG
+
+1: z ← [[BOS] , [MASK] , . . . , [MASK] , [EOS] ]
+
+2: for each reverse step t → s do 
+
+3: M ← { masked positions in z} \ { BOS , EOS }
+
+4: if M = ∅ then 
+
+5: break 
+
+6: end if 
+
+7: probs ← pθ (· | z, t ) {clean-token probabilities} 
+
+8: for all i ∈ M do 
+
+9: qi(r) ← P 
+
+> v
+
+probs[ i][ v] P (r | v) for each role r
+
+10: γi ← P 
+
+> r
+
+qi(r) γr
+
+11: at ← e−γiΛ( t), as ← e−γiΛ( s)
+
+12: punmask  
+
+> i
+
+← clip  (as − at)/(1 − at), ϵ, 1
+
+13: conf i ← max v probs[ i][ v]
+
+14: score i ← log conf i + log punmask 
+
+> i
+
+15: end for 
+
+16: S ← top-kt positions of M ranked by score i
+
+17: for all i ∈ S do 
+
+18: z[i] ← arg max v probs[ i][ v] (greedy) or sample 
+
+∼ probs[ i]
+
+19: end for 
+
+20: unselected positions remain [MASK] 
+
+21: end for 
+
+22: ˆG ← decode SENT/mSENT (z); sanitize ˆG with RDKit 
+
+23: return ˆG
+
+protect high-criticality roles at an unchanged budget. Serial-ization is lossless ( Tπ a bijection, so H(Zπ ) = H(G)), so schedules matter only because the denoiser is finite-capacity and roles are not equally easy to reconstruct. 
+
+Lemma 1 (Decoding preserved) . MotifRole-Diff changes only the forward corruption kernel q(zt | z0, r ); the clean se-quence space, grammar, and decoder are unchanged. Hence, for any grammar-valid z0, DSENT (z0) ∼= G. Setting γr ≡ 1
+
+recovers uniform MDLM exactly (proof in Supplementary Section S1). 
+
+Role-decomposed graph risk. Let Ir be the expected graph-level impact of a role-r reconstruction error, ϵr its residual reconstruction error under a finite-capacity denoiser, and ρr = Et[α(r) 
+
+> t
+
+] its average corruption exposure. A role-r
+
+token harms the graph only when corrupted and then misre-constructed, so 
+
+E[∆ graph ] ≤ R (ρ) := X
+
+> r∈R
+
+πr Ir ϵr ρr . (5) The bound separates role frequency πr , graph impact Ir ,and reconstruction error ϵr , which we estimate by the mea-sured probe NLL Dr .
+
+Role criticality. Define the role criticality 
+
+cr := Ir ϵr . (6) High-criticality roles are both hard to reconstruct and dam-aging when wrong; the product, rather than a sum, keeps criticality low unless both factors are large, so a role ex-treme on only one axis does not dominate the allocation. We use the plug-in estimate Cr = Norm( bDr ) · Norm( bIr ) from measured difficulty bDr and impact bIr .
+
+Corruption as constrained allocation. Uniform MDLM assigns every role the same exposure ¯ρ; we instead minimize the criticality-weighted exposure at the same budget: 
+
+min 
+
+> ρ
+
+X
+
+> r
+
+πr cr ρr s.t. X
+
+> r
+
+πr ρr = ¯ ρ, ρmin ≤ ρr ≤ ρmax .
+
+(7) 
+
+Theorem 1 (Risk-optimal exposure allocation) . Let cr := 
+
+Ir ϵr ≥ 0. Over the fixed-budget feasible set in Eq. 7, the minimizer has the water-filling form 
+
+ρ⋆r =
+
+
+
+ρmin , cr > λ (protect ),ρmax , cr < λ (corrupt more ),
+
+∈ [ρmin , ρ max ], cr = λ, 
+
+for a budget multiplier λ. Consequently: (i) ρ⋆r is non-increasing in cr ; (ii) uniform MDLM is optimal iff cr is constant across roles; (iii) if criticalities are heterogeneous and the feasible box permits a nonzero exposure shift from a higher- to a lower-criticality role, then R(ρ⋆) < R(ρuni );and (iv) since ρ(γ) = Et[1 − exp( −γΛ( t))] is strictly in-creasing in γ, the optimal exponents γ⋆r = ρ−1(ρ⋆r ) inherit the same ordering. Proof sketch. The objective is linear on the budget box, so KKT stationarity gives the water-filling vertex and mono-tonicity of ρ(γ) transfers the ordering to the exponents; full proof in Supplementary Section S1. 
+
+Corollary 1 (Uniform null) . If cr is constant the optimum is uniform, so MotifRole-Diff cannot improve the modeled risk; conversely, any strict reduction in Eq. 5 certifies het-erogeneous criticality. 
+
+Smooth risk-optimal schedule. The threshold rule of The-orem 1 is too sharp for training, so we add a convex penalty against large deviations from uniform MDLM: 
+
+min 
+
+> ρ
+
+X
+
+> r
+
+πr cr ρr + 1
+
+η
+
+X
+
+> r
+
+πr KL( ρr ∥¯ρ) s.t. X
+
+> r
+
+πr ρr = ¯ ρ. 
+
+(8) 
+
+Proposition 1 (Smooth risk-optimal schedule) . The regular-ized objective in Eq. 8 is strictly convex on (0 , 1) |R| and has the unique minimizer 
+
+ρ⋆r = σ σ−1(¯ ρ) + η(λ − cr ) , (9) 
+
+where λ enforces the budget constraint and σ is the logistic sigmoid. Moreover ρ⋆r is strictly decreasing in the criticality 
+
+cr .
+
+Higher-criticality roles thus receive lower exposure, and 
+
+η interpolates from uniform MDLM ( η → 0) to the thresh-old rule of Theorem 1 ( η → ∞ ), setting the magnitude of reallocation, not its direction. Two further guarantees are deferred to Supplementary Section S1 (Theorems S1 and S2, with all proofs): the smooth allocation is stable to noisy criticality estimates (max r |bρ⋆r − ρ⋆r | = O(ηδ ) for max r |bcr − cr | ≤ δ), and a Rademacher bound shows that at matched architecture, data size, and training budget, schedule comparisons are governed by the empirical role-weighted risk bR(ρ) = P 
+
+> r
+
+πr bIrbϵr (ρr ).
+
+Robustness to η. The only free hyperparameter is η; be-cause Eq. 9 is monotone in cr , Table 2 confirms interface stays protected across datasets and every η > 0.
+
+# Experimental Setup 
+
+Datasets. We evaluate on QM9 (Ramakrishnan et al. 2014) (molecules up to nine heavy atoms) and MOSES (Polykovskiy et al. 2020) (a larger, more diverse drug-like set), and use GuacaMol (Brown et al. 2019) as a third benchmark to test whether the derived schedule and role-wise diagnostics generalize beyond the two generation datasets. All are serialized losslessly by the motif-aware tok-enizer with the per-token role labels that drive the schedule. 
+
+Backbone and protocol. All conditions share one masked discrete-diffusion backbone under matched architecture, op-timizer, and training budget, so differences reflect the corrup-tion and sampling schedule rather than capacity or training duration. MotifRole-Diff samples with the role-aware con-fidence sampler (Algorithm 1) using the inferred token-role distribution and role-specific rates, whereas uniform MDLM uses the standard confidence sampler with a single token-agnostic schedule. Unless noted, we generate 5,000 samples per condition and decode with the same lossless decoder. 
+
+Metrics. We report validity (RDKit-sanitizable fraction), uniqueness, novelty, atom stability, QED, and role-wise re-construction NLL and top-1 error, with distributional fidelity measured by Fréchet ChemNet Distance (FCD; lower is bet-ter) against a held-out reference split. Complete architecture, optimization, schedule-construction, metric, hardware, and seed details are provided in Supplementary Section S2. 
+
+# Results 
+
+We organize the empirical evaluation around the four re-search questions posed in the Introduction, treating uniform MDLM as the flat-criticality special case of MotifRole-Diff throughout. 
+
+Are Token Roles Heterogeneous? (RQ1) 
+
+Role-aware corruption is justified only if the token roles are not interchangeable. On a uniformly masked probe denoiser the roles separate sharply in reconstruction difficulty (Ta-ble 4): interface is the hardest role on every dataset (QM9 NLL 0.497 and top-1 error 0.166 , against 0.120 and 0.045 
+
+for syntax; MOSES interface NLL 0.712 ; GuacaMol in-terface NLL 0.903 ), with interior consistently in between, and Figure 1(a) shows the same ordering on the probe. The single-token perturbation impact (Table 3) ranks the roles in the same direction: interface is the highest-impact role (Ir = 0 .759 , 95% CI [0 .742 , 0.776] ), above interior ( 0.620 )Table 2: Sensitivity of the derived γr to η (Eq. 9), re-derived from the measured criticalities without retraining. For all η > 0,the interface role is protected ( γr < 1), whereas the interior and syntax roles receive greater corruption ( γr > 1). Thus, η
+
+controls the magnitude of the allocation rather than its direction. The setting η = 0 corresponds to uniform MDLM; we use 
+
+η = 2 (highlighted).                                                                  
+
+> QM9 MOSES GuacaMol
+> ηInterior Interface Syntax Interior Interface Syntax Interior Interface Syntax
+> 0.01.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00
+> 0.51.02 0.81 1.24 1.08 0.72 1.05 1.06 0.78 1.05
+> 1.01.03 0.66 1.54 1.17 0.52 1.09 1.13 0.61 1.11
+> 2.01.07 0.44 2.37 1.34 0.27 1.17 1.26 0.37 1.22
+> 4.01.13 0.25 4.00 1.59 0.25 1.22 1.49 0.25 1.40
+> 8.01.22 0.25 4.00 1.79 0.25 1.05 1.68 0.25 1.49
+
+Table 3: Single-token perturbation impact by role (QM9, 2430 trials/role, 95% CI). Impact 
+
+= P (invalid or disconnected ). The ordering is inter-face > interior > syntax: interface is the highest-impact role, because corrupting a cross-motif attachment token most often yields an invalid or disconnected graph.            
+
+> Role Impact 95% CI Interface 0.759 [0 .742 ,0.776]
+> Interior 0.6198 [0 .605 ,0.632]
+> Syntax 0.566 [0 .552 ,0.580]
+
+and syntax ( 0.566 ), because corrupting a cross-motif at-tachment token most often produces an invalid or discon-nected graph. The two axes agree that interface is most crit-ical, though difficulty separates the roles far more strongly (roughly fourfold) than impact ( ∼ 1.3×). Roles thus differ significantly along both axes on all three datasets, answering RQ1. 
+
+Is the Schedule Derived, Not Tuned? (RQ2) 
+
+Given heterogeneous criticalities, does the risk-optimal rule of Theorem 1 yield a usable schedule rather than a hand-set one? Table 2 instantiates Eq. 7: from measured difficulty 
+
+Dr and impact Ir we form Cr = Norm( Dr ) Norm( Ir ) and solve for γr . On QM9, MOSES, and GuacaMol the top-criticality role is interface, so at every η > 0 the schedule protects it ( γinterface < 1; e.g. 0.44 , 0.27 , and 0.37 respec-tively at η = 2 ) and corrupts the lower-criticality interior and syntax roles more at fixed budget. The allocation di-rection agrees across all three datasets, indicating Cr tracks a structural signal rather than dataset noise. As established in RQ1, difficulty dominates the criticality ranking, so in-terface is protected because it is both hardest to reconstruct and highest-impact. The schedule is thus derived rather than tuned, answering RQ2. 
+
+Does It Beat Uniform Masking? (RQ3) 
+
+Theorem 1 predicts that the heterogeneous criticality estab-lished in RQ1 makes uniform masking suboptimal. Holding architecture, optimizer, training budget, and compute fixed Table 4: Role-wise reconstruction performance under uni-form evaluation masking ( 1000 graphs/checkpoint). We re-port negative log-likelihood (NLL) and top-1 reconstruction error for each structural role on QM9, MOSES, and Gua-caMol.                                           
+
+> Dataset Method Role NLL ↓Top-1 err. ↓
+> QM9 Uniform MDLM interior 0.261 0.095 interface 0.497 0.166 syntax 0.120 0.045
+> MotifRole-Diff
+> interior 0.222 0.085 interface 0.354 0.132 syntax 0.097 0.039 MOSES Uniform MDLM interior 0.406 0.141 interface 0.712 0.247 syntax 0.590 0.201
+> MotifRole-Diff
+> interior 0.390 0.136 interface 0.708 0.202 syntax 0.271 0.105 Guacamol Uniform MDLM interior 0.528 0.180 interface 0.903 0.292 syntax 0.435 0.166
+> MotifRole-Diff
+> interior 0.480 0.167 interface 0.899 0.286 syntax 0.314 0.118
+
+isolates the corruption and sampling schedule as the only difference from uniform MDLM. The derived schedule im-proves validity on all three datasets (QM9 0.905 → 0.944 ,MOSES 0.920 → 0.938 , GuacaMol 0.787 → 0.841 ) and lowers FCD wherever it is measured (QM9 1.701 → 1.609 ,MOSES 2.125 → 1.850 ; FCD and novelty are not computed on GuacaMol). Uniqueness improves on MOSES and stays high on QM9 and GuacaMol, while the small novelty dip on QM9 and MOSES reflects the fidelity–diversity trade. Fig-ure 2 shows these gains are stable across five seeds, with tight, largely non-overlapping intervals. Since the schedule is de-rived from measured criticalities rather than chosen arbitrar-ily (RQ2), this consistent improvement across three datasets is in line with the prediction and reflects informed structural allocation. A matched-compute staged ablation (Supplemen-tary Table S2) separates the mSENT tokenizer gain from the additional gain of the full role-aware configuration; since that configuration enables the derived schedule and inverse-exposure weighting jointly, we do not isolate their individual effects. 
+
+Stability and drug-likeness. Table 5 completes the metric set: MotifRole-Diff matches or improves atom stability (QM9 0.946 → 0.955 ; MOSES 0.902 → 0.915 ; GuacaMol 
+
+0.796 → 0.839 ) and QED (QM9 0.419 → 0.455 ; MOSES 
+
+0.822 → 0.837 ; GuacaMol 0.438 → 0.634 ), consistent with a regularizer that preserves difficult-role accuracy, with the largest QED gain on the more diverse GuacaMol set. Table 5: Atom stability and QED results on QM9, MOSES, and GuacaMol. We compare Uniform MDLM and 
+
+MotifRole-Diff using 5000 generated samples.                     
+
+> Dataset Method Atom stab. ↑QED ↑
+> QM9 Uniform MDLM 0.946 ±.082 0.419 ±.006
+> MotifRole-Diff 0.955 ±.004 0.455 ±.005
+> MOSES Uniform MDLM 0.902 ±.012 0.822 ±.009
+> MotifRole-Diff 0.915 ±.007 0.837 ±.003
+> Guacamol (100k) Uniform MDLM 0.796 ±.002 0.438 ±.005
+> MotifRole-Diff 0.839 ±.007 0.634 ±.006
+
+Where the gain comes from. The role-wise diagnostics (Table 4) show MotifRole-Diff redistributes reconstruc-tion capacity toward high-criticality roles rather than im-proving all roles equally. On QM9 all three roles improve, most on the protected interface (NLL 0.497 → 0.354 , top-1 
+
+0.166 → 0.132 ); on MOSES interface NLL is essentially flat (0.712 → 0.708 ) while its top-1 improves ( 0.247 → 0.202 )and interior and syntax improve on both metrics. GuacaMol shows the same pattern: interface stays near baseline (NLL 
+
+0.903 → 0.899 ) while the more frequently corrupted syntax role improves sharply (NLL 0.435 → 0.314 ), and interior improves on both metrics. One plausible mechanism is that protecting the harder interface tokens, which are corrupted less and therefore remain visible longer during denoising, improves the context available for reconstructing the remain-ing interior and syntax tokens, so the gains are not confined to the protected role. This redistribution is exactly the reduction in modeled role-weighted risk the theory targets; the FCD, validity, and uniqueness gains remain empirical downstream effects. 
+
+Does mSENT Improve Motif Locality? (RQ4) 
+
+On 5,000 tokenized QM9 molecules, mSENT improves all eight motif-locality metrics over plain SENT (Fig. 3; example values in the caption), keeping motif-coherent substructures contiguous in the token stream. Definitions and complete values are in Supplementary Section S4 (Table S4). 
+
+# Related Work 
+
+Masked and discrete diffusion. Discrete diffusion extends denoising diffusion (Ho, Jain, and Abbeel 2020; Song et al. 2020) to categorical tokens. D3PM (Austin et al. 2021) introduced structured transition kernels and found the ab-sorbing ([MASK] ) kernel especially effective for text, with multinomial and argmax diffusion (Hoogeboom et al. 2021) as the uniform-kernel counterpart; continuous-time (Camp-bell et al. 2022) and score-based (Lou, Meng, and Ermon 2023) formulations followed. MDLM (Sahoo et al. 2024) and simplified objectives (Shi et al. 2024) show that a clean absorbing-state ELBO recovers much of the quality of au-toregressive models while retaining parallel generation, the diffusion counterpart of masked language modelling (Devlin et al. 2019). For decoding we adopt confidence-based sam-plers (Ghazvininejad et al. 2019; Chang et al. 2022). All of these corrupt every token with a single token-agnostic rate 
+
+αt; we reparameterize only that rate. 
+
+Graph diffusion and serialization. Native graph diffu-sion perturbs adjacency and feature tensors: EDP-GNN (Niu et al. 2020) and GDSS (Jo, Lee, and Hwang 2022b) use score-based SDEs, DiGress (Vignac et al. 2023a) runs dis-crete diffusion over node and edge categories, 3D-aware variants target geometry (Hoogeboom et al. 2022; Vignac et al. 2023b), and autoregressive models generate nodes and edges sequentially (You et al. 2018; Shi et al. 2020); these must handle permutation symmetry and quadratic edge tensors. We instead serialize the graph as strings, from SMILES (Weininger 1988) and SELFIES (Krenn et al. 2020) to sequence-model generation (Gómez-Bombarelli et al. 2018), while fragment- and motif-based methods build from substructures (Jin, Barzilay, and Jaakkola 2018b, 2020). Our lossless SENT/mSENT serialization additionally emits a per-token role label from the motif partition, so corruption can depend on structural function while the decoder stays unchanged. 
+
+Adaptive corruption schedules. Non-uniform noise is es-tablished: variational and improved models reshape the time 
+
+schedule (Kingma et al. 2021; Nichol and Dhariwal 2021), and continuous relaxations tune per-dimension noise for dis-crete data (Dieleman et al. 2022). Closest to us, Diffusion-BERT (He et al. 2023) makes the per-token mask rate non-uniform via corpus frequency ; ours is keyed instead to a to-ken’s structural role and its measured difficulty and impact ,which frequency cannot see. It is also not hand-designed: it solves a fixed-budget risk-allocation problem (Theorem 1) whose optimum is a water-filling rule, with uniform MDLM the flat-criticality special case (Corollary 1). 
+
+# Conclusion 
+
+Serialized molecular-graph diffusion is not role-agnostic but 
+
+role-sensitive : the tokens of a lossless serialization play dis-tinct structural roles that differ systematically in reconstruc-tion difficulty and in how much an error costs the decoded graph. Because a uniformly masked probe shows these roles separating sharply, we derive the corruption schedule as the risk-optimal allocation of a fixed masking budget (Theo-rem 1), with uniform MDLM its flat-criticality special case. At matched architecture, optimizer, and training budget, the derived schedule improves distributional fidelity and validity 0            
+
+> 0.25
+> 0.5
+> 0.75
+> 1
+> 0
+> 1
+> 2
+> Valid Unique Novel FCD
+> rate  ↑
+> FCD  ↓
+> QM9
+> 0
+> 0.25
+> 0.5
+> 0.75
+> 1
+> 0
+> 1
+> 2
+> Valid Unique Novel FCD
+> rate  ↑
+> FCD  ↓
+> MOSES
+> 0
+> 0.25
+> 0.5
+> 0.75
+> 1
+> 0
+> 1
+> 2
+> n/a n/a
+> Valid Unique Novel FCD
+> rate  ↑
+> FCD  ↓
+> GuacaMol
+> Uniform MDLM MotifRole-Diff (risk-optimal)
+
+Figure 2: Multi-seed robustness on QM9, MOSES, and GuacaMol ( 5 seeds, 5000 samples/seed; whiskers are 95% confidence intervals). Validity, uniqueness, and novelty ( left axis, higher is better) and FCD ( right axis, lower is better) for uniform MDLM (grey) vs. MotifRole-Diff (amber). MotifRole-Diff improves validity on all three datasets and FCD on QM9 and MOSES, with tight, largely non-overlapping intervals; the novelty dip on QM9 and MOSES reflects the fidelity–diversity trade discussed in the text. Novelty and FCD are not computed on GuacaMol (marked n/a), where uniqueness is already saturated. FCD is computed against the held-out test reference. Exact five-seed means and 95% confidence intervals are reported in Supplementary Table S1.    
+
+> 0246
+
+Intra-edge distortion +7.5% 
+
+Boundary alignment +7.3% 
+
+Same-motif adjacency +6.7% 
+
+Motif span +4.2% 
+
+Compactness +2.9% 
+
+Switch rate +1.3% 
+
+Fragmentation +1.0% 
+
+Motif transitions +0.7% 
+
+> Relative improvement of mSENT over SENT (%)
+
+Figure 3: Motif-aware serialization (mSENT) improves ev-ery one of the eight motif-locality metrics over plain SENT on 5,000 tokenized QM9 molecules (bars sorted by relative gain; each metric oriented so that higher is better). The largest gains are in intra-motif edge distortion ( 22 .27 → 20 .59 ), boundary alignment ( 0.124 → 0.133 ), and same-motif adja-cency ( 0.165 → 0.176 ), so motif-coherent substructures stay contiguous in the token stream. Metric definitions and com-plete values are in Supplementary Section S4 and Table S4. on QM9 and MOSES, and mSENT improves every motif-locality metric over SENT while leaving the lossless decoder unchanged. MotifRole-Diff reparameterizes only the cor-ruption process, adding neither noise nor compute, so mea-sured structural risk rather than corpus frequency or a hand-set curve decides where a graph is corrupted; the theorem certifies only the modeled role-weighted risk, so the genera-tion gains remain empirical. 
+
+# Limitations and Broader Impact 
+
+Our single-token impact estimator may understate multi-token interface fragility; the inference-time role prior P (r |
+
+v) could be sharpened with context-conditioned estimation; and the full-scale MOSES run transfers the QM9-derived schedule rather than re-estimating it, so a per-dataset sched-ule can only help while absolute FCD still trails full-training graph-native baselines. Theorem 1 is risk-optimal only for the modeled objective and does not guarantee that every genera-tion metric improves. On broader impact, MotifRole-Diff 
+
+only reparameterizes how a fixed serialization is corrupted and adds no capability beyond the uniform-MDLM baseline; as with any molecular generator, improved sample quality carries a general dual-use risk. All datasets are public and contain no sensitive information. 
+
+# References 
+
+Austin, J.; Johnson, D. D.; Ho, J.; Tarlow, D.; and van den Berg, R. 2021. Structured denoising diffusion models in discrete state-spaces. In Advances in Neural Information Processing Systems , volume 34, 17981–17993. Bickerton, G. R.; Paolini, G. V.; Besnard, J.; Muresan, S.; and Hopkins, A. L. 2012. Quantifying the chemical beauty of drugs. Nature chemistry 4(2):90–98. Brown, N.; Fiscato, M.; Segler, M. H.; and Vaucher, A. C. 2019. Guacamol: benchmarking models for de novo molec-ular design. Journal of chemical information and modeling 
+
+59(3):1096–1108. Campbell, A.; Benton, J.; De Bortoli, V.; Rainforth, T.; Deli-giannidis, G.; and Doucet, A. 2022. A continuous time framework for discrete denoising models. In Advances in Neural Information Processing Systems , volume 35. Chang, H.; Zhang, H.; Jiang, L.; Liu, C.; and Freeman, W. T. 2022. Maskgit: Masked generative image transformer. In 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , 11315–11325. Chen, X.; He, J.; Han, X.; and Liu, L.-P. 2023. Efficient and degree-guided graph generation via discrete diffusion modeling. In Proceedings of the 40th International Confer-ence on Machine Learning , volume 202 of Proceedings of Machine Learning Research .Chen, D.; Krimmel, M.; and Borgwardt, K. 2026. Flatten graphs as sequences: Transformers are scalable graph gener-ators. Advances in Neural Information Processing Systems 
+
+38:69071–69109. Devlin, J.; Chang, M.-W.; Lee, K.; and Toutanova, K. 2019. Bert: Pre-training of deep bidirectional transformers for lan-guage understanding. In Proceedings of the 2019 conference of the North American chapter of the association for compu-tational linguistics: human language technologies, volume 1 (long and short papers) , 4171–4186. Diamant, N.; Tseng, A. M.; Hase, P.; Bansal, M.; and Bian-calani, T. 2023. Improving graph generation by restricting graph bandwidth. In Proceedings of the 40th International Conference on Machine Learning , volume 202 of Proceed-ings of Machine Learning Research .Dieleman, S.; Sartran, L.; Roshannai, A.; Savinov, N.; Ganin, Y.; Richemond, P. H.; Doucet, A.; Strudel, R.; Dyer, C.; Durkan, C.; et al. 2022. Continuous diffusion for categorical data. arXiv preprint arXiv:2211.15089 .Ghazvininejad, M.; Levy, O.; Liu, Y.; and Zettlemoyer, L. 2019. Mask-predict: Parallel decoding of conditional masked language models. In Proceedings of the 2019 conference on empirical methods in natural language processing and the 9th international joint conference on natural language processing (EMNLP-IJCNLP) , 6112–6121. Gómez-Bombarelli, R.; Wei, J. N.; Duvenaud, D.; Hernández-Lobato, J. M.; Sánchez-Lengeling, B.; Sheberla, D.; Aguilera-Iparraguirre, J.; Hirzel, T. D.; Adams, R. P.; and Aspuru-Guzik, A. 2018. Automatic chemical design using a data-driven continuous representation of molecules. ACS central science 4(2):268–276. He, Z.; Sun, T.; Tang, Q.; Wang, K.; Huang, X.-J.; and Qiu, X. 2023. Diffusionbert: Improving generative masked lan-guage models with diffusion models. In Proceedings of the 61st annual meeting of the association for computational linguistics (volume 1: Long papers) , 4521–4534. Ho, J.; Jain, A.; and Abbeel, P. 2020. Denoising diffusion probabilistic models. Advances in neural information pro-cessing systems 33:6840–6851. Hoogeboom, E.; Nielsen, D.; Jaini, P.; Forré, P.; and Welling, M. 2021. Argmax flows and multinomial diffusion: Learning categorical distributions. Advances in neural information processing systems 34:12454–12465. Hoogeboom, E.; Satorras, V. G.; Vignac, C.; and Welling, M. 2022. Equivariant diffusion for molecule generation in 3d. In 
+
+International conference on machine learning , 8867–8887. PMLR. Jang, Y.; Lee, S.; and Ahn, S. 2024. A simple and scal-able representation for graph generation. In International Conference on Learning Representations .Jin, W.; Barzilay, R.; and Jaakkola, T. 2018a. Junction tree variational autoencoder for molecular graph genera-tion. In Proceedings of the 35th International Conference on Machine Learning , volume 80 of Proceedings of Machine Learning Research .Jin, W.; Barzilay, R.; and Jaakkola, T. 2018b. Junction tree variational autoencoder for molecular graph generation. In 
+
+International conference on machine learning , 2323–2332. PMLR. Jin, W.; Barzilay, R.; and Jaakkola, T. 2020. Hierarchical gen-eration of molecular graphs using structural motifs. In Pro-ceedings of the 37th International Conference on Machine Learning , volume 119 of Proceedings of Machine Learning Research , 4839–4848. Jo, J.; Lee, S.; and Hwang, S. J. 2022a. Score-based gen-erative modeling of graphs via the system of stochastic dif-ferential equations. In Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceed-ings of Machine Learning Research .Jo, J.; Lee, S.; and Hwang, S. J. 2022b. Score-based gen-erative modeling of graphs via the system of stochastic dif-ferential equations. In International conference on machine learning , 10362–10383. PMLR. Kingma, D.; Salimans, T.; Poole, B.; and Ho, J. 2021. Vari-ational diffusion models. Advances in neural information processing systems 34:21696–21707. Krenn, M.; Häse, F.; Nigam, A.; Friederich, P.; and Aspuru-Guzik, A. 2020. Self-referencing embedded strings (selfies): A 100% robust molecular string representation. Machine Learning: Science and Technology 1(4):045024. Lou, A.; Meng, C.; and Ermon, S. 2023. Discrete diffusion modeling by estimating the ratios of the data distribution. 
+
+arXiv preprint arXiv:2310.16834 .Nichol, A. Q., and Dhariwal, P. 2021. Improved denoising diffusion probabilistic models. In International conference on machine learning , 8162–8171. PMLR. Niu, C.; Song, Y.; Song, J.; Zhao, S.; Grover, A.; and Ermon, S. 2020. Permutation invariant graph generation via score-based generative modeling. In International conference on artificial intelligence and statistics , 4474–4484. PMLR. Polykovskiy, D.; Zhebrak, A.; Sanchez-Lengeling, B.; Golo-vanov, S.; Tatanov, O.; Belyaev, S.; Kurbanov, R.; Arta-monov, A.; Aladinskiy, V.; Veselov, M.; et al. 2020. Molec-ular sets (moses): a benchmarking platform for molecular generation models. Frontiers in pharmacology 11:565644. Preuer, K.; Renz, P.; Unterthiner, T.; Hochreiter, S.; and Klambauer, G. 2018. Fréchet chemnet distance: a metric for generative models for molecules in drug discovery. Jour-nal of chemical information and modeling 58(9):1736–1741. Ramakrishnan, R.; Dral, P. O.; Rupp, M.; and Von Lilienfeld, O. A. 2014. Quantum chemistry structures and properties of 134 kilo molecules. Scientific data 1(1):1–7. Sahoo, S. S.; Arriola, M.; Schiff, Y.; Gokaslan, A.; Marro-quin, E.; Chiu, J. T.; Rush, A. M.; and Kuleshov, V. 2024. Simple and effective masked diffusion language models. In 
+
+Advances in Neural Information Processing Systems , vol-ume 37. Shi, C.; Xu, M.; Zhu, Z.; Zhang, W.; Zhang, M.; and Tang, J. 2020. Graphaf: a flow-based autoregressive model for molec-ular graph generation. arXiv preprint arXiv:2001.09382 .Shi, J.; Han, K.; Wang, Z.; Doucet, A.; and Titsias, M. 2024. Simplified and generalized masked diffusion for discrete data. Advances in neural information processing systems 
+
+37:103131–103167. Song, Y.; Sohl-Dickstein, J.; Kingma, D. P.; Kumar, A.; Er-mon, S.; and Poole, B. 2020. Score-based generative model-ing through stochastic differential equations. arXiv preprint arXiv:2011.13456 .Vignac, C.; Krawczuk, I.; Siraudin, A.; Wang, B.; Cevher, V.; and Frossard, P. 2023a. DiGress: Discrete denoising diffusion for graph generation. In International Conference on Learning Representations .Vignac, C.; Osman, N.; Toni, L.; and Frossard, P. 2023b. Midi: Mixed graph and 3d denoising diffusion for molecule generation. In Joint European Conference on Machine Learning and Knowledge Discovery in Databases , 560–576. Springer. Weininger, D. 1988. Smiles, a chemical language and in-formation system. 1. introduction to methodology and en-coding rules. Journal of chemical information and computer sciences 28(1):31–36. You, J.; Liu, B.; Ying, Z.; Pande, V.; and Leskovec, J. 2018. Graph convolutional policy network for goal-directed molec-ular graph generation. Advances in neural information pro-cessing systems 31. This document collects the technical appendices for the main paper. Section, figure, and equation numbers are prefixed with “S”; references to Lemmas, Theorems, Equations, Tables, and Algorithms without an “S” prefix refer to the main paper. 
+
+# S1 Proofs and Additional Theoretical Results 
+
+Throughout, πr > 0 denotes the fraction of role-r tokens, cr := Ir ϵr ≥ 0 denotes role criticality, and ¯ρ ∈ (ρmin , ρ max ) denotes the uniform-MDLM exposure budget. 
+
+Information preservation. We show the identity H(Zπ ) = H(G) stated inline in the main text. Because Tπ is deterministic and invertible with inverse decoder D, it is a bijection between the support of G and the support of Zπ = Tπ (G). Therefore, for every graph g,
+
+Pr( Zπ = Tπ (g)) = Pr( G = g).
+
+The two random variables have the same multiset of probability masses, only relabeled. Shannon entropy is invariant under deterministic bijections, so H(Zπ ) = H(G).
+
+Proof of Lemma 1 (Decoding preserved). MotifRole-Diff modifies only the forward corruption process: 
+
+α(r) 
+
+> t
+
+= 1 − exp( −γr Λ( t)) .
+
+It does not modify the clean sequence distribution, the grammar, or the SENT decoder. The reverse model still predicts clean tokens z(i)0 . Hence, whenever the generated clean sequence z0 is grammar-valid, the lossless decoder reconstructs the same graph object, DSENT (z0) ∼= G. Setting γr ≡ 1 recovers the uniform MDLM corruption process exactly. 
+
+Derivation of Eq. 5. For a token of role r, graph distortion occurs only when the token is corrupted and then incorrectly reconstructed. Averaged over time, the probability of corruption is ρr . Conditional on corruption , the residual probability that the finite-capacity denoiser reconstructs the token incorrectly is ϵr (estimated from the probe difficulty Dr ), and conditional on such an error the expected graph-level distortion is at most Ir . Multiplying these factors and weighting by the role frequency 
+
+πr , the expected contribution of role r is bounded by 
+
+πr Ir ϵr ρr .
+
+Summing over roles gives the role-decomposed graph risk of the main text, 
+
+E[∆ graph ] ≤ X
+
+> r
+
+πr Ir ϵr ρr =: R(ρ),
+
+which is Eq. 5 of the main paper and the exact objective minimized by Theorem 1. Here ϵr is the residual error conditional on corruption and does not depend on ρr ; the exposure enters only through the linear factor ρr .
+
+Remark (exposure-dependent form). If the residual error itself varies with exposure, ϵr = ϵr (ρr ), the same argument yields the more general bound E[∆ graph ] ≤ P 
+
+> r
+
+πr Ir ϵr (ρr ). The linear objective above is the special case in which ϵr is exposure-independent; the generalization result (Theorem S2) is stated for this exposure-dependent form. 
+
+Proof of Theorem 1. We minimize 
+
+R(ρ) = X
+
+> r
+
+πr cr ρr
+
+over the compact feasible set 
+
+P =
+
+(
+
+ρ : X
+
+> r
+
+πr ρr = ¯ ρ, ρ min ≤ ρr ≤ ρmax 
+
+)
+
+.
+
+Since P is nonempty and compact and R is continuous, a minimizer exists. Introduce a Lagrange multiplier λ for the budget constraint and nonnegative multipliers μr , μ r for the lower and upper box constraints. The Lagrangian is 
+
+L(ρ, λ, μ, μ ) = X
+
+> r
+
+πr cr ρr − λ X
+
+> r
+
+πr ρr − ¯ρ
+
+!
+
+− X
+
+> r
+
+μr (ρr − ρmin ) + X
+
+> r
+
+μr (ρr − ρmax ). (S1) Stationarity gives 
+
+πr (cr − λ) − μr + μr = 0 .If cr > λ , then stationarity requires μr > 0, so complementary slackness gives ρ⋆r = ρmin . If cr < λ , then μr > 0, so 
+
+ρ⋆r = ρmax . If cr = λ, both box multipliers may vanish and any value in the interval is allowed. This proves the water-filling form and monotonicity. If cr ≡ c, then 
+
+R(ρ) = c X
+
+> r
+
+πr ρr = c¯ρ, 
+
+so every feasible allocation, including uniform MDLM, is optimal. Conversely, suppose there exist roles a, b with ca < c b. Because ¯ρ ∈ (ρmin , ρ max ), choose 
+
+0 < δ ≤ min {πa(ρmax − ¯ρ), π b(¯ ρ − ρmin )}.
+
+Move exposure from the higher-criticality role b to the lower-criticality role a:
+
+ρa = ¯ ρ + δ/π a, ρb = ¯ ρ − δ/π b,
+
+and keep all other roles at ¯ρ. This preserves the budget and remains inside the box. The change in risk is 
+
+R(ρ) − R (ρuni ) = caδ − cbδ = ( ca − cb)δ < 0.
+
+Therefore uniform MDLM is not optimal whenever criticalities are heterogeneous and a feasible exposure shift exists. Finally, 
+
+ρ(γ) = Et[1 − exp( −γΛ( t))] 
+
+is strictly increasing because 
+
+∂∂γ (1 − exp( −γΛ( t))) = Λ( t) exp( −γΛ( t)) > 0
+
+whenever Λ( t) > 0. Thus ρ−1 exists on the feasible interval, and the ordering of optimal exposures transfers to the ordering of optimal exponents γ⋆r = ρ−1(ρ⋆r ).
+
+Proof of Corollary 1. The result follows immediately from Theorem 1. If all criticalities are equal, the objective is constant on the fixed-budget feasible set, so uniform MDLM is optimal. If any strict improvement over uniform is possible, the criticalities cannot all be equal. 
+
+Proof of Proposition 1. Consider the regularized objective 
+
+J(ρ) = X
+
+> r
+
+πr cr ρr + 1
+
+η
+
+X
+
+> r
+
+πr KL( ρr ∥¯ρ).
+
+For Bernoulli means, 
+
+KL( ρ∥¯ρ) = ρ log ρ
+
+¯ρ + (1 − ρ) log 1 − ρ
+
+1 − ¯ρ .
+
+Its second derivative is d2
+
+dρ 2 KL( ρ∥¯ρ) = 1
+
+ρ(1 − ρ) > 0,
+
+so the objective is strictly convex on (0 , 1) . Hence the constrained minimizer is unique. The derivative is ddρ KL( ρ∥¯ρ) = σ−1(ρ) − σ−1(¯ ρ),
+
+where σ−1 is the logit. The Lagrangian stationarity condition is 
+
+cr + 1
+
+η
+
+ σ−1(ρr ) − σ−1(¯ ρ) − λ = 0 .
+
+Solving for ρr gives 
+
+σ−1(ρ⋆r ) = σ−1(¯ ρ) + η(λ − cr ),
+
+and therefore 
+
+ρ⋆r = σ σ−1(¯ ρ) + η(λ − cr ) .
+
+Since the sigmoid is strictly increasing and the argument is strictly decreasing in cr , the optimal exposure is strictly decreasing in role criticality. The following two guarantees are stated informally in the main text (end of the Theoretical Analysis section) and are formalized and proved here as supplement-only results. Theorem S1 (Stability to noisy criticality estimates) . Let bcr be plug-in criticality estimates with max r |bcr − cr | ≤ δ. Then the smooth allocation of Eq. 9 satisfies max r |bρ⋆r − ρ⋆r | = O(ηδ ), and if ρ−1 is locally Lipschitz on the feasible interval, 
+
+max r |bγ⋆r − γ⋆r | = O(ηδ ).Proof. For the smooth allocation, 
+
+ρ⋆r (c) = σ σ−1(¯ ρ) + η(λ − cr ) .
+
+The sigmoid derivative satisfies 
+
+0 < σ ′(x) ≤ 14 .
+
+Therefore, for fixed λ,
+
+|ρ⋆r (bc) − ρ⋆r (c)| ≤ η
+
+4 |bcr − cr |.
+
+If the multiplier also changes from λ to bλ, then 
+
+|bρ⋆r − ρ⋆r | ≤ η
+
+4
+
+
+
+|bcr − cr | + |bλ − λ|
+
+
+
+.
+
+The budget multiplier is determined implicitly by 
+
+X
+
+> r
+
+πr σ σ−1(¯ ρ) + η(λ − cr ) = ¯ ρ. 
+
+The left-hand side is smooth and monotone in λ. By the implicit function theorem, perturbing all cr by at most δ perturbs λ by 
+
+O(δ). Thus 
+
+max  
+
+> r
+
+|bρ⋆r − ρ⋆r | = O(ηδ ).
+
+If ρ−1 is locally Lipschitz on the feasible interval, then 
+
+|bγ⋆r − γ⋆r | = |ρ−1(bρ⋆r ) − ρ−1(ρ⋆r )| = O(ηδ ).
+
+Theorem S2 (Schedule generalization) . Assume the per-example graph-risk loss is bounded by B. With probability at least 
+
+1 − δ, for all pθ ∈ F , E[∆ graph ] ≤ bR(ρ) + 2 BRN (F) + Bplog(1 /δ )/(2 N ), where bR(ρ) = P 
+
+> r
+
+πr bIrbϵr (ρr ). At matched architecture, data size, and training budget the complexity terms are shared, so schedule comparisons are governed by the empirical role-weighted risk bR(ρ).Proof. For a fixed exposure allocation ρ, define the population role-weighted graph risk 
+
+R(ρ) = X
+
+> r
+
+πr Ir ϵr (ρr ).
+
+The empirical counterpart is 
+
+bR(ρ) = X
+
+> r
+
+πr bIrbϵr (ρr ).
+
+Assume the per-example graph-risk loss is bounded by B. Standard uniform convergence using Rademacher complexity gives, with probability at least 1 − δ, for all pθ ∈ F ,
+
+R(ρ) ≤ bR(ρ) + 2 BRN (F) + B
+
+r log(1 /δ )2N .
+
+Combining this with the exposure-dependent form of Eq. 5 (see the Remark above) gives 
+
+E[∆ graph ] ≤ bR(ρ) + 2 BRN (F) + B
+
+r log(1 /δ )2N .
+
+When comparing schedules at matched architecture, data size, and training budget, the complexity terms are shared. Therefore differences in the bound are driven by the empirical role-weighted risk term. 
+
+# S2 Reproducibility and Experimental Details 
+
+All results use existing checkpoints with no per-experiment retraining beyond the trained models described below. Every generation script is deterministic given its seed: each run is seeded once at start-up, and the multi-seed results (Table S1) average over five fixed generation seeds held constant across both methods, so MotifRole-Diff and uniform MDLM are compared on matched seeds. Backbone and training. A single masked discrete-diffusion transformer is shared by all conditions: hidden size 256 , 4 layers, 
+
+∼ 3.32 M parameters, absorbing ( [MASK] ) forward process. Optimizer Adam, learning rate 3 × 10 −4, batch size 64 . Only the per-role exponents γr and the inverse-exposure weight differ across schedules; the architecture, optimizer, and budget are held fixed (matched compute). 
+
+Schedule derivation. Role criticalities Cr are measured once on the uniform-MDLM checkpoint (difficulty Dr from probe NLL, impact Ir from single-token perturbation) and the smooth schedule (Eq. 9) is solved with η=2 and γr clipped to [0 .25 , 4.0] ;special is fixed at γ=1 .
+
+Metrics. Validity is the RDKit-sanitizable fraction; uniqueness and novelty use canonical SMILES (novelty vs. the training set). QED follows (Bickerton et al. 2012). FCD (Preuer et al. 2018) is computed with fcd_torch against a held-out reference split, never the training set. 
+
+Hardware. All timing and generation runs use a single NVIDIA TITAN RTX ( 24 GB); no multi-GPU or mixed-precision tricks are required. Code, configs, and the per-experiment scripts will be released publicly upon publication. 
+
+# S3 Additional Experimental Results and Ablations 
+
+Multi-seed robustness (numeric values for Figure 2 of the main paper). Table S1 gives the exact per-metric means and 
+
+95% confidence intervals summarized as grouped bars in the main paper’s multi-seed figure. Table S1: Multi-seed robustness on QM9, MOSES, and GuacaMol. Values are mean ± 95% confidence interval over 5 generation seeds using 5000 samples/seed; FCD is computed against the held-out test reference. Novelty and FCD are not computed on GuacaMol (marked “–”). Best values per dataset are highlighted.                                                                             
+
+> Dataset Method Valid ↑Unique ↑Novel ↑FCD ↓
+> QM9 Uniform MDLM 0.905 ±0.006 0.977 ±0.004 0.781 ±0.018 1.701 ±0.080
+> MotifRole-Diff 0.944 ±0.008 0.954 ±0.003 0.736 ±0.015 1.609 ±0.064
+> MOSES Uniform MDLM 0.920 ±0.008 0.945 ±0.003 0.996 ±0.007 2.125 ±0.096
+> MotifRole-Diff 0.938 ±0.003 0.986 ±0.005 0.916 ±0.015 1.850 ±0.032
+> GuacaMol (100k) Uniform MDLM 0.787 ±0.016 1.000 ±0.000 ––
+> MotifRole-Diff 0.841 ±0.008 0.984 ±0.001 ––
+
+Computational overhead. Table S3 gives the wall-clock and parameter counts referenced in the main paper’s “Computational overhead” paragraph: MotifRole-Diff adds no parameters and no extra passes, and matches uniform MDLM in training and sampling time within run-to-run noise. 
+
+# S4 Motif-Preservation Metric Definitions and Full Results 
+
+We compare SENT and mSENT on 5,000 tokenized QM9 molecules. For each molecule we compute atom-level motif assign-ments with the CAMT5-style motif partition, then serialize the same graph with either SENT or mSENT. Let π(v) be the first sequence position at which atom v appears and c(v) the motif ID of v. Lower span, motif transitions, switch rate, intra-edge distortion, and fragmentation indicate better motif locality; higher compactness, same-motif adjacency, and boundary alignment Table S2: Matched-compute staged component ablation on QM9. Row 1 →Row 2 isolates the mSENT tokenizer contribution (SENT → mSENT, both uniform, reweighting off); Row 2 →Row 3 gives the additional contribution of the complete role-aware configuration (derived schedule and inverse-exposure weighting together). Because the final configuration turns on both components jointly, this table does not isolate their individual effects; a schedule-only (reweighting-off) row would be required for a full decomposition. Best available value for each metric is shown in bold.                            
+
+> # Tokenizer Schedule Reweight-ing Valid. ↑Unique. ↑Novel. ↑
+> Atom Stab. ↑
+> 1 SENT Uniform ( γ= 1 )Off 0.853 0.750 0.733 0.887
+> 2 mSENT Uniform ( γ= 1 )Off 0.905 0.977 0.781 0.946
+> 3 mSENT MotifRole ( γ∗)On 0.944 0.954 0.736 0.955
+
+Table S3: Computational overhead of MotifRole-Diff vs. uniform MDLM (QM9, 4-layer backbone, one TITAN RTX). The schedule adds no parameters and no passes; wall-clock matches within noise. Role-aware sampling (Algorithm 1 of the main paper) adds only two O(L) table operations per reverse step. 
+
+Method Params Train (min/epoch) Sample 1000 (s) Uniform MDLM 3.32 M ∼ 1.25 91 .8
+
+MotifRole-Diff 3.32 M ∼ 1.25 87 .4
+
+indicate better motif preservation. The per-molecule metrics, listed in the same order as the rows of Table S4, are: 
+
+Span( m) = max 
+
+> v∈Vm
+
+π(v) − min 
+
+> v∈Vm
+
+π(v) + 1 , (S2) 
+
+Compact( m) = |Vm|
+
+Span( m) , (S3) 
+
+SMAR = 
+
+PL−1 
+
+> i=1
+
+1[c(zi) = c(zi+1 )] 
+
+L − 1 , (S4) 
+
+Trans = 
+
+> L−1
+
+X
+
+> i=1
+
+1[c(zi)̸ = c(zi+1 )] , (S5) 
+
+Switch = Trans 
+
+L − 1 , (S6) 
+
+IBA = 
+
+PL−1 
+
+> i=1
+
+1[c(zi)̸ = c(zi+1 )] 1[( zi, z i+1 ) ∈ E]Trans , (S7) 
+
+Dintra = 1
+
+|Eintra |
+
+X
+
+> (u,v )∈Eintra
+
+|π(u) − π(v)|, (S8) 
+
+Frag( m) = # {contiguous blocks of motif m}. (S9) Here Eintra = {(u, v ) ∈ E : c(u) = c(v)} denotes the set of intra-motif edges (both endpoints in the same motif). Equations S2– S9 correspond one-to-one, in order, to the mean motif span, compactness, same-motif adjacency, motif transitions, switch rate, boundary alignment, intra-edge distortion, and fragmentation rows of Table S4. Table S4 reports the full per-metric values summarized as relative gains in Figure 3 of the main paper; arrows indicate the preferred direction, and mSENT improves every metric. Table S4: Serialization-level motif preservation metrics comparing SENT and mSENT on QM9. Arrows indicate the preferred direction for each metric; mSENT improves all eight. 
+
+Metric SENT mSENT Mean motif span ↓ 18.09 17.33 Compactness ↑ 0.686 0.706 Same-motif adjacency ↑ 0.165 0.176 Motif transitions ↓ 22.03 21.87 Switch rate ↓ 0.835 0.824 Boundary alignment ↑ 0.124 0.133 Intra-edge distortion ↓ 22.27 20.59 Fragmentation ↓ 1.796 1.778
