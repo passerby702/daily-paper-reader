@@ -1,0 +1,388 @@
+Title: APO: Unsupervised Atomic Policy Optimization for 3D Structure Prediction of Atomic Systems
+
+URL Source: https://arxiv.org/pdf/2607.28553v1
+
+Published Time: Fri, 31 Jul 2026 01:28:37 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# APO: Unsupervised Atomic Policy Optimization for 3D Structure Prediction of Atomic Systems 
+
+Shentong Mo 1∗
+
+, Yatao Bian 21CMU, 2NUS 
+
+## Abstract 
+
+Predicting the 3D structures of atomic systems is fundamental to advancing ma-terial science and drug discovery. While flow-matching models ( e.g. , FlowDPO) have recently shown promise in this domain, their performance relies heavily on alignment with ground-truth coordinates via supervised preference learning. How-ever, obtaining experimental labels for novel crystal phases or de novo proteins is prohibitively expensive, creating a bottleneck for structural modeling in data-scarce regimes. In this work, we propose APO (Atomic Policy Optimization), a fully unsupervised alignment framework that eliminates the need for ground-truth reference structures. APO adapts group-relative policy optimization to 3D atomic environments, utilizing a novel dual-reward mechanism: (i) a Spectral Consistency Score that reinforces the policy’s dominant latent structural modes through eigen-decomposition of sample similarities, and (ii) a Crystal Entropy Proxy that enforces thermodynamic stability. Our framework enables the model to “self-correct” by identifying physically plausible configurations within sampled groups. Extensive benchmarks on crystal and antibody structure prediction demonstrate that APO con-sistently outperforms fully supervised baselines, achieving a new state-of-the-art in match rates and structural fidelity. Furthermore, we show that APO effectively straightens probability paths, significantly improving inference efficiency. Our results suggest that intrinsic physical consistency can serve as a superior guide for alignment compared to noisy, supervised coordinate matching. 
+
+## 1 Introduction 
+
+Predicting high-fidelity 3D structures of atomic systems is a fundamental challenge in computational biology and material science, with applications ranging from drug discovery to the development of novel functional materials [ 1, 2]. Accurate 3D modeling is essential for understanding the physical properties of substances and predicting their behavior in complex environments. While traditional physics-based algorithms often focus on finding local energy optima via sampling methods like Molecular Dynamics (MD) or Markov Chain Monte Carlo (MCMC), recent advancements have shifted toward deep generative models that learn stable structure distributions directly from experimental data [3, 4]. Among these, flow-matching models [ 5, 6] have emerged as a powerful paradigm, offering more flexible and often straighter probability paths than traditional diffusion-based approaches [ 7 ]. A notable state-of-the-art framework in this domain is FlowDPO [ 8], which integrates Direct Preference Optimization (DPO) [ 9] into flow-matching models to suppress sampling hallucinations and improve generation quality. FlowDPO operates by generating candidate structures, ranking them based on their distance to ground-truth coordinates, and using this preference data to align the model toward high-fidelity distributions. However, a critical limitation of existing alignment methods like FlowDPO is their strict reliance on supervised signals. These frameworks require ground-truth reference  
+
+> ∗Corresponding author: shentongmo@gmail.com .Preprint. arXiv:2607.28553v1 [cs.LG] 30 Jul 2026 Figure 1: 3D representation of the atomic energy landscape, highlighting the challenge of local minima (hallucinations) versus the global minimum (stable structure) that the entropy reward targets.
+
+structures, such as experimental crystal structures from the Materials Project [ 10 ] or validated protein folds from the PDB [ 11 ], to construct preference pairs and compute rewards like Root Mean Square Deviation (RMSD). In many scientific frontiers, such as the discovery of entirely new crystal phases or the design of de novo proteins [ 12 ], ground-truth data is prohibitively expensive or non-existent. This dependence on labeled supervision restricts the ability of current models to explore and align within the vast, unlabeled conformational space where physical principles, rather than labels, serve as the ultimate guide. The primary challenge in moving beyond supervision lies in deriving meaningful preference signals from the intrinsic geometry and physics of the system itself, without reverting to the computational bottleneck of expensive physics-based simulations. Unlike supervised alignment, where the ground-truth provides a clear directional gradient toward a global optimum, intrinsic rewards in atomic systems are often sparse and noisy. The potential energy surface of complex molecules and crystals is characterized by a vast number of local minima, as illustrated in Figure 1; consequently, simple physical proxies may inadvertently reward metastable or unphysical configurations that exhibit low energy but lack structural integrity. Furthermore, defining a “preference" in a multi-agent atomic environment requires capturing high-order geometric dependencies. While FlowDPO uses a point-to-point distance (RMSD) to a known target, an unsupervised agent must evaluate the quality of a generated structure by looking at the collective harmony of its atoms. This necessitates a mechanism that can distinguish between “global" structural modes and “local" noise without a reference template. Finally, there is a distributional shift challenge: as the policy evolves to minimize intrinsic energy or maximize consistency, it may collapse into a narrow set of overly simplistic structures (mode collapse), making it difficult to maintain the structural diversity required for applications like antibody design or polymorphic crystal discovery. To address this, we introduce APO (Atomic Policy Optimization), a fully unsupervised alignment framework that eliminates the need for ground-truth coordinates during training. APO adapts Group Relative Policy Optimization (GRPO, [ 13 ]) to atomic environments, enabling iterative policy refinement driven purely by intrinsic feedback. Our solution formulates a dual-reward mechanism to guide the alignment: (i) a spectral consistency score , which utilizes the eigen-decomposition of a representation similarity matrix to reward candidates aligned with the policy’s dominant latent structural modes; and (ii) a crystal entropy minimization objective, which serves as a thermodynamic proxy for structural stability. By utilizing these signals within a group-based tournament, APO allows the model to “self-correct" by preferring physically plausible and structurally consistent configurations over hallucinated ones. 2We evaluate APO on two distinct scientific benchmarks: Crystal Structure Prediction and Antibody Structure Prediction. Our APO consistently outperforms the fully supervised FlowDPO across all metrics, achieving higher Match Rates in materials and lower RMSD in antibody CDR loop prediction. We demonstrate that APO successfully aligns various flow geometries, including Variance Preserving (VP) and Optimal Transport (OT) paths, with the most significant gains observed in OT paths due to a “path-straightening" effect. Analysis reveals that APO-aligned models exhibit emergent periodic symmetries and thermodynamic stability that exceed models trained purely on coordinate-wise supervision. These results suggest that 3D atomic system alignment can be effectively driven by intrinsic physical consistency, paving the way for high-fidelity structure prediction in data-scarce scientific domains. Our main contributions are summarized as: • We propose APO , the first unsupervised alignment framework for 3D atomic structure prediction. By adapting group-relative policy optimization to geometric data, we eliminate the dependency on ground-truth coordinates, enabling high-fidelity generation in label-scarce scientific domains. • We introduce a novel intrinsic reward system that combines a Spectral Consistency Score 
+
+for global manifold alignment with a Crystal Entropy Proxy for thermodynamic stability. We provide theoretical propositions proving that these signals serve as valid proxies for the physical structural manifold. • We demonstrate that APO is compatible with diverse flow-matching probability paths (OT, VP, VE). Our analysis reveals that APO effectively “straightens” these paths by pruning unphysical trajectories, leading to superior inference efficiency and structural accuracy. • Extensive benchmarks on crystal and antibody datasets show that APO consistently outper-forms the fully supervised FlowDPO baseline, achieving a new state-of-the-art in match rates and RMSD without utilizing any ground-truth labels during the alignment phase. 
+
+## 2 Related Work 
+
+Generative Modeling for 3D Atomic Systems. The prediction of 3D structures for crystals and proteins has evolved from classical energy-based minimization to deep generative models. Earlier approaches utilized Variational Autoencoders (VAEs) and Generative Adversarial Networks (GANs) to explore conformational spaces [ 2, 14 ]. Recently, Diffusion Models and Score-based Generative Models have set new benchmarks by learning to reverse a diffusion process to recover stable atomic coordinates [ 15 , 4 ]. However, these models often suffer from slow sampling and the presence of unphysical "hallucinations" in high-variance regions of the potential energy surface. 
+
+Flow Matching and Probability Paths. Flow matching (FM) has emerged as a compelling alternative to diffusion, offering a simulation-free training objective for continuous-time normalizing flows [ 5, 6]. By allowing the exploration of diverse probability paths, such as Optimal Transport (OT) and Variance Preserving (VP) paths, FM models can achieve straighter trajectories and faster inference. Specifically, 
+
+(author?) [8] recently introduced flow-matching to atomic structure prediction, demonstrating that path selection significantly impacts structural fidelity. APO builds upon this foundation but departs from the reliance on supervised path-matching by introducing unsupervised policy refinement. 
+
+Alignment and Preference Optimization. Aligning generative models with human preferences or specific qualities has seen massive success in large language models (LLMs) via Reinforcement Learning from Human Feedback (RLHF) [ 16 ] and Direct Preference Optimization (DPO) [ 9]. In the scientific domain, (author?) [8] pioneered the use of DPO to align 3D structures by ranking candidates according to their RMSD to ground-truth coordinates. However, such supervised alignment is constrained by the availability and noise of labeled data. Our work is inspired by recent advances in label-free RL, such as Group Relative Policy Optimization (GRPO) [ 13 ], which eliminates the need for a critic network by utilizing group-relative advantages. APO adapts this paradigm to the geometric and physical constraints of atomic systems. 
+
+Intrinsic and Physics-Informed Rewards. Incorporating physical priors into neural networks is a long-standing goal in AI for Science [ 17 ]. While many models use energy-based losses during training, these often require expensive differentiable simulators. Our approach instead utilizes 
+
+intrinsic signals, spectral consistency and spatial entropy, as lightweight proxies for physical stability. 3Figure 2: Illustration of the proposed APO framework for 3D structure prediction. APO enables unsuper-vised alignment of 3D atomic structure generators without relying on ground-truth coordinates. (Left) A base flow-matching policy πθ generates a group of G candidate structures, which initially suffer from sampling hallucinations and unphysical geometries. (Center) The generated group undergoes a tournament-style evalua-tion based on a dual-reward mechanism: (i) the Spectral Consistency Score (Rspec ) identifies global structural consensus via eigen-decomposition of the representation manifold, and (ii) the Crystal Entropy Proxy (Rphys )enforces local thermodynamic stability and periodic regularity. (Right) Group-relative advantages are computed to update the policy, iteratively shifting probability mass toward high-fidelity, physically consistent modes. This process results in "straightened" probability paths that yield stable, high-fidelity structures at inference time. 
+
+Spectral methods have been widely used in manifold learning and clustering [ 18 ], and we extend this intuition to evaluate structural consensus within a generation policy. Similarly, entropy minimization serves as a classic thermodynamic principle for crystal stability [ 19 ], which we reformulate into a differentiable reward for unsupervised alignment. 
+
+## 3 Method 
+
+In this section, we present APO (Atomic Policy Optimization), a fully unsupervised framework for aligning flow-matching models in 3D atomic systems, as shown in Figure 2. Unlike existing preference-based methods that rely on ground-truth coordinates, APO utilizes intrinsic physical and geometric properties to derive preference signals. We first provide the preliminaries on flow matching and preference optimization, then detail our dual-reward mechanism and the group-based policy optimization process. 
+
+3.1 Preliminaries 
+
+We consider the generation of a 3D structure x ∈ R3N given a condition c (e.g. , a chemical composition or an amino acid sequence). A flow-matching model learns a time-dependent vector field vθ (xt, t ) that defines a probability path pt between a prior distribution p1 (e.g., Gaussian noise) and the target data distribution p0. The objective is: 
+
+LFM (θ) = Et∼U [0 ,1] ,xt∼pt(xt)
+
+∥vθ (xt, t ) − ut(xt|x0)∥2 , (1) where ut is the conditional vector field derived from a probability path. 
+
+Direct Preference Optimization (DPO). To refine the generation quality, FlowDPO [ 8 ] constructs a preference dataset D = {(xw, xl, c)}, where xw is a generated sample closer to the ground-truth x0
+
+than xl (e.g., via RMSD). The policy is aligned by maximizing the likelihood of xw relative to xl.However, this formulation is strictly supervised as it requires the existence of x0.
+
+3.2 Intrinsic Reward Mechanism 
+
+A central challenge in unsupervised alignment is the absence of a reference structure x0 to compute distance-based rewards. APO addresses this by utilizing the statistical properties of the policy’s own latent space and the physical constraints of the atomic system. 4Spectral Consistency Score. We define a reward based on the hypothesis that the "correct" physical structure corresponds to the dominant mode of the policy’s current belief. Given a group of G
+
+sampled candidates {ˆx1, . . . , ˆxG}, we first extract equivariant features zi = ϕθ (ˆ xi, c) using the model’s encoder ϕθ . We then construct a self-similarity matrix S ∈ RG×G where: 
+
+Sij = exp (cos( zi, zj )/τ )
+
+PGk=1 exp (cos( zi, zk)/τ ) , (2) and τ is a temperature hyperparameter. To identify the most consistent structure, we perform an eigen-decomposition of the Laplacian L = I − D−1/2SD −1/2. The spectral reward Rspec is defined as the projection of the sample’s embedding onto the principal component of the group’s representation space: 
+
+Rspec (ˆ xi) = ⟨zi, u1⟩, where Su 1 = λ1u1, (3) where λ1 is the largest eigenvalue. This encourages the policy to favor samples that reside in high-density regions of the latent manifold. 
+
+Thermodynamic Plausibility via Crystal Local Density Entropy. For atomic systems, structural stability is inversely related to the Gibbs free energy. In the absence of an explicit energy estimator, we utilize a spatial entropy proxy H(ˆ x) to penalize unphysical “hallucinations" ( e.g. , overlapping atoms or highly fractured lattices). For a system of N atoms, let djk be the Euclidean distance between atoms j and k. We define the local density estimator for atom j as: 
+
+ρj =
+
+> N
+
+X 
+
+> k̸=j
+
+K
+
+ djk − μσ
+
+
+
+, (4) where K is a Gaussian kernel. The entropy-based reward is formulated as: 
+
+Rphys (ˆ x) = −
+
+> N
+
+X
+
+> j=1
+
+ρj
+
+P ρ log 
+
+ ρj
+
+P ρ
+
+
+
+. (5) Minimizing this entropy encourages the formation of high-symmetry, periodically stable packing patterns in crystals and prevents steric clashes in antibody structures. To theoretically justify the use of these intrinsic signals as proxies for supervised labels, we provide the following propositions. 
+
+Proposition 3.1 (Spectral Consistency as Maximum Likelihood Alignment) . Let Pθ (z|c) be the latent distribution of the current policy. If the latent embeddings {zi}Gi=1 are sampled i.i.d. from a mixture of a target structural mode and Gaussian noise, then the principal eigenvector u1 of the similarity matrix S converges to the direction of the maximum likelihood estimate of the dominant structural mode as G → ∞ .Proof Sketch. By the properties of spectral clustering and the Law of Large Numbers, the similar-ity matrix S can be viewed as an empirical estimation of the integral kernel operator Kf (z) = R K(z, z ′)f (z′)dP(z′). Under the assumption that the true physical structure constitutes the primary cluster in the policy’s manifold, the Perron-Frobenius theorem guarantees that the lead eigenvector 
+
+u1 represents the central density of this cluster. Thus, maximizing Rspec (ˆ xi) = ⟨zi, u1⟩ is equivalent to aligning the sample with the policy’s consensus, which, in a well-initialized model, correlates with the physical manifold. 
+
+Proposition 3.2 (Entropy-Stability Duality) . For a periodic atomic system, the crystal entropy 
+
+Hcrystal (ˆ x) is an upper bound on the configurational component of the Gibbs free energy G under the assumption of a constant potential field. Proof Sketch. The Gibbs free energy is given by G = U + P V − T S . In the localized atomic limit where the internal energy U and pressure-volume P V terms are dominated by local packing density, the stability of the crystal is maximized when the configurational entropy S (related to spatial disorder) is minimized. By defining Hcrystal as the Shannon entropy of the local density estimator ρj ,we directly minimize the spatial variance of the atomic distribution. Therefore, min Hcrystal identifies the highly ordered, low-energy lattice configurations preferred in thermodynamic equilibrium. 5Table 1: Comparison on Perov-5, MP-20, and MPTS-52. Best results are in bold .                                                                          
+
+> Perov-5 MP-20 MPTS-52 Method MR (%) RMSE MR (%) RMSE MR (%) RMSE
+> P-cG-SchNet 48.22 0.4179 15.39 0.3762 3.67 0.4115 CDVAE 45.31 0.1138 33.90 0.11045 5.34 0.2106 VP + VE Path 52.02 0.0760 51.49 0.0631 12.19 0.1786 OT + OT Path 53.95 0.1508 57.40 0.1185 17.40 0.2405 OT + VE Path 52.29 0.0782 58.94 0.0621 18.91 0.1435 VP + VE + DPO 53.47 0.0762 59.98 0.0622 14.75 0.1780 VP + VE + APO (ours) 54.12 0.0721 61.15 0.0589 16.02 0.1395
+> OT + OT + DPO 55.56 0.1376 59.62 0.0898 22.36 0.1678 OT + OT + APO (ours) 55.88 0.1302 61.42 0.0812 23.01 0.1604
+> OT + VE + DPO 53.94 0.0765 62.47 0.0606 20.27 0.1419 OT + VE + APO (ours) 54.91 0.0732 63.05 0.0580 21.14 0.1372
+
+Proposition 3.3 (Gradient Equivalence) . Let ∇θ LDP O be the supervised gradient from FlowDPO using ground-truth x0. Under the condition that Rtotal (ˆ x) is monotonically decreasing with respect to RMSD (ˆ x, x0), the unsupervised APO gradient ∇θ LAP O points in the same descent half-space as 
+
+∇θ LDP O .Proof. Consider the advantage Ai in APO. If Rtotal is a valid proxy for structural similarity, then for any pair (xw, xl) where RMSD (xw, x0) < RMSD (xl, x0), we have Rw > R l and consequently 
+
+Aw > A l. Since the APO objective maximizes the log-probability of samples with higher Ai, the resulting parameter update ∆θ reinforces the same probability transitions as the supervised DPO loss, satisfying ⟨∇ θ LAP O , ∇θ LDP O ⟩ > 0.
+
+3.3 Unsupervised Atomic Policy Optimization 
+
+APO optimizes the flow-matching vector field vθ by maximizing the relative advantage of sampled groups. Unlike FlowDPO, which uses a binary cross-entropy loss on fixed pairs, APO utilizes a group-relative policy gradient. 
+
+Group Relative Advantage. For each generation task, we sample G independent trajectories 
+
+Ti = {xt,i }1
+
+> t=0
+
+. We compute the total reward Ri = αR spec (ˆ xi) + βR phys (ˆ xi). To stabilize training without a value network, we compute the relative advantage Ai within the group: 
+
+Ai = Ri − 1
+
+> G
+
+PGj=1 Rj
+
+std ({Rj }Gj=1 ) + ϵ . (6) 
+
+The APO Objective. We incorporate this advantage into the flow-matching framework. Let πθ
+
+be the policy defined by the vector field vθ . The optimization objective minimizes the negative log-likelihood of high-advantage samples while regularizing against the reference (pre-trained) flow 
+
+vref :
+
+LAPO (θ) = − 1
+
+G
+
+> G
+
+X
+
+> i=1
+
+[Ai · ∇ θ log πθ (ˆ xi|c) − ηDKL (πθ ∥πref )] . (7) In the context of flow matching, the log-likelihood gradient ∇θ log πθ is approximated via the path integral of the score function: 
+
+∇θ log πθ (ˆ x|c) ≈
+
+Z 10
+
+∇θ ∥vθ (xt, t ) − ut(xt|x0)∥2dt. (8) This formulation allows APO to iteratively push the probability flow toward physically and geometri-cally consistent regions of the 3D space, effectively performing “self-alignment" without any external labels. To guarantee the stability and optimality of the unsupervised update rule, we provide the following theoretical results. 6Proposition 3.4 (Variance Reduction via Group Relativization) . The group-relative advantage estimator Ai is an unbiased estimator of the policy gradient while minimizing the variance of the gradient update ∇θ LAP O . Specifically, for a fixed group size G, the variance of the gradient is reduced by a factor proportional to the group-wise reward covariance. Proof Sketch. In standard policy gradients, the variance is often high due to the absolute scale of rewards Ri. By subtracting the group mean ¯R = 1
+
+> G
+
+P Rj , we essentially introduce a baseline b = ¯R.Since E[∇ log πθ ·b] = 0 , the gradient remains unbiased. By further dividing by the standard deviation 
+
+σR, we normalize the signal-to-noise ratio across different conditions c, ensuring that high-variance reward distributions in complex atomic systems do not dominate the parameter updates. 
+
+Proposition 3.5 (Convergence to Intrinsic Equilibrium) . Let R(x) be the total intrinsic reward. Under the APO update rule, the flow-matching density pθ (x) converges to a Gibbs-like distribution 
+
+p∗(x) ∝ pref (x) exp( 1 
+
+> η
+
+R(x)) , where pref is the pre-trained flow and η is the KL-regularization coefficient. Proof Sketch. The APO objective can be framed as a constrained optimization problem: 
+
+max π Eπ [R(x)] −ηDKL (π∥πref ). The first-order optimality condition for this functional is given by the Euler-Lagrange equation. Solving for π yields the exponential tilting of the reference distribution. Since our path-integral gradient approximation follows the score function of the evolving density, the vector field vθ iteratively tracks the gradient of this optimal density, reaching equilibrium when the flow-matching loss and the advantage-weighted gradient balance. 
+
+Proposition 3.6 (Equivariant Consistency of the Policy Update) . If the flow-matching vector field vθ
+
+and the reward function R are equivariant under the Euclidean group E(3) , then the APO update 
+
+∆θ preserves the equivariance of the probability flow. Proof. An update ∆θ is equivariant if vθ+∆ θ (gx) = gv θ+∆ θ(x) for any g ∈ E(3) . Since the spectral consistency reward is derived from equivariant embeddings and the crystal entropy is calculated via inter-atomic distances djk (which are E(3) -invariant), the advantage Ai is an invariant scalar. The gradient ∇θ log πθ inherits the symmetry properties of the equivariant architecture ϕθ . Therefore, the total gradient P Ai∇θ log πθ is a linear combination of equivariant updates, ensuring the aligned policy remains physically consistent across rotations and translations. 
+
+## 4 Experiments 
+
+In this section, we evaluate the effectiveness of APO on two distinct and challenging 3D atomic structure prediction tasks: Crystal Structure Prediction and Antibody Structure Prediction. We aim to demonstrate that APO’s unsupervised alignment via intrinsic physical and geometric signals can match or even exceed the performance of supervised alignment methods. 
+
+4.1 Experimental Setup Datasets. Consistent with [ 8 ], we utilize three benchmark datasets for crystal structure prediction: Perov-5, MP-20, and MPTS-52. These datasets cover a wide range of chemical compositions and space groups, representing various levels of structural complexity. For antibody structure prediction, we evaluate on the SAbDab dataset, focusing on the highly variable Complementarity-Determining Regions (CDRs) which are critical for antigen binding. 
+
+Evaluation Metrics. For crystal structures, we report the Match Rate (MR), defined as the percentage of generated structures that match the ground-truth within a specific RMSD threshold, and the RMSE of the atomic positions. For antibodies, we measure the RMSD (Å) of the Cα atoms and the full backbone (bb) for the six CDR loops (L1–L3, H1–H3). We report both raw RMSD and weighted RMSD (-w) to account for structural variability. 
+
+Implementation. We use the same equivariant backbone as FlowDPO for a fair comparison. For APO, the group size G is set to 8. The spectral consistency reward uses a temperature τ = 0 .1,and the crystal entropy reward is computed using a Gaussian kernel with σ = 0 .2. Optimization is performed using AdamW with a learning rate of 1e − 4. Unlike FlowDPO, APO does not access ground-truth coordinates during the alignment phase. 7Table 2: Comparison of L1–L3 and H1–H3 results across different path and DPO variants. Best results are in 
+
+bold .                                                                                                                                                                            
+
+> Model L1 L2 L3 Cα-w Cαbb-w bb Cα-w Cαbb-w bb Cα-w Cαbb-w bb VP Path 2.71 2.00 2.56 2.06 1.11 0.95 1.08 0.96 1.32 0.99 1.39 1.08 OT Path 2.25 1.77 2.24 1.83 1.13 0.96 1.10 0.96 1.49 1.05 1.45 1.13 VP Path + DPO 2.47 1.91 2.31 1.95 1.09 0.94 1.07 0.94 1.22 0.94 1.30 1.01 VP Path + APO (ours) 2.27 1.79 2.21 1.81 1.07 0.92 1.05 0.92 1.16 0.87 1.21 0.93
+> OT Path + DPO 2.22 1.74 2.19 1.78 1.09 0.93 1.05 0.93 1.28 0.95 1.34 1.05 OT Path + APO (ours) 2.15 1.63 2.01 1.65 1.03 0.89 1.01 0.91 1.18 0.89 1.23 0.95
+> Model H1 H2 H3 Cα-w Cαbb-w bb Cα-w Cαbb-w bb Cα-w Cαbb-w bb VP Path 1.18 0.83 1.14 0.89 1.41 0.92 1.45 1.00 5.01 3.77 4.95 3.78 OT Path 1.31 0.89 1.26 0.94 1.69 1.06 1.60 1.13 4.81 3.66 4.83 3.70 VP Path + DPO 1.13 0.80 1.13 0.86 1.35 0.87 1.37 0.95 4.42 3.44 4.38 3.45 VP Path + APO (ours) 1.08 0.78 1.12 0.83 1.32 0.82 1.32 0.92 4.31 3.35 4.28 3.35
+> OT Path + DPO 1.23 0.83 1.19 0.89 1.46 0.95 1.41 1.02 4.28 3.32 4.23 3.32 OT Path + APO (ours) 1.15 0.79 1.13 0.85 1.33 0.83 1.35 0.95 4.15 3.21 4.12 3.22
+
+4.2 Comparison to Prior Work Crystal Structure Prediction. Table 1 summarizes the performance on the three material benchmarks. APO consistently outperforms the fully supervised FlowDPO across all path variants (VP and OT). Notably, on the most challenging MPTS-52 dataset, OT + VE + APO achieves a Match Rate of 21.14%, a significant improvement over the 20.27% achieved by FlowDPO. This result is particularly significant: it indicates that by optimizing for spectral consistency and entropy minimization, APO finds more stable and physically plausible lattice configurations than a model trained simply to minimize coordinate distance to a label. The improvement in RMSE across all benchmarks further suggests that APO’s intrinsic reward landscape is smoother and more conducive to fine-grained structural refinement than the supervised DPO loss. The performance gain in crystal structure prediction highlights a fundamental advantage of unsupervised alignment: robustness to periodic degeneracy. In crystal systems, multiple coordinate-wise representations can describe the same physical lattice due to periodic boundary conditions and cell permutations. 
+
+Antibody Structure Prediction. Antibody CDR loops are notoriously difficult to predict due to their high flexibility. As shown in Table 2, APO achieves state-of-the-art results across all six CDR loops. In the H3 loop, the most diverse and difficult region, APO (OT Path) reduces the Cα RMSD to 3.21 Å, outperforming FlowDPO’s 3.32 Å. The superior performance on antibodies highlights the strength of the Spectral Consistency Score . By rewarding candidates that align with the dominant latent modes of the group, APO effectively filters out "hallucinated" loop conformations that are statistically improbable. While FlowDPO relies on a single ground-truth reference that may represent only one of many valid conformational states, APO’s group-based tournament allows it to explore and reinforce a more robust structural manifold. The superior performance on antibodies highlights the strength of the Spectral Consistency Score in handling conformational multi-modality. Standard supervised DPO assumes a single "correct" answer ( x0), which can lead to mode collapse or blurry generations when the loop can naturally exist in multiple metastable states. In contrast, APO’s spectral reward identifies the dominant structural modes among a group of candidates. By rewarding samples that align with the principal eigenvector of the representation matrix, APO effectively performs "on-the-fly" ensemble refinement. 
+
+4.3 Experimental Analysis 
+
+In this section, we conduct a series of ablation studies and qualitative analyses to validate the key design choices of APO and to gain insight into how unsupervised alignment shapes the generation manifold. 
+
+Contribution of Reward Components. We investigate the impact of the two primary intrinsic signals: the Spectral Consistency Score ( Rspec ) and the Crystal Entropy ( Rphys ). We perform this 8Table 3: Ablation study on reward components.                      
+
+> Ablation Config Match Rate (%) ↑RMSE ↓
+> Full APO (OT + VE) 63.05 0.0580
+> w/o Spectral Consistency ( Rspec )60.82 0.0615 w/o Crystal Entropy ( Rphys )61.44 0.0642 w/o Both (Base FM) 58.94 0.0621
+> Table 4: Comparative Match Rate (%) on MP-20 across different flow paths. APO consistently outperforms supervised DPO regardless of the underlying ODE path.
+> Path Type Base FM FlowDPO (Sup.) APO (ours) VP + VE 51.49 59.98 61.15
+> OT + OT 57.40 59.62 61.42
+> OT + VE 58.94 62.47 63.05
+
+ablation on the MP-20 dataset using the OT+VE path configuration. As shown in Table 6, removing 
+
+Rspec leads to a notable decrease in Match Rate ( −2.23% ), suggesting that spectral alignment is crucial for identifying the correct structural mode within the policy’s distribution. Conversely, removing Rphys results in a significant increase in RMSE ( +0 .0062 ), confirming that the entropy proxy is essential for enforcing local physical regularity and preventing steric clashes or unphysical packing. The combination of both signals yields the highest fidelity, illustrating the synergy between geometric consensus and physical constraints. The distinct roles of Rspec and Rphys are further elucidated by analyzing the failure modes each mitigates. Without Rspec , the model often generates “chemically valid but structurally irrelevant” samples, configurations that satisfy local bonding rules but fail to reach the global symmetry of the target crystal class. This confirms that Rspec acts as a global mode-seeking signal, forcing the policy to converge on the consensus lattice parameters discovered during the group tournament. Conversely, the removal of Rphys leads to a proliferation of “geometric hallucinations,” such as atomic clusters collapsing or unrealistic void spaces. By penalizing high-entropy spatial distributions, Rphys enforces thermodynamic realism. 
+
+Stability across Probability Paths. Finally, we evaluate APO across various probability paths, specifically comparing Variance Preserving (VP) and Optimal Transport (OT) formulations. As shown in Table 4, APO’s performance gains are consistent across all frameworks, demonstrating that the intrinsic reward signals provide a robust gradient regardless of the underlying ODE dynamics. A key observation is that the improvement is most pronounced when using the Optimal Transport (OT) path. While the base OT model already benefits from a theoretically straighter trajectory between the prior and the data distribution, it remains susceptible to sampling hallucinations that drift into low-density regions of the atomic manifold. APO acts as a precision “pruning" mechanism for these trajectories. By penalizing high-entropy intermediate states through Rphys , APO effectively constrains the flow matching vector field to stay within physically plausible corridors. The consistent performance boost in the Variance Exploding (VE) and Variance Preserving (VP) variants further underscores the universality of the Spectral Consistency Score . Even when the noise schedule introduces complex non-linearities in the probability path, the group-based tournament remains capable of extracting the dominant latent structural features. This empirical evidence supports our theoretical claim that 3D molecular alignment can be decoupled from specific path parameterizations, provided the policy is guided by intrinsic physical consistency. 
+
+## 5 Conclusion 
+
+In this work, we present APO , a novel unsupervised alignment framework for 3D atomic structure prediction. By departing from the supervised paradigm of existing flow-matching alignment methods like FlowDPO, APO addresses the fundamental bottleneck of data scarcity in scientific discovery. Our framework leverages a group-relative policy optimization strategy, guided by a dual-reward mechanism that combines spectral consistency with thermodynamic entropy minimization. Our extensive experimental analysis on crystal and antibody benchmarks demonstrates that APO not only achieves state-of-the-art generation quality but also exhibits emergent physical properties, such as lattice regularity and improved space-group stability, that often elude models trained purely on coordinate-wise supervision. Furthermore, we provide evidence that unsupervised alignment effectively “straightens” the probability paths of flow-matching models. 9References 
+
+[1] John Jumper, Richard Evans, Alexander Pritzel, Tim Green, Michael Figurnov, et al. Highly accurate protein structure prediction with alphafold. Nature , 595(7868):583–589, 2021. [2] Tian Xie, Xiang Fu, Octavian-Eugen Ganea, Regina Barzilay, and Tommi Jaakkola. Crystal diffusion variational autoencoder for periodic material generation. In International Conference on Learning Representations (ICLR) , 2022. [3] Bowen Jing, Gabriele Corso, Jeffrey Chang, Regina Barzilay, and Tommi Jaakkola. Torsional diffusion for molecular conformer generation. In Advances in Neural Information Processing Systems (NeurIPS) , 2022. [4] Shitong Luo, Yufeng Su, Jian Peng, and Jianzhu Ma. Antigen-specific antibody design and optimization with diffusion-based generative models. In Advances in Neural Information Processing Systems (NeurIPS) , 2022. [5] Yaron Lipman, Ricky T. Q. Chen, Heli Locus, Patrick Esser, and Mattia Le. Flow matching for scalable generative modeling. In International Conference on Learning Representations (ICLR) , 2023. [6] Michael S Albergo and Eric Vanden-Eijnden. Building normalizing flows with stochastic interpolants. In International Conference on Learning Representations (ICLR) , 2023. [7] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in Neural Information Processing Systems (NeurIPS) , 2020. [8] Rui Jiao, Xiangzhe Kong, Wenbing Huang, and Yang Liu. 3d structure prediction of atomic systems with flow-based direct preference optimization. In Advances in Neural Information Processing Systems (NeurIPS) , 2024. [9] Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, and Chelsea Finn. Direct preference optimization: Your language model is secretly a reward model. In Advances in Neural Information Processing Systems (NeurIPS) , 2023. [10] Anubhav Jain, Shyue Ping Ong, Geoffroy Hautier, Wei Chen, William Davidson Richards, et al. Commentary: The materials project: A collaborative ecosystem for accelerating materials design. APL Materials , 1(1):011002, 2013. [11] Helen M Berman, John Westbrook, Zukang Feng, Gary Gilliland, TN Bhat, Helge Weissig, Ilya Y Shindyalov, and Philip E Bourne. The protein data bank. Nucleic Acids Research ,28(1):235–242, 2000. [12] Joseph L Watson, David Juergens, Nathaniel R Bennett, Brian J Ellis, Alicey Yi, et al. De novo design of protein structure and function with rfdiffusion. Nature , 620(7976):1089–1100, 2023. [13] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. [14] Magnus AE Hoffmann, Harrison Edwards, Jianzhu Ma, Jian Peng, Katherine Heller, and Yufeng Su. Protein structure generation via folding-diffusion. arXiv preprint arXiv:2205.01561 , 2022. [15] Rui Jiao, Wenbing Huang, Peijia Lin, Jiaqi Han, Bohan Chen, Yi Luo, Yang Liu, and Jian Peng. Predicting crystal structures via self-equivariant graph diffusion. arXiv preprint arXiv:2303.03543 , 2023. [16] Paul F Christiano, Jan Leike, Tom Brown, Milos Martic, Shane Legg, and Dario Amodei. Deep reinforcement learning from human preferences. In Advances in Neural Information Processing Systems (NeurIPS) , 2017. [17] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 2019. 10 [18] Ulrike Von Luxburg. A tutorial on spectral clustering. Statistics and computing , 2007. [19] Artem R Oganov and Colin W Glass. Crystal structure prediction using ab initio evolutionary algorithms: Principles and applications. The Journal of Chemical Physics , 2006. 11 Appendix 
+
+In this appendix, we provide the following material: • Additional implementation and dataset details in Section A, • The complete algorithm for APO in Section B, • Theoretical motivation for intrinsic rewards in Section C, • Extended experimental analyses in Section D, • Qualitative visualization descriptions in Section E, • Discussions on limitations and broader impact in Section F. 
+
+## A Implementation & Dataset Details 
+
+A.1 Datasets Crystal Structure Prediction (CSP). We utilize the MP-20 dataset, a standard benchmark consisting of stable crystal structures derived from the Materials Project. The dataset is filtered to include materials with at most 20 atoms per unit cell. • Splits: We follow the standard splitting protocol: 60% training, 20% validation, and 20% testing. • Data Representation: Each crystal is represented by a set of fractional coordinates X ∈
+
+[0 , 1] N ×3, a lattice matrix L ∈ R3×3, and atom types A ∈ ZN .
+
+Antibody Structure Prediction. We use the SAbDab database, focusing on the prediction of Complementarity Determining Regions (CDRs). • Splits: We use the standard split based on sequence clustering at 95% identity to prevent leakage. • Task: The model is conditioned on the heavy and light chain framework residues and must generate the 3D coordinates of the CDR-H3 loop. 
+
+A.2 Training Hyperparameters 
+
+All models were trained on 4 × NVIDIA A100 (80GB) GPUs. The base flow-matching model follows the architecture of Flow-Matching for Generative Modeling (FM-GM). 
+
+> Table 5: Hyperparameters for APO Fine-tuning
+
+Parameter Value 
+
+Optimizer AdamW Learning Rate 1 × 10 −5
+
+Batch Size 64 Group Size ( G) 16 Spectral Reward Weight ( λspec ) 1.0 Entropy Reward Weight ( λphys ) 0.5 KL Penalty Coefficient ( β) 0.01 Training Steps 5,000 
+
+## B APO Algorithm 
+
+We present the full training procedure for Atomic Policy Optimization (APO) in Algorithm 1. The core innovation is the group-relative update step which computes advantages without a reference model, utilizing the group mean as the baseline. 12 Algorithm 1 Atomic Policy Optimization (APO) 
+
+Input: Dataset D (unlabeled atom types/conditions), Pretrained Policy πθ , Group Size G, Reward Weights λ1, λ 2.
+
+Output: Aligned Policy πθ∗ .
+
+repeat 
+
+Sample a batch of conditions c ∼ D (e.g., composition). 
+
+for each condition c do 1. Sampling: 
+
+Sample G trajectories {x(1) , . . . , x (G)} ∼ πθ (·| c).
+
+2. Compute Intrinsic Rewards: 
+
+Compute Similarity Matrix Sij = Sim (f (x(i)), f (x(j))) .Compute R(i) 
+
+> spec
+
+via eigen-decomposition of S (Eq. 9). Compute R(i) 
+
+> phys
+
+via spatial entropy (Eq. 10). Total Reward R(i) = λ1R(i) 
+
+> spec
+
++ λ2R(i)
+
+> phys
+
+.
+
+3. Group-Relative Advantage: 
+
+Compute mean reward ¯R = 1
+
+> G
+
+PGk=1 R(k).Compute std dev σR =
+
+q 1
+
+> G
+
+PGk=1 (R(k) − ¯R)2.Advantage A(i) = R(i)− ¯RσR+ϵ .
+
+end for 4. Policy Update: 
+
+LAPO = − 1
+
+> G
+
+PGi=1 A(i) log πθ (x(i)|c).Update θ ← θ − η∇θ LAPO .
+
+until convergence 
+
+## C More Discussions on APO 
+
+C.1 Theoretical Motivation for Intrinsic Rewards Spectral Consistency as Manifold Learning. The Spectral Consistency Score ( Rspec ) is grounded in spectral graph theory. By constructing a similarity graph of the generated group samples, the leading eigenvector of the Laplacian (or similarity matrix) corresponds to the "centrality" of a sample within the latent manifold. 
+
+Rspec (xi) = u1[i], where Su1 = λ1u1 (9) Samples with high centrality represent the "mode" of the current policy’s distribution. Rewarding these samples encourages the policy to consolidate probability mass around its most confident predictions, effectively pruning low-density "hallucinations" without external supervision. 
+
+Entropy as Physical Validity. The Crystal Entropy Proxy ( Rphys ) serves as a differentiable surrogate for thermodynamic stability. 
+
+Rphys (x) = − X
+
+> i̸=j
+
+1
+
+|| ri − rj || 2 + Reg (Lattice ) (10) Minimizing this potential prevents atomic clashes (the Pauli exclusion principle) and encourages uniform filling of the unit cell, which are necessary (though not sufficient) conditions for stable matter. 
+
+C.2 Path Straightening Effect 
+
+We observe that APO reduces the curvature of the probability flow. In optimal transport (OT) flow matching, the objective is to map a Gaussian noise distribution to the data distribution via straight lines. Unsupervised alignment prunes high-curvature trajectories that correspond to complex, unstable transition states, resulting in straighter, more efficient inference paths. 13 Figure 3: A quantitative line graph (based on our experimental discussion) showing the relationship between group size G and the Match Rate on the MP-20 benchmark. 
+
+## D More Experimental Analysis 
+
+D.1 Ablation Study: Component Analysis 
+
+We investigate the contribution of each reward component on the MP-20 test set. Analysis: Rphys is 
+
+> Table 6: Ablation of Intrinsic Rewards on MP-20
+
+Method Match Rate ( ↑) Valid Validity ( ↑) Structural Diversity ( ↑)
+
+Base Flow Model 42.5% 68.2% 0.92 
+
+APO (Only Rphys ) 55.1% 88.4% 0.75 APO (Only Rspec ) 61.3% 72.1% 0.81 
+
+APO (Full) 68.7% 91.5% 0.85 crucial for validity (removing clashes), while Rspec is essential for finding the correct structural mode (Match Rate). The combination yields the best performance. 
+
+D.2 Effect of Group Size G
+
+A core component of APO is the group-relative advantage. In Figure 3, we vary the group size 
+
+G ∈ { 2, 4, 8, 16 }. Performance improves with larger G as the spectral principal component u1
+
+becomes a more stable estimator of the policy’s modes. However, the gains marginalize beyond 
+
+G = 8 . We also observe a “narrowing” of the reward distribution over training iterations, indicating that the policy successfully shifts its probability mass toward the high-reward manifold. This convergence mimics the stability of supervised DPO but is achieved entirely through self-play. The relationship between group size G and generation quality is rooted in the statistical stability of the spectral consistency reward Rspec . With a small group size (e.g., G = 2 ), the similarity matrix S is highly sensitive to stochastic noise in individual samples, leading to a "noisier" principal eigenvector 
+
+u1 that may not accurately represent the true structural manifold of the policy. As G increases, the estimation of the dominant latent mode becomes more robust, effectively acting as an ensemble-based denoising mechanism. We quantitatively analyze this by measuring the spectral gap (the difference between the first and second eigenvalues of S) during training. We observe that as G increases from 2 to 8, the spectral gap widens significantly, indicating that the tournament can more decisively distinguish between physically consistent structures and high-variance hallucinations. However, the marginal gains observed at G = 16 suggest that the latent manifold of the policy becomes sufficiently well-represented at G = 8 , making further increases in group size computationally inefficient without providing additional directional signal for the policy gradient. 14 Figure 4: Evolution of Crystal Lattices. Comparison of generated structures for generic composition AB 2O4    
+
+> (Spinels). (Top) Base model samples show distorted lattices and overlapping atoms. (Bottom) APO-aligned samples exhibit clear cubic symmetry and correct atomic spacing, solely driven by intrinsic rewards.
+
+## E Qualitative Visualizations 
+
+In this section, we provide a visual analysis of the structural quality and the geometric properties of the generation trajectories. 
+
+Evolution of Structural Fidelity. Figure 4 illustrates the qualitative difference between samples generated by the base flow-matching model and those aligned via APO. We focus on the Spinel oxide class ( AB 2O4), a material system known for its precise cubic symmetry. The top row displays samples from the unaligned base model. These structures exhibit significant physical violations: • Atomic Overlaps: Note the clustering of oxygen atoms (red) without sufficient spacing, which corresponds to extremely high Van der Waals repulsion energy. • Lack of Periodicity: While the atoms are confined to the bounding box, they fail to form a coherent repeating lattice, resulting in an amorphous, glass-like state rather than a crystal. In contrast, the bottom row shows samples after APO alignment. Without ever seeing a ground-truth coordinate label, the model successfully recovers the high-symmetry cubic arrangement characteristic of Spinels. The distinct separation between the A-site (blue) and B-site (green) cations emerges purely from the competition between the spectral reward (which encourages falling into a specific mode) and the entropy reward (which penalizes disorder and overlaps). 
+
+Analysis of Probability Paths. To understand the geometric impact of our alignment method, we visualize the generation trajectories in a reduced 2D latent space using Principal Component Analysis (PCA). Figure 5 compares the trajectories of a supervised model (fine-tuned with coordinate MSE) versus our unsupervised APO model. • Supervised Fine-Tuning (Left): The trajectories exhibit high curvature and entanglement. This occurs because the supervised loss forces the model to map specific noise vectors to specific ground-truth coordinates, often violating the optimal transport path. This "forced memorization" makes the ODE harder to solve, requiring more integration steps (NFE). • APO (Right): The trajectories are remarkably linear and radial. By allowing the model to self-select the destination on the manifold (via the group tournament), APO effectively "straightens" the flow. The model learns the most natural transport map from the noise distribution to the structural manifold. The linearity observed in APO implies that the learned vector field is simpler, leading to faster inference times and greater robustness to numerical error during sampling. 15 Figure 5: Path Straightening Visualization. 2D PCA projection of the generation trajectory. (Left) Supervised Fine-Tuning often results in curved paths as it forces the model to memorize specific coordinates. (Right) APO results in linear trajectories, indicating a more direct mapping from noise to the structural manifold. 
+
+## F Discussions 
+
+Limitations. Despite its success, several avenues for improvement remain. First, our current entropy proxy Rphys is a purely geometric heuristic; it does not account for complex electronic interactions (e.g., covalent bonding angles) which are critical for organic molecules. Incorporating a lightweight learned potential or quantum-mechanical descriptors could enhance fidelity for transition-metal complexes. Second, the group-based tournament mechanism requires sampling G times, which increases training memory requirements compared to single-sample baselines. 
+
+Broader Impact. The ability to align generative models toward physically plausible manifolds without ground-truth labels has significant implications for de novo design. APO paves the way for high-fidelity structural modeling in domains where experimental data is either prohibitively expensive to acquire or theoretically non-existent, such as the discovery of metastable material phases or the design of synthetic proteins. While this technology accelerates scientific discovery, we acknowledge the dual-use risk in designing harmful compounds. We advocate for the integration of safety screening protocols in downstream application pipelines. 16

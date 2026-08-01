@@ -1,0 +1,4540 @@
+Title: SE(3)-MeanFlow: Few-Step Protein Backbone Generation on Lie Groups
+
+URL Source: https://arxiv.org/pdf/2607.27431v1
+
+Published Time: Fri, 31 Jul 2026 00:11:27 GMT
+
+Number of Pages: 64
+
+Markdown Content:
+# SE(3)-MeanFlow: Few-Step Protein Backbone Generation on Lie Groups 
+
+Yikun Bai 1 Binghang Lu 2 Yikai Liu 3 Elaheh Akbari 4 Soheil Kolouri 4
+
+Linxuan Wang 5 Ping He 4 Shuchan Wang 6 Ruqi Zhang 7∗
+
+Guang Lin 1,8∗
+
+> 1
+
+Department of Mathematics, Purdue University 
+
+> 2
+
+School of Electrical and Computer Engineering, Purdue University 
+
+> 3
+
+Department of Biochemistry, Purdue University 
+
+> 4
+
+Department of Computer Science, Vanderbilt University 
+
+> 5
+
+Department of Statistics, Purdue University 
+
+> 6
+
+Department of Mathematics and Computer Science, Freie Universit¨ at Berlin 
+
+> 7
+
+Department of Computer Science, Purdue University 
+
+> 8
+
+School of Mechanical Engineering, Purdue University 
+
+Abstract 
+
+Generative modeling of protein backbones promises the de novo design of proteins with prescribed structural and functional properties. Existing diffusion and flow-matching models produce high-quality backbones on SE (3) N , but inference requires numerically integrating an ODE over hundreds of network evaluations, each involving a Lie group exponential map—a bottleneck for high-throughput design campaigns. We introduce SE(3)-MeanFlow , a few-step generative framework that extends MeanFlow from Euclidean space to the Lie group geometry of protein frames. Working natively in the Lie algebra so (3) and in R3, we derive closed-form average-velocity identities for rotations and translations, giving simulation-free training targets. We further introduce an SE (3) α-Flow objective that removes the Jacobian–vector product from the rotation branch and serves as a warm-up stage, after which training switches to a small-t
+
+stabilized MeanFlow loss that is used for the remainder of pretraining and for rectification-based post-training. In protein backbone generation, SE(3)-MeanFlow matches or exceeds flow-matching baselines that use several times more sampling steps, and its advantage widens in the few-step regime, where rectification lets it lead at every matched budget—at a modest cost in diversity. 
+
+# 1 Introduction 
+
+Proteins are one of the basic building blocks of life. Their complex geometric structure enables specific inter-molecular interactions that allow for crucial biological functions—acting as catalysts in chemical reactions, transporters for molecules, and mediators of immune responses. With the emergence of computational techniques, it has become possible to rationally design novel proteins with desired structures that program their functions, opening pathways to solutions for long-standing global health challenges including influenza [Strauch et al., 2017], COVID-19 [Cao et al., 2020] and cancer immunotherapy [Silva et al., 2019]. 
+
+> ∗
+
+Corresponding authors: ruqiz@purdue.edu, guanglin@purdue.edu .
+
+1arXiv:2607.27431v1 [cs.LG] 29 Jul 2026 A protein backbone can be modeled as a sequence of N rigid bodies, one per residue, each associated with a frame under orientation-preserving rigid transformations —the special Euclidean group SE (3) [Jumper et al., 2021]. The full backbone is thus described by the product group SE (3) N , and the problem of de novo protein design reduces to sampling from a learned distribution over this space. Recent work has made substantial progress on generative modeling over SE (3) N .Diffusion-based methods such as FrameDiff [Yim et al., 2023b] and RFDiffusion [Watson et al., 2023] achieve strong designability, while flow matching approaches—FoldFlow [Bose et al., 2024] and FrameFlow [Yim et al., 2023a]—further improve training stability and flexibility by learning time-dependent vector fields on SE (3) in a simulation-free manner. Despite these advances, all existing SE (3) generative models share a common bottleneck: inference still requires numerically integrating an ODE over many steps, typically 100–500 network function evaluations (NFE). On SE (3), each step involves evaluating the network and applying the Lie group exponential map, making inference substantially more expensive than in Euclidean space. This limits practical deployment in high-throughput drug discovery pipelines, where millions of candidate structures must be generated per campaign. Reducing the number of inference steps has been studied extensively in Euclidean generative modeling. Consistency models [Song et al., 2023, Song and Dhariwal, 2024] and progressive distillation [Salimans and Ho, 2022] compress inference into one or few steps, but require a pretrained teacher or carefully staged training curricula. MeanFlow [Geng et al., 2026a] offers a more principled and self-contained alternative. Rather than modeling the instantaneous velocity v(t, x t) as in standard flow matching [Lipman et al., 2022, Tong et al., 2023], MeanFlow introduces the notion of average velocity u(s, t, x t)—the mean velocity of the flow trajectory over the interval [ s, t ]. A well-defined identity relating u and v is derived purely from the definition of average velocity via the product rule and the fundamental theorem of calculus. This identity yields a tractable, simulation-free training objective that uses only instantaneous velocity as supervision. At inference, the entire flow path is approximated in a single network evaluation uθ(0 , 1, x 1), enabling 1-NFE generation without distillation or pretraining. However, MeanFlow is formulated in Euclidean space 
+
+Rd and does not account for the non-trivial geometry of SE (3). Naively lifting MeanFlow to a curved manifold is ill-posed: velocities at different points along the trajectory live in different tangent spaces, and their average requires parallel transport along the path. Riemannian MeanFlow (denoted as RMF-PT) Zhong et al. [2026] addresses this by extending MeanFlow to general Riemannian manifolds, defining average velocity via parallel transport and deriving a corresponding Riemannian MeanFlow identity. While principled, this general-purpose framework does not exploit the specific algebraic structure of SE (3) as a Lie group. Another concurrent work, Riemannian MeanFlow (RMF) Woo et al. [2026], defines the average velocity in the Lie algebra; we compare with it theoretically in Section E.6 and empirically in Section 4. In this work, we propose SE(3)-MeanFlow , a few-step generative model for de novo protein backbone design grounded in the Lie group structure of SE (3). Our central insight is that the decomposition SE (3) ∼= SO (3) × R3 allows the MeanFlow identity to be derived separately in the Lie algebra so (3) and in R3, both admitting closed-form, simulation-free training targets without parallel transport. Our main contributions are: 
+
+• Integration-based SE(3)-MeanFlow with theory. We propose an integration-based SE(3)-MeanFlow formulation conditioned on the current state ( Rt, x t), and derive closed-form average-velocity identities in the Lie algebra so (3) and in R3, without parallel transport. We provide theoretical validation showing that the resulting training objectives are well-defined and that the corresponding losses are consistent with the intended MeanFlow targets on SE (3). 2• Stable training algorithms for proteins. We introduce an SE (3) α-Flow objective together with practical numerical stabilization techniques that make training and few-step generation reliable for protein backbones. 
+
+• Protein design results. On the SCOPe benchmark, our approach matches or exceeds flow-matching baselines that use several times more sampling steps, with the largest gains in the few-step regime, in both pretraining and post-training settings, at a modest cost in diversity. 
+
+# 2 Background and Notations 
+
+2.1 Lie-group notation on SE(3) 
+
+In this work, the SE(3) space is a collection of rigid motions in SE(3) ∼= SO(3) × R3,
+
+where SO(3) denotes the space of 3 × 3 rotation matrices, which forms a Lie group: SO(3) = {R ∈ R3×3 : RR ⊤ = I, det( R) = 1 }.
+
+We follow Bose et al. [2024] and use the decoupled SO (3) × R3 geometry when defining metrics and losses. A (continuous-time) flow on SO (3) can be defined by a curve Rt ∈ SO (3) satisfying the left-trivialized ODE ˙Rt = Rt Ωt, Ωt ∈ so (3) , (1) where so (3) denotes the corresponding Lie algebra 
+
+so (3) = {Ω ∈ R3×3 : Ω ⊤ = −Ω}.
+
+so (3) is isomorphic to R3 space, and we use the hat/vee maps ( ·)∧, (·)∨ to identify R3 ↔ so (3) (e.g., ω ∈ R3 7 → ω∧ ∈ so (3)). Given the angular velocity field Ω t : [0 , 1] → so (3) along the trajectory, the solution of (1) can be written as 
+
+Rt = R0 T exp 
+
+ Z t
+
+> 0
+
+Ωτ dτ 
+
+
+
+,
+
+where T exp composes the infinitesimal rotations along time. Here exp denotes the (matrix) exponential map from the Lie algebra to the Lie group. In particular, if Ω τ ≡ Ω is constant, then 
+
+Rt = R0 exp( tΩ) .
+
+For a detailed discussion of SO (3)/ SE (3) flows (including the closed-form/geodesic expressions under common metrics), see Appendix B 1.
+
+> 1All appendices referenced in this paper are provided in the technical supplement.
+
+32.2 Protein Backbone Parametrization 
+
+Following the setting in Bose et al. [2024], we parametrize the protein backbone as a sequence of N rigid bodies. Each residue i ∈ [N ] is associated with a frame Ti = ( Ri, x i) ∈ SE (3), where 
+
+Ri ∈ SO(3) represents the orientation and xi ∈ R3 denotes the position of the Cα atom. The 3D coordinates of the backbone atoms {N, C α, C, O }i are recovered by applying the rigid transformation Ti to a set of idealized coordinates {N ∗, C ∗
+
+> α
+
+, C ∗, O ∗}:[N, C α, C, O ]i = Ti ◦ [N ∗, C ∗
+
+> α
+
+, C ∗, O ∗], (2) where C∗ 
+
+> α
+
+= (0 , 0, 0) is fixed at the origin. For a self-contained review of SO (3)/ SE (3) geometry and notation (including the definitions of ( ·)∧ and ( ·)∨), see Appendix B–C. 
+
+2.3 MeanFlow in Euclidean space 
+
+One limitation of the above flow-matching method is that, to guarantee accuracy, we generally require the step size 1 
+
+> T
+
+to be sufficiently small, equivalently requiring large inference steps T . To address this issue, in Euclidean space, Geng et al. [2026a,b] propose the MeanFlow method. In particular, given a probability path pt generated by velocity vt, it defines the average velocity: (t − s)vavg (s, t, x t) = 
+
+Z ts
+
+v(τ, x τ )dτ. 
+
+It yields the training loss:        
+
+> E
+> "
+> vavg
+> θ(s, t, x t) + ( t−s) sg
+> ddt ˆvavg (s, t, x t)
+> 
+> −v(t, x t)
+> 2#
+> .(3)
+
+where the randomness is given by t, s ∼ Unif ([0 , 1]) , s ≤ t and ( x0, x 1) ∼ q for some joint distribution 
+
+q. By default, q is an independent coupling between pdata and pprior ,
+
+ddt ˆvavg (s, t, x t) = ∂∂t vavg  
+
+> θ
+
+(s, t, x t) + ∇xvavg  
+
+> θ
+
+(s, t, x t) · vt. (4) In addition, vt can be replaced vavg  
+
+> θ
+
+(t, t, x t) in Geng et al. [2026b]. Here xt = (1 − t)x0 + tx 1, v(t, x t) = x1 − x0, and sg is the stop-gradient operator. Intuitively, the integration is estimated by the parameterized model during the training process; thus, in the inference step, it yields a T-step generation, where T ∈ N:ˆxs = xt − 1
+
+T vavg  
+
+> θ
+
+(s, t, x t)
+
+t = 1 − i/T, s = t − 1/T, i = 0 , 1, ... (T − 1) . (5) When we set T = 1, it yields a one-step generation. 
+
+# 3 Method: MeanFlow in SE(3) space 
+
+Since SE (3) = SO (3) × R3, the R3 component reduces to the conventional Euclidean MeanFlow; hence, we focus on introducing the MeanFlow on SO(3) below. Let a distribution path {pt ∈ P (SO (3)) : t ∈ [0 , 1] } be generated by a velocity field vt : [0 , 1] ×
+
+SO(3) → T SO(3). We define the average velocity over [ s, t ] through the time-ordered exponential           
+
+> exp  (t−s) Ω avg (s, t, R t, x t):= Texp
+>  Zts
+> Ω( τ, R τ, x τ)dτ
+> 
+> .(6)
+
+4Figure 1: Few-step inference with SE(3)-MeanFlow. The two-time network fθ (see Appendix N) predicts the average velocity over [ s, t ] rather than the instantaneous velocity at t, so one evaluation advances the state by the full step—a Lie group exponential on SO (3), a Euclidean update on 
+
+R3—giving NFE = T . The objective that makes this accurate is Proposition 1 and its JVP-free 
+
+α-Flow surrogate (Section 3.3). We denote the instantaneous (body-frame) angular velocity (vector form) by 
+
+ωt := Ω( t, R t, x t)∨ ∈ R3. (7) Analogous to Euclidean MeanFlow, differentiating (6) gives an identity linking the average velocity, its trajectory derivative, and the instantaneous velocity. 
+
+Proposition 1. Differentiating (6) with respect to t yields                    
+
+> J (t−s)Aavg 
+> Aavg (s, t, R t, x t) + ( t−s)ddt Aavg 
+> =ωt,(8)
+> where Aavg = (Ω avg )∨,ddt Aavg =∂∂t Aavg +⟨∇ RAavg ,˙Rt⟩+⟨∇ xAavg ,˙xt⟩,(9)
+
+and the right Jacobian J : R3 → R3×3 is             
+
+> J(A) := I−1−cos ∥A∥2
+> ∥A∥22
+> A∧+∥A∥2−sin ∥A∥2
+> ∥A∥32
+> (A∧)2,(10)
+
+with ∥A∥2 the ℓ2 norm of A ∈ R3; as ∥A∥ → 0, J(A) → I (we use its Taylor expansion there). 
+
+This proposition is split into Propositions 3 and 4 in Appendix F.1, with proofs. 
+
+3.1 Model parametrization and training loss 
+
+The network exposes two interchangeable heads: an endpoint (x-)head predicting the clean state ( ˆRθ
+
+> 0
+
+, ˆxθ
+
+> 0
+
+), and an average-velocity (u-)head Aavg  
+
+> θ
+
+: [0 , 1] × [0 , 1] × SO (3) × R3 → R3 and vavg  
+
+> θ
+
+, with 5Ωavg  
+
+> θ
+
+= ( Aavg  
+
+> θ
+
+)∧. The two carry the same information, related by the invertible map 
+
+Aavg  
+
+> θ
+
+= 1 
+
+> t
+
+log  ( ˆRθ
+
+> 0
+
+)⊤Rt
+
+∨ ⇐⇒ ˆRθ 
+
+> 0
+
+= Rt exp   − t A avg ∧
+
+> θ
+
+,vavg  
+
+> θ
+
+= 1
+
+> t
+
+ xt − ˆxθ
+
+> 0
+
+ ⇐⇒ ˆxθ 
+
+> 0
+
+= xt − t v avg  
+
+> θ
+
+,
+
+which, on the constant-velocity ( x-prediction) geodesic, is consistent with the ( t − s)-normalized average of (6) . The losses below regress the velocity head; the endpoint head is produced at inference. Based on (8), we derive two equivalent mean flow training losses: 
+
+LJ 
+
+> SO(3)
+
+:= E s<t q(R0,R 1)
+
+h
+
+ωθ − ωt 22
+
+i
+
+, (11) 
+
+ωθ = sg  J(( t − s)Aavg  
+
+> θ
+
+)
+
+Aavg  
+
+> θ
+
++ ( t − s) sg( ddt Aavg  
+
+> θ
+
+)
+
+
+
+,
+
+LJ−1 
+
+> SO(3)
+
+:= E
+
+h
+
+∥Aavg  
+
+> θ
+
+− sg( Atgt θ )∥2i
+
+(12) 
+
+Atgt θ = J−1(( t − s)Aavg  
+
+> θ
+
+)ωt − (t − s) ddt Aavg 
+
+> θ
+
+where all model arguments are ( s, t, R t, x t) and ddt Aavg  
+
+> θ
+
+is given by (9) . Loss (12) is well-defined since 
+
+J is invertible on the principal branch ∥(t − s)Aavg  
+
+> θ
+
+∥2 ≤ π. We refer to Appendix F.1 for details. 
+
+Manifold derivatives via Euclidean JVPs. Although Rt ∈ SO (3) is manifold-valued, ddt Aavg  
+
+> θ
+
+is a directional derivative along the interpolation trajectory ( Rt, x t), which we evaluate with a standard Euclidean Jacobian–vector product (e.g. torch.jvp ) through the chosen matrix representation of 
+
+Rt. A formal equivalence is given in Appendix F.1, Proposition 6. 
+
+Proposition 2 (Correctness of the MeanFlow objective, informal) . If LSO (3) in (11) or (12) is zero, the model recovers the correct relative rotations along the path: exp  (( t − s)Aavg  
+
+> θ
+
+(s, t, R t, x t)) ∧ =
+
+R⊤ 
+
+> s
+
+Rt for all 0 ≤ s < t ≤ 1.
+
+A formal statement and proof are in Proposition 5 (Appendix). 
+
+Inference. We step backwards using the learned average flow,             
+
+> Rs←Rtexp  −(t−s) Ω avg
+> θ(s, t, R t, x t),t= 1 , . . . , 1
+> T,
+
+and analogously xs ← xt − (t − s) vavg  
+
+> θ
+
+.See Figure 1. Reported results use a variant of this update, the exponential rotation schedule of Appendix I. 
+
+3.2 Practical implementation: SE(3) N adaptation 
+
+Each protein sample is RN ∈ RN ×3×3, xN ∈ RN ×3, with N the number of residues. The model is 
+
+fθ(s, t, R Nt , x Nt ) = [ Aavg ,N θ ; vavg ,N θ ] ∈ RN ×3 × RN ×3, where the i-th block Aavg ,N θ,i ∈ R3 parametrizes the so (3) component via Ω avg  
+
+> θ,i
+
+= ( Aavg ,N θ,i )∧. The loss (11) (or (12)) is summed over residues. 
+
+3.3 SE(3) α-Flow: rotation formulation and MeanFlow limit 
+
+The differential target (8) requires the trajectory derivative ddt Aavg  
+
+> θ
+
+via a JVP, which could be fragile on the rotation branch. We therefore also adopt an α-Flow formulation Zhang et al. [2025] that replaces this derivative by a two-segment construction using only forward evaluations of Aavg  
+
+> θ
+
+.6Given 0 ≤ s < t ≤ 1 and a ratio α ∈ (0 , 1], insert an intermediate time m = αs + (1 − α)t with step δ := t − m = α(t − s), splitting [ s, t ] into a far segment [ s, m ] and a near segment [ m, t ]. With 
+
+D(a, b ) := R⊤ 
+
+> a
+
+Rb ∈ SO (3) the accumulated relative rotation, the segments compose multiplicatively 
+
+(rather than additively as in Euclidean space), 
+
+D(s, t ) = D(s, m ) D(m, t ) (Appendix J, Prop. 7) .
+
+We anchor the near factor to data and bootstrap the far factor from the model. Stepping back from Rt
+
+along the data angular velocity ωt := Ω( t, R t, x t)∨ gives the intermediate state Rm = Rt exp (−δ ω ∧ 
+
+> t
+
+)and the near factor D(m, t ) = exp (δ ω ∧ 
+
+> t
+
+); a stop-gradient model query at ( s, m, R m, x m) returns 
+
+Am := Aavg  
+
+> θ
+
+(s, m, R m, x m) and the far factor D(s, m ) = exp (( m − s)A∧
+
+> m
+
+). Composing and mapping back to the Lie algebra gives the target average generator over [ s, t ]: 
+
+Aavg tgt (s, t ) = 1
+
+t − s log 
+
+
+
+exp  (m − s)A∧
+
+> m
+
+| {z }
+
+> D(s,m ) (model)
+
+exp  δ ω ∧
+
+> t
+
+| {z }
+
+> D(m,t ) (data)
+
+∨
+
+. (13) The scalar 1 
+
+> t−s
+
+must stay outside the log ( exp · exp ): since Am and ωt do not commute, folding it in would corrupt the Baker–Campbell–Hausdorff cross term and no longer give the generator of 
+
+D(s, t ). We regress 
+
+Lα 
+
+> rot
+
+= 1
+
+α
+
+> N
+
+X
+
+> i=1
+
+Aavg  
+
+> θ,i
+
+(s, t, R t, x t) − sg  Aavg tgt ,i 
+
+ 22, (14) which uses only forward evaluations (one log, two exps; no JVP). The numerically stabilized form and the abelian translation branch — where composition reduces to a convex combination of velocities as in the Euclidean α-Flow Zhang et al. [2025] — are given in Appendix J.3. The ratio α interpolates between flow matching and MeanFlow: at α = 1 the far factor vanishes (m = s) and Aavg tgt = ωt, while as α → 0 a first-order BCH expansion recovers the differential MeanFlow objective (8) in gradient (Appendix J.5). 
+
+# 4 Experiments 
+
+We evaluate our method on unconditional protein backbone generation and compare it against recent diffusion- and flow-based baselines. Our experiments are designed to assess both generation quality and sampling efficiency, with a particular focus on few-step generation. To this end, we report performance under different numbers of sampling steps, allowing us to examine how well each method maintains designability, diversity, and novelty as the computational budget is reduced. 
+
+4.1 Datasets 
+
+Following prior works Yue et al. [2025], Woo et al. [2026], we conduct experiments on the SCOPe dataset Chandonia et al. [2022], Yim et al. [2023a], which consists of 3,673 preprocessed protein backbones with residue lengths between 60 and 128. We refer to Figure 9 in the Appendix for a visualization of the backbone length-frequency distribution. 
+
+4.2 Baselines 
+
+We compare recent flow-based backbone generators: FrameFlow Yim et al. [2023a], QFlow and ReQFlow Yue et al. [2025], and Riemannian MeanFlow (RMF) Woo et al. [2026]. Among these, 760 70 80 90 100 110 120 130 
+
+Length        
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Designable fraction (scRMSD < 2Å)
+> Method (T=100)
+> FrameFlow
+> QFlow
+> ReQFlow
+> RMF-L
+> SE3-MF (ours)
+> Rec-SE3-MF (ours) 60 70 80 90 100 110 120 130
+
+Length 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Designable fraction (scRMSD < 2Å)
+> Method (T=20)
+> QFlow
+> ReQFlow
+> RMF-L
+> SE3-MF (ours)
+> Rec-SE3-MF (ours)
+
+Figure 2: Designable fraction versus length (top: T =100, bottom: T =20). 60-69 70-79 80-89 90-99 100-109 110-119 120-128       
+
+> Length
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> scRMSD (Å) ↓
+> Method (T=100)
+> FrameFlow
+> QFlow
+> ReQFlow
+> RMF-L
+> SE3-MF (ours)
+> Rec-SE3-MF (ours) 60-69 70-79 80-89 90-99 100-109 110-119 120-128
+> Length
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> scRMSD (Å) ↓
+> Method (T=20)
+> QFlow
+> ReQFlow
+> RMF-L
+> SE3-MF (ours)
+> Rec-SE3-MF (ours)
+
+Figure 3: scRMSD distributions (top: T =100, bottom: T =20). ReQFlow and RMF are most closely related to our approach, as they also target efficient few-step or accelerated generation. As a representative of earlier (pre-2024) diffusion- and flow-matching methods we include FrameFlow, which demonstrated strongest generation capacity on SCOPe; we discuss the earlier baselines (e.g. FrameDiff, Genie) in Appendix E.1. 
+
+4.3 Implementation Details 
+
+For experiments on SCOPe, we use publicly available checkpoints when possible to reproduce baseline results under a consistent evaluation protocol. All experiments are conducted using 4 H-100 GPUs. Unless otherwise stated, we follow the evaluation settings used in prior work Yue et al. [2025], including the same datasets, sampling protocols, and evaluation metrics, to ensure a fair comparison across methods. 
+
+4.4 Training details 
+
+Model and trainer. We implement our method within the public QFlow/ReQFlow codebase Yue et al. [2025] and inherit its overall training pipeline, adapting it in the following respects to fit the MeanFlow model. 
+
+(i) Representation and interpolation. QFlow/ReQFlow parametrize rotations by unit quaternions; we instead work directly with rotation matrices under the decoupled SE (3) = SO (3) × R3 representation of Yim et al. [2023b]. Accordingly, we build the data–noise interpolation and the mini-batch coupling with our own SE (3) geodesic interpolant and optimal-transport (OT) coupling in rotation-matrix form (Appendix D; global-OT coupling in Eq. (95) ), rather than the quaternion interpolation of 8Steps Method Designability Diversity TM ↓ Novelty TM ↓                                                                                                                                             
+
+> Fraction ↑scRMSD ↓scTM ↑
+> 500 / 100 FrameFlow (500) 0.849 1.439 ±1.137 0.879 ±0.084 0.369 0.654 FrameFlow (100) 0.803 1.576 ±1.367 0.872 ±0.090 0.360 0.638
+> QFlow (500) 0.900 1.271 ±1.113 0.897 ±0.078 0.399 0.720 QFlow (100) 0.885 1.319 ±1.018 0.889 ±0.077 0.393 0.699 RMF (100) 0.832 1.425 ±1.145 0.885 ±0.081 0.343 0.719
+> SE3MF (100) 0.936 1.106 ±0.870 0.909 ±0.067 0.415 0.736 50 QFlow 0.870 1.432 ±1.218 0.882 ±0.080 0.379 0.684
+> RMF 0.825 1.446 ±1.189 0.885 ±0.081 0.344 0.717
+> SE3MF 0.906 1.246 ±1.190 0.902 ±0.078 0.413 0.722 20 QFlow 0.778 1.703 ±1.658 0.853 ±0.098 0.377 0.648
+> RMF 0.806 1.554 ±1.438 0.877 ±0.091 0.345 0.722
+> SE3MF 0.867 1.369 ±1.144 0.883 ±0.087 0.408 0.703 10 QFlow 0.559 2.691 ±2.263 0.773 ±0.144 0.379 0.615
+> RMF 0.778 1.641 ±1.432 0.870 ±0.088 0.346 0.713
+> SE3MF 0.728 1.940 ±1.741 0.832 ±0.118 0.402 0.659
+
+Table 1: Unconditional protein backbone generation on SCOPe, grouped by sampling budget. Baselines: FrameFlow Yim et al. [2023a], QFlow Yue et al. [2025], Riemannian MeanFlow (RMF) Woo et al. [2026]. Within each budget group, best in bold and second-best underlined. QFlow. 
+
+(ii) Model. We keep the ReQFlow IPA trunk but make it consume a rotation-matrix state ( Rt, x t) ∈
+
+SE (3) N and condition on two times ( s, t )—via a shared two-time embedding and a per-block AdaLN-Zero gate—and predict endpoints ( ˆRθ
+
+> 0
+
+, ˆxθ
+
+> 0
+
+) (Appendix N). 
+
+(iii) Objective. In place of the (V-)QFlow flow-matching loss, we train with our SE (3) MeanFlow objective (Section 3) and its α-Flow variant (Section 3.3); derivations and the stable implementation are in Appendix F.1 and M. The time sampler is the two-time extension ( s ≤ t) of the QFlow sampler, with the marginal schedule of t left unchanged, and s | t ∼ U [tmin , t ] with tmin = 10 −6
+
+(Table 7). All remaining pipeline components are inherited from the QFlow/ReQFlow codebase. 
+
+Stable training. The differential MeanFlow target requires a time derivative obtained via a Jacobian–vector product (JVP), which can be numerically brittle through the backbone network. We use two remedies: the JVP-free α-Flow objective (Section 3.3) as a warm-up, and a small-t
+
+stabilized form of the JVP-based loss (Appendix I, Algorithm 3). 
+
+Pre-training (two stages). Stage 1 is the α-Flow warm-up on SE (3) N (Section 3.3; Ap-pendix M.1); Stage 2 switches to the endpoint+MeanFlow objective (Appendix M.2). 
+
+Post-training. We further apply a rectification (self-reflow) stage following ReQFlow’s rectified-flow strategy, keeping the Stage-2 MeanFlow objective (Appendix M.3). We denote the resulting model RecSE3MF. 9Steps Method Designability Diversity TM ↓ Novelty TM ↓                                                                                 
+
+> Fraction ↑scRMSD ↓scTM ↑
+> 100 ReQFlow 0.946 1.120 ±0.635 0.901 ±0.062 0.420 0.695 RecSE3MF 0.968 0.974 ±0.620 0.920 ±0.057 0.448 0.734 50 ReQFlow 0.946 1.131 ±0.633 0.900 ±0.062 0.418 0.689 RecSE3MF 0.970 0.941 ±0.483 0.923 ±0.048 0.452 0.728 20 ReQFlow 0.910 1.270 ±0.736 0.883 ±0.074 0.416 0.678 RecSE3MF 0.929 1.133 ±1.314 0.903 ±0.073 0.454 0.726 10 ReQFlow 0.837 1.552 ±1.113 0.846 ±0.092 0.414 0.662 RecSE3MF 0.894 1.269 ±1.040 0.891 ±0.084 0.453 0.710
+
+Table 2: Post-train comparison on SCOPe. Within each budget, best in bold . Training budgets are in Table 4. 
+
+4.5 Evaluation metrics and settings 
+
+We evaluate generated protein backbones with four metrics, following prior work [Yue et al., 2025]: designability, diversity, novelty, and efficiency. For each chain length N (from 60 to 128) we generate 10 backbones. Designability is the primary measure of sample quality and assesses whether a generated backbone admits an amino-acid sequence that folds back into a consistent structure. For each backbone we design 8 sequences with ProteinMPNN [Dauparas et al., 2022], predict the folded structure of each with ESMFold [Lin et al., 2023], and take the minimum self-consistency RMSD (scRMSD) over the 8 designs. A backbone is deemed designable when this scRMSD is at most 2 ˚A . We report the fraction of designable backbones (per length, averaged over lengths), denoted Fraction, the mean scRMSD, and the mean self-consistency TM-score (scTM), where higher scTM and Fraction and lower scRMSD are better. To assess distributional properties, we measure structural diversity and novelty over the designable subset. Diversity is the pairwise TM-score [Zhang and Skolnick, 2004] among designable structures of the same length, averaged across lengths, where lower values indicate a less redundant set. Novelty compares each designable sample against the Protein Data Bank (PDB) with Foldseek [van Kempen et al., 2022] and records the maximum TM-score to the retrieved structures; the average of these maxima summarizes similarity to known proteins, with lower values indicating greater novelty. Finally, we quantify efficiency by the number of sampling steps used to generate the backbones. 
+
+4.6 Results and Discussion 
+
+SE(3)-MeanFlow (SE3MF) consistently improves few-step protein backbone generation. Across the 20–100-step regime, it achieves the strongest designability among pretrained baselines, ranking first in designable fraction, scRMSD, and scTM (Table 1). The gains are preserved across protein lengths (Figures 2 and 3), indicating that the improvement is not restricted to short or structurally simple backbones. At 20 steps, SE(3)-MeanFlow retains a designable fraction of 0 .867, compared with 0 .806 for RMF and 0 .778 for QFlow, demonstrating a strong designability–efficiency trade-off under substantial step reduction; Figure 4 shows designable backbones generated at this budget. These results support the effectiveness of specializing MeanFlow to the Lie-group structure of protein frames. Empirically, the complete formulation maintains strong designability as the sampling budget is reduced while preserving stable local backbone geometry, with C α-validity remaining near 0.97 from 100 to 10 steps (Table 3). The secondary-structure statistics are likewise stable across 10 Method Inf Steps α-Helix β-Strand Cα-valid ↑                                                                                                                                                                                                       
+
+> FrameFlow 500 0.450 ±0.323 0.248 ±0.218 0.962 ±0.041 100 0.465 ±0.308 0.234 ±0.212 0.987 ±0.014 QFlow 100 0.502 ±0.302 0.208 ±0.206 0.993 ±0.012 50 0.469 ±0.291 0.223 ±0.204 0.996 ±0.008 20 0.476 ±0.273 0.201 ±0.184 0.894 ±0.046 10 0.461 ±0.246 0.168 ±0.160 0.831 ±0.061 RMF 100 0.346 ±0.232 0.278 ±0.179 0.996 ±0.007 50 0.342 ±0.232 0.279 ±0.178 0.996 ±0.008 20 0.340 ±0.230 0.277 ±0.178 0.996 ±0.008 10 0.341 ±0.229 0.276 ±0.173 0.996 ±0.008
+> SE3MF
+> 100 0.536 ±0.339 0.200 ±0.238 0.971 ±0.022 50 0.517 ±0.336 0.213 ±0.236 0.971 ±0.022 20 0.505 ±0.324 0.210 ±0.224 0.970 ±0.023 10 0.497 ±0.299 0.193 ±0.203 0.975 ±0.020 ReQFlow 100 0.511 ±0.312 0.224 ±0.214 0.993 ±0.009 50 0.509 ±0.311 0.223 ±0.212 0.986 ±0.014 20 0.507 ±0.307 0.214 ±0.212 0.860 ±0.066 10 0.502 ±0.310 0.206 ±0.209 0.712 ±0.105
+> RecSE3MF
+> 100 0.559 ±0.357 0.207 ±0.249 0.979 ±0.017 50 0.559 ±0.360 0.206 ±0.249 0.979 ±0.017 20 0.571 ±0.354 0.197 ±0.246 0.978 ±0.017 10 0.558 ±0.359 0.198 ±0.245 0.979 ±0.017
+
+Table 3: Evaluation scores at different sampling steps. Methods follow Table 1 and Table 2. sampling budgets (Figure 10), suggesting that accelerated generation does not substantially alter the structural composition of the samples. Rectification further strengthens the aggressive few-step regime. RecSE3MF outperforms ReQFlow on the three designability metrics at nearly all sampling budgets and reaches a designable fraction of 0 .894 at 10 steps (Table 2). This suggests that rectification and MeanFlow play complementary roles: rectification simplifies the transport paths, while MeanFlow learns accurate finite-interval motion along those paths. The improved designability comes at a cost in coverage. Both SE(3)-MeanFlow and RecSE3MF have higher diversity TM-scores than the coverage-oriented baselines (lower is better), and their novelty is weakest at large budgets (0 .736 at 100 steps, against 0 .719 for RMF); the gap narrows as the budget falls, with novelty second-best in its group at 20 and 10 steps. Diversity is nearly flat in the number of steps (0 .415 to 0 .402), so the concentration reflects the learned model rather than step reduction. Overall, SE(3)-MeanFlow advances the designability–efficiency frontier while preserving stable geometric and structural statistics under substantially reduced sampling budgets. 
+
+Training budget and model size. Table 4 compares model size, training budget and per-step sampling cost. Our network is the ReQFlow/QFlow trunk with a small (0 .33%) AdaLN addition, hence comparable in size to QFlow and checkpoint-compatible with it (Appendix N), and ∼ 26 ×
+
+smaller than RMF; its total budget is on the same order as the flow-matching baselines from the same codebase, and far below RMF’s ∼ 598k steps (their cap is 1000k). We conjecture that part of this gap reflects RMF’s semigroup consistency objective rather than its model size alone: 11 Method Params Train Steps Time/step (ms) ↓
+
+Pre-trained 
+
+FrameFlow 16 .8M 177k 57 QFlow 16 .8M 90k 43 RMF 437M 598k 454 
+
+SE3MF (ours) 16 .8M 106k 43 
+
+Post-trained (rectification) 
+
+ReQFlow 16 .8M 90k + 4 .6k 43 
+
+RecSE3MF (ours) 16 .8M 106k + 6 .5k 43 
+
+Table 4: Model size, training budget, and sampling cost. Post-training steps are given as pre-training + rectification. Time/step is wall-clock per sampling step on a single NVIDIA H100 80GB (single process, batch 10, length 128, fp32); each method runs one network forward per step, so total sampling time ≈ steps × time/step. Length 69 Length 83 Length 99   
+
+> Length 105 Length 115 Length 128
+
+Figure 4: Qualitative samples on SCOPe generated at different sampling budgets. See Appendix for additional diagnostics. straightening the transport paths enough for few-step sampling appears to demand a large budget, and this cost grows with the number of residues. Appendix O.2 tests this by fixing the model, the initialization and the training budget, and swapping only the objective; under this control the semigroup target does not reach the few-step regime while ours does. On the low-dimensional SO (3) 2 benchmark of Appendix H, a second controlled ablation in which only the loss varies, every average-velocity method reaches the few-step regime under a much smaller budget. 
+
+Remark 1. Epoch counts are not comparable across methods, as the data loaders differ, whereas each optimizer step processes the same amount of data. We therefore report budgets in optimizer steps; see Appendix O for details. 
+
+# 5 Conclusion 
+
+We introduced SE(3)-MeanFlow , a few-step generative framework on SE (3) N . Exploiting the decoupled SE (3) = SO (3) × R3 structure, we derive simulation-free average-velocity objectives directly in the Lie algebra, avoiding parallel transport, and stabilize training with a JVP-free α-Flow 12 warm-up and a small-t MeanFlow scheme supporting both training from scratch and rectification-based post-training. On SCOPe, SE(3)-MeanFlow advances the designability–efficiency frontier while using fewer sampling steps and a smaller model. Its main limitation is a modest reduction in diversity; future work will seek objectives that better balance coverage and designability, extend to conditional and motif-scaffolding tasks, and push toward one-step generation. 
+
+# Acknowledgments 
+
+Y.B. was supported in part by the Purdue Institute for Physical AI (IPAI) Postdoctoral Fellows Program. G.L. would like to thank the support of National Science Foundation (DMS-2533878, DMS-2053746, DMS-2134209, ECCS-2328241, CBET-2347401 and OAC-2311848), and U.S. Department of Energy (DOE) Office of Science Advanced Scientific Computing Research program, under the ”Uncertainty Quantification for Multifidelity Operator Learning (MOLUcQ)” project (Project No. 81739), DE-SC0023161, the SciDAC LEADS Institute, and DOE–Fusion Energy Science, under grant number: DE-SC0024583. 
+
+# References 
+
+Avishek Joey Bose, Tara Akhound-Sadegh, Guillaume Huguet, Kilian Fatras, Jarrid Rector-Brooks, Cheng-Hao Liu, Andrei Cristian Nica, Maksym Korablyov, Michael Bronstein, and Alexander Tong. SE(3)-stochastic flow matching for protein backbone generation. In The Twelfth International Conference on Learning Representations , 2024. Longxing Cao, Inna Goreshnik, Brian Coventry, James Brett Case, Lauren Miller, Lisa Kozodoy, Rita E Chen, Lauren Carter, Alexandra C Walls, Young-Jun Park, et al. De novo design of picomolar sars-cov-2 miniprotein inhibitors. Science , 370(6515):426–431, 2020. John-Marc Chandonia, Lindsey Guan, Shiangyi Lin, Changhua Yu, Naomi K Fox, and Steven E Brenner. Scope: improvements to the structural classification of proteins–extended database to facilitate variant interpretation and machine learning. Nucleic acids research , 50(D1):D553–D559, 2022. Justas Dauparas, Ivan Anishchenko, Nathaniel Bennett, Hua Bai, Robert J Ragotte, Lukas F Milles, Basile IM Wicky, Alexis Courbet, Rob J de Haas, Neville Bethel, et al. Robust deep learning–based protein sequence design using proteinmpnn. Science , 378(6615):49–56, 2022. R´ emi Flamary, Nicolas Courty, Alexandre Gramfort, Mokhtar Z Alaya, Aur´ elie Boisbunon, Stanislas Chambon, Laetitia Chapel, Adrien Corenflos, Kilian Fatras, Nemo Fournier, et al. Pot: Python optimal transport. Journal of Machine Learning Research , 22(78):1–8, 2021. Zhengyang Geng, Mingyang Deng, Xingjian Bai, Zico Kolter, and Kaiming He. Mean flows for one-step generative modeling. Advances in Neural Information Processing Systems , 38:75460–75482, 2026a. Zhengyang Geng, Yiyang Lu, Zongze Wu, Eli Shechtman, J Zico Kolter, and Kaiming He. Improved mean flows: On the challenges of fastforward generative models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 30467–30476, 2026b. Andrew J Hanson. Visualizing quaternions. In ACM SIGGRAPH 2005 Courses , pages 1–es. 2005. 13 Guillaume Huguet, James Vuckovic, Kilian Fatras, Eric Thibodeau-Laufer, Pablo Lemos, Riashat Islam, Cheng-Hao Liu, Jarrid Rector-Brooks, Tara Akhound-Sadegh, Michael Bronstein, et al. Sequence-augmented se (3)-flow matching for conditional protein generation. Advances in neural information processing systems , 37:33007–33036, 2024. John Jumper, Richard Evans, Alexander Pritzel, Tim Green, Michael Figurnov, Olaf Ronneberger, Kathryn Tunyasuvunakool, Russ Bates, Augustin ˇZ´ ıdek, Anna Potapenko, et al. Highly accurate protein structure prediction with alphafold. nature , 596(7873):583–589, 2021. Yeqing Lin, Minji Lee, Zhao Zhang, and Mohammed AlQuraishi. Out of many, one: Designing and scaffolding proteins at the scale of the structural universe with genie 2. arXiv preprint arXiv:2405.15489 , 2024. Zeming Lin, Halil Akin, Roshan Rao, Brian Hie, Zhongkai Zhu, Wenting Lu, Nikita Smetanin, Robert Verkuil, Ori Kabeli, Yaniv Shmueli, et al. Evolutionary-scale prediction of atomic-level protein structure with a language model. Science , 379(6637):1123–1130, 2023. Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. Linus Pauling, Robert B Corey, and Herman R Branson. The structure of proteins: two hydrogen-bonded helical configurations of the polypeptide chain. Proceedings of the National Academy of Sciences , 37(4):205–211, 1951. William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4195–4205, 2023. Aram-Alexandre Pooladian, Heli Ben-Hamu, Carles Domingo-Enrich, Brandon Amos, Yaron Lipman, and Ricky TQ Chen. Multisample flow matching: Straightening flows with minibatch couplings. 
+
+arXiv preprint arXiv:2304.14772 , 2023. Tim Salimans and Jonathan Ho. Progressive distillation for fast sampling of diffusion models. arXiv preprint arXiv:2202.00512 , 2022. Daniel-Adriano Silva, Shawn Yu, Umut Y Ulge, Jamie B Spangler, Kevin M Jude, Carlos Lab˜ ao-Almeida, Lestat R Ali, Alfredo Quijano-Rubio, Mikel Ruterbusch, Isabel Leung, et al. De novo design of potent and selective mimics of il-2 and il-15. Nature , 565(7738):186–191, 2019. Yang Song and Prafulla Dhariwal. Improved techniques for training consistency models. In 
+
+International Conference on Learning Representations , volume 2024, pages 15078–15097, 2024. Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever. Consistency models. 2023. Eva-Maria Strauch, Steffen M Bernard, David La, Alan J Bohn, Peter S Lee, Caitlin E Anderson, Travis Nieusma, Carly A Holstein, Natalie K Garcia, Kathryn A Hooper, et al. Computational design of trimeric influenza-neutralizing proteins targeting the hemagglutinin receptor binding site. Nature biotechnology , 35(7):667–671, 2017. Alexander Tong, Kilian Fatras, Nikolay Malkin, Guillaume Huguet, Yanlei Zhang, Jarrid Rector-Brooks, Guy Wolf, and Yoshua Bengio. Improving and generalizing flow-based generative models with minibatch optimal transport. arXiv preprint arXiv:2302.00482 , 2023. 14 Michel van Kempen, Stephanie S Kim, Charlotte Tumescheit, Milot Mirdita, Cameron LM Gilchrist, Johannes S¨ oding, and Martin Steinegger. Foldseek: fast and accurate protein structure search. 
+
+Biorxiv , pages 2022–02, 2022. C´ edric Villani et al. Optimal transport: old and new , volume 338. Springer, 2009. Joseph L Watson, David Juergens, Nathaniel R Bennett, Brian L Trippe, Jason Yim, Helen E Eisenach, Woody Ahern, Andrew J Borst, Robert J Ragotte, Lukas F Milles, et al. De novo design of protein structure and function with rfdiffusion. Nature , 620(7976):1089–1100, 2023. Dongyeop Woo, Marta Skreta, Seonghyun Park, Kirill Neklyudov, and Sungsoo Ahn. Riemannian meanflow. arXiv preprint arXiv:2602.07744 , 2026. Jason Yim, Andrew Campbell, Andrew YK Foong, Michael Gastegger, Jos´ e Jim´ enez-Luna, Sarah Lewis, Victor Garcia Satorras, Bastiaan S Veeling, Regina Barzilay, Tommi Jaakkola, et al. Fast protein backbone generation with se (3) flow matching. arXiv preprint arXiv:2310.05297 , 2023a. Jason Yim, Brian L Trippe, Valentin De Bortoli, Emile Mathieu, Arnaud Doucet, Regina Barzilay, and Tommi Jaakkola. Se (3) diffusion model with application to protein backbone generation. 
+
+arXiv preprint arXiv:2302.02277 , 2023b. Angxiao Yue, Zichong Wang, and Hongteng Xu. Reqflow: Rectified quaternion flow for efficient and high-quality protein backbone generation. arXiv preprint arXiv:2502.14637 , 2025. Olga Zaghen, Floor Eijkelboom, Alison Pouplin, Cong Liu, Max Welling, Jan-Willem van de Meent, and Erik J Bekkers. Riemannian variational flow matching for material and protein design. arXiv preprint arXiv:2502.12981 , 2025. Huijie Zhang, Aliaksandr Siarohin, Willi Menapace, Michael Vasilkovsky, Sergey Tulyakov, Qing Qu, and Ivan Skorokhodov. Alphaflow: Understanding and improving meanflow models. arXiv preprint arXiv:2510.20771 , 2025. Yang Zhang and Jeffrey Skolnick. Scoring function for automated assessment of protein structure template quality. Proteins: Structure, Function, and Bioinformatics , 57(4):702–710, 2004. Yuan Zhang and Celeste Sagui. Secondary structure assignment for conformationally irregular peptides: Comparison between dssp, stride and kaksi. Journal of Molecular Graphics and Modelling , 55:72–84, 2015. Zichen Zhong, Haoliang Sun, Yukun Zhao, Yongshun Gong, and Yilong Yin. Riemannian meanflow for one-step generation on manifolds. arXiv preprint arXiv:2603.10718 , 2026. 
+
+# Appendix Contents 
+
+1 Introduction 12 Background and Notations 33 Method: MeanFlow in SE(3) space 44 Experiments 7
+
+15 5 Conclusion 12 A Background: MeanFlow in Euclidean Space 16 B Background: SO(3) Space 17 C Background: SE(3) Space 19 D Background: SE(3) Flow Matching 21 E Related Work 22 F MeanFlow on SE (3) : Derivation, Theoretical Properties, and N -component Implementation 28 G Common Settings: Auxiliary Loss, Prior and Inference. 33 H Ablation Study: A Controlled SO(3) Benchmark for Few-Step Generation 35 I Stable Training Framework, Part 1: MeanFlow Loss (Vanilla and Small-t Stabi-lized) 40 J Stable Training Framework, Part 2: JVP-Free Training via SE(3) α-Flow 43 K Stable Training Framework, Part 3: Semigroup Loss of SE(3)-MeanFlow 48 L Quaternion Formulation of SE(3)-MeanFlow 53 M Training Curriculum: Pre-training and Post-training 55 N Architecture 59 O Extra Results/Settings in the Protein Experiment 60 P Computational Resources 63 
+
+# A Background: MeanFlow in Euclidean Space 
+
+Consider a probability path {pt : t ∈ [0 , 1] } with p0 = pdata and p1 = pprior , we assume pt is generated by the following ODE system: 
+
+
+
+X0 ∼ p0 initial distribution 
+
+dX t = v(t, X t)dt ODE 
+
+pt = Law( Xt) Marginal distribution in time (15) Equivalently, we write ( vt, x t) satisfies the continuity equation: 
+
+ddt pt = −∇ · (vtpt) (16) with the same initial distribution condition. 16 Geng et al. [2026a] proposed the mean velocity field u(s, t, x t) defined as 
+
+u(s, t, x t) := 1
+
+t − s
+
+Z ts
+
+v(τ, x τ )dτ ∈ Rd. (17) Multiplying ( t − s) on both sides and differentiating both sides with respect to t yields the 
+
+MeanFlow identity :
+
+(
+
+L.H.S. = ddt (t − s)u(s, t, x t) = u(s, t, x t) + ( t − s) ddt u(s, t, x t)R.H.S. = v(t, x t) = x1 − x0
+
+We compute R.H.S. from the data and L.H.S. from the model, the training loss is derived: 
+
+L =
+
+
+
+Et, (x0,x 1)∼π0
+
+h
+
+uθ + sg(( t − s)( ddt ut) − v(t, x t)) 2i
+
+Geng et al. [2026a] 
+
+Et, (x0,x 1)∼π0
+
+h
+
+uθ + ( t − s)sg( ddt ut) − v(t, x t) 2i
+
+Geng et al. [2026b] (18) where v(t, x t) = x1 − x0
+
+ddt uθ(r, t, x t) = ∂u θ
+
+∂x t
+
+v(t, x t) + ∂u θ
+
+∂t 
+
+and sg denotes the stop-gradient operation, which is used to prevent backpropagation through the target. 
+
+One-step training objective. MeanFlow learns a parametric field uθ(s, t, x t) via regression, using the standard linear interpolation between a data sample x0 ∼ pdata and a prior sample 
+
+x1 ∼ pprior :
+
+xt = (1 − t)x0 + tx 1, v = x1 − x0. (19) Using the MeanFlow identity, the target mean flow can be written as 
+
+utgt (s, t, x t) = v − (t − s) ddt uθ(s, t, x t), (20) where ddt uθ is the total derivative (implemented as a Jacobian-vector product), and utgt is treated as a stop-gradient target. The MeanFlow training loss is 
+
+LMF (θ) = Ex0∼pdata , x 1∼pprior , s<t 
+
+h
+
+uθ(s, t, x ) − sg  utgt (s, t, x t) 22
+
+i
+
+. (21) 
+
+# B Background: SO(3) Space 
+
+B.1 Basic concepts in SO(3) space 
+
+The special orthogonal group in three dimensions, denoted as SO(3), is defined as SO(3) := {R ∈ R3×3 : RR ⊤ = R⊤R = I3, det( R) = 1 }.
+
+The constraint RR ⊤ = I3 consists of smooth polynomial equations, which implies that SO (3) is a smooth embedded submanifold of R9.Equipped with matrix multiplication SO (3) ×2 ∋ (S1, S 2) 7 → S1S2 ∈ SO (3), SO (3) forms a Lie group. The identity element is I3, and the inverse of any element R ∈ SO (3) is given by R−1 = R⊤.17 Tangent space. Let R ∈ SO(3) be fixed. Consider a smooth curve R(t) ∈ SO(3) such that 
+
+R(0) = R. 
+
+Since R(t)R(t)⊤ = I3 holds for all t, differentiating at t = 0 yields ˙R(0) R⊤ + R ˙R(0) ⊤ = 0 .
+
+This implies that R⊤ ˙R(0) is skew-symmetric. Therefore, the tangent space at R is given by 
+
+TR(SO(3)) = {RΩ : Ω ∈ so (3) },
+
+where the Lie algebra so (3) is defined as 
+
+so (3) := {Ω ∈ R3×3 : Ω ⊤ = −Ω}.
+
+This representation provides a global linear parameterization of tangent vectors on SO (3). We also use the standard hat/vee identification between R3 and so (3): for ω = ( ω1, ω 2, ω 3) ∈ R3,
+
+ω∧ := 
+
+
+
+0 −ω3 ω2
+
+ω3 0 −ω1
+
+−ω2 ω1 0
+
+ ∈ so (3) , (·)∨ : so (3) → R3 is its inverse .
+
+Lie algebra and Lie bracket. The vector space so (3) is the Lie algebra associated with the Lie group SO(3). The Lie bracket on so (3) is defined as the matrix commutator [Ω 1, Ω2] = Ω 1Ω2 − Ω2Ω1, Ω1, Ω2 ∈ so (3) .
+
+It is straightforward to verify that this operation preserves skew-symmetry, hence so (3) is closed under the Lie bracket. 
+
+B.2 Curves and flows in SO(3) 
+
+In Euclidean space, a curve connecting x0 and x1 can be defined by the ODE 
+
+(
+
+X0 = x0,
+
+˙Xt = v(t, X t). (22) and thus X1 = R 10 v(t, x t)dt . We now extend this construction to the Lie group SO(3). 
+
+ODE-defined curves on SO (3) . Let Rt : [0 , 1] → SO (3) be a time-dependent curve. A natural intrinsic definition of its evolution is given by 
+
+(
+
+R0 = r0
+
+˙Rt = RtΩt, Ωt ∈ so (3) .
+
+This ODE guarantees that Rt remains in SO(3) for all t, since 
+
+ddt (RtR⊤ 
+
+> t
+
+) = RtΩtR⊤ 
+
+> t
+
++ RtΩ⊤ 
+
+> t
+
+R⊤ 
+
+> t
+
+= 0 .
+
+Given an initial condition R0 ∈ SO (3), the above equation defines a smooth curve on the manifold. 18 Exponential map and geodesics. When the angular velocity is constant, namely Ω t = Ω, the ODE admits a closed-form solution 
+
+Rt = R0 exp( tΩ) ,
+
+where exp denotes the matrix exponential. Under the canonical bi-invariant Riemannian metric on SO(3), curves of this form are geodesics. Given two points R0, R 1 ∈ SO(3), the geodesic connecting them is given by 
+
+Rt = R0 exp  tLog( R⊤ 
+
+> 0
+
+R1), t ∈ [0 , 1] ,
+
+where Log denotes the matrix logarithm mapping SO (3) to so (3). This curve minimizes the path length among all smooth curves on SO(3) connecting R0 and R1.
+
+Inner product and geodesic distance in SO (3) . Under the canonical bi-invariant Riemannian metric, we identify TRSO(3) = {RΩ : Ω ∈ so (3) } and define the inner product 
+
+⟨RΩ1, R Ω2⟩R = 12 tr(Ω ⊤ 
+
+> 1
+
+Ω2) = 12 tr  (R⊤ ˙R1)⊤(R⊤ ˙R2),
+
+which is invariant under left and right multiplication. The induced geodesic distance between 
+
+R0, R 1 ∈ SO(3) is dist( R0, R 1) = 1
+
+√2 Log( R⊤ 
+
+> 0
+
+R1) F ,
+
+where ∥ · ∥ F denotes the Frobenius norm. 
+
+Integration in SO(3). In Euclidean space, x1 = R 10 v(t, x t)dt + x0.Due to the non-commutative group structure, the endpoint in SO (3) cannot be written as a simple integral. Instead, the solution at t = 1 admits the group-valued representation 
+
+R(1) = R(0) T exp 
+
+ Z 10
+
+Ωtdt 
+
+
+
+,
+
+where T denotes the time-ordering operator: 
+
+T exp 
+
+ Z 10
+
+A(t)dt 
+
+
+
+= I3 +
+
+> ∞
+
+X
+
+> k=1
+
+Z 
+
+> 0≤t1≤···≤ tk≤1
+
+A(t1) · · · A(tk)dt 1 · · · dt k,
+
+where the time-ordering operator enforces the chronological ordering of the matrix products. 
+
+# C Background: SE(3) Space 
+
+C.1 Basic concepts in the SE(3) space 
+
+The special Euclidean group in three dimensions is defined as SE(3) = {(R, x ) : R ∈ SO(3) , x ∈ R3},
+
+representing orientation-preserving rigid motions in R3. Algebraically, SE (3) is the semidirect product SE(3) = SO(3) ⋉ (R3, +) ,
+
+19 where rotations act on translations. The group operation is given by (R1, x 1)( R2, x 2) = ( R1R2, x 1 + R1x2), (23) and the inverse by (R, x )−1 = ( R⊤, −R⊤x).
+
+As a smooth manifold, SE(3) is six-dimensional and diffeomorphic to SO(3) × R3.
+
+Lie algebra and tangent space. The Lie algebra se (3) consists of pairs (Ω , v ) with Ω ∈ so (3) and v ∈ R3, i.e., 
+
+se (3) = {(Ω , v ) : Ω ⊤ = −Ω, v ∈ R3}.
+
+The Lie bracket is given by [(Ω 1, v 1), (Ω 2, v 2)] = ([Ω 1, Ω2], Ω1v2 − Ω2v1).
+
+For any ( R, x ) ∈ SE(3), the tangent space is obtained by left translation: 
+
+T(R,x )SE(3) = {(RΩ, Rv ) : Ω ∈ so (3) , v ∈ R3}.
+
+C.2 Curves and flows in SE(3) 
+
+A time-dependent rigid motion is represented by a curve ( Rt, s t) ∈ SE (3). A natural way to define its intrinsic evolution is through the left-trivialized velocity: 
+
+( ˙Rt = RtΩt,
+
+˙xt = Rtvt, (Ω t, v t) ∈ se (3) ,
+
+where Ω t governs angular motion and vt determines translational motion in the body frame. Note that the translational velocity is expressed in the body frame and is therefore rotated by Rt: in the full semidirect-product geometry the two components are coupled. 
+
+C.3 The decoupled product geometry used in this work 
+
+Following the setting in Section 3 of Bose et al. [2024], we instead work with the product manifold SO(3) × R3
+
+equipped with a product Riemannian metric, under which the composition simplifies to (R1, s 1)( R2, s 2) = ( R1R2, s 1 + s2). (24) Comparing with (23) , this replaces s1 + R1s2 by s1 + s2, i.e. it drops the action of R1 on s2, so that the rotational and translational coordinates evolve independently. The left-trivialized flow correspondingly reduces to ˙Rt = RtΩt and ˙ st = vt.
+
+Remark 2 (Scope of this section) . This section is included as background only. Our method does not 
+
+use the semidirect-product structure (23) or any property specific to it. Following FoldFlow Bose et al. [2024] and ReQFlow Yue et al. [2025], we work throughout with the decoupled product geometry (24) , in which rotation and translation are independent. Accordingly, all constructions in this paper—the interpolation path, the MeanFlow identity, the α-Flow target, the semigroup loss, and the training objectives—are derived separately on SO (3) and on R3, and the SE (3) ( SE (3) N )losses are simply the sum of the two branches. The translational velocity is likewise taken in the ambient frame rather than the body frame. Whenever we write SE (3) ∼= SO (3) × R3 in the main text, it refers to this decoupled convention rather than to a group isomorphism. 20 D Background: SE(3) Flow Matching 
+
+Our method builds on flow matching, which we briefly review here—first on a general Riemannian manifold, and then in the decoupled SE(3) geometry used throughout the paper. 
+
+D.1 Riemannian flow matching 
+
+Flow matching [Lipman et al., 2022, Tong et al., 2023] learns a time-dependent velocity field whose flow transports a prior density p1 to the data density p0. On a Riemannian manifold M, one fixes a conditional coupling ( z0, z 1) ∼ q and connects the endpoints by the minimizing geodesic 
+
+zt = exp z0
+
+ t log z0 (z1), t ∈ [0 , 1] ,
+
+whose time derivative is the conditional (target) velocity ˙zt ∈ T zt M. Regressing a model field 
+
+uθ(t, z t) onto this target, 
+
+Et, q (z0,z 1)
+
+ ∥uθ(t, z t) − ˙zt∥2
+
+> g
+
+,
+
+recovers at its minimizer the marginal velocity that generates the interpolating path pt. Sampling then integrates the learned field, e.g. backward from a prior draw z1 to a data sample z0.
+
+D.2 SE(3) flow matching 
+
+Following Bose et al. [2024], we adopt the decoupled product geometry SE (3) ∼= SO (3) × R3, so that the geodesic and its velocity split into independent rotational and translational parts. For a data frame ( R0, x 0) and a prior frame ( R1, x 1), the conditional path is the SO (3) geodesic paired with the Euclidean straight line, 
+
+Rt = R0 exp  t log( R⊤ 
+
+> 0
+
+R1), xt = (1 − t) x0 + t x 1.
+
+Differentiating gives the closed-form conditional velocities, which are constant along each path: 
+
+ωt := log( R⊤ 
+
+> 0
+
+R1)∨ ∈ R3, vt := x1 − x0 ∈ R3,
+
+so that ˙Rt = Rt ω∧ 
+
+> t
+
+and ˙xt = vt. The model predicts the body angular and translational velocities 
+
+Aθ(t, R t, x t) and vθ(t, x t)—equivalently the instantaneous ( s=t) evaluation of the two-time head, 
+
+Aθ(t, R t, x t) = Aavg  
+
+> θ
+
+(t, t, R t, x t)—and the SE (3) flow-matching objective regresses them onto these targets, 
+
+LFM = Et, q (z0,z 1)
+
+> N
+
+X
+
+> i=1
+
+h
+
+Aθ,i (t, R t,i , x t,i ) − ωt,i 22 + vθ,i (t, x t,i ) − vt,i 22
+
+i
+
+, (25) summed over the N residues. Equation (25) is the data-anchored objective to which our MeanFlow and α-Flow targets reduce in the appropriate limit—for instance at α = 1, where Aavg tgt = ωt—and it supplies the boundary condition that keeps the consistency objective from collapsing. 
+
+D.3 Mini-batch optimal-transport coupling 
+
+The flow-matching objective (25) is defined for any coupling q(z0, z 1) of the data and prior marginals. The simplest choice is the independent coupling q = p0 ⊗ p1, under which trajectories from different pairs cross and the marginal velocity field is far from constant along each path. Following Tong et al. [2023], Pooladian et al. [2023] and FoldFlow Bose et al. [2024], we instead re-pair each batch 21 by discrete optimal transport. Given M data frames {zk 
+
+> 0
+
+} and M prior frames {zk 
+
+> 1
+
+} with uniform weights, the Optimal transport problem Villani et al. [2009], Flamary et al. [2021] min 
+
+> Π∈U M
+
+X
+
+> k,l
+
+Πkl c(zk 
+
+> 0
+
+, z l
+
+> 1
+
+), UM = {Π ≥ 0 : Π 1 = Π ⊤1 = 1 
+
+> M
+
+1},
+
+attains its optimum at a vertex of UM , i.e. (Birkhoff) at a permutation π⋆ ∈ S M , so the plan reduces to a linear assignment solvable exactly in O(M 3) by the Hungarian algorithm. On the decoupled product geometry (24) we take the squared SE(3) N geodesic cost, 
+
+c (R0, x 0), (R1, x 1) =
+
+> N
+
+X
+
+> i=1
+
+h
+
+λR d2SO(3) (Ri
+
+> 0
+
+, R i
+
+> 1
+
+) + λx ∥xi 
+
+> 0
+
+− xi
+
+> 1
+
+∥22
+
+i
+
+, dSO(3) (R, R ′) = 1√2 ∥ log( R⊤R′)∥F ,
+
+with ( λR, λ x) = (0 .5, 0.5). Re-pairing shortens the average transport distance and straightens the induced probability path; the resulting velocity field is closer to constant along each trajectory, which is exactly the regime in which few-step average-velocity sampling is accurate. This is also why the controlled benchmark of Appendix H disables OT (Section H.2): with OT the instantaneous-and average-velocity parameterisations nearly coincide, and the comparison would no longer be informative. 
+
+# E Related Work 
+
+E.1 Diffusion and early flow-matching baselines 
+
+The first wave of SE (3) N backbone generators are diffusion models over residue frames. FrameD-iff Yim et al. [2023b] formulates SE(3)-invariant score-based diffusion on multiple frames and generates designable monomers up to 500 residues without a pretrained structure-prediction network (17 .4M parameters). Genie Lin et al. [2024] instead diffuses oriented C α residue clouds with SE(3)-equivariant triangle updates; it is parameter-light (4 .1M) and attains high diversity and novelty, but its designability is comparatively low and degrades sharply as the number of sampling steps is reduced. FrameFlow Yim et al. [2023a] keeps the frame representation but replaces diffusion with SE (3) flow matching, reporting roughly 2 × higher designability than FrameDiff at about 5 ×
+
+fewer sampling steps, and a ∼ 23 × sampling speed-up over Genie at markedly higher designability. Because FrameFlow dominates both earlier models on the designability–efficiency axis that is our focus, we take it as the representative of this pre-2024 generation in the main-text comparison (Table 1) and do not separately tabulate FrameDiff or Genie. The flow-matching methods most closely related to ours—FoldFlow, ReQFlow, and Riemannian MeanFlow—are discussed next. 
+
+E.2 FoldFlow Bose et al. [2024] 
+
+Bose et al. [2024] introduces SE (3) stochastic flow matching for protein backbone generation. Their training objective is a flow-matching regression that fits a time-dependent vector field ( vRθ , v xθ ) to the drift of a chosen probability path (an SE(3) bridge) between data ( R0, x 0) and noise ( R1, x 1): 
+
+LFM (θ) = Et, (R0,x 0),(R1,x 1)
+
+h
+
+∥vRθ (Rt, t ) − vR(Rt, t | R0, R 1)∥2SO(3) 
+
++∥vxθ (xt, t ) − vxt (xt, t |x0, x 1)∥2
+
+where vRt (Rt|R0, R 1) := ˙Rt |R0,R 1 := RtΩt, Ωt = log( R⊤ 
+
+> 0
+
+R1), R t = R0etΩt
+
+vxt (xt|x0, x 1) = x1 − x0, x t = (1 − t)x0 + tx 1.
+
+In this work, the authors introduce three variants: 22 • In the base setting, q is the independent coupling between ( p0 = pdata , p 1 = pprior ). 
+
+• In addition, the authors introduce the (mini-batch) optimal transport coupling, obtained by batch-size sample pB 
+
+> 0
+
+∼ i.i.d. p0, p B 
+
+> 1
+
+∼ i.i.d. p1 and the method is denoted as FoldFlow-OT. 
+
+• Furthermore, they introduce perturbation in the rotation interpretation Rt by the IGSO-distribution: ˜Rt |R0,R 1 ∼ IG SO (3) (Rt, γ 2(t)t(1 − t)) .
+
+where γ2(t) > 0 is a predefined function. 
+
+Adaptation to protein backbone space: SE (3) N As discussed in the main text, a protein backbone with N residues can be represented as a product space SE (3) N , i.e., x = ( g1, . . . , g N ) with 
+
+gi = ( Ri, x i) ∈ SE (3). The SE (3) flow-matching loss then extends by summing (or averaging) the per-residue SE (3) losses, which is equivalent to concatenating all residue-wise tangent vectors into a single 6 N -dimensional stacked vector: 
+
+LSE(3) N 
+
+> FM
+
+(θ) = E 1
+
+N
+
+h NX
+
+> i=1
+
+∥vRθ,i (Rt,i , t ) − vRt,i (Rt,i | R0,i , R 1,i )∥2SO(3) 
+
++
+
+> N
+
+X
+
+> i=1
+
+∥vxθ,i (xt,i , t ) − vxt,i (xt,i | x0,i , x 1,i )∥2 i
+
+In addition, the auxiliary loss (see section G.1) is included in the final training loss. 
+
+E.3 FoldFlow-2 Huguet et al. [2024] 
+
+Huguet et al. [2024] extends FoldFlow to a sequence-conditioned generative model. The underlying generative task remains SE(3) N flow matching as in FoldFlow, and the loss structure is identical. The key novelty is that the vector field is now conditioned on a (possibly masked) amino acid sequence ¯ a:
+
+LFF2 FM (θ) = Et, π (x0,x 1), ¯a
+
+1
+
+N
+
+h NX
+
+> i=1
+
+∥vRθ,i (Rt,i , t |¯a) − vRt,i (Rt,i | R0,i , R 1,i , ¯a)∥2SO(3) 
+
++
+
+> N
+
+X
+
+> i=1
+
+∥vxθ,i (xt,i , t |¯a) − vxt,i (xt,i | x0,i , x 1,i , ¯a)∥2i
+
+, (26) where π(x0, x 1) is the minibatch OT coupling (as in FoldFlow-OT), and ¯a = a ⊙ m is the masked sequence with mask m ∼ Bern (0 .5) applied uniformly across all residues. This stochastic masking enables a single model to handle both conditional and unconditional generation: 
+
+• ¯a = [ ∅]N (fully masked, probability 0.5): unconditional backbone generation, equivalent to FoldFlow-OT. 
+
+• ¯a = a (unmasked, probability 0.5): sequence-conditioned generation, i.e. protein folding. 
+
+• ¯a = a ⊙ m (partially masked): structure in-painting and motif scaffolding. 23 Reinforced Fine-Tuning (ReFT). FoldFlow-2 further introduces a fine-tuning objective to align generations towards an auxiliary reward raux . Given a preferential dataset Dpref filtered by 
+
+raux , the ReFT objective is: max 
+
+> pθ
+
+LReFT (θ) = E(x,a )∼D pref [raux (x) log pθ(x | a)] . (27) This is applied, for example, to improve secondary structure diversity by upweighting samples rich in β-sheets and coils. 
+
+E.4 ReQFlow Yue et al. [2025] 
+
+Yue et al. [2025] propose a quaternion-based flow model for protein backbone generation. Similar to FrameFlow and FoldFlow, the protein backbone is represented as a collection of residue-wise rigid frames in SE (3) N . However, instead of representing rotations by matrices in SO (3), ReQFlow parameterizes each residue frame as 
+
+gi = ( xi, q i), xi ∈ R3, qi ∈ S3,
+
+where xi is the local translation and qi is a unit quaternion representing the 3D rotation. In particular, given a rotation matrix R ∈ SO (3), let ω = ϕu = ( log (R)) ∨ ∈ R3 be its axis-angle vector, where ϕ = ∥ω∥, u = ω 
+
+> ∥ω∥
+
+the corresponding unit quaternion is given by 
+
+q = exp( 12 ω) = [cos ϕ
+
+2 , sin ϕ
+
+2 u⊤]⊤ ∈ S3.
+
+Conversely, given a unit quaternion q = ( w, x, y, z )⊤ ∈ S3, the corresponding rotation matrix is 
+
+R = exp((2 log( q)) ∧).
+
+Moreover, given 3D rotations R1, R 2 with corresponding quaternion representations q1 := (s1, u 1), q 2 := ( s2, u 2), their group action (matrix multiplication) can be expressed by quaternion multiplication: 
+
+q1 ⊗ q2 =
+
+ s1s2 − u⊤ 
+
+> 1
+
+u2
+
+s1u2 + s2u1 + u1 ⊗ u2
+
+
+
+.
+
+This quaternion algebra leads to a more numerically stable and efficient treatment of rotations, especially when the rotation angle is very small or close to π.
+
+Quaternion Flow Matching (QFlow). In ReQFlow, the authors denote by T0 the prior distribution 
+
+N (0 , I 3) × IG SO (3) ,
+
+where, with a slight abuse of notation, IG SO (3) denotes the isotropic Gaussian distribution in rotation space under the quaternion representation. The target distribution T1 corresponds to the real protein data distribution. ReQFlow parameterizes the model as 
+
+Tθ, 1(xt, q t) = ( xθ, 1, q θ, 1),
+
+where xθ, 1 and qθ, 1 denote the predicted translation and rotation at terminal time t = 1, conditioned on the current state ( xt, q t). 24 At time t ∈ [0 , 1], the translation path follows the standard linear interpolation 
+
+xt = (1 − t)x0 + tx 1,
+
+with translation velocity 
+
+vxt = x1 − x0 = x1 − xt
+
+1 − t , vxθ,t = xθ, 1 − xt
+
+1 − t .
+
+For the rotational component, ReQFlow adopts quaternion geodesic interpolation: 
+
+qt = q0 ⊗ exp  t log( q−10 ⊗ q1).
+
+The corresponding angular velocity and its model-based estimate are 
+
+vqt = 2 log( q−10 ⊗ q1) = 2 log( q−1 
+
+> t
+
+⊗ q1)1 − t , v qθ,t = 2 log( q−1 
+
+> t
+
+⊗ qθ, 1)1 − t .
+
+The inference dynamics are then approximated by 
+
+(xt+∆ t = xt + ∆ t v xθ,t ,qt+∆ t = qt ⊗ exp 
+
+ 12 ∆t v qθ,t 
+
+
+
+.
+
+Accordingly, the flow-matching loss is defined as 
+
+LQFlow = Et, (x0,q 0),(x1,q 1)
+
+∥vxt − vxθ,t ∥2 + Et, (x0,q 0),(x1,q 1)
+
+∥vqt − vqθ,t ∥2.
+
+In addition, the auxiliary loss (see section G.1) is incorporated into the training process. 
+
+E.5 Riemannian Gaussian Variational Flow Matching (RG-VFM) Zaghen et al. [2025] 
+
+Zaghen et al. [2025] approach manifold generation from the variational rather than the velocity-matching side. Building on Variational Flow Matching, they replace the instantaneous-velocity regression used by CFM/RFM—and, in our setting, by FrameFlow, FoldFlow, and ReQFlow—with an endpoint objective: a network predicts a terminal mean μθ(xt) ∈ M , and the posterior qθ(x1 | xt)is modeled as a Riemannian Gaussian 
+
+NRiem 
+
+ x1 | μθ(xt), σ  ∝ exp 
+
+
+
+− dist g
+
+ x1,μ θ (xt)
+
+2
+
+> 2σ2
+
+
+
+.
+
+On a homogeneous manifold with closed-form geodesics, the normalizing constant is independent of 
+
+μ, and the objective collapses to a squared geodesic (endpoint) distance: 
+
+LRG-VFM (θ) = Et,x 1,x t
+
+∥ log x1 (μθ(xt)) ∥2
+
+> g
+
+ = Et,x 1,x t
+
+dist g
+
+ x1, μ θ(xt)2,
+
+which recovers the Euclidean VFM/MSE loss ∥μθ(xt) − x1∥2 when M = Rd. Unlike vanilla RFM, whose vector field lives in Txt M and requires supp (p0) to lie on M, the variational objective compares endpoints in the single tangent space Tx1 M and only needs the local geometry around p1.
+
+Adaptation to the backbone setting (“variational ReQFlow”). Instantiating this objective in ReQFlow’s frame representation gi = ( xi, q i) ∈ R3 × S3 yields an endpoint-matching counterpart of QFlow. Rather than regressing the translation/quaternion velocities as in LQFlow ,25 the model predicts the terminal frame ( xθ, 1, q θ, 1) and minimizes the endpoint geodesic distance directly: 
+
+Lv-ReQFlow (θ) = Et
+
+h NX
+
+> i=1
+
+∥x1,i −xθ, 1,i ∥2+λ
+
+> N
+
+X
+
+> i=1
+
+dist SO(3) 
+
+ q1,i , q θ, 1,i 
+
+2 i
+
+, dist SO(3) (q1, q θ, 1) = 2 log( q−1 
+
+> θ, 1
+
+⊗q1) ,
+
+i.e. the flow-matching term is replaced by a squared endpoint distance on the product space SE(3) N = (SO(3) × R3)N .
+
+Relation to our work. At the loss level, RG-VFM can be read as a variant of ReQFlow in which the velocity-matching FM objective is replaced by an endpoint geodesic distance: the network still predicts a terminal mean μθ(xt) (an x1-prediction parameterization), so sampling remains an ODE integration and inherits the same limited few-step generation behavior as standard flow matching. Our method is instead a MeanFlow-type model that directly learns the average-velocity flow map Φ s,t via the time-ordered exponential (Eq 30), which is what enables few-step generation. The two are nonetheless complementary rather than opposed: in the second phase of our training (Section M), we combine this endpoint geodesic loss with the MeanFlow objective, using the former to stabilize the JVP (total-derivative) term in the MeanFlow loss. Finally, RG-VFM is validated only on a synthetic spherical dataset and releases no SE (3) N protein checkpoint, so we do not include it as a standalone baseline (see below). 
+
+E.6 Riemannian MeanFlow (RMF) Woo et al. [2026] 
+
+Concurrent with our work, Woo et al. [2026] generalize MeanFlow from Euclidean space to Rie-mannian manifolds, with applications to scientific generative modeling on manifolds such as the simplex and SE (3) N . Instead of learning an instantaneous velocity field and numerically integrating it during sampling, RMF directly learns the flow map Φs,t : M → M ,
+
+which transports a point xs ∼ ps at time s to its corresponding point xt ∼ pt at time t along the same integral curve. The key geometric quantity in RMF is the average velocity , defined by 
+
+us,t (xs) = 
+
+
+
+1
+
+t − s log xs (xt), t̸ = s, vs(xs), t = s, 
+
+(28) where log xs (xt) ∈ Txs M denotes the Riemannian logarithmic map. Geometrically, us,t (xs) is the constant tangent velocity that transports xs to xt along a geodesic over time interval t − s. By differentiating both sides with respect to t, we obtain: 
+
+us,t (xs) = d(log xs )xt [vt] − (t − s)∂tus,t (xs). (29) and it induces the training loss: 
+
+LRMF (θ) = Exs,s,t [∥uθs,t (xs) − sg(ˆ utgt )∥2],
+
+where ˆ utgt = ( t − s)Dsuθs,t (xs) − ∇ 1 
+
+> vs
+
+log xs Φθ(xs) and Φ θs,t (xs) = exp(( t − s)uθs,t (x)). They further include a cycle-consistency regularizer 
+
+Lcyc (θ) = Ext,s,t 
+
+dg(ϕθs,t (ϕθt,s (xt)) , x t)2.
+
+26 Training objective in the protein experiments. In the SE (3) N protein setting, RMF is trained with a flow-matching loss together with a semigroup (flow-map composition) consistency loss. The semigroup term enforces Φ r,t = Φ s,t ◦ Φr,s , but measures the residual as an endpoint geodesic distance —the SE (3) distance between the one-step map Φ r,t (xr) and the composed two-step map Φ s,t (Φ r,s (xr))—rather than regressing log-displacements in the Lie algebra, as in our finite semigroup loss (Appendix K). The two agree at the minimizer, but differ in conditioning: the endpoint-distance form couples the rotation and translation branches through a single SE (3) metric, whereas our log-displacement form keeps them separated and, on the rotation branch, makes the BCH/right-Jacobian structure explicit. We compare both average-velocity formulations on a controlled SO(3) 2 benchmark in Appendix H. 
+
+E.7 Riemannian MeanFlow via Parallel Transport (RMF-PT) 
+
+Also concurrent with our work, Zhong et al. [2026] extend MeanFlow to general Riemannian manifolds by defining the average velocity as a parallel-transport integral: the instantaneous velocities along the trajectory are transported to a common tangent space before being averaged (Eq. 5 therein). To distinguish it from the Riemannian MeanFlow of Woo et al. [2026] discussed above, we refer to this method as RMF-PT . Our approach differs in three respects. 
+
+(i) Definition. RMF-PT defines the mean velocity through a path-dependent parallel-transport integral, which requires the full trajectory {xτ }τ ∈[s,t ]. We instead define it via the time-ordered exponential (30) , which depends only on the endpoints Rs and Rt and reduces to the logarithmic map Ω avg = 1 
+
+> t−s
+
+log (R⊤ 
+
+> s
+
+Rt). The two definitions coincide when the velocity field is constant along the trajectory (the geodesic case); for general fields they differ by BCH correction terms arising from the non-commutativity of SO(3). 
+
+(ii) Identity and loss. Differentiating the two definitions yields structurally different identities. That of RMF-PT involves the covariant derivative ∇ ˙γ u with Christoffel corrections (Appendix A of Zhong et al. 2026), which their implementation drops via a log-map approximation. Ours involves the exact right Jacobian J of SO (3) (Proposition 3), which admits a closed form and requires no approximation. 
+
+(iii) Application. RMF-PT targets general manifolds and is evaluated on synthetic data (spheres, tori, and SO (3) rotations). Our method is built for SE (3) N protein backbone generation: we exploit the decoupled product geometry SO (3) ×R3 (Appendix C) to obtain separate, simulation-free objectives for rotations and translations, and validate them on de novo backbone design. 
+
+E.8 Baseline selection 
+
+Since FoldFlow/FoldFlow2 and v-QFlow/v-ReQFlow do not have public checkpoints for the SCOPe dataset, these methods are not included in the experiments. In addition, FoldFlow and QFlow are essentially the same in nature—both are flow-matching models—and differ only in the mathematical representation of rotations (rotation matrices vs. quaternions) and in the backbone architecture. Since QFlow outperforms FoldFlow on the PDB dataset, we consider QFlow already sufficiently representative of this family. v-QFlow, in turn, can be viewed as a variant of QFlow whose performance largely matches QFlow’s—strong at a moderate number of sampling steps (e.g. 100 /500 steps) but degrading as the step count is reduced. We therefore select QFlow alone as the representative method. 27 F MeanFlow on SE (3) : Derivation, Theoretical Properties, and 
+
+# N -component Implementation 
+
+F.1 Model and loss function 
+
+We first introduce some fundamental results in Riemannian/SO3 manifold: 
+
+Remark 3. • The hat map does not contribute to the derivative. Let A : [0 , 1] → R3 be a smooth curve and define Ω( t) = A(t)∧, where ( ·)∧ : R3 → so (3) is the (linear) hat operator, and ( ·)∨ : so (3) → R3 is its inverse. Since ( ·)∧ is linear and independent of t, the chain rule gives ddt Ω( t) = 
+
+ dA dt 
+
+∧
+
+∈ R3×3.
+
+• Frechet derivative of the matrix exponential. Let R(t) : [0 , 1] → R3×3 be a smooth matrix curve and define F (t) = exp( R(t)). By the chain rule on Banach spaces, ˙F (t) = d(exp) R(t)[ ˙R(t)] ,
+
+where d(exp )R : R3×3 → R3×3 denotes the Fr´ echet derivative of the matrix exponential at R
+
+in the direction H = ˙R(t). The derivative admits the integral (Wilcox) representation: 
+
+d(exp) R(H) = 
+
+Z 10
+
+e(1 −α)RHe αR dα. 
+
+Equivalently, the derivative of the map R 7 → exp (R) is the linear operator d( exp )R(·) defined for all H ∈ R3×3.
+
+• Derivative with respect to a point on a manifold. Consider a smooth curve t 7 → R(t)on the manifold SO (3) and a smooth function f : SO (3) → R. Let F (t) = f (R(t)). By the chain rule, we have ddt F (t) = df R(t)[ ˙R(t)] = ⟨∇ M 
+
+> R
+
+f (R(t)) ˙R(t)⟩,
+
+where df R denotes the Frechet differential of f at R, and ∇M 
+
+> R
+
+f (R) denotes the Riemannian gradient at R. Equivalently, the differential df R is a linear operator defined on the tangent space TRSO(3) for every R ∈ SO(3). 
+
+• On SO(3) , the Riemannian gradient coincides with the Euclidean gradient. 
+
+On the Lie group SO (3), we use the canonical inner product ⟨· , ·⟩ R : TR( SO (3)) ⊗2 → R defined by 
+
+⟨A, B ⟩ = 12 Tr( A⊤B).
+
+Then, for any smooth function f : SO (3) → R and its smooth extension ¯f : R3×3 → R, we have 
+
+∇M 
+
+> R
+
+f = ∇R ¯f , ∀R ∈ SO(3) ⊂ R3×3.
+
+With these preliminaries in place, we now define the average angular velocity on SO (3) and derive the corresponding MeanFlow identity. We define the average velocity as exp(( t − s)Ω avg (s, t, R t, x t)
+
+| {z }
+
+> Ωs→t
+
+) := T exp 
+
+ Z ts
+
+Ω( τ, R τ , x τ ) dτ 
+
+
+
+(30) 28 Remark 4. SO (3) is not commutative. Thus, in general, T exp   R ts Ω( τ, R τ , x τ ) dτ ̸ = exp   R ts Ω( τ, R τ , x τ ) dτ 
+
+unless Ω τ is constant. Therefore, we cannot directly define Ω avg via R ts Ω( τ, R τ , x τ ) dτ .Note that since each Ω( τ, R τ , x τ ) ∈ so (3), we have Ω avg (s, t, R t, x t) ∈ so (3). In the extreme case, given s = 0 , t = 1, the above mean velocity recovers R0 from R1:
+
+(
+
+R1 = R0 exp(Ω avg (0 , 1, R 1, x 1)) Forward 
+
+R0 = R1 exp( −Ωavg (0 , 1, R 1, x 1)) Backward We apply this convention to the ground truth as well: Ωavg (s, t, R t, x t) = A(s, t, R t, x t)∧.
+
+Remark 5. With this model, it is clearer to define the mean velocity via (30) , since R ts Ω( τ, R τ ) dτ is identified with an element of R3, and the above definition is a natural average in Euclidean space. With this definition, we can now derive a differential identity relating the average angular velocity to the instantaneous velocity, which will form the basis of our training objective. 
+
+Proposition 3 (Derivative of the averaged angular velocity) . Under the assumption s, t are independent and using the above notations, set As→t = ( t − s)Aavg (s, t, R t, x t). Taking the derivative of both sides of (30) with respect to t yields 
+
+(
+
+L.H.S. = R⊤ 
+
+> s
+
+Rt
+
+ J(As→t) ddt As→t∧
+
+R.H.S. = R⊤ 
+
+> s
+
+RtΩ( t, R t, x t) . (31) 
+
+Since R⊤ 
+
+> s
+
+Rt is invertible, equating the two sides and applying (·)∨ gives 
+
+J(As→t) ddt As→t = ωt ⇐⇒ ddt As→t = J−1(As→t) ωt, (32) 
+
+the two forms underlying (11) and (12) respectively; the equivalence uses invertibility of J (Remark 6). Expanding ddt As→t = Aavg + ( t − s) ddt Aavg by (38) recovers (8) .Proof. Differentiate both sides of (30) with respect to t.For the right-hand side, the standard derivative rule for the time-ordered exponential gives 
+
+ddt T exp 
+
+ Z ts
+
+Ω( τ, R τ , x τ ) dτ 
+
+
+
+=
+
+
+
+T exp   Z ts
+
+Ω( τ, R τ , x τ ) dτ 
+
+Ω( t, R t, x t)= exp(Ω s→t) Ω( t, R t, x t), (33) where exp(Ω s→t) = R⊤ 
+
+> s
+
+Rt by definition. For the left-hand side, the Wilcox formula for the Fr´ echet derivative of the matrix exponential gives 
+
+ddt exp(Ω s→t) = exp(Ω s→t)
+
+Z 10
+
+exp   − αΩs→t ddt Ωs→t
+
+exp  αΩs→t dα (34) = exp(Ω s→t)
+
+Z 10
+
+exp   − αΩs→t ddt As→t∧
+
+exp  αΩs→t dα 
+
+= exp(Ω s→t)
+
+Z 10
+
+
+
+exp   − α(As→t)∧ ddt As→t
+
+∧
+
+dα 
+
+= exp(Ω s→t)
+
+Z 10
+
+exp   − α(As→t)∧ dα ddt As→t
+
+∧
+
+. (35) 29 10 −3 10 −2 10 −1                          
+
+> segment gap t−s
+> 10 −14
+> 10 −11
+> 10 −8
+> 10 −5
+> 10 −2
+> median residual ‖ Jleft (ω)̇ ω − Ω t‖ (a) Left Jacobian is necessary
+> with Jleft (identity)
+> without ( J: = I)
+> 10 −1 10 0
+> time t(gap t−s= 0.02)
+> 10 −17
+> 10 −14
+> 10 −11
+> 10 −8
+> 10 −5
+> 10 −2
+> median residual (with  Jleft )
+> (b) Machine precision, stable as t→ 0
+> SE(3) MeanFlow identity Ωt=Jleft (ω)ddt ω,ω= Log( R⊤
+> tRs)
+
+Figure 5: Numerical verification of Proposition 3. On an analytic, non-geodesic SO (3) path we evaluate both sides of (31) and plot the median residual ∥J(As→t) ddt As→t − ω(t)∥ against the segment gap t − s. With the Jacobian term J(As→t) (green) the residual stays at float64 machine precision ( ∼ 10 −15 , at worst 10 −11 ), uniformly in the gap; dropping it ( J := I, red) breaks the identity by O(t − s), confirming both the proposition and the necessity of the Jacobian term. Here the second line uses Ω s→t = ( As→t)∧ and the linearity of ( ·)∧. The third line uses the conjugation identity Qx ∧Q⊤ = ( Qx )∧ for Q ∈ SO (3) and x ∈ R3. The last line follows because ( ·)∧
+
+is linear and independent of α. We complete the proof by the identity of right Jacobian defined in (10) 
+
+J(As→t) = 
+
+Z 10
+
+exp( −α(As→t)∧)dα. 
+
+Remark 6 (Inverse of the right Jacobian) . Since A∧ is skew with eigenvalues 0 , ±iϕ where ϕ := ∥A∥2,the matrix J(A) = R 10 e−αA ∧
+
+dα has eigenvalues 1 and (1 − e∓iϕ )/(±iϕ ), of modulus 2 sin (ϕ/ 2) /ϕ ,all nonzero for ϕ ≤ π. Hence J is invertible on the principal branch, with 
+
+J(A)−1 = I + 12 A∧ +
+
+ 1
+
+ϕ2 − 1 + cos ϕ
+
+2ϕ sin ϕ
+
+
+
+(A∧)2,
+
+and J(A)−1 = I + 12 A∧ + 112 (A∧)2 + O(ϕ4) for small ϕ, which we use below the numerical threshold. This covers the model output: with the endpoint parameterization Aavg 
+
+θ = 1
+
+t log (·)∨ of Section 3.1 the principal branch gives ∥As→tθ ∥2 = t−st ∥ log( ·)∨∥2 ≤ π, so (12) is well-defined. 
+
+Remark 7. If the angular velocity is constant, i.e. Ω τ = ω∧ for all τ , then As→t = ( t − s)ω and 
+
+ddt As→t = ω. Since ω∧ω = ω × ω = 0, every term of the series for J beyond the constant one annihilates ω, so 
+
+J(As→t) ddt As→t = J (t − s)ω ω = ω, 
+
+and likewise J−1(As→t) ω = ω: the Jacobian does not distort the velocity when the axis is fixed, and the two forms of (32) coincide. We verify Proposition 3 numerically. We sample a smooth, non-geodesic curve R(τ ) = exp  (a +
+
+bτ + cτ 2)∧ on SO (3) with b, c non-parallel, so the averaged generator As→t = Log (R⊤
+
+s Rt) genuinely differs from the instantaneous one and J(As→t) acts non-trivially. For a batch of times we compute the instantaneous body angular velocity ω(t) :=  Ω( t)∨ = ( R⊤
+
+t ˙Rt)∨ and the derivative ddt As→t by forward-mode automatic differentiation, and evaluate J(As→t) from its closed form, all using the same SO (3) exp/log/Jacobian routines as the training loss in double precision. Figure 5 reports the median residual of (31) over the batch versus t − s.30 The identity in Proposition 3 involves the total time derivative ddt As→t, which we now compute explicitly. 
+
+Proposition 4. In the above notation, we have the total derivative 
+
+ddt A(s, t, R t, x t) = ∂tA(s, t, R t, x t) + ⟨∇ RA(s, t, R t, x t), ˙Rt⟩ + ⟨∇ xA(s, t, R t, x t), ˙xt⟩.
+
+Proof. By the above remark, for v ∈ TRt SO(3), 
+
+dRA(s, t, R t, x t)[ v] = ∇RA(s, t, R t, x t)[ v].
+
+Similarly, in the Euclidean component, dxA(s, t, R t, x t)[ w] = ⟨∇ xA(s, t, R t, x t), w ⟩ for w ∈ R3.Applying the chain rule along the curve t 7 → (Rt, x t) gives the claimed identity. Substituting Aavg  
+
+> θ
+
+(s, t, R t, x t) into the two identities of (32) and defining As→tθ = ( t−s)Aavg  
+
+> θ
+
+(s, t, R t, x t), we obtain the two training losses of Section 3.1: 
+
+LJ 
+
+> SO(3)
+
+:= Es<t, (( R0,x 0),(R1,x 1)) ∼q0,1
+
+h
+
+sg  J(As→tθ )  Aavg  
+
+> θ
+
++ ( t − s) sg( ddt Aavg  
+
+> θ
+
+) − ωt 22
+
+i
+
+, (36) 
+
+LJ−1 
+
+> SO(3)
+
+:= Es<t, (( R0,x 0),(R1,x 1)) ∼q0,1
+
+h
+
+Aavg  
+
+> θ
+
+− sg  J−1(As→tθ ) ωt − (t − s) ddt Aavg 
+
+> θ
+
+ 22
+
+i
+
+, (37) where q0,1 is a coupling between p0 = pdata and p1 = pprior = pnoise (e.g. product measure or optimal transport coupling), and the stop-gradient is placed so that the gradient flows through Aavg  
+
+> θ
+
+only. The two residuals are related by J(As→tθ ) and hence share their zero set; we train with (37) . In addition, the interpolation R(t) (and its velocity ˙R(t)) is obtained from the geodesic interpolation: Ω( t) = Log( R⊤ 
+
+> 0
+
+R1), R(t) = R(0) exp( tΩ( t)) , ˙Rt = RtΩ( t).
+
+The following proposition confirms that minimizing this loss recovers the correct relative rotation between any two points along the path. 
+
+Proposition 5. If LJ 
+
+> SO(3)
+
+= 0 or LJ−1 
+
+> SO(3)
+
+= 0 , i.e. 
+
+ J(As→tθ ) ddt As→tθ
+
+∧ = Ω( t, R t, x t) ∀s < t ∈ [0 , 1] ,
+
+then 
+
+exp  (As→tθ )∧ = R⊤ 
+
+> s
+
+Rt.
+
+Proof. For simplicity we take s = 0 , t = 1. Define the candidate reconstruction ˜Rt := R0 exp(( A0→tθ )∧).
+
+By the closed-form Fr´ echet derivative of the exponential on SO(3), 
+
+ddt exp(( A0→tθ )∧) = exp(( A0→tθ )∧) J(A0→tθ ) ddt A0→tθ
+
+∧.
+
+Using the condition LJ 
+
+> SO(3)
+
+= 0 (or LJ−1 
+
+> SO(3)
+
+= 0) we have 
+
+ J(A0→tθ ) ddt A0→tθ
+
+∧ = Ω( t, R t, x t).
+
+Hence ˙˜Rt = ˜RtΩ( t, R t, x t).
+
+31 On the other hand the geodesic interpolation satisfies ˙Rt = RtΩ( t, R t, x t), R0 given .
+
+Thus Rt and ˜Rt solve the same ODE with the same initial condition. By uniqueness of solutions on SO(3) we obtain ˜Rt = Rt, ∀t ∈ [0 , 1] .
+
+Taking t = 1 yields 
+
+R0 exp(( A0→1 
+
+> θ
+
+)∧) = R1 ⇐⇒ exp(( A0→1 
+
+> θ
+
+)∧) = R⊤ 
+
+> 0
+
+R1.
+
+For general s < t the same argument gives exp(( As→tθ )∧) = R⊤ 
+
+> s
+
+Rt,
+
+which completes the proof. To implement the loss in (36), it remains to compute the total derivative ddt As→tθ .
+
+Proposition 6. From the product rule and chain rule, we have 
+
+ddt (t − s)Aθ(s, t, R t, x t) = Aθ(s, t, R t, x t) + ( t − s)
+
+
+
+∂tAθ(s, t, R t, x t) + ⟨∇ RAθ(s, t, R t, x t), ˙Rt⟩ + ⟨∇ xAθ(s, t, R t, x t),
+
+(38) 
+
+Proof. Fix s, t and ( Rt, x t). For convenience, we denote 
+
+Aθ := Aθ(s, t, R t, x t).
+
+By definition, ( t − s)Aθ is a product of the scalar function t − s and the vector-valued function 
+
+Aθ(s, t, R t, x t). Hence, by the product rule, 
+
+ddt (t − s)Aθ = ddt (t − s) Aθ + ( t − s) ddt Aθ
+
+= Aθ + ( t − s) ddt Aθ. (39) Next, we compute the total derivative of Aθ(s, t, R t, x t) with respect to t. Since Aθ depends on 
+
+t explicitly and implicitly through both Rt and xt, by the chain rule, 
+
+ddt Aθ(s, t, R t, x t) = ∂tAθ(s, t, R t, x t) + dRAθ(s, t, R t, x t)[ ˙Rt] + dxAθ(s, t, R t, x t)[ ˙ xt]. (40) Substituting (40) into (39) yields 
+
+ddt (t − s)Aθ(s, t, R t, x t) = Aθ + ( t − s)
+
+
+
+∂tAθ + ⟨∇ RAθ, ˙Rt⟩ + ⟨∇ xAθ, ˙xt⟩
+
+
+
+.
+
+This proves (38). 
+
+F.2 Practical implementation: SE(3) N adaptation 
+
+In practice, each sample of the protein data is in shape RN ∈ RN ×3×3, x N ∈ RN ×3 and N can be treated as the dimension of the data. The model is defined as 
+
+fθ : ( RNt , x Nt , t, s ) = [ Aavg,N θ ; vavg,N θ ] ∈ RN ×3 × RN ×3.
+
+Here Aavg,N θ,i ∈ R3 parametrizes the i-th so (3) component via Ω θ,i (s, t, R t,i ) = ( Aavg,N θ,i (s, t, R t,i )) ∧.32 Independent so (3) N loss. Extending (36) to so (3) N by treating each component independently gives 
+
+Lso (3) N := E s<t, q(RN  
+
+> 0,R N
+> 1)
+> N
+
+X
+
+> i=1
+
+sg 
+
+
+
+J (t − s)Aavg 
+
+> θ,i
+
+ 
+
+Aavg  
+
+> θ,i
+
++ ( t − s) sg   ddt ˆAavg 
+
+> θ,i
+
+
+
+− ωt,i  
+
+> 22
+
+, (41) where ωt,i := Ω i(t, R t,i , x t,i )∨ is the data instantaneous angular velocity (cf. Eq. (7) ) and J(·) is the SO (3) right Jacobian applied per component. The J−1 form (37) extends in the same way, with the 
+
+i-th summand replaced by Aavg  
+
+> θ,i
+
+− sg  J−1 (t − s)Aavg 
+
+> θ,i
+
+ωt,i − (t − s) ddt ˆAavg 
+
+> θ,i
+
+ 22.
+
+Translation R3×N loss. For the translation component, the loss in Euclidean space (3) extends directly to N independent particles. With the model prediction vavg  
+
+> θ,i
+
+∈ R3 for residue i, the translation loss is 
+
+LR3×N := E s<t, q(xN  
+
+> 0,x N
+> 1)
+> N
+
+X
+
+> i=1
+
+vavg  
+
+> θ,i
+
++ ( t − s) sg 
+
+ ddt ˆvavg 
+
+> θ,i
+
+
+
+− vi(t, x t,i )
+
+> 22
+
+, (42) where vi(t, x t,i ) = x1,i − x0,i is the constant ground-truth translation velocity along the linear interpolation path xt,i = (1 − t)x0,i + tx 1,i . The combined MeanFlow loss on SE (3) N is therefore 
+
+LSE(3) N 
+
+> M F
+
+= Lso (3) N + LR3×N .
+
+# G Common Settings: Auxiliary Loss, Prior and Inference. 
+
+G.1 Auxiliary Loss 
+
+We include auxiliary losses from Yim et al. [2023b] to enforce geometric consistency at the atomic level. Specifically, let A0 ∈ RN ×4×3 denote the ground-truth backbone atom coordinates (in ˚A) of the four heavy atoms ( N, Cα, C, O ) per residue, and let ˆA0 be the corresponding coordinates predicted by the model. We define a direct regression loss on backbone atom positions and a pairwise distance loss in a local neighbourhood, 
+
+Lbb = 14N
+
+X ∥A 0 − ˆA0∥2, L2D = ∥1{D < 6˚ A}(D − ˆD)∥2
+
+P 1D< 6˚ A − N , (43) where D ∈ RN ×N ×4×4 is the tensor of pairwise distances between heavy atoms, i.e. Dijab =
+
+∥A ia − A jb ∥, and ˆD is defined analogously from ˆA0. The auxiliary loss is then 
+
+Laux = EQ[Lbb + L2D ] , (44) where Q(t, x 0, x 1, ˜xt) := U(0 , 1) ⊗ ¯π(x0, x 1) ⊗ ρt( ˜xt | x0, x 1) is the factorized joint distribution. And following the settings in Bose et al. [2024], Yim et al. [2023b], we only apply Laux for t < 0.75, scaling it by λaux .
+
+G.2 Prior Distribution 
+
+Following the notation in Geng et al. [2026a,b], we denote protein backbones by ( RN 
+
+> 0
+
+, x N 
+
+> 0
+
+) and sample ( RN 
+
+> 1
+
+, x N 
+
+> 1
+
+) ∈ SO(3) N × RN ×3 from a simple prior. 33 Algorithm 1: MeanFlow training for SE (3) N (idealized form). This is the plain MeanFlow objective, stated to make the structure of the method explicit; it is not the recipe used for our reported results. The trained objective is the Stage-2 loss (97) —which adds the endpoint anchor and the auxiliary term—with the rotation and translation losses computed in the small-t stabilized form of Algorithm 3, after the α-Flow warm-up of Algorithm 5. See Appendix M. 
+
+Require: Data distribution pdata over SE(3) N ; MeanFlow network fθ; OT-coupling flag  
+
+> 1:
+
+for each training iteration do  
+
+> 2:
+
+Sample a mini-batch {(RN 
+
+> 0
+
+, x N 
+
+> 0
+
+)}Bb=1 ∼ pdata .
+
+RN 
+
+> 0
+
+∈ RB×N ×3×3, xN 
+
+> 0
+
+∈ RB×N ×3. 
+
+> 3:
+
+Sample ( RN 
+
+> 1
+
+, x N 
+
+> 1
+
+) from the prior; see Section G.2.  
+
+> 4:
+
+if OT-coupling then  
+
+> 5:
+
+Solve OT (( R0, x 0), (R1, x 1)) and couple ( R0, x 0) and ( R1, x 1) using the optimal transport plan.  
+
+> 6:
+
+end if  
+
+> 7:
+
+Sample times 0 ≤ s < t ≤ 1.  
+
+> 8:
+
+Forward-interpolate to time t to obtain ( RNt , ΩNt ) and ( xNt , v Nt ).  
+
+> 9:
+
+Evaluate the network: [ Aavg,N θ , v avg,N θ ] ← fθ(s, t, R Nt , x Nt ).  
+
+> 10:
+
+Compute Lso (3) N via Eq. (41).  
+
+> 11:
+
+Compute LR3×N via Eq. (42).  
+
+> 12:
+
+Compute the auxiliary loss Laux ; see Section G.1.  
+
+> 13:
+
+L ← L so (3) N + LR3×N + λaux ⊮[t < 0.75] Laux . 
+
+> 14:
+
+Update θ using a gradient step (or any optimizer).  
+
+> 15:
+
+end for Translation prior. In Euclidean space, the natural analogue of a “standard” prior is an isotropic Gaussian, 
+
+xN 
+
+> 1
+
+∼ N  0, σ 2
+
+> x
+
+IN ×3
+
+, (45) where we identify xN 
+
+> 1
+
+∈ RN ×3 with a vector in R3N and typically set σx = 1. 
+
+Rotation prior: Gaussian analogue on SO (3) . On the rotation group, the closest analogue of an isotropic Gaussian is an isotropic (heat-kernel) Gaussian on SO (3), denoted IGSO(3) (σR). It is the transition density of Brownian motion on SO (3) at time σ2
+
+> R
+
+, and is isotropic in the sense that its density depends only on the geodesic rotation angle 
+
+θ(R) := ∥Log( R)∥2 ∈ [0 , π ], Log : SO(3) → so (3) ∼= R3, (46) with respect to the Haar measure d R.Let IGSO (3) N denote the product measure of IGSO (3). Concretely, we use the factorized prior 
+
+p(RN 
+
+> 1
+
+, x N 
+
+> 1
+
+) = IGSO (3)( σR)N × N (0 , I N ×3). (47) The typical choice of σR is 1 .5. In addition, as σR → ∞ , IGSO(3) (σR) approaches the uniform (Haar) distribution on SO(3), which is another typical choice of the prior. 
+
+G.3 Inference process 
+
+Similar to the original MeanFlow method in Euclidean space, we can adapt multi-step inference for the SE(3) N MeanFlow framework. 34 Algorithm 2: SE(3) N MeanFlow inference 
+
+Require: Batch size B; pretrained network fθ; number of steps T
+
+Ensure: ( ˆRN 
+
+> 0
+
+, ˆxN 
+
+> 0
+
+) 
+
+> 1:
+
+∆t = 1 /T  
+
+> 2:
+
+Sample ( RN 
+
+> 1
+
+, x N 
+
+> 1
+
+) from the prior over SE(3) N . 
+
+> 3:
+
+(RNt , x Nt ) ← (RN 
+
+> 1
+
+, x N 
+
+> 1
+
+).  
+
+> 4:
+
+for t = 1 , 1 − ∆t, . . . , ∆t do  
+
+> 5:
+
+s ← t − ∆t. 
+
+> 6:
+
+[Aavg,N θ , v avg,N θ ] ← fθ(s, t, R Nt , x Nt ).  
+
+> 7:
+
+RNt ← RNt exp( −∆t (Aavg,N θ )∧).  
+
+> 8:
+
+xNt ← xNt − ∆t v avg,N θ . 
+
+> 9:
+
+end for  
+
+> 10:
+
+ˆRN 
+
+> 0
+
+= RNt , ˆxN 
+
+> 0
+
+= xNt .In particular, let T ∈ N denote the number of inference steps and let ∆ t = 1 
+
+> T
+
+be the step size. We apply the following updates on SO(3) and R3, respectively: 
+
+Rt−1 = Rte−∆tA ∧ 
+
+> θ(s,t,R t,x t)
+
+,xt−1 = xt − ∆tv avg  
+
+> θ
+
+(s, t, R t, x t).
+
+where t decreases from 1 to 1 /T and s = t − ∆t. We summarize the procedure in Algorithm 2. 
+
+# H Ablation Study: A Controlled SO (3) Benchmark for Few-Step Generation 
+
+Designability on SCOPe confounds the generative objective with the protein-specific IPA trunk, the auxiliary losses, the self-conditioning recipe, and the folding oracle, so a few-step win there is hard to attribute. This appendix therefore tests the central claim of the paper — that it is the average-velocity parameterisation that enables few-step generation, rather than the network, coupling, or protein-specific machinery — on a controlled SO (3) 2 benchmark, where we hold all confounders fixed and vary only the training loss. A full ablation on real proteins is prohibitively expensive: the design space includes many hyperparameter combinations (e.g., OT variants in sampling such as per-GPU OT, global OT, or no OT; loss normalizations and clipping; different loss mixtures; architectural toggles such as enabling/disabling AdaLN; and optimizer / learning-rate choices). Each setting requires substantial compute (4 ×80GB GPUs), long GPU-hour budgets, and careful checkpoint selection to reliably judge performance. Under our limited training budget we therefore do not run exhaustive real-dataset ablations; instead, on the synthetic SO (3) 2 benchmark we fix the model, learning rate, SE (3) interpolator, and training steps so that performance differences are attributable to the losses themselves. 
+
+H.1 Data 
+
+A sample is a pair of rotations ( R(0) , R (1) ) ∈ SO (3) 2: the rotational part of a two-residue backbone, with the translation branch switched off. Throughout we visualise a rotation at its axis-angle 35 atom 0: cube6 atom 1: moons3d    
+
+> Target on SO(3) 2(w= Log R)
+
+Figure 6: The SO (3) 2 target, drawn in axis-angle coordinates w = Log (R), ∥w∥ ≤ π. Left , atom 0 (cube6 ): six sharp modes at the cube-face rotations — a mode-seeking task. Right , atom 1 (moons3d ): two interlocking crescents — a curved-manifold task. Both must be solved by the same network under the same objective. coordinate 
+
+w = Log( R) ∈ R3, ∥w∥ ≤ π, (48) so a distribution on SO(3) becomes a point cloud inside the π-ball (Figure 6). The two atoms carry deliberately different geometry. 
+
+Atom 0 (cube6): a mode-seeking task. A mixture of six isotropic components centred at the six cube-face rotations (rotations by π/ 2 about ±ex, ±ey, ±ez , hence ∥w∥ = π/ 2). The modes are sharp and well separated, so a sampler must commit to one basin; hedging between two modes is immediately visible as mass in the empty region between them. 
+
+Atom 1 (moons3d): a curved-manifold task. The classical two-moons distribution, lifted into the Lie algebra so that its support is a pair of interlocking crescents. Here the model must trace a thin, curved, one-dimensional structure rather than collapse onto a few points. 
+
+Prior. The prior is the Haar (uniform) measure on SO (3), independently per atom. A Haar draw sits a mean geodesic distance of 126 .5◦ from the identity, so the transport distance is large and the prior carries no information about either target. We draw 10 ,000 training and 2 ,000 held-out samples; the noise is resampled every epoch, from a seeded stream (below). 
+
+H.2 Experiment setting 
+
+All methods share the following. Only the training loss differs. 1. Network. The same 1 .07M-parameter SE (3) MLP for every method, mapping ( Rt, t, s ) 7 →
+
+ω ∈ R2×3, a body-frame angular velocity per atom. Single-time methods (FoldFlow) are fed 
+
+s=t; endpoint methods (QFlow, V-QFlow) use the quaternion head of the same trunk, at matched rotation-branch capacity. 2. Time sampler. t ∼ U (0 , 1) with no lower cut-off ( tε = 0; the regular-t losses never divide by 
+
+t), and s ∼ U (0 , t ) for the two-time methods, with a 50% s=t anchor branch. The three-time method (RMF semigroup) additionally draws an interior m ∈ (s, t ) and gets no s=t branch, since a degenerate interval makes the semigroup identity vacuous. 36 Ground truth MeanFlow* J−1 = I AF → MF* AlphaFlow* RMF-jvp RMF-sg FoldFlow QFlow V-QFlow  
+
+> T = 2
+> cube6 moons3d
+> T = 10
+> cube6 moons3d
+> Few-step samples on SO(3) 2(top: 2-step, bottom: 10-step), identical prior noise for every method
+
+Figure 7: Two-step ( T =2) samples, in the same axis-angle coordinates as Figure 6, from the identical 
+
+frozen prior noise for every method. Top row: atom 0 ( cube6 ); bottom row: atom 1 ( moons3d ). The average-velocity methods (ours and both RMF variants) already resolve the six modes and the crescent geometry after two steps. FoldFlow and QFlow smear across the ball, and V-QFlow contracts onto a shell. 3. Budget. 20k steps, batch 500, the same optimiser and learning rate, and EMA weights at evaluation. 4. Data and noise stream. Bit-identical across methods. This is enforced by three independent RNG streams — batch indices, coupling, and times — so that methods which consume different numbers of random draws (OT draws a multinomial; a three-time method draws three uniforms where a single-time method draws one) nevertheless see the same ( R0, R 1) pair at every step. With a single shared stream the sequences desynchronise after the first step, silently, and the comparison is no longer controlled. 
+
+No optimal-transport coupling. No method uses mini-batch OT. This is deliberate and it is the crux of the protocol: OT is a flow-straightening device. Under an OT coupling the learned probability path is close to a straight geodesic, in which case the average velocity and the instantaneous velocity nearly coincide — so a plain flow-matching model gets few-step generation for free, and the experiment can no longer distinguish the two parameterisations. Enabling OT would hand the instantaneous-velocity baselines exactly the property under test. We therefore run every method without OT, so that few-step behaviour is attributable to the objective alone. 
+
+H.3 Evaluation Metric 
+
+We report the Wasserstein-2 distance between 2 ,000 generated and 2 ,000 held-out samples, under the squared geodesic cost summed over the two atoms: 
+
+c (R(0) , R (1) ), (S(0) , S (1) ) = X
+
+> a∈{ 0,1}
+
+d2SO(3) 
+
+ R(a), S (a), dSO(3) (R, S ) = Log( R⊤S) , (49) solved as an exact assignment and reported in degrees. 37 Method W2 (◦) ↓ at T steps                                                                  
+
+> T=1 T=2 T=5 T=10 T=20
+> Average-velocity parameterisation
+> SE(3)-MeanFlow (ours) 30.74 26.29 25.83 25.77 25.95 ablation: J−1:= I(log-map) 31.15 26.37 25.91 25.90 25.91
+> α-Flow →MeanFlow (ours) 31.13 26.67 25.30 25.31 25.35
+> α-Flow (ours) 32.16 26.81 25.63 25.51 25.63 RMF, JVP form Woo et al. [2026] 32.44 27.65 25.26 25.21 25.18 RMF, semigroup+FM Woo et al. [2026] 31.52 29.87 25.36 24.75 24.83
+> Instantaneous-velocity / endpoint parameterisation
+> FoldFlow Bose et al. [2024] 80.52 43.74 26.82 24.94 24.77
+> QFlow Yue et al. [2025] 77.99 42.68 29.44 31.28 31.96 V-QFlow Yue et al. [2025] 90.64 51.35 31.75 32.93 32.24
+> Floor 21.70 21.70 21.70 21.70 21.70
+
+Table 5: Few-step generation on the SO (3) 2 toy benchmark. W2 (degrees; lower is better) between 2,000 generated and 2 ,000 held-out samples, as the number of Euler steps T falls from 20 to 1. All methods share one network, one data/noise stream, one time sampler and one budget (Section H.2); 
+
+none uses an OT coupling. Floor is the W2 between two independent draws of the target and is the lowest attainable value. Best per column in bold. The separation is by parameterisation , not by method family: average-velocity methods survive T =1; instantaneous-velocity and endpoint-prediction methods collapse. Removing the SO (3) Jacobian ( J−1 := I) leaves the average-velocity model unchanged within noise for T ≥ 2 and costs 0 .4◦ at T =1, where the sampler queries the largest interval. 
+
+The floor. At finite sample size, W2 between two independent draws of the target is not zero. We measure this floor with the identical estimator and the identical sample size, and report it in Table 5: 21 .70 ◦. No model can go below it, and a model at the floor is indistinguishable from the target at this sample size. 
+
+Sampling. Models are integrated on a uniform Euler grid t ∈ linspace (1 , 0, T ) for T ∈ { 1, 2, 5, 10 , 20 },with no final-step special case and no tmin floor. Every method is initialised from the same frozen prior-noise batch, so the sample sets — and hence the panels of Figure 7 — are directly comparable. 
+
+H.4 Results 
+
+Table 5 shows a clean separation by parameterisation , not by method family or by method quality. 
+
+20 steps: the fine-grid regime. At T =20 the two parameterisations are indistinguishable in quality: every average-velocity method, together with FoldFlow, sits within a few degrees of the 21 .70 ◦ floor, and the single best number is in fact FoldFlow’s (24 .77 ◦). With a fine enough Euler grid the instantaneous-velocity parameterisation is entirely adequate and our objective buys nothing. The exceptions are the quaternion-parameterised methods, QFlow and V-QFlow, which plateau roughly 10 ◦ above the floor. Since QFlow optimises a flow-matching loss and V-QFlow an endpoint loss, both should in principle track FoldFlow in this regime; we attribute the gap to the rotation-matrix backbone used throughout this ablation, which forces repeated quaternion–matrix conversions inside the model and the loss. Appendix L.4 reports the same effect at protein scale. 38 Few steps: MeanFlow methods outperform flow matching. At T =2 (and T =5), the MeanFlow-style average-velocity methods — ours and both RMF variants — already approach the 21 .70 ◦ floor, with our model being slightly better overall. In contrast, the flow-matching baselines FoldFlow, QFlow and V-QFlow exhibit substantially higher errors at these low step counts. Figure 7 corroborates this qualitatively: after two steps our samples already show six distinct modes and a recognisable pair of crescents, whereas FoldFlow and QFlow do not. At T =1, SE(3)-MeanFlow remains the best method, but all approaches are relatively far from the floor. This is expected: in the extreme case where two rotations differ by an angle of π, the shortest geodesic (and hence the induced velocity) is not well-defined due to non-uniqueness (analogous to the ambiguity of shortest paths between the north and south poles on a sphere). This suggests that SO (3) is intrinsically ill-suited for one-step generation. However, few-step generation methods can still be applied. 
+
+Effect of the right Jacobian. Replacing J−1 by the identity — the log-map approximation of Zhong et al. [2026] — costs 0 .41 ◦ at T =1 and is within 0 .13 ◦ of our model elsewhere (Table 5). This is the expected pattern: since J−1(A) = I + 12 A∧ + · · · acts on As→t = ( t − s)Aavg , the correction scales with the interval, and a T -step sampler queries only t − s = 1 /T . The same scaling holds on real training data (Table 9). The Jacobian is closed-form and free, so we retain it; its benefit is concentrated in the aggressive few-step regime. 
+
+The α-Flow ablation isolates the mechanism. Our α-Flow objective (Section J), trained alone with α annealed 1 → 0.1, performs competitively, but is consistently slightly worse than SE(3)-MeanFlow at low step counts (Table 5). This is expected: α-Flow is a JVP-free surrogate that relaxes the full average-velocity consistency enforced by MeanFlow. Appending a MeanFlow phase to the last 40% of the same schedule — same network, same budget, same data — improves the one-step error by about 1 ◦, with smaller gains at T =2, indicating that few-step capability is primarily supplied by the MeanFlow objective. Training with MeanFlow throughout gives the better one- and two-step error, while the warm-up variant is marginally better for T ≥ 5; neither ordering is large relative to the within-block spread. The few-step advantage reported in the main text is therefore not an artefact of a short fine-tuning phase. 
+
+Concurrent work, Riemannian Meanflow. Both RMF variants Woo et al. [2026] sit in the same block as our method and perform comparably (RMF semigroup+FM reaches 31 .52 ◦ at T =1, statistically indistinguishable from our 30 .74 ◦ at this sample size). We regard this as supporting the paper’s thesis rather than undercutting it: the thesis is about the average-velocity parameterisation, and RMF is an average-velocity method. The SO (3)-specific contribution of our work — the exact right-Jacobian identity of Proposition 1 and the resulting SE (3) N objective — is evaluated on protein backbones in the main text, where the two methods do separate. 
+
+Caveat. The numbers in Table 5 are from a single seed. The ∼ 50 ◦ gap between the two blocks is far beyond any plausible seed variation, but small differences within a block (e.g. our 30 .74 ◦ versus RMF’s 31 .52 ◦ at T =1) should not be read as a ranking. 39 I Stable Training Framework, Part 1: MeanFlow Loss (Vanilla and Small-t Stabilized) 
+
+Vanilla (no small-t reparameterisation). The MeanFlow identity on SO (3) (Proposition 1, with full derivation in Appendix F.1) yields a consistency target involving the trajectory derivative  
+
+> ddt
+
+Aavg  
+
+> θ
+
+. Our practical deep learning model is diff-frame : it takes the current state ( Rt, x t) and a time embedding (constructed from ( t, s )) as input, and directly predicts the endpoints ( ˆRθ
+
+> 0
+
+, ˆxθ
+
+> 0
+
+). We then define the average velocities using the endpoint (“ x-prediction”) parameterisation 
+
+Aavg  
+
+> θ
+
+(Rt, x t, t, s ) = 1
+
+t log  ( ˆRθ
+
+> 0
+
+)⊤Rt
+
+∨, (50) 
+
+vavg  
+
+> θ
+
+(Rt, x t, t, s ) = 1
+
+t (xt − ˆxθ
+
+> 0
+
+), (51) which is the SE (3) analogue of pixel-space MeanFlow. This is the “normal” objective; if one samples times bounded away from 0 and computes ddt Aavg  
+
+> θ
+
+via a JVP, it can be used directly. 
+
+Motivation: small-t numerical stability. Both branches contain explicit 1 /t factors and the rotation target further requires differentiating through log (( ˆRθ
+
+> 0
+
+)⊤Rt), so naive autodiff becomes numerically fragile as t → 0. Below we describe our implementation that preserves the same objective but avoids explicit 1 /t during target construction. 
+
+Positive tmin and last-step endpoint prediction in baselines 
+
+Following prior work we enforce a strictly positive tmin > 0 and only sample training times from [tmin , 1]. In our method we extend the lower bound to tmin = 10 −6.At inference time, we integrate on a fixed grid t ∈ linspace (1 , t min , T ). In the final iteration, we set ( t, s ) = ( tmin , 0) and directly use the model’s endpoint prediction ( ˆRθ
+
+> 0
+
+, ˆxθ
+
+> 0
+
+) as the generated sample rather than performing another Euler update. For the small-t consistency losses we use a denominator clamp tε when dividing by t2 (only applied at the final loss normalization step). 
+
+I.1 Auxiliary B-variables for stable time derivatives 
+
+The MeanFlow consistency loss involves a time derivative term of the form ( t − s) ddt Aavg  
+
+> θ
+
+(and similarly for vavg  
+
+> θ
+
+). Directly differentiating Aavg  
+
+> θ
+
+= 1 
+
+> t
+
+log (( ˆRθ
+
+> 0
+
+)⊤Rt)∨ can lead to large gradients when 
+
+t is small. We therefore introduce auxiliary variables that absorb the problematic factor t,
+
+BAθ (Rt, x t, t, s ) := t A avg  
+
+> θ
+
+(Rt, x t, t, s ), (52) 
+
+Bvθ (Rt, x t, t, s ) := t v avg  
+
+> θ
+
+(Rt, x t, t, s ), (53) and compute time-derivative information via ddt BAθ and ddt Bvθ . In implementation we avoid dividing by t throughout the derivative-target construction; all 1 /t factors are deferred, and we only apply the t−2 normalization after forming the squared residuals (with t clamped below by tε). Using 
+
+BAθ = tA avg  
+
+> θ
+
+and h = t − s, one can rewrite 
+
+As→tθ = h A avg  
+
+> θ
+
+= ht BAθ ,t ddt As→tθ = BAθ + h
+
+ ddt BAθ − Aavg 
+
+> θ
+
+
+
+= BAθ +
+
+
+
+h ddt BAθ − ht BAθ
+
+
+
+. (54) 40 where ht ≤ 1. In implementation, we absorb the factor h into the JVP tangents, so the computed JVP output corresponds to h ddt BAθ directly (and analogously for Bvθ ). Here ddt BAθ is the total time derivative of BAθ (Rt, x t, t, s ) (with s held fixed). By the chain rule, 
+
+h ddt BAθ = ∂B Aθ
+
+∂t +
+
+D ∂B Aθ
+
+∂R t
+
+, h dR t
+
+dt 
+
+E
+
++
+
+D ∂B Aθ
+
+∂x t
+
+, h dx t
+
+dt 
+
+E
+
+, (55) where ∂B Aθ 
+
+> ∂R t
+
+and ∂B Aθ 
+
+> ∂x t
+
+include the implicit dependence through the network prediction ( ˆRθ
+
+> 0
+
+, ˆxθ
+
+> 0
+
+) = 
+
+fθ(Rt, x t, t, s ). In practice we compute ddt BAθ (and ddt Bvθ ) with a JVP given the instantaneous velocities ( dR t 
+
+> dt
+
+, dx t 
+
+> dt
+
+). which avoids explicitly forming ddt Aavg  
+
+> θ
+
+. We apply the same construction to translation with 
+
+Bvθ = t v avg  
+
+> θ
+
+.
+
+Small-t consistency losses (implementation form). To match the implementation, we form the residuals in a scaled way and defer all divisions by t to the final normalization step. Let ( t − s)denote the step size and define 
+
+As→tθ := ( t − s)Aθ = t − st BAθ , vs→tθ := ( t − s)vθ = t − st Bvθ , (56) where BAθ = tA avg  
+
+> θ
+
+and Bvθ = tv avg  
+
+> θ
+
+. With the ( t − s)-absorbed JVP outputs ( t − s) ddt BAθ and (t − s) ddt Bvθ , we construct the scaled derivative targets 
+
+t ddt As→tθ := BAθ + sg 
+
+
+
+(t − s) ddt BAθ − t − st BAθ
+
+
+
+,t ddt xs→tθ := Bvθ + sg 
+
+
+
+(t − s) ddt Bvθ − t − st Bvθ
+
+
+
+. (57) where the JVP-derived directional derivatives ( t − s) ddt BAθ and ( t − s) ddt Bvθ are computed as a single Jacobian–vector product of fθ(Rt, x t, t, s ): (BAθ , B vθ , . . . ),  (t − s) ddt BAθ , (t − s) ddt Bvθ , . . . 
+
+:= JVP ( ˙Rt, ˙xt, ˙t, ˙s)
+
+fθ(Rt, x t, t, s ). (58) with the (step-size absorbed) input tangent 
+
+( ˙Rt = Rt
+
+ (t − s) Ω t
+
+,
+
+˙xt = ( t − s) vt
+
+(MF) (59) or, for IMF where the instantaneous velocities are taken from a single shared forward at ( t, t ), 
+
+
+
+˙Rt = Rt
+
+  t − st (BA 
+
+> θ
+
+(t, t, R t, x t)) ∧,
+
+˙xt = t − st Bvθ (t, t, R t, x t)(IMF) . (60) The time tangents are ˙t = ( t − s) in the small-t parameterization (otherwise ˙t = 1), and ˙s = 0. The per-sample small-t losses (summing over residues) are computed from BAθ , B vθ and the JVP-derived 41 Algorithm 3: Stable X-prediction style Mean-flow training loss 
+
+Require: State ( Rt, x t); times s < t ; instantaneous velocities (Ω t, v t) (MF) or ( BAθ (t, t ), B vθ (t, t )) (IMF); network fθ; clamp tε; Jacobian placement jmode ∈ { J, J −1} 
+
+> 1:
+
+∆t ← t − s 
+
+> 2:
+
+Construct the (step-size absorbed) input tangent: (MF) ˙Rt ← Rt(∆ t Ωt), ˙ xt ← ∆t v t
+
+(IMF) ˙Rt ← Rt( ∆tt (BAθ (t, t )) ∧), ˙ xt ← ∆tt Bvθ (t, t ) See (Eq. (54)).  
+
+> 3:
+
+Set ˙ t ← ∆t in the small-t parameterisation (otherwise ˙ t ← 1), and ˙ s ← 0.  
+
+> 4:
+
+Compute a single JVP of fθ(Rt, x t, t, s ) along ( ˙Rt, ˙xt, ˙t, ˙s) to obtain primals ( BAθ , B vθ ) and directional derivatives  ∆t ddt BAθ , ∆t ddt Bvθ
+
+ (Eq. (58))  
+
+> 5:
+
+Form the scaled derivative targets via Eq. (57).  
+
+> 6:
+
+J ← sg  J(As→tθ ) 
+
+> 7:
+
+if jmode = J then  
+
+> 8:
+
+res rot ← J  t ddt As→tθ
+
+ − t ω t 
+
+> 9:
+
+else  
+
+> 10:
+
+res rot ← t ddt As→tθ − J −1 t ω t
+
+ ▷ Remark 6  
+
+> 11:
+
+end if  
+
+> 12:
+
+res trans ← t ddt vs→tθ − t v t ▷ J ≡ I on the abelian branch  
+
+> 13:
+
+Normalise at the end by max( t, t ε)−2 (Eq. (62)) directional derivatives ( t − s) ddt BAθ and ( t − s) ddt Bvθ as 
+
+Lrot := 1max( t, t ε)2
+
+> N
+
+X
+
+> i=1
+
+
+
+sg 
+
+
+
+J
+
+
+
+As→tθ,i 
+
+  
+
+t ddt As→tθ,i 
+
+
+
+− t ω t,i  
+
+> 22
+
+, jmode = J, 
+
+t ddt As→tθ,i − sg 
+
+
+
+J−1
+
+
+
+As→tθ,i 
+
+ 
+
+t ω t,i  
+
+> 22
+
+, jmode = J−1,
+
+(61) 
+
+Ltrans := 1max( t, t ε)2
+
+> N
+
+X
+
+> i=1
+
+t v t,i − t ddt vs→tθ,i  
+
+> 22
+
+. (62) This is algebraically equivalent to the unscaled MeanFlow objectives but avoids explicit 1 /t factors during target construction; the only division by t is the final max (t, t ε)−2 normalization applied after squaring the residuals. The two jmode branches share the same JVP (58) and scaled targets (57), differing only in the final residual. 
+
+I.2 Rescaled MeanFlow: training and inference pseudocode 
+
+The rescaled MeanFlow training objective and the corresponding stable inference procedure are summarised in Algorithm 3 and Algorithm 4, respectively. In inference, in addition to the standard linear rotation schedule, we also use an exponential ( exp ) rotation schedule inspired by ReQFlow Yue et al. [2025]. The main idea is to redefine the effective rotation step sizes so that steps are larger on the noise side ( t ≈ 1) and become smaller and more fine-grained near the data side ( t ≈ 0), which empirically improves few-step generation stability. 42 Algorithm 4: Stable inference with tmin > 0 and endpoint prediction (linear and exponential rotation schedules) 
+
+Require: Prior sample ( RN 
+
+> 1
+
+, x N 
+
+> 1
+
+); network fθ; steps T ; tmin > 0; rotation schedule ∈ { linear , exp },exp rate c > 0
+
+Ensure: ( ˆRN 
+
+> 0
+
+, ˆxN 
+
+> 0
+
+) 
+
+> 1:
+
+{ti}T −1 
+
+> i=0
+
+← linspace(1 , t min , T ) 
+
+> 2:
+
+(R, x ) ← (RN 
+
+> 1
+
+, x N 
+
+> 1
+
+) 
+
+> 3:
+
+for i = 0 , . . . , T − 2 do  
+
+> 4:
+
+t ← ti, s ← ti+1 , ∆t ← t − s 
+
+> 5:
+
+( ˆRθ
+
+> 0
+
+, ˆxθ
+
+> 0
+
+) ← fθ(s, t, R, x ) 
+
+> 6:
+
+uθ ← log  ( ˆRθ
+
+> 0
+
+)⊤R∨ ▷ log-map from R toward endpoint ˆRθ 
+
+> 0
+> 7:
+
+if schedule = linear then  
+
+> 8:
+
+Aavg  
+
+> θ
+
+← 1 
+
+> t
+
+uθ ▷ rate 1 /t (remaining time)  
+
+> 9:
+
+else ▷ exp  
+
+> 10:
+
+Aavg  
+
+> θ
+
+← c u θ ▷ constant rate c 
+
+> 11:
+
+end if  
+
+> 12:
+
+vavg  
+
+> θ
+
+← 1 
+
+> t
+
+(x − ˆxθ
+
+> 0
+
+) ▷ translation: linear in both schedules  
+
+> 13:
+
+R ← R exp   − ∆t (Aavg  
+
+> θ
+
+)∧ 
+
+> 14:
+
+x ← x − ∆t v avg  
+
+> θ
+> 15:
+
+end for  
+
+> 16:
+
+( ˆRθ
+
+> 0
+
+, ˆxθ
+
+> 0
+
+) ← fθ(0 , t min , R, x ) 
+
+> 17:
+
+( ˆRN 
+
+> 0
+
+, ˆxN 
+
+> 0
+
+) ← ( ˆRθ
+
+> 0
+
+, ˆxθ
+
+> 0
+
+)
+
+# J Stable Training Framework, Part 2: JVP-Free Training via SE(3) 
+
+# α-Flow 
+
+The stabilisation in Section I mitigates, but does not remove, the core difficulty of the differential 
+
+consistency target: it still requires the trajectory derivative ddt Aavg  
+
+> θ
+
+via a Jacobian–vector product (JVP) of fθ. Since Aavg  
+
+> θ
+
+= 1 
+
+> t
+
+log (( ˆRθ
+
+> 0
+
+)⊤Rt)∨ already carries a 1 /t factor, differentiating it injects a second 1 /t , so a head error ε on the rotation output propagates to the target at order ε/t 2. This is benign for the flat translation branch but dominates the instability of the rotation branch, where it compounds with SO (3) curvature and fragile forward-mode autodiff through the IPA trunk. We adopt the α-Flow framework of Zhang et al. [2025], which replaces the differential target by a two-evaluation, JVP-free consistency target, reducing the amplification to O(ε/t ). 
+
+J.1 Model parameterization: endpoint and average-velocity heads 
+
+The network fθ, evaluated at input ( s, t, R t, x t), may be read either as an endpoint (x-)predictor returning ( ˆRθ
+
+> 0
+
+, ˆxθ
+
+> 0
+
+), or as an average-velocity (u-)predictor returning ( Aavg  
+
+> θ
+
+, v avg  
+
+> θ
+
+) — the mean body angular velocity and mean translational velocity of the predicted geodesic from the endpoint to (Rt, x t). The two views are equivalent and can be transferred to each other: (rotation) Aavg  
+
+> θ
+
+= 1 
+
+> t
+
+log  ( ˆRθ
+
+> 0
+
+)⊤Rt
+
+∨ ⇐⇒ ˆRθ 
+
+> 0
+
+= Rt exp   − t A avg ∧
+
+> θ
+
+, (63) (translation) vavg  
+
+> θ
+
+= 1
+
+> t
+
+ xt − ˆxθ
+
+> 0
+
+ ⇐⇒ ˆxθ 
+
+> 0
+
+= xt − t v avg  
+
+> θ
+
+. (64) Both maps depend on ( s, t, R t, x t); we suppress the arguments where clear, and write Aavg  
+
+> θ
+
+(s, t, R t, x t), ˆRθ
+
+> 0
+
+(Rt, x t, s, t ) etc. when needed. We develop the α-Flow targets and losses in the average-velocity 43 variables ( Aavg  
+
+> θ
+
+, v avg  
+
+> θ
+
+), where the construction is most transparent (the regular-t form), and switch to the endpoint variables only to expose and cancel the small-denominator factors, giving the numerically stabilised small-t form. Throughout, the data-side instantaneous quantities are the body angular velocity ωt = Ω( t, R t)∨ and the translational velocity vt = v(t, x t) = x1 − x0.
+
+J.2 Time grid 
+
+Let α ∈ [αmin , 1] be the consistency-step ratio, floored by a small αmin > 0. With 0 ≤ s ≤ t ≤ 1, define the intermediate time and step 
+
+m = αs + (1 − α)t, δ = t − m = α(t − s), m − s = (1 − α)( t − s), s ≤ m ≤ t, 
+
+so that ( m − s) + δ = t − s. The stepped-back (intermediate) state, obtained by integrating the shift velocities backward over [ m, t ], is 
+
+xm = xt − δ ˜vt, Rm = Rt exp( −δ ˜ω∧ 
+
+> t
+
+),
+
+with the shift velocities ˜ vt, ˜ωt fixed below. 
+
+J.3 Translation target 
+
+Following Zhang et al. [2025], the average velocity over [ s, t ] decomposes across the split point m
+
+into a near segment [ m, t ] and a far segment [ s, m ]. The near segment uses the shift velocity ˜vt =
+
+(vt, (data velocity; flow-matching / MeanFlow choice) ,uxθ (m, t, x t) = vavg  
+
+> θ
+
+(m, t, x t), (model prediction; Shortcut choice) ,
+
+and we adopt the data velocity ˜vt = vt. The far segment uses the stop-gradient model average velocity at the stepped-back state xm = xt − δ˜vt,
+
+vavg  
+
+> θ
+
+(s, m, x m) = 1
+
+> m
+
+ xm − ˆxθ
+
+> 0
+
+(Rm, x m, s, m ),
+
+and the α-Flow target is the convex combination 
+
+vavg tgt = α ˜vt + (1 − α) vavg  
+
+> θ
+
+(s, m, x m). (65) 
+
+Regular-t loss. Regressing the model average velocity directly, 
+
+Lreg trans = 1
+
+α
+
+> N
+
+X
+
+> i=1
+
+vavg  
+
+> θ,i
+
+(s, t, x t) − sg  vavg tgt ,i 
+
+ 22. (66) The 1 /α prefactor matches the α → 0 scaling of the residual (Prop. 8); no further s, t -dependent weight is needed because the abelian target is a plain convex combination. 
+
+Small-t (stabilised) form. The average-velocity variables carry an explicit 1 /t (via vavg = 
+
+> 1
+> t
+
+(xt − ˆx0)) and 1 /m (in the far term), which amplify head error as t, m → 0. Deferring the 1 /t 
+
+into the displacement variable Bxθ = t v avg  
+
+> θ
+
+= xt − ˆxθ 
+
+> 0
+
+removes the model-side division, and the corresponding displacement target is 
+
+Bx 
+
+> tgt
+
+= t v avg tgt = αt ˜vt + (1 − α)tm
+
+ xm − ˆxθ
+
+> 0
+
+(Rm, x m, s, m ),
+
+44 where 0 < (1 −α)tm ≤ 1 is numerically bounded. Regressing on displacements with a floored normaliser gives 
+
+Ltrans = 1
+
+α max( t, t ε)2
+
+> N
+
+X
+
+> i=1
+
+Bxθ,i − sg( Bx
+
+> tgt ,i
+
+) 22. (67) Since ∥vavg  
+
+> θ
+
+− vavg tgt ∥22 = t−2∥Bxθ − Bx
+
+> tgt
+
+∥22, (67) coincides with (66) for t ≥ tε; the floor only regularises the vanishing-t limit. 
+
+J.4 Rotation target 
+
+We mirror the translation branch on SO (3), replacing vector addition by group composition. For 0 ≤ a ≤ b ≤ 1, the accumulated relative rotation is 
+
+D(a, b ) := T exp 
+
+ Z ba
+
+Ω( τ ) dτ 
+
+
+
+= exp  (b − a) Aavg (a, b )∧ = R⊤ 
+
+> a
+
+Rb ∈ SO(3) , (68) where the middle equality collapses the time-ordered exponential to a single generator and is exact under the geodesic (constant-body-velocity) assumption, which holds for the data path and for the 
+
+x-prediction geodesic to ˆRθ
+
+> 0
+
+.
+
+Proposition 7 (Interval additivity) . For any s ≤ m ≤ t, D(s, t ) = D(s, m ) D(m, t ).Proof. D(s, t ) = R⊤ 
+
+> s
+
+Rt = ( R⊤ 
+
+> s
+
+Rm)( R⊤
+
+> m
+
+Rt) = D(s, m )D(m, t ). The regrouping is exact (independent of the geodesic assumption) and is the non-commutative SO (3) analogue of Euclidean displacement additivity: addition becomes group multiplication, ordered far ([ s, m ]) before near ([ m, t ]). Mirroring (65), the near segment [ m, t ] uses the shift angular velocity ˜ωt =
+
+(ωt = Ω( t, R t)∨, (data angular velocity) ,Aavg  
+
+> θ
+
+(m, t, R t, x t), (model prediction; Shortcut choice) ,
+
+and we adopt the data angular velocity ˜ωt = ωt. The far segment [ s, m ] uses the stop-gradient model average angular velocity at the stepped-back state ( Rm, x m), Rm = Rt exp( −δ ˜ω∧ 
+
+> t
+
+): 
+
+Am := Aavg  
+
+> θ
+
+(s, m, R m, x m) = 1 
+
+> m
+
+log  ( ˆRθ
+
+> 0
+
+(Rm, x m, s, m )) ⊤Rm
+
+∨.
+
+Then D(s, m ) = exp  (m − s)A∧
+
+> m
+
+ and D(m, t ) = exp  δ ˜ω∧
+
+> t
+
+ = R⊤
+
+> m
+
+Rt, with xm = xt − δ˜vt as in Section J.3. 
+
+Regular-t target and loss. By Proposition 7 and (68) , log D(s, t )∨ = ( t − s) Aavg tgt , so the average-velocity target is the group-composition analogue of (65): 
+
+Aavg tgt = 1
+
+t − s log 
+
+
+
+exp  (m − s)A∧
+
+> m
+
+| {z }
+
+> D(s,m )
+
+exp  δ ˜ω∧
+
+> t
+
+| {z }
+
+> D(m,t )
+
+∨
+
+. (69) The loss mirrors (66): 
+
+Lreg rot = 1
+
+α
+
+> N
+
+X
+
+> i=1
+
+Aavg  
+
+> θ,i
+
+(s, t ) − sg  Aavg tgt ,i 
+
+ 22. (70) 45 The scalar 1 
+
+> t−s
+
+must remain outside log (exp · exp ): because Am and ˜ωt do not commute, folding it into the two exponentials would rescale each segment angle and alter the Baker–Campbell–Hausdorff (BCH) cross term, no longer yielding log D(s, t ). This is the non-commutative counterpart of the translation branch, where the same normalization is instead absorbed into the linear convex weights 
+
+α, 1 − α.
+
+Small-t (stabilised) form. Two small-denominator factors appear: the overall 1 /t shared with translation, and the rotation-specific 1 /(t − s) together with log (·) near I. Deferring the 1 /t into the displacement BAθ = t A avg  
+
+> θ
+
+= log(( ˆRθ
+
+> 0
+
+)⊤Rt)∨ gives the displacement target BA 
+
+> tgt
+
+= t A avg tgt ,
+
+BA 
+
+> tgt
+
+= tt − s log 
+
+
+
+exp  ( m−sm BAm)∧| {z }
+
+> D(s,m )
+
+exp  δ ˜ω∧
+
+> t
+
+| {z }
+
+> D(m,t )
+
+∨
+
+, BAm = log  ( ˆRθ
+
+> 0
+
+(Rm, x m, s, m )) ⊤Rm
+
+∨,
+
+(71) using ( m − s)Am = m−sm BAm. Both segment angles scale as O(t − s) and are bounded: m−sm BAm has  
+
+> m−sm
+
+≤ 1 and main log ≤ π, while δ ˜ωt = α(t − s) ωt with ∥ωt∥ ≤ π. Hence ∥ log D(s, t )∨∥ = O(t − s), the 1 
+
+> t−s
+
+factor is cancelled at the same rate, and 
+
+BA 
+
+> tgt
+
+≤ π
+
+ (1 −α)tm + αt 
+
+
+
+≤ 2π, 
+
+mirroring the bounded weights (1 −α)tm , αt ≤ 1 of the translation target: the target is analytically free of small-denominator blow-up. For numerical stability when t − s is below machine tolerance tε
+
+(where log (·) near I loses precision), we avoid forming 1 
+
+> t−s
+
+and use the first-order BCH limit, whose 
+
+O(t − s) correction is then negligible: 
+
+BA 
+
+> tgt
+
+=
+
+
+
+tt − s log  D(s, m ) D(m, t )∨, t − s ≥ tε,t(1 − α)Am + α ˜ωt
+
+, t − s < t ε.
+
+The rotation loss is then identical in form to (67), 
+
+Lrot = 1
+
+α max( t, t ε)2
+
+> N
+
+X
+
+> i=1
+
+BAθ,i − sg( BA
+
+> tgt ,i
+
+) 22, (72) and, via ∥Aavg  
+
+> θ
+
+− Aavg tgt ∥22 = t−2∥BAθ − BA
+
+> tgt
+
+∥22, coincides with (70) whenever t ≥ tε and t − s ≥ tε.The target requires one logarithm and two exponentials and no differentiation of fθ.
+
+Remark 8 (Fallback at α = 1 and choice of normalization) . At α = 1 the intermediate time hits the far end, m = s and δ = t − s, so the far segment vanishes ( D(s, m ) = I) and BA 
+
+> tgt
+
+= 
+
+> tt−s
+
+log D(m, t )∨ = t ˜ωt: the objective reduces to flow matching (25) , anchoring the branch to the data velocity and supplying the boundary condition that prevents collapse. The opposite limit 
+
+α → 0 recovers the differential MeanFlow objective and is analysed in Section J.5. The group composition log (exp · exp ) is essential throughout: the naive Lie sum ( m − s)Am + δ ˜ωt
+
+drops the BCH/Jacobian correction and is not equivalent. 46 J.5 The α → 0 Limit Recovers MeanFlow 
+
+In this subsection we show that the α-Flow loss converges to the differential MeanFlow loss as 
+
+α → 0. We treat the rotation branch; the translation branch is the abelian case ( J ≡ I, no BCH correction) and reduces to Euclidean MeanFlow (3) verbatim. 
+
+Remark 9 (Alphaflow normalization) . If α-Flow is to interpolate exactly between flow matching and MeanFlow, the prefactor should be 1 /α 2 rather than 1 /α , since the residual regressed in (70) is 
+
+O(α) (Proposition 8). We therefore analyse 
+
+eLrot := 1
+
+α2
+
+> N
+
+X
+
+> i=1
+
+Aavg  
+
+> θ,i
+
+(s, t, R t, x t) − sg  Aavg tgt ,i 
+
+ 22, (73) with Aavg tgt from (69) ; the 1 /α prefactor of (70) follows the style of Zhang et al. [2025] and is what we train with. We also use only the first case of (71) , the second being a small-( t − s) fallback introduced for numerical convenience. 
+
+Proposition 8 (α → 0 recovers the MeanFlow loss) . Let g(τ ) := ( τ − s)Aavg  
+
+> θ
+
+(s, τ, R τ , x τ ) denote the model log-displacement along the interpolation path, so that g(t) = ( t − s)Aavg  
+
+> θ
+
+(s, t ) and, by the product rule, ˙g(t) = Aavg  
+
+> θ
+
++ ( t − s) ddt Aavg  
+
+> θ
+
+is the bracketed quantity of (8) . If g is C2 on t, then the target (69) expands as 
+
+Aavg tgt = Aavg  
+
+> θ
+
+(s, t ) + α
+
+
+
+J g(t)−1ωt − ˙g(t)
+
+
+
++ O(α2) (74) 
+
+and consequently, per residue, 
+
+eLrot = ˙g(t) − J−1ωt 22 + O(α), (75) 
+
+i.e. exactly the residual of the J−1 form (12) of the MeanFlow identity. Proof. Since (73) decouples across residues, we take N = 1 and drop the index i. Write m = t − δ
+
+with δ = α(t − s), and J := J(g(t)). Since the data velocities ωt and vt are constant along the interpolation path (Appendix D), the stepped-back state satisfies Rt exp (−δ ω ∧ 
+
+> t
+
+) = Rm and xt − δv t = xm exactly . The two factors of (69) are therefore D(s, m ) = exp (g(m)∧) and D(m, t ) = exp (δ ω ∧ 
+
+> t
+
+), with g the same function appearing in the statement; this is what lets the finite difference below capture the total derivative (9) rather than ∂t alone. The first-order BCH formula gives log (eX eY ) = X + ad X 
+
+> 1−e−ad X
+
+Y + O(∥Y ∥2). On so (3) one has ad ϕ∧ ψ∧ = ( ϕ∧ψ)∧, so in vector coordinates   1−e−ad X
+
+> ad X
+
+∨ = R 10 e−uϕ ∧
+
+du = J(ϕ) by (10) . This is invertible: J(ϕ) is a polynomial in the skew matrix ϕ∧, so its eigenvalues are 1 and 1−e∓iθ  
+
+> ±iθ
+
+with 
+
+θ = ∥ϕ∥ ≤ π, all nonzero. Taking X = g(m)∧ and Y = δ ω ∧ 
+
+> t
+
+= O(α), log  D(s, m )D(m, t )∨ = g(m) + δ J  g(m)−1ωt + O(δ2).
+
+47 Substituting g(m) = g(t) − δ ˙g(t) + O(δ2) and J(g(m)) −1 = J−1 + O(δ), we have: 
+
+Aavg tgt = 1
+
+t − s log  D(s, m ) D(m, t )∨
+
+= 1
+
+t − s
+
+
+
+g(m) + δ J  g(m)−1ωt + O(δ2)
+
+
+
+= 1
+
+t − s
+
+
+
+g(t) − δ ˙g(t) + δ J −1ωt + O(δ2)
+
+
+
+= g(t)
+
+t − s + α(t − s)
+
+t − s
+
+
+
+J−1ωt − ˙g(t)
+
+
+
++ O α2(t − s)2
+
+t − s
+
+= Aavg  
+
+> θ
+
+(s, t ) − α
+
+
+
+˙g(t) − J−1ωt
+
+
+
++ O(α2),
+
+which is (74). Substituting into (73), 
+
+eLrot = 1
+
+α2 Aavg  
+
+> θ
+
+(s, t ) − sg  Aavg tgt 
+
+ 22
+
+= 1
+
+α2 Aavg  
+
+> θ
+
+(s, t ) −
+
+
+
+Aavg  
+
+> θ
+
+(s, t ) − α   ˙g(t) − J−1ωt
+
+ + O(α2)
+
+ 22
+
+= 1
+
+α2 α   ˙g(t) − J−1ωt
+
+ + O(α2) 22
+
+=   ˙g(t) − J−1ωt
+
+ 22 + O(α),
+
+which is (75). 
+
+Remark 10 (Relation to the two loss forms) . The limit (75) is the J−1 form (12) , which is exactly the objective used in Stage 2 (Appendix M): the α-Flow warm-up and the MeanFlow phase therefore optimise the same target up to O(α), rather than switching objectives mid-training. The J form (11) shares its zero set but differs by the reweighting J⊤J, which is the identity on the translation branch and on the diagonal s = t.We verify Proposition 8 numerically. We take a smooth generator field g(τ ) and a data velocity 
+
+ωt drawn independently of g, so that J(g(t)) −1ωt̸ = ˙g(t) in general and the first-order term of (74) is non-degenerate. For a range of α we form the α-Flow rotation target Aavg tgt (α) = 1 
+
+> t−s
+
+Log  eg(m)∧
+
+eδ ω ∧
+
+> t
+
+∨
+
+with m = αs + (1 − α)t and δ = α(t − s), and compare it to the zeroth- and first-order predictions of (74) , computing ˙g by forward-mode AD and J(g(t)) from its closed form. The O(α)/ O(α2) scalings (Figure 8) confirm the expansion and its coefficient; consistently, eLrot converges to ∥ ˙g −J(g(t)) −1ωt∥22.
+
+# K Stable Training Framework, Part 3: Semigroup Loss of SE(3)-MeanFlow 
+
+The MeanFlow identity (8) is the differential form of our average velocity: it is obtained by differentiating (30) in t, and its training target carries both a Jacobian–vector product (for ddt Aavg  
+
+> θ
+
+)and the right Jacobian J. In this section, we show that the same definition (30) also admits a 
+
+finite , derivative-free characterization: the average-velocity flow map is a genuine two-parameter semigroup on SE (3), and the consistency with this semigroup yields a JVP-free, J-free training objective. Throughout, let s ≤ m ≤ t ∈ [0 , 1]. We write 
+
+ωt := Ω( t, R t, x t)∨ = Log( R⊤ 
+
+> 0
+
+R1)∨, vt := v(t, x t) = x1 − x0
+
+for the data-side instantaneous (constant body-frame) velocities used in flow matching (25). 48 0.0 0.2 0.4 0.6 0.8 1.0          
+
+> consistency-step ratio α
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> distance of the alpha-Flow target
+> alpha-Flow target interpolates:
+> flow matching ( α= 1) ↔MeanFlow ( α→ 0)
+> ‖BA
+> tgt (α) − t ω t‖(dist. to flow matching)
+> ‖BA
+> tgt (α) − t A avg ‖(dist. to MeanFlow)
+
+Figure 8: The α-Flow target interpolates between flow matching and MeanFlow. On a smooth generator field g(τ ) we form the rotation target BA
+
+> tgt
+
+(α) = tA avg tgt of (71) over a range of α and plot its distance to the two endpoints: to the flow-matching target t ω t (red), which vanishes at α = 1 (Remark 8), and to the MeanFlow target t A avg (green), which vanishes as α → 0 (Proposition 8). The plot is drawn in the displacement variable BA = t A avg of Section J.4; the common factor t
+
+affects both curves equally. 
+
+K.1 The average-velocity flow map 
+
+Recall from (30) that the average angular velocity over [ s, t ] is defined by exp  (t − s) Ω avg (s, t, R t, x t) = T exp 
+
+ Z ts
+
+Ω( τ, R τ , x τ ) dτ 
+
+
+
+=: D(s, t ) ∈ SO(3) , (76) where the last equality D(s, t ) = R⊤ 
+
+> s
+
+Rt holds by integrating the left-trivialized ODE ˙Rτ =
+
+Rτ Ω( τ, R τ ); this is exactly (68) . We write Aavg = (Ω avg )∨, and define the rotation log-displacement by 
+
+As→t := ( t − s)Aavg (s, t, R t, x t) ∈ R3, thus exp  (As→t)∧ = D(s, t ).
+
+For the translation branch on R3, the decoupled product metric (24) gives the displacement 
+
+p(s, t ) := xt − xs = ( t − s) vavg (s, t, x t). Based on the two notations of displacement above, we give the following definition. 
+
+Definition 1 (Average-velocity flow map) . For s ≤ t, we define Ψ s→t : SE(3) → SE(3) by Ψs→t(R, x ) := 
+
+
+
+R D (s, t ), x + p(s, t )
+
+
+
+=
+
+
+
+R exp  (As→t)∧, x + ( t − s) vavg (s, t )
+
+
+
+.
+
+By construction, Ψ s→t(Rs, x s) = ( Rt, x t) along the interpolation path. 
+
+K.2 The semigroup property 
+
+Having defined the average-velocity flow map, we next show that it forms a semigroup under time composition. 49 Algorithm 5: JVP-free SE(3) α-Flow training step 
+
+Require: (RNt , x Nt ); times s ≤ t; data (Ω Nt , v Nt ); head fθ; α ∈ [αmin , 1]; clamp tε 
+
+> 1:
+
+m ← αs + (1 − α)t, δ ← t − m, ωt := ωNt ← (Ω Nt )∨ 
+
+> 2:
+
+RNm ← RNt exp( −δω ∧ 
+
+> t
+
+), xNm ← xNt − δ v Nt 
+
+> 3:
+
+( ˆRm 
+
+> 0
+
+, ˆxm 
+
+> 0
+
+) ← sg fθ(RNm, x Nm, s, m ) 
+
+> 4:
+
+mA m ← log(( ˆRm 
+
+> 0
+
+)⊤RNm)∨, mu m ← xNm − ˆxm 
+
+> 0
+
+▷ displacements  
+
+> 5:
+
+BA 
+
+> tgt
+
+← tt−s log   exp(( m−sm mA m)∧) exp( δ ω ∧ 
+
+> t
+
+)∨ 
+
+> 6:
+
+Bx 
+
+> tgt
+
+← αt v Nt + (1 −α)tm mu m 
+
+> 7:
+
+( ˆRθ
+
+> 0
+
+, ˆxθ
+
+> 0
+
+) ← fθ(RNt , x Nt , s, t ) ▷ only graph path  
+
+> 8:
+
+BAθ ← log(( ˆRθ
+
+> 0
+
+)⊤RNt )∨, Bxθ ← xNt − ˆxθ 
+
+> 0
+> 9:
+
+Form Lrot , Ltrans (Eqs. (72),(67)); 
+
+Proposition 9 (Semigroup property of the average-velocity flow) . For all s ≤ m ≤ t, the family 
+
+{Ψs→t}0≤s≤t≤1 defined in Definition 1 satisfies 
+
+Ψm→t ◦ Ψs→m = Ψ s→t, Ψt→t = id . (77) 
+
+Equivalently, in terms of the average velocities, 
+
+(rotation) exp  (As→m)∧ exp  (Am→t)∧ = exp  (As→t)∧, (78) 
+
+(translation) (m − s) vavg (s, m ) + ( t − m) vavg (m, t ) = ( t − s) vavg (s, t ). (79) 
+
+Proof. On SO(3), the transition operators compose by inserting RmR⊤ 
+
+> m
+
+= I:
+
+D(s, t ) = R⊤ 
+
+> s
+
+Rt = ( R⊤ 
+
+> s
+
+Rm)( R⊤
+
+> m
+
+Rt) = D(s, m ) D(m, t ),
+
+which is Proposition 7. (Equivalently, this is the multiplicativity of the time-ordered exponential 
+
+T exp (R ts ) = T exp (R ms ) T exp (R tm), so the statement holds for an arbitrary velocity field, not only for the geodesic path.) Substituting D(a, b ) = exp (( Aa→b)∧) gives (78) . On the flat translation factor, displacements add, xt − xs = ( xt − xm) + ( xm − xs), which is (79) . Combining the two factors and using the product law (24) gives Ψ m→t(Ψ s→m(R, x )) = ( R D (s, m )D(m, t ), x + p(s, m ) + p(m, t )) = (R D (s, t ), x + p(s, t )) = Ψ s→t(R, x ), i.e. (77). 
+
+Remark 11 (Where SO (3) curvature enters) . The composition (78) is exact and independent of curvature: it is the associativity of group multiplication. Curvature appears only if one tries to collapse the product of exponentials into a single Lie-algebra sum. By the Baker–Campbell–Hausdorff (BCH) formula, 
+
+As→t = log 
+
+
+
+exp  (As→m)∧ exp  (Am→t)∧∨
+
+= As→m + Am→t + 12 As→m × Am→t + · · · ,
+
+so the naive additive law As→t = As→m + Am→t holds only when the two axes are collinear (As→m × Am→t = 0); in general it drops the BCH cross terms. The translation identity (79) has no such correction because R3 is abelian. This is the single place where the rotation branch departs from the Euclidean MeanFlow semigroup. 50 K.3 The semigroup-consistency loss 
+
+Proposition 9 characterizes the correct average-velocity field without any time derivative: the field is consistent iff its one-step prediction on [ s, t ] equals the two-step composition through any intermediate m ∈ [s, t ]. We turn this into a regression objective. Let fθ output Aavg  
+
+> θ
+
+(·) and vavg  
+
+> θ
+
+(·)(in the endpoint parameterization of Section I, Aavg  
+
+> θ
+
+(s, t, R t) = 1 
+
+> t
+
+log (( ˆRθ
+
+> 0
+
+)⊤Rt)∨). Given a triple 
+
+s < m < t , form the intermediate state by stepping back the near segment [ m, t ], 
+
+Rm = Rt exp   − (t − m)Aavg  
+
+> θ
+
+(m, t, R t, x t)∧, xm = xt − (t − m) vavg  
+
+> θ
+
+(m, t, x t), (80) and define the composed (two-step) targets by (78)–(79): 
+
+As→t 
+
+> tgt
+
+:= log 
+
+
+
+exp  (m − s)Aavg  
+
+> θ
+
+(s, m, R m, x m)∧| {z }
+
+> D(s,m )
+
+exp  (t − m)Aavg  
+
+> θ
+
+(m, t, R t, x t)∧| {z }
+
+> D(m,t )
+
+∨
+
+, (81) 
+
+ps→t 
+
+> tgt
+
+:= ( m − s) vavg  
+
+> θ
+
+(s, m, x m) + ( t − m) vavg  
+
+> θ
+
+(m, t, x t). (82) The model regresses its direct one-step prediction on [ s, t ] onto these stop-gradient targets: 
+
+Lsg rot = Es<m<t (t − s)Aavg  
+
+> θ
+
+(s, t, R t, x t) − sg  As→t
+
+> tgt
+
+ 22, (83) 
+
+Lsg trans = Es<m<t (t − s)vavg  
+
+> θ
+
+(s, t, x t) − sg  ps→t
+
+> tgt
+
+ 22. (84) The semigroup constraint alone admits trivial (collapsed) minimizers; it must be anchored by the 
+
+s → t boundary, where (76) degenerates to the instantaneous velocity. This boundary term is exactly flow matching: 
+
+Lbd rot = Et Aavg  
+
+> θ
+
+(t, t, R t, x t) − ωt 22, Lbd trans = Et vavg  
+
+> θ
+
+(t, t, x t) − vt 22. (85) The total objective is 
+
+Lsg-MF = Lbd rot + Lbd trans 
+
+| {z }
+
+> flow matching (anchor)
+
++ Lsg rot + Lsg trans 
+
+| {z }
+
+> semigroup consistency
+
+. (86) Every term uses only forward evaluations of fθ together with exp / log on SO (3) and addition on 
+
+R3: there is no Jacobian–vector product and no explicit right Jacobian J.
+
+Remark 12 (The normalization scalar must stay outside log ( exp · exp )) . If one prefers to regress the average velocity Aavg  
+
+> θ
+
+(s, t ) itself rather than the log-displacement, the target is Aavg tgt (s, t ) = 1 
+
+> t−s
+
+As→t
+
+> tgt
+
+with As→t 
+
+> tgt
+
+from (81). The scalar 1 
+
+> t−s
+
+must remain outside log(exp · exp): because the two segment generators do not commute, absorbing it into the two exponentials would rescale each segment angle and corrupt the BCH cross term, no longer producing log D(s, t ). On the translation branch the same normalization is harmlessly absorbed into the linear weights. This is the finite-interval counterpart of the observation made for (71). 
+
+K.4 Consistency: zero loss implies exact reconstruction 
+
+The boundary term fixes the instantaneous limit and the semigroup term propagates it to all intervals; together they pin down the unique correct flow map. The following is the finite (JVP-free) analogue of Proposition 5. 51 Proposition 10 (Uniqueness of the semigroup minimizer) . Suppose Aavg  
+
+> θ
+
+is continuous and, along the interpolation path, satisfies the boundary condition Aavg  
+
+> θ
+
+(t, t, R t, x t) = ωt for all t together with the rotation semigroup identity 
+
+exp  (As→mθ )∧ exp  (Am→tθ )∧ = exp  (As→tθ )∧, ∀ s ≤ m ≤ t, 
+
+where Aa→bθ := ( b − a)Aavg  
+
+> θ
+
+(a, b, R b, x b). Then exp (( As→tθ )∧) = R⊤ 
+
+> s
+
+Rt for all s ≤ t; in particular, with s = 0 , t = 1 , ˆR0 := R1 exp (−(A0→1 
+
+> θ
+
+)∧) = R0. The analogous statement holds for translation with vavg  
+
+> θ
+
+(t, t ) = vt.Proof. Fix t and set G(s) := exp (( As→tθ )∧) ∈ SO (3), so G(t) = I. For h > 0 the semigroup identity gives G(s) = exp(( As→s+hθ )∧) G(s + h), hence 
+
+G(s + h) = exp   − (As→s+hθ )∧ G(s).
+
+By the boundary condition and continuity, As→s+hθ = h A avg  
+
+> θ
+
+(s, s +h) = h ω s+o(h), so exp (−(As→s+hθ )∧) = 
+
+I − h ω ∧ 
+
+> s
+
++ o(h) and therefore 
+
+dds G(s) = − ω∧ 
+
+> s
+
+G(s), G(t) = I. 
+
+On the other hand D(s, t ) = R⊤ 
+
+> s
+
+Rt obeys, using ˙Rs = Rsω∧ 
+
+> s
+
+and skew-symmetry, 
+
+dds D(s, t ) =  ∂sR⊤
+
+> s
+
+Rt = − ω∧ 
+
+> s
+
+R⊤ 
+
+> s
+
+Rt = − ω∧ 
+
+> s
+
+D(s, t ), D(t, t ) = I. G and D(·, t ) solve the same linear ODE with the same terminal condition, so by uniqueness 
+
+G(s) = D(s, t ) = R⊤ 
+
+> s
+
+Rt for all s ≤ t. Taking s = 0 , t = 1 gives exp (( A0→1 
+
+> θ
+
+)∧) = R⊤ 
+
+> 0
+
+R1, i.e. ˆR0 = R0.For translation, the additive cocycle pθ(s, t ) with pθ(t, t )-derivative vavg  
+
+> θ
+
+(t, t ) = vt integrates to 
+
+pθ(s, t ) = xt − xs, giving ˆ x0 = x0.Proposition 10 shows (86) is a valid training objective: its global minimizer is the exact average-velocity field, and the two ingredients are both necessary—the boundary term supplies the instantaneous data velocity, and the semigroup term is the (curvature-exact) propagation rule that extends it to every interval. 
+
+K.5 Relation to the differential identity and to α-Flow 
+
+Remark 13 (Equivalence with the right-Jacobian identity) . The semigroup loss (86) and the differential MeanFlow loss (41) have the same minimizer but realize the right Jacobian differently. Differentiating the boundary-anchored semigroup identity (78) in t at s → t reproduces the differential identity (8) , in which J appears explicitly as the Fr´ echet derivative of exp . In the finite form, J never appears as a separate factor: its entire effect is absorbed into the BCH series of log (exp · exp ) in (81) . Concretely, a first-order BCH expansion of (81) reinstates J and recovers (41) in gradient (cf. Remark 8). The two formulations are thus gradient-equivalent to first order, but the finite form is JVP-free and, because all segment angles are bounded by π, avoids the O(ε/t 2)amplification of the differential target discussed in Section J. 
+
+Remark 14 ( α-Flow as an instance) . The JVP-free α-Flow objective of Section J is a particular instantiation of (86) . Choosing the split point m = αs + (1 − α)t, replacing the near segment [ m, t ]model prediction by the data velocity ˜ωt = ωt (so that D(m, t ) = exp (δ ω ∧ 
+
+> t
+
+) with δ = α(t − s)), and keeping the far segment as the stop-gradient model evaluation, turns (81) into the α-Flow 52 target (71) and (82) into its translation counterpart. The limit α = 1 makes the far segment vanish and reduces (86) to the flow-matching boundary (85) ; the limit α → 0 recovers, via BCH, the right-Jacobian differential loss (Remark 8). The “pure” semigroup form (81) – (82) , using the model on both segments, corresponds to the Shortcut choice ˜ ωt = uAθ (m, t, R t). 
+
+Connection to Riemannian MeanFlow semigroup. The semigroup objective (86) can be viewed as a variant of the semigroup formulation proposed in Riemannian MeanFlow Woo et al. [2026]: their construction is based on the endpoint (geodesic) loss, while ours is derived from and anchored by the flow-matching boundary condition (85) . We provide code for this semigroup objective in our repository; however, in our experiments we found that with a limited training budget (e.g., 10–20k steps) semigroup training yields weaker few-step improvements than our JVP-based MeanFlow loss, and therefore we do not use the semigroup loss in our final training recipe. We include it here for theoretical completeness. 
+
+# L Quaternion Formulation of SE(3)-MeanFlow 
+
+The SE(3)-MeanFlow objectives admit an equivalent formulation with unit quaternions on S3, follow-ing the rotation parametrisation of ReQFlow Yue et al. [2025]. We derive it here for completeness; an implementation is provided in our repository alongside the rotation-matrix formulation used throughout the paper. 
+
+L.1 Quaternion algebra and conventions 
+
+We follow the standard conventions; see Hanson [2005] for a fuller treatment. A quaternion is a pair 
+
+q = ( q0, q) ∈ R × R3, ∥q∥ = 1 ,
+
+with multiplication and inverse 
+
+q ⊗ p =  q0p0 − q⊤p, q 0p + p0q + q × p, q−1 = ( q0, −q).
+
+The unit quaternions form the manifold S3, a double cover of SO (3): the quaternions q and −q
+
+represent the same rotation 
+
+R(q) = 
+
+
+
+1 − 2( y2 + z2) 2( xy − wz ) 2( xz + wy )2( xy + wz ) 1 − 2( x2 + z2) 2( yz − wx )2( xz − wy ) 2( yz + wx ) 1 − 2( x2 + y2)
+
+ , q = ( w, x, y, z ).
+
+Recovering q from R is standard (trace-based) up to this sign; we fix it by enforcing w ≥ 0. 
+
+Exponential and logarithm. We define Exp : R3 → S3 with the half-angle absorbed, Exp( ω) := 
+
+
+
+cos ∥ω∥ 
+
+> 2
+
+, sin ∥ω∥
+
+> 2
+> ω
+> ∥ω∥
+
+
+
+, Exp(0) = (1 , 0), (87) and let Log be its inverse on the hemisphere w ≥ 0, so ∥Log (q)∥ ≤ π. With this convention the covering map is compatible with the matrix exponential, 
+
+R Exp( ω) = exp( ω∧), (88) so ω carries the same axis-angle meaning as in the rest of the paper. (The ReQFlow subsection above writes the same object as exp ( 12 ω); the factor of two is bookkeeping in where the half-angle is placed.) The tangent space is TqS3 = {v ∈ R4 : q⊤v = 0 }.53 Kinematics. Let ω(t) ∈ R3 be the body-frame angular velocity, i.e. the same quantity as in (1) .The left-trivialised kinematics are ˙qt = 12 qt ⊗ (0 , ω (t)) , (89) whose solution is the time-ordered exponential in S3,
+
+qt = qs ⊗ T Exp 
+
+ Z ts
+
+ω(τ ) dτ 
+
+
+
+, and qt = qs ⊗ Exp  (t − s) ω if ω is constant .
+
+The half-angle in (87) absorbs the factor 12 of (89), so no stray factors of two appear below. 
+
+Interpolation and data velocity. Mirroring Appendix D, for a data rotation q0 and a prior rotation q1 (sign-aligned so that q⊤ 
+
+> 0
+
+q1 ≥ 0, which selects the shorter arc) the conditional path and its constant body angular velocity are 
+
+qt = q0 ⊗ Exp  t ω t
+
+, ωt := Log  q−10 ⊗ q1
+
+ ∈ R3. (90) 
+
+L.2 Average velocity and the MeanFlow identity 
+
+Exactly as in (30) , we define the average angular velocity over [ s, t ] through the time-ordered exponential. Writing the state as zt = ( xt, q t) ∈ R3 × S3 to make the conditioning explicit, Exp  (t − s) ωavg (s, t, x t, q t) := T Exp 
+
+ Z ts
+
+ω(τ, q τ , x τ ) dτ 
+
+
+
+= q−1 
+
+> s
+
+⊗ qt. (91) 
+
+Proposition 11 (Quaternion MeanFlow identity) . Differentiating (91) with respect to t yields 
+
+J (t − s) ωavg 
+
+ωavg (s, t, x t, q t) + ( t − s) ddt ωavg (s, t, x t, q t)
+
+
+
+= ωt, (92) 
+
+with J the same right Jacobian (10) as in the rotation-matrix formulation, and 
+
+ddt ωavg = ∂∂t ωavg + ∇qωavg , ˙qt + ∇xωavg , ˙xt .
+
+Proof. The covering map S3 → SO (3) of (88) is a two-to-one Lie group homomorphism and a local diffeomorphism, and under the identification (0 , ω ) ↔ ω∧ it induces the identity on Lie algebras ( su (2) ∼= so (3)). Applying it to (91) returns (30) verbatim, so every step of the proofs of Propositions 3 and 4 carries over unchanged. 
+
+Remark 15 (Quaternions do not remove the right Jacobian) . Since the two Lie algebras are isomorphic, the quaternion identity (92) is identical to the rotation-matrix identity (8) , right Jacobian included. Changing the representation therefore cannot simplify the MeanFlow target; it can only change the numerical conditioning of Exp, Log and the Jacobian–vector product used to evaluate it. 
+
+L.3 Parametrisation, loss and inference 
+
+As in Section I, the network is an endpoint predictor returning ( ˆqθ 
+
+> 0
+
+, ˆxθ
+
+> 0
+
+), converted to the average-velocity head by 
+
+ωavg  
+
+> θ
+
+= 1 
+
+> t
+
+Log  (ˆ qθ 
+
+> 0
+
+)−1 ⊗ qt
+
+ ⇐⇒ ˆqθ 
+
+> 0
+
+= qt ⊗ Exp   − t ω avg 
+
+> θ
+
+.
+
+54 Regressing the left-hand side of (92) onto the data velocity ωt of (90) gives the rotation loss 
+
+LS3 
+
+> rot
+
+= Es<t, q (z0,z 1)
+
+h
+
+J (t − s)ωavg 
+
+> θ
+
+
+
+ωavg  
+
+> θ
+
++ ( t − s) sg   ddt ωavg 
+
+> θ
+
+
+
+− ωt 22
+
+i
+
+, (93) the exact analogue of (11) ; the translation branch and the α-Flow variant of Section J are unchanged, since neither touches the rotation representation. Inference steps backwards by qs ← qt ⊗ Exp   −
+
+(t − s) ωavg 
+
+> θ
+
+.
+
+L.4 Practical note 
+
+Empirically the quaternion implementation consistently underperformed the rotation-matrix one, and we use the latter for every result in this paper. Two causes are consistent with what we observed. First, the surrounding pipeline (dataset, IPA trunk, auxiliary losses, evaluation) operates on rotation matrices, so the quaternion path inserts repeated matrix ↔ quaternion conversions whose error accumulates. Second, and more specific to MeanFlow, the double cover q ∼ − q means the enforced sign convention w ≥ 0 can flip along a trajectory; the endpoint prediction ˆqθ 
+
+> 0
+
+then jumps discontinuously, and the forward-mode derivative ddt ωavg  
+
+> θ
+
+in (93) is corrupted at exactly those steps. Rotation matrices have no such ambiguity. Together with Remark 15—the quaternion target is not analytically simpler—this left no reason to prefer the quaternion branch, and we report no quaternion-based results. 
+
+# M Training Curriculum: Pre-training and Post-training 
+
+Our final model is obtained in three phases: a two-stage pre-training that builds a strong multi-step backbone generator, followed by a post-training (rectification) stage that sharpens few-step generation. All phases share the same network (Section N) and the same decoupled SE (3) = SO (3) ×R3 objective; they differ only in which consistency target is used and in how the data–noise pairs are coupled. 
+
+M.1 Stage 1: JVP-free α-Flow warm-up 
+
+Training the endpoint-parameterized MeanFlow target directly from initialization is fragile: as discussed in Sections I and J, the differential rotation target amplifies head error as O(ε/t 2) and requires a forward-mode derivative (JVP) through the IPA trunk. We therefore warm up with the JVP-free α-Flow objective of Section J, annealing the consistency-step ratio α from a cap αmax = 1 toward a floor αmin = 0 .1 along a logistic schedule: 
+
+α(k) = 
+
+
+
+αmax , k ≤ ks,αmin + ( αmax − αmin ) σγ (τk), ks < k < k e,αmin , k ≥ ke,σγ (τ ) = 11 + e γ(τ − 12 )
+
+, τk = k − ks
+
+ke − ks
+
+,
+
+(94) where k is the optimizer step and τk ∈ [0 , 1] is the normalized progress through the anneal window. Here ks is the hold phase—the ratio is pinned at the cap for the first ks steps— ke is the step by which the floor is reached, and γ sets the steepness of the logistic transition, centered at the window midpoint ks + 12 (ke − ks). We use ks = 2000, ke = 150k, and γ = 8. By Remark 8, α = 1 reduces the objective exactly to flow matching (25) , so during the hold phase training is anchored to the data velocity and cannot collapse; decreasing α thereafter progressively injects the few-step average-velocity consistency that underlies fast sampling. The anneal was scheduled over 150k steps, but we stopped Stage 1 early at 100k—where α ≈ 0.29—because validation 55 designability had already plateaued; α therefore never reaches its floor αmin = 0 .1 during pre-training. This checkpoint initializes Stage 2. Full settings are in Table 7. 
+
+Self-conditioning. In all phases we use 50% self-conditioning, following FrameFlow Yim et al. [2023a]/ReQFlow Yue et al. [2025]. With probability 0 .5 a detached preliminary forward pass produces an endpoint prediction ˆxθ 
+
+> 0
+
+whose pairwise C α distogram is appended as an extra edge feature to a second, gradient-carrying forward pass; the remaining half of each batch passes zeros in that slot. At inference the previous step’s endpoint prediction is used as the self-conditioning input (Algorithm 4). This improves sample quality at no additional inference cost. 
+
+Global-OT coupling. Both pre-training stages instantiate the mini-batch OT coupling of Ap-pendix D.3, but solve a single plan over the entire global batch rather than one plan per rank. At each step a torch.distributed.all gather assembles all M = PWr=1 Br backbones across the W
+
+ranks, and the independent data–noise pairing is replaced by the assignment 
+
+π⋆ = arg min 
+
+> π∈S M
+> M
+
+X
+
+> k=1
+
+c zk 
+
+> 0
+
+, z π(k)1
+
+, (95) with c the decoupled SE (3) N transport cost of Appendix D.3 and ( λR, λ x) = (0 .5, 0.5). The exact Hungarian assignment is solved on rank 0 with POT Flamary et al. [2021] and π⋆ broadcast back; the O(M 3) solve is negligible against a forward/backward pass at these batch sizes. Solving (95) once over all M backbones uses the full pairing information, whereas W per-rank plans search a block-diagonal subset of SM and under-use it by a factor W ; empirically the global coupling roughly halves the early-plateau time on SCOPe. Since mini-batch OT is a biased estimate of the true coupling whose bias decreases with batch size, the global plan yields a straighter induced path than 
+
+W independent per-rank plans at the same per-GPU memory cost. Post-training disables it (its self-reflow pairs are already matched; Section M.3). 
+
+M.2 Stage 2: endpoint + MeanFlow objective 
+
+Starting from the Stage-1 checkpoint, we continue with the endpoint-anchored small-t MeanFlow objective for a maximum budget of 10k steps, and select the released checkpoint at 6 .1k steps by validation designability. We retain the 50% self-conditioning and the global-OT coupling of Stage 1; the only changes are the switch to the differential MeanFlow loss and the added endpoint anchor. The loss combines three terms. The endpoint distance is defiend as: 
+
+Lend := 
+
+> N
+
+X
+
+> i=1
+
+h
+
+D2SO(3) 
+
+ Riθ, 0, R i
+
+> 0
+
+ + xiθ, 0 − xi
+
+> 0
+> 22
+
+i
+
+, DSO(3) (R, Q ) := Log( R⊤Q)∨ 
+
+> 2
+
+= arccos 
+
+ tr( R⊤Q)−12
+
+
+
+,
+
+(96) 
+
+Remark 16 . We emphasize that the split of the training budget between the α-Flow warm-up and the MeanFlow stage is a design choice rather than a requirement: the two can be freely re-balanced (e.g. a shorter warm-up with a longer MeanFlow phase). Because protein-scale training is expensive, we do not sweep this ratio at the protein scale; on the low-dimensional SO (3) 2 benchmark (Appendix H) different warm-up/MeanFlow ratios reach the few-step regime with little difference, so we simply report the single configuration used for the released checkpoint. 56 Term Raw Weight Weighted MeanFlow rot ( Lrot ) 3.87 ×0.05 0.193 MeanFlow trans ( Ltrans ) 2.63 ×0.05 0.131           
+
+> MeanFlow total 6.50 0.324
+> Endpoint rot 0.136 ×1.00.136 Endpoint trans 0.060 ×1.00.060
+> Endpoint total 0.196 0.196
+
+Table 6: Per-term loss magnitudes at λMF = 0 .05 (median over 24 SCOPe training batches; 
+
+our loss norm disabled, right-Jacobian inverse form). The raw MeanFlow residual is ∼ 33 × larger than the endpoint term—owing to the near-data reweighting 1 / max (t, t ε)2—and λMF = 0 .05 brings the two to the same order ( ≈ 1.6:1). 
+
+Loss normalization and stability. Our optional loss-magnitude normalization ( our loss norm )is disabled in all phases. For stability we instead rely on three mechanisms: a global gradient-norm clip at 1 .0, per-residue rotation- and translation-loss clamps (50 and 5), and the endpoint near-data reweighting 1 / max (t, t ε)2 (tε = 0 .1, Stage 2 onward). The rotation and translation branches are weighted by ( wR, w x) = (1 .0, 1.0). 
+
+Total objective. The Stage-2 loss is the weighted sum 
+
+λend Lend + λMF 
+
+ LMF rot + LMF trans 
+
+ + λaux 1[t < 0.75] Laux , (97) with ( λend , λ MF , λ aux ) = (1 .0, 0.05 , 2.0); the endpoint term anchors the model and stabilizes the MeanFlow loss, and all remaining settings are listed in Table 7. Here λMF = 0 .05 is a scale normalizer rather than a tuned trade-off. Because the loss-magnitude normalization is disabled in all phases (see above), the terms of (97) enter at their raw magnitudes, and these differ by more than an order of magnitude: the small-t MeanFlow residuals (62) carry the near-data reweighting 1/ max (t, t ε)2, which reaches t−2 
+
+> ε
+
+= 100 for t ≤ tε = 0 .1, whereas the endpoint term is unweighted. With λMF = 0 .05 the weighted MeanFlow contribution is comparable in magnitude to λend Lend 
+
+throughout training—a ratio of roughly 1 .6:1 (Table 6). The small numerical value therefore reflects the scale of the raw residual, not a small role in the objective; equivalently, one may enable the loss normalization and set λMF = 1. 
+
+M.3 Post-training: self-reflow rectification 
+
+Few-step designability is further improved by a rectification stage that replaces the random data– noise coupling with the model’s own deterministic transport, following the rectified-flow strategy of ReQFlow Yue et al. [2025]. 
+
+Self-reflow dataset. Using the Stage-2 model, for each residue length N ∈ [60 , 128] we draw prior samples z1 ∼ pprior and integrate the model to obtain coupled pairs ( z1, ˆz0) (noise → generated backbone). Each generated backbone is scored with the self-consistency pipeline (ProteinMPNN followed by ESMFold), and we retain only designable samples ( scRMSD < 2˚A ). We keep 50 designable pairs per length—over-sampling 100 generations per length to meet the quota—yielding 69 × 50 = 3450 coupled pairs over the SCOPe length range. 57 Hyperparameter Stage 1 ( α-Flow) Stage 2 and Post-train (endpt+MF) Objective α-Flow (JVP-free) endpoint + MeanFlow Initialization from scratch Stage-1 ckpt, Stage-2 ckpt Maximum Steps 150k 10k, 10k 
+
+α schedule (cap →floor) 1 → 0.1 —(ks, k e, γ ) (2k , 150k , 8) —Loss weight (alpha,aux)=1,1 (Endpoint,MF,aux)=1,0.05,2 Meanflow config — (version,jmode)=(mf, J−1)Auxiliary time gate t < 0.75 t < 0.75 loss normalization off off Rotation-loss clamp 50 50 Trans-loss clamp 5 5Min. time tmin 10 −6 10 −6
+
+Denom. clamp tε 0.1 0.1Rotation schedule exp (rate 10) exp (rate 10) (wR, w x) (1 .0, 1.0) (1 .0, 1.0) 
+
+s | t sampler U[tmin , t ] U[tmin , t ]
+
+s=t anchor fraction 0 0Two-time input ( s < t ) yes yes Self-conditioning yes (50%) yes (50%) JVP — (JVP-free) single combined Coupling global SE(3) OT global SE(3) OT Optimizer, lr Adam, 10 −4 Adam, 10 −4
+
+Gradient clip 0 (none) 1.0Gradient accumulation 2 2Batch cap ( N 2max ) ∝ 1/N 2 (5 ×10 5) ∝ 1/N 2 (5 ×10 5)Devices 4× H100 (80GB) GPU 4× H100 (80GB) GPU 
+
+Table 7: Training configuration for the two pre-training stages. Post-training (self-reflow) reuses the Stage-2 column verbatim, changing only the data coupling: the OT coupling is replaced by the model’s own deterministic self-reflow pairs, with OT disabled (Section M.3). 
+
+Rectification objective. We then continue training from the Stage-2 checkpoint on these pairs using the identical Stage-2 objective (97) , but with the independent coupling q(z0, z 1) replaced by the model-induced deterministic coupling ( z1, ˆz0) and with the OT re-coupling disabled (the pairs are already transport-consistent). Because the target transport is now (approximately) straight, the average-velocity field it must match is closer to constant along each trajectory, which is precisely the regime in which few-step MeanFlow sampling is exact. Checkpoints are saved densely and selected on validation designability and secondary-structure content. 
+
+M.4 Checkpoint selection 
+
+Rather than selecting the final model by a grid search over training hyper-parameters, we retain the training checkpoint according to a fixed, pre-specified rule on validation-time generation quality. During training we periodically sample unconditional backbones at two inference budgets, T =100 and T =20 integration steps, and monitor (i) the C α–C α bond-geometry validity ( ca ca ) and (ii) the secondary-structure composition (helix and strand fractions). We keep the checkpoint that (a) attains ca ca > 0.97 at both T =100 and T =20, so that backbones remain geometrically valid 58 Ours ReQFlow RMF node embed size 256 256 768 edge embed size 128 128 384                            
+
+> chidden 128 128 48 # attention heads 8816 # query/key points 88—# value points 12 12 16 # IPA blocks 6616 seq. tfmr (heads/layers) 4 / 2 4 / 2 12 / 3 per-block AdaLN gate yes no yes total parameters ∼16 .8M ∼16 .8M ∼437M
+
+Table 8: Trunk configuration. “Ours” is the ReQFlow Yue et al. [2025] trunk with the only architectural addition being a per-block AdaLN-Zero gate (+0 .05M, 0 .33% of parameters). Both are ∼ 26 × smaller than RMF Woo et al. [2026] while recovering most of the structural fidelity. in both the high- and low-step regimes; (b) keeps the strand fraction near or above 0 .2, matching the reference distribution and guarding against strand collapse; and (c) among the checkpoints satisfying (a)–(b), maximizes the helix fraction. This criterion was fixed before final evaluation and applied identically across all runs. 
+
+# N Architecture 
+
+Our network is the ReQFlow Yue et al. [2025] trunk left unchanged , augmented with only two additions required to turn a single-time flow-matching model into a two-time MeanFlow model: (i) a shared two-time embedding for the MeanFlow inputs ( t, s ) ( §N.3), and (ii) a per-block, zero-initialised AdaLN-Zero gate on each block’s rigid update ( §N.2). The trunk itself—the invariant point attention (IPA) stack of Jumper et al. [2021] as instantiated by ReQFlow, comprising per block an IPA module, a two-layer sequence transformer, node/edge transitions and a backbone frame update—is not modified. The full model has ∼ 16 .8M parameters, of which the AdaLN additions account for only 0 .33% ( ∼ 55k); it is therefore ∼ 26 × smaller than RMF (Woo et al. 2026, 437M) while remaining checkpoint-compatible with ReQFlow/QFlow (Table 8). 
+
+N.1 Backbone trunk 
+
+The trunk follows the ReQFlow configuration: node and edge embedding sizes 256 and 128, IPA hidden width chidden = 128 with 8 attention heads, 8 query/key points and 12 value points, a 4-head / 2-layer sequence transformer, and 6 IPA blocks. The input embedder is ReQFlow’s: a self-conditioned pairwise distogram (22 bins), a relative-position encoding ( relpos k = 64), and a diffuse-mask embedding. Because the trunk and embedder are inherited unchanged, our model loads directly from our pretrained checkpoint (in stage 2). 
+
+N.2 Block-wise AdaLN-Zero gate 
+
+The sole structural change to the trunk is a per-block gate on the rigid update. Each IPA block emits a six-vector backbone update (three rotational, three translational) that is composed onto the 59 60 70 80 90 100 110 120 128   
+
+> Protein length (modeled residues)
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> Number of structures
+> mean 96.6 median 97 mode 94 (n=79)
+> SCOPe training set after the 60–128 residue filter (N = 3,673)
+
+Figure 9: Residue-length distribution of the SCOPe backbone dataset used in our experiments (3,673 backbones with lengths in [60 , 128]). running frame. We modulate this update with an AdaLN-Zero Peebles and Xie [2023] scale, update b ←  1 + γb(cb) ⊙ update b,
+
+where the gate γb is produced by a per-block linear head from the conditioning vector cb = [ hb ∥ c(t) ], formed by concatenating (i) the block’s current node features hb—which are SE (3)-invariant and state-aware (they depend on the current ( Rt, x t) through IPA)—and (ii) a joint time/interval embedding c(t) built from t and h = t − s. Every gate head is zero-initialised, so at initialisation 
+
+γb ≡ 0, the update is scaled by 1, and the model is forward-identical to the unmodified ReQFlow trunk. This lets the two-time MeanFlow conditioning enter each block’s geometry update per residue and per step, without perturbing the pretrained trunk at the start of training. In implementation the gate is attached via a forward hook, so the trunk’s forward code is untouched. 
+
+N.3 Shared two-time embedding 
+
+A MeanFlow prediction is conditioned on the pair ( t, s ) with 0 ≤ s ≤ t ≤ 1; we let h = t − s. Both t
+
+and h are passed through a single shared sinusoidal-plus-MLP embedder ϕ(·) and concatenated in a fixed order, c(t) = [ ϕ(t) ∥ ϕ(h)]. Concatenation preserves the ( t, h ) ordering; the same embedding feeds both the node/edge input features and the per-block AdaLN gate of §N.2. This is the only place the single-time ReQFlow trunk is made time-pair aware. 
+
+# O Extra Results/Settings in the Protein Experiment 
+
+We provide additional visualizations in this section. Figure 10 reports the joint distribution of per-sample helix and strand content (via mdtraj DSSP) for the SCOPe-generated backbones of each method, at T =100 (top) and T =20 (bottom). Each panel is a 2-D histogram over the helix-fraction (x) and strand-fraction ( y) plane, sharing a common colour scale; the anti-diagonal reflects the intrinsic helix–strand trade-off within a single chain. Across all methods the mass concentrates along this trade-off with an additional helix-rich mode, consistent with the SCOPe length regime. Our models (SE3MF and RecSE3MF) recover a distribution comparable to the flow-matching baselines rather than collapsing to a single motif. Importantly, the distribution is largely preserved when 60 0.0 0.2 0.4 0.6 0.8 1.0                                                          
+
+> Helix percent
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Strand percent
+> FrameFlow
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Helix percent
+> QFlow
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Helix percent
+> ReQFlow
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Helix percent
+> RMF-L
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Helix percent
+> SE3-MF (ours)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Helix percent
+> Rec-SE3-MF (ours)
+> 0.000
+> 0.025
+> 0.050
+> 0.075
+> 0.100
+> 0.125
+> 0.150
+> Frequency
+> SCOPe secondary-structure distribution (T = 100 sampling steps) 0.0 0.2 0.4 0.6 0.8 1.0
+> Helix percent
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Strand percent
+> FrameFlow
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Helix percent
+> QFlow
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Helix percent
+> ReQFlow
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Helix percent
+> RMF-L
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Helix percent
+> SE3-MF (ours)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Helix percent
+> Rec-SE3-MF (ours)
+> 0.000
+> 0.025
+> 0.050
+> 0.075
+> 0.100
+> 0.125
+> 0.150
+> Frequency
+> SCOPe secondary-structure distribution (T = 20 sampling steps)
+
+Figure 10: Secondary-structure statistics (top: T =100, bottom: T =20). the sampling budget is reduced from T =100 to T =20: the few-step regime does not visibly distort the secondary-structure statistics, indicating that the average-velocity consistency learned during training transfers to aggressive step reduction without a mode shift. 
+
+Visualization of SCOPe. Figure 9 shows the residue-length distribution of the SCOPe backbones used in our experiments. 
+
+Random seed in evaluation. All evaluations use a fixed random seed for exact reproducibility: for each sampled backbone the RNG seed is set deterministically to 12345 + 10 5 T + 10 3 N + i, where 
+
+T is the number of sampling steps, N the chain length, and i the sample index within that length. 
+
+How large is the Jacobian correction on the training distribution? Figure 5 shows that dropping the Jacobian breaks the identity by O(t − s) on an analytic path. To check that this regime is actually visited during training, we evaluate ρ = ∥(J−1(As→tθ )−I) ωt∥2/∥ωt∥2—the relative change the Jacobian makes to the regression target of (12) —over 1 .2 × 10 5 residue-level samples from held-out SCOPe backbones under the Stage-2 time sampler (SE(3)-OT coupling, Table 9). The correction grows monotonically with the interval: median ρ is 0 .8% for t − s < 0.1, 7 .2% for 
+
+t − s ∈ [0 .25 , 0.5), and 28% for t − s > 0.75 (P90: 2 .6%, 19%, 58%). Since the sampler draws s
+
+across the full range below t, 22% of training targets fall in the regime where the correction exceeds 10%. The right Jacobian is therefore not a negligible term on the distribution the objective is trained over, even though the intervals queried at inference ( t − s = 1 /T ) are short enough that 
+
+J−1 ≈ I there; the log-map approximation J−1 := I used by RMF-PT Zhong et al. [2026] discards a correction of this size during training. 
+
+O.1 Training budget: steps versus epochs 
+
+We report the training budget in optimizer steps, not epochs: the QFlow/ReQFlow loader (from FrameFlow) oversamples each epoch to ≈ 460 steps, while ours does one pass at ≈ 35 steps—a 
+
+∼ 13 × gap on the identical SCOPe set that makes epoch counts incomparable. Importantly, both QFlow/ReQFlow and our method use the same hardware (4 ×80GB GPUs) and the same batch 61 t − s n ρ ϕ (rad) median P90 median P90 [0 , 0.1) 39,044 0.008 0.026 0.061 0.175 [0 .1, 0.25) 32,212 0.031 0.077 0.283 0.500 [0 .25 , 0.5) 29,502 0.072 0.187 0.589 0.993 [0 .5, 0.75) 14,957 0.165 0.392 0.891 1.497 [0 .75 , 1.0] 4,320 0.280 0.581 0.841 1.582 overall 120,035 0.033 0.194 0.289 0.955 
+
+Table 9: The inverse right Jacobian’s relative change to the rotation target, ρ = ∥(J−1(As→tθ ) −
+
+I) ωt∥2/∥ωt∥2, and the driving angle ϕ = ∥As→tθ ∥2 (rad), binned by the interval t − s over 1 .2 × 10 5
+
+residue-level samples from held-out SCOPe backbones under the Stage-2 (SE(3)-OT) sampler. cap (see N 2max in Table 7), so each optimizer step processes the same amount of data; the only difference is that under our loader each sample is seen once per epoch, whereas QFlow/ReQFlow repeats samples multiple times due to oversampling (which depends on the number of GPUs). Steps are directly comparable; as a check, the QFlow checkpoint’s 90 ,160 steps equal its reported 195 epochs [Yue et al., 2025]. 
+
+O.2 Ablation Study: A Controlled Comparison of Consistency Objectives 
+
+The RMF rows of Table 1 come from the released checkpoint, which uses a different trunk (437M versus our 16 .8M) and a much larger budget (598k versus our Stage-2 budget), so that comparison does not isolate the objective. Table 10 removes the confound: all three rows start from the same 
+
+Stage-1 α-Flow checkpoint and share the trunk, data, coupling, self-conditioning and optimizer, so the only variable is the Stage-2 consistency target. Under this matched budget the semigroup target is a weaker self-consistency signal than the differential MeanFlow target. The FM+semigroup variant tracks plain flow matching closely at every budget — its designable fraction 0 .886 /0.880 /0.781 /0.533 is within noise of QFlow’s 0.885 /0.870 /0.778 /0.559 in Table 1, including the same collapse at T =10, which is the signature of the instantaneous-velocity parameterisation. The endpoint+semigroup variant is stronger in the aggressive regime but still falls short of MeanFlow at every budget. Swapping in our MeanFlow target, on the same trunk and from the same initialization, recovers the few-step regime (0 .867 at 
+
+T =20, 0 .728 at T =10). We read this as a matter of training budget rather than of correctness: the two objectives share a minimizer (Remark 13), but the semigroup constraint propagates the boundary condition only through the interval triples it happens to sample, whereas the differential target imposes the same consistency pointwise at every ( s, t ). The semigroup route therefore appears to need a substantially longer schedule to reach the few-step regime — consistent with RMF’s ∼ 598k steps, and with our observation in Appendix K that semigroup training gave weaker few-step gains than the JVP-based loss at 10–20k steps. 
+
+O.3 Additional results for V-QFlow and V-ReQFlow 
+
+V-QFlow and V-ReQFlow Yue et al. [2025] do not provide checkpoints trained on SCOPe; therefore, the scores in Table 11 are computed using the released checkpoints trained on PDB. Because this evaluation uses a different training dataset and pipeline from the SCOPe-based baselines, the results 62 Objective Samp. Steps Train Steps Designability Div. ↓ Secondary structure Frac. ↑ scRMSD ↓ scTM ↑ Helix / Strand ca-valid FM + semigroup (RMF) 100 6.8k 0.886 1.285 ±0.962 0.892 ±0.078 0.376 0.498 /0.199 0.976 50 - 0.880 1.337 ±1.027 0.889 ±0.079 0.369 0.466 /0.221 0.975 20 - 0.781 1.665 ±1.366 0.856 ±0.101 0.370 0.474 /0.197 0.975 10 - 0.533 2.825 ±2.327 0.765 ±0.148 0.368 0.446 /0.171 0.983 endpoint + semigroup 100 6.2k 0.852 1.391 ±1.321 0.887 ±0.095 0.396 0.549 /0.160 0.971 50 - 0.835 1.405 ±1.245 0.885 ±0.093 0.391 0.521 /0.180 0.972 20 - 0.813 1.534 ±1.489 0.873 ±0.096 0.392 0.561 /0.152 0.977 10 - 0.712 1.975 ±1.783 0.835 ±0.120 0.389 0.551 /0.147 0.984                                
+
+> endpoint +MeanFlow (ours) 100 6.1k 0.936 1.106 ±0.870 0.909 ±0.067 0.415 0.536 /0.200 0.971 50 -0.906 1.246 ±1.190 0.902 ±0.078 0.413 0.517 /0.213 0.971 20 -0.867 1.369 ±1.144 0.883 ±0.087 0.408 0.505 /0.210 0.970 10 -0.728 1.940 ±1.741 0.832 ±0.118 0.402 0.497 /0.193 0.975
+
+Table 10: Controlled objective ablation on SCOPe. All rows start from the same Stage-1 
+
+α-Flow checkpoint (step 100k) and share the IPA trunk, data, coupling, self-conditioning and optimizer; only the Stage-2 consistency target is swapped. Train Steps counts Stage-2 steps only. The semigroup rows instantiate the objectives of Woo et al. [2026] inside our pipeline; they are not 
+
+a reproduction of that work, whose hyperparameters, model size and training budget we do not replicate. Best per performance metric within each sampling-step group in bold. are not directly comparable; we thus report them in this separate section. Notably, while the overall score is close to 0.99, the helix accuracy is high whereas the strand secondary-structure accuracy is around 0.1 or lower. This imbalance is concerning biologically because β-strands typically assemble into β-sheets via inter-strand hydrogen bonding and often depend on non-local sequence interactions; correspondingly, strand prediction is generally harder than helix prediction, and very low strand accuracy may indicate that the model fails to capture such long-range constraints Pauling et al. [1951], Zhang and Sagui [2015]. 
+
+# P Computational Resources 
+
+All experiments are conducted on a single GPU node with the following configuration. Each node is equipped with 4 × NVIDIA H100 80 GB HBM3 GPUs and dual AMD EPYC 9654 96-core CPUs. Training uses all four GPUs with PyTorch Lightning distributed data-parallel (DDP), 14 CPU worker threads per GPU process (56 cores in total), and gradient accumulation of 2; the effective batch is set by a length-based sampler with cap N 2max = 5 × 10 5 residues 2 (Table 7). 63 Method Steps Fraction ↑ scRMSD ↓ scTM ↑ Diversity TM ↓ Novelty TM ↓ α-Helix β-Strand 
+
+V-QFlow 100 0.990 0.654 ± 0.446 0.957 ± 0.039 0.384 0.846 0.740 ± 0.260 0.091 ± 0.200 
+
+50 0.980 0.702 ± 0.423 0.952 ± 0.045 0.373 0.837 0.714 ± 0.268 0.109 ± 0.206 
+
+20 0.964 0.869 ± 0.697 0.937 ± 0.053 0.348 0.803 0.710 ± 0.245 0.099 ± 0.184 
+
+10 0.903 1.160 ± 1.183 0.908 ± 0.088 0.332 0.772 0.687 ± 0.227 0.093 ± 0.164 
+
+V-ReQFlow 100 0.990 0.675 ± 0.318 0.955 ± 0.033 0.403 0.851 0.808 ± 0.199 0.050 ± 0.154 
+
+50 0.993 0.726 ± 0.625 0.951 ± 0.036 0.396 0.840 0.791 ± 0.216 0.064 ± 0.170 
+
+20 0.975 0.855 ± 0.638 0.936 ± 0.047 0.383 0.812 0.785 ± 0.217 0.064 ± 0.167 
+
+10 0.957 1.083 ± 0.854 0.910 ± 0.065 0.377 0.782 0.788 ± 0.199 0.052 ± 0.142 
+
+Table 11: Evaluation results for V-QFlow and V-ReQFlow. These methods use a different data/e-valuation pipeline from the other baselines, so we report them separately. 64

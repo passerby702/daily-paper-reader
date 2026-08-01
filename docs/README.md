@@ -6,44 +6,64 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-28
-- 运行时间：2026-07-28 21:59:15 UTC
+- 最新运行日期：2026-08-01
+- 运行时间：2026-08-01 21:33:09 UTC
 - 运行状态：成功
-- 本次总论文数：8
-- 精读区：6
-- 速读区：2
+- 本次总论文数：14
+- 精读区：5
+- 速读区：9
 
 ### 今日简报（AI）
-今日高效覆盖8篇论文，精读6篇，重点突破扩散模型采样参数与跨上下文绑定设计。最值得关注的是《Learning Sampling Parameters for Diffusion Models》与《Chamaileon: Cross-Context Binder Design》两篇8.0高分工作。建议普通读者优先精读这两篇，把握采样优化与上下文建模的实用方法。
-- 详情：[/202607/28/README](/202607/28/README)
+今日速览14篇论文，精读聚焦分子界面建模与蛋白质骨架生成两大AI for Science方向，均获9.0高分。  
+最值得关注Vilya-2的分子界面结构建模和SE(3)-MeanFlow的蛋白质骨架生成，二者在化学与生物问题上展现了强应用潜力。  
+建议普通读者优先浏览精读摘要，并留意扩散模型引导优化（如速读中的CFG反思）作为补充视野。
+- 详情：[/202608/01/README](/202608/01/README)
 
 ### 精读区论文标签
-1. [Learning Sampling Parameters for Diffusion Models](/202607/28/2607.23488v1-learning-sampling-parameters-for-diffusion-models)  
+1. [Accurate structural modeling of chemically diverse molecular interfaces with Vilya-2](/202608/01/2607.25156v1-accurate-structural-modeling-of-chemically-diverse-molecular-interfaces-with-vilya-2)  
+   标签：评分：9.0/10、query:pocket-lig
+   evidence：扩散Transformer建模肽-蛋白结合界面；生成靶标中配体的结构系综
+2. [SE(3)-MeanFlow: Few-Step Protein Backbone Generation on Lie Groups](/202608/01/2607.27431v1-se3-meanflow-few-step-protein-backbone-generation-on-lie-groups)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：基于李群流匹配的少步蛋白质骨架生成
+3. [Catalyst Diffusion Transformer: Generative Inverse Design of Heterogeneous Catalysts](/202608/01/2607.24272v1-catalyst-diffusion-transformer-generative-inverse-design-of-heterogeneous-catalysts)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：学习文本到图像扩散模型的采样参数
-2. [Chamaileon: Cross-Context Binder Design with Contextualized Modeling and Mixed Sampling](/202607/28/2607.23518v1-chamaileon-cross-context-binder-design-with-contextualized-modeling-and-mixed-sampling)  
-   标签：评分：8.0/10、query:pocket-lig
-   evidence：用于靶向结合位点的结合剂生成模型
-3. [MS-GPT: Rethinking MS/MS De Novo Structure Elucidation as Spectrum-Induced Posterior Querying of a Molecule-Language Model](/202607/28/2607.23607v1-ms-gpt-rethinking-msms-de-novo-structure-elucidation-as-spectrum-induced-posterior-querying-of-a-molecule-language-model)  
+   evidence：扩散Transformer用于催化剂材料的生成逆向设计
+4. [4DHumanDiff: Direct Text-to-4DGS Generation for Consistent 360-Degree Dynamic Humans](/202608/01/2607.27634v1-4dhumandiff-direct-text-to-4dgs-generation-for-consistent-360-degree-dynamic-humans)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：使用分子语言模型进行从头分子结构解析
-4. [Physics-Guided Generative AI for Property-Targeted 3D Porous Media Design](/202607/28/2607.24274v1-physics-guided-generative-ai-for-property-targeted-3d-porous-media-design)  
+   evidence：基于扩散模型从文本直接生成4D高斯泼溅动态人体
+5. [Chimera: Designing and Chinchilla-Scaling Hybrid Visual Diffusion Transformers](/202608/01/2607.28611v1-chimera-designing-and-chinchilla-scaling-hybrid-visual-diffusion-transformers)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：条件潜在扩散模型用于三维多孔介质生成
-5. [UMI3D: Robust 3D Generation on Unconstrained Multi-Image Inputs via Simultaneous Focus Cross-Attention Routing](/202607/28/2607.24298v1-umi3d-robust-3d-generation-on-unconstrained-multi-image-inputs-via-simultaneous-focus-cross-attention-routing)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：基于扩散的多图像三维生成
-6. [MSVS-VAE: Multi-Scale Anchored VecSet for High-Fidelity 3D Reconstruction](/202607/28/2607.24436v1-msvs-vae-multi-scale-anchored-vecset-for-high-fidelity-3d-reconstruction)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：用于3D生成的潜扩散范式中的层次化VAE
+   evidence：处理文本、图像、视频令牌的混合视觉扩散变压器，用于多模态生成
 
 ### 速读区论文标签
-1. [Generative Video Compression with Adaptive Score Distillation](/202607/28/2607.22772v1-generative-video-compression-with-adaptive-score-distillation)  
+1. [Rethinking Classifier-Free Guidance in On-Policy Diffusion Distillation](/202608/01/2607.24731v1-rethinking-classifier-free-guidance-in-on-policy-diffusion-distillation)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：基于扩散的视频压缩，与使用扩散模型的视频处理相关
-2. [From Score Learning to Discretized Sampling: An End-to-End Generalization Analysis of Diffusion Models](/202607/28/2607.23226v1-from-score-learning-to-discretized-sampling-an-end-to-end-generalization-analysis-of-diffusion-models)  
+   evidence：扩散模型蒸馏与无分类器引导
+2. [Rethinking Classifier-Free Guidance in On-Policy Diffusion Distillation](/202608/01/2607.24731v2-rethinking-classifier-free-guidance-in-on-policy-diffusion-distillation)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：扩散模型蒸馏与无分类器引导
+3. [Anchoring and Steering Diffusion: Enhancing the Faithfulness of Text-to-Image Generation at Inference Time](/202608/01/2607.26647v1-anchoring-and-steering-diffusion-enhancing-the-faithfulness-of-text-to-image-generation-at-inference-time)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：文本到图像扩散模型的推理时优化方法，提高多模态生成语义对齐
+4. [TPD: Temporal Prior Decoupling for Text-to-Video Diffusion Models](/202608/01/2607.26706v1-tpd-temporal-prior-decoupling-for-text-to-video-diffusion-models)  
+   标签：评分：7.0/10、query:diff-gen
+   evidence：用于多模态生成的文本到视频扩散模型
+5. [Diffusion Models in Medical Image Inpainting: Challenges, Solution Taxonomy, and Future Directions](/202608/01/2607.21904v1-diffusion-models-in-medical-image-inpainting-challenges-solution-taxonomy-and-future-directions)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：分数扩散模型的理论分析
+   evidence：扩散模型在医学图像修复中的系统综述，属于生成模型综述
+6. [MMOE: Modernizing Diffusion Transformers with Efficient Expert Design](/202608/01/2607.24665v1-mmoe-modernizing-diffusion-transformers-with-efficient-expert-design)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：扩散Transformer的高效专家设计；对合成需求中扩散生成领域具有通用性
+7. [Existence-Field Diffusion Model for Spatial Point Processes with Variable Cardinality](/202608/01/2607.26428v1-existence-field-diffusion-model-for-spatial-point-processes-with-variable-cardinality)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：用于变基数空间点过程的扩散模型；可迁移至点云/场景生成
+8. [Where and When to Commit: Candidate-Aware Decoding for Diffusion Language Models](/202608/01/2607.28166v1-where-and-when-to-commit-candidate-aware-decoding-for-diffusion-language-models)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：扩散语言模型的生成加速与候选感知解码
+9. [APO: Unsupervised Atomic Policy Optimization for 3D Structure Prediction of Atomic Systems](/202608/01/2607.28553v1-apo-unsupervised-atomic-policy-optimization-for-3d-structure-prediction-of-atomic-systems)  
+   标签：评分：6.0/10、query:diff-gen
+   evidence：基于流匹配的三维原子结构预测与无监督策略优化，与深度学习分子生成相关
 
 
 <div class="dpr-home-promo-card">
