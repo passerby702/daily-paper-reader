@@ -1,0 +1,691 @@
+Title: Oracle-Budgeted Molecular Optimization with Short-Term Graph Memory
+
+URL Source: https://arxiv.org/pdf/2607.28437v1
+
+Published Time: Fri, 31 Jul 2026 01:17:58 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Oracle-Budgeted Molecular Optimization with Short-Term Graph Memory 
+
+# Jiannan Yang 
+
+Computer Science Stony Brook University Stony Brook, New York, USA 
+
+# Veronika Thost 
+
+Molecular AI Novo Nordisk Lexington, Massachusetts, USA 
+
+# Xiang Ling 
+
+Biomedical Engineering Stony Brook University Stony Brook, New York, USA 
+
+# Tengfei Ma 
+
+Biomedical Informatics Stony Brook University Stony Brook, New York, USA 
+
+## Abstract 
+
+Molecular optimization is commonly performed under a limited or-acle budget, which makes deciding what to evaluate as important as deciding what to generate. We introduce short-term graph memory, a plug-in module that preserves the generator architecture and na-tive update rule while learning from previously evaluated molecules to prioritize subsequent oracle queries. The module maintains an online graph neural surrogate that pre-screens each round’s can-didate pool, so the fixed oracle budget is spent on molecules with higher predicted utility. Applied to a fragment-based generator on a standard molecular optimization benchmark, it improves the mean top-10 score at no extra oracle cost and never falls behind the base on any oracle; the gain extends to all four generators we tested at a tight budget of one thousand calls. We then analyze how surrogate-guided selection interacts with the exploration and exploitation behavior of different generators. Its benefit at larger budgets is consistent with two properties of the backbone: how broadly it searches, and how effectively its native search already exploits oracle feedback. We provide a simple way to spend a fixed oracle budget more selectively, and evidence on which generators benefit from it. 
+
+## Keywords 
+
+molecular optimization, oracle-efficient search, drug discovery 
+
+## 1 Introduction 
+
+Molecular optimization is often limited not by the ability to generate candidates, but by the cost of evaluating them. Modern generative models can propose large numbers of molecules at relatively low computational cost, whereas evaluating their desired properties may require expensive simulations, docking procedures, learned proxy oracles, or experimental validation. This asymmetry makes the oracle, not the generator, the bottleneck: a method can propose far more molecules than it can ever afford to test, so its progress is governed by the evaluations it can make rather than by the candidates it can produce. That cost also bounds how many evaluations a campaign can afford at all, and in the settings these oracles ultimately model the number is very small. A wet-lab campaign may synthesize and assay only a handful to a few dozen molecules [ 30 ], and even efforts that 
+
+> Code: https://github.com/JPaulYang/short-term-graph-memory
+
+0 5k 10k 
+
+oracle calls 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+> mean top-10 score
+
+Base 
+
++Graph Memory 
+
+Figure 1: Mean top-10 score vs. oracle calls on GenMol, aver-aged over the benchmark oracles. Short-term graph memory (solid) reaches high-scoring molecules with far fewer oracle calls than the base generator (dashed), at no extra oracle cost. 
+
+screen enormous virtual libraries are triaged down to a few dozen experimental tests [ 19 , 21 ]. A thousand true evaluations already sit at the upper end of what an academic or early-stage effort can afford, and tens of thousands are rarely realistic. Progress therefore hinges on the tight-budget regime, where every oracle call must be spent well. Recent molecular generation methods achieve strong perfor-mance on oracle-budgeted benchmarks [ 2 ] by combining stochastic candidate generation with chemically informed priors over which candidates to propose, and a growing body of work makes the expensive evaluation the primary cost to reduce, through sample-efficient search policies and learned surrogates [ 8 , 10 , 13 ]. These optimizers use oracle feedback in different ways to shape future proposals, but they may still evaluate many weak candidates before identifying high-value regions. Under a fixed budget, how efficiently good molecules are found depends not on generation alone but on a complementary allocation problem: from each generated pool, which candidates should consume the next oracle calls? arXiv:2607.28437v1 [cs.LG] 30 Jul 2026 seed 𝑥 
+
+Generator Oracle 𝑓     
+
+> (𝑥, 𝑓 (𝑥 ) )
+> 𝑁 cand.
+> keep best 𝑥
+> budget spread over weak candidates
+
+(a) Baseline  
+
+> seed 𝑥
+
+Generator  
+
+> graph memory 𝑠 𝜃
+
+Oracle 𝑓     
+
+> (𝑥, 𝑓 (𝑥 ) )
+> 𝑁 cand.
+
+top-𝑘  
+
+> keep best 𝑥
+> online fine-tune
+> budget on best candidates
+
+(b) + Graph memory 
+
+Figure 2: A seed-based optimization loop under the same generator and oracle budget. (a) The base generator evaluates proposals with no learned pre-screening. (b) Graph memory 𝑠 𝜃 , fine-tuned online on the same evaluations, pre-screens them so only the selected ones are evaluated. 
+
+In this work, we study whether previously evaluated molecules can be recycled as a short-term memory for future oracle allo-cation, and whether a common mechanism can serve optimizers whose search dynamics differ. We propose a plug-in short-term graph memory module that continuously fine-tunes a graph neural surrogate on molecules already evaluated by the oracle, and then uses it as a cheap structure-aware selector between the generator and the oracle. Because the module preserves each backbone’s ar-chitecture and native update rule, the same interface can be applied across fragment-based, flow-based, policy-gradient, and genetic search. The budget counts only oracle evaluations, so the module is oracle-budget-neutral : it reallocates the expensive budget rather than enlarging it. It does add cheap computation, since it draws a larger candidate pool and runs surrogate inference and online training on it. Empirically, short-term graph memory yields large gains on gen-erators that propose a broad, weakly-ranked candidate pool: for GenMol [ 9] initialized from its full unscored fragment pool over the practical molecular optimization (PMO) benchmark [ 2], it raises the mean top-10 score from 0.648 to 0.784 and is no worse than the base generator on any of the 22 oracles, using no additional oracle calls 
+
+(Section 5); it also improves the discrete-flow generator InVirtuo-Gen [ 7 ], and, with a diversity-preserving selector, REINVENT [ 15 ]. At the tight budget of 1,000 calls, the more practically feasible of the two regimes, memory improves the mean top-10 score of all four generators we tested. Its benefit at larger budgets varies with the base generator’s search dynamics: a genetic algorithm that al-ready concentrates its own search shows little net change. Selection rule matters too. Hard filtering destabilizes REINVENT, because the selected candidates are also its policy-gradient training batch (Appendix C). We analyze this generator-memory compatibility and the exploration-exploitation trade-off that memory induces. 
+
+Contributions. 
+
+(1) We introduce short-term graph memory , an oracle-budget-neutral module that recycles already-evaluated molecules into an online graph surrogate and re-ranks each round’s candidate pool, leaving the backbone’s architecture and native update rule untouched (Section 3). (2) We show that one such selector improves all four backbones at a tight budget and without additional oracle calls, spanning masked-diffusion, discrete-flow, policy-gradient, and genetic search (Section 5). (3) We characterize where the gain is retained and where it dimin-ishes as the budget grows, tying it to how far a backbone already exploits its own feedback, show that the exploitation pressure behind it is adjustable rather than fixed, and compare against Augmented Memory [3] on a shared backbone (Section 6, 7). 
+
+## 2 Problem Formulation 
+
+We consider sequential molecular optimization under a fixed oracle budget. At round 𝑡 , a generator 𝐺 proposes a candidate pool 𝑃 𝑡 ⊆ X 
+
+from the evaluation history M𝑡 −1 = {( 𝑥 𝑖 , 𝑓 (𝑥 𝑖 ))} 𝑛 𝑡 −1 
+
+> 𝑖 =1
+
+. A selector chooses a subset 𝑆 𝑡 ⊆ 𝑃 𝑡 to be scored by an expensive oracle 
+
+𝑓 : X → [ 0, 1], subject to ∑︁ 
+
+> 𝑡
+
+|𝑆 𝑡 | ≤ 𝐵. 
+
+The evaluated pairs are appended to the history 
+
+M𝑡 = M𝑡 −1 ∪ {( 𝑥, 𝑓 (𝑥 )) : 𝑥 ∈ 𝑆 𝑡 }
+
+which both the generator and the selector may use in the next round. Candidate generation and surrogate inference are treated as unbudgeted computation: 𝐵 counts oracle evaluations only. This follows the accounting convention of the PMO benchmark [ 2 ], and it reflects settings where a single evaluation is a docking run, an assay, or a synthesis, and is orders of magnitude more expensive than sampling a molecule. Under this convention the design ques-tion is not how to generate more molecules, but how to allocate the 𝐵 evaluations across the molecules already proposed. 
+
+> 2
+
+## 3 Short-Term Graph Memory 3.1 Framework and backbone interface 
+
+Molecular optimizers are feedback-driven, but many use that feed-back narrowly. GenMol [ 9] and InVirtuoGen [ 7] build molecules from fragments and reuse feedback only through which evalu-ated molecules seed the next round. Graph-GA [ 6] applies fixed crossover and mutation operators and reuses feedback through fitness-weighted selection of the population they act on. In these three the operator’s parameters never change. REINVENT [ 15 ] dif-fers: feedback enters as reward and updates the generator’s weights directly, which is also why an external selector interacts differently with it. None of them, however, ranks the candidates it proposes within a round. Short-term graph memory addresses that gap: it adds a learned selector over each round’s proposal pool, without altering the backbone architecture or its native update rule. Short-term graph memory is a plug-in module inserted between the generator and the oracle, summarized in Algorithm 1. Each round the generator proposes a pool, the surrogate scores it cheaply, only the selected candidates are sent to the oracle, and the new evaluations both accumulate in the buffer M and fine-tune the surrogate online. The module does not increase the oracle budget; it changes which molecules the same budget is spent on. Figure 2 contrasts the two allocations. The module needs only two things from a backbone: (1) a stream of candidate SMILES [ 26 ] and (2) a scalar oracle. Everything else stays with the generator, including the call 𝐺. update (M) in Al-gorithm 1, which stands for the native rule each backbone already applies to accumulated feedback: pool reseeding, population selec-tion, or a policy-gradient step. The memory replaces none of these; it inserts a ranking stage immediately before the oracle call. The interface is uniform across backbones, while what it wraps is not. 
+
+## 3.2 Online graph surrogate 
+
+The surrogate is a graph neural network 𝑠 𝜃 over the 2D molecular graph. We use a GraphGPS backbone [ 17 ] that combines GINE [ 4 ,27] message passing with attention [24] and positional encodings, mean-pools node embeddings, and maps them to a scalar through a linear head. The backbone starts from a checkpoint pretrained on ZINC [ 20 ] with the motif-prediction objective of [ 28 ], so the surrogate begins the run with general chemical structure already en-coded and only has to specialize to the current oracle. Architecture and optimizer settings are listed in Appendix A. The surrogate is then fine-tuned online. Selection stays random during an initial warm-up of 𝑤 evaluated molecules, which avoids ranking by an unadapted model. After that, whenever 𝑢 new ora-cle calls have accumulated since the last update, we take a single gradient step on a mini-batch sampled from the buffer, minimizing 
+
+L( 𝜃 ) = 1
+
+|B| ∑︁ (𝑥,𝑦 ) ∈ B 
+
+ 𝑠 𝜃 (𝑥 ) − 𝑦 2, B ⊆ M .
+
+The buffer holds true oracle scores only, so the surrogate never trains on its own predictions, and the memory is short-term in a strict sense: the checkpoint has seen no oracle score, so knowledge of the objective accrues only within the run. The backbone-specific values of 𝑤 and 𝑢 are listed in Appendix A. 
+
+Algorithm 1 Short-term graph memory 
+
+Require: generator 𝐺 , oracle 𝑓 , budget 𝐵 , surrogate 𝑠 𝜃 , pool size 
+
+𝑁 , forward count 𝑘 , warm-up 𝑤 , update period 𝑢  
+
+> 1:
+
+M ← ∅ ; ℓ ← 0 
+
+> 2:
+
+while |M| < 𝐵 do  
+
+> 3:
+
+𝑃 ← 𝐺. propose (𝑁 ) 
+
+> 4:
+
+𝑘 𝑡 ← min (𝑘, 𝐵 − |M|)  
+
+> 5:
+
+if |M| ≥ 𝑤 then  
+
+> 6:
+
+𝑆 ← select 𝑘 𝑡 
+
+ 𝑃, 𝑠 𝜃 (𝑃 ) ⊲ deterministic or stochastic  
+
+> 7:
+
+else  
+
+> 8:
+
+𝑆 ← random (𝑃, 𝑘 𝑡 ) 
+
+> 9:
+
+end if  
+
+> 10:
+
+for 𝑥 ∈ 𝑆 do  
+
+> 11:
+
+𝑦 ← 𝑓 (𝑥 ); M ← M ∪ {( 𝑥, 𝑦 )}  
+
+> 12:
+
+end for  
+
+> 13:
+
+if |M| ≥ 𝑤 and |M| − ℓ ≥ 𝑢 then  
+
+> 14:
+
+𝑠 𝜃 ← fine-tune (𝑠 𝜃 , M) ; ℓ ← |M|  
+
+> 15:
+
+end if  
+
+> 16:
+
+𝐺. update (M) ⊲ backbone-specific  
+
+> 17:
+
+end while  
+
+> 18:
+
+return top molecules in M
+
+## 3.3 Candidate selection 
+
+Given a pool 𝑃 of 𝑁 proposals and surrogate scores 𝑠 𝜃 (𝑃 ), the se-lector returns the 𝑘 molecules to evaluate. We study two rules. The deterministic selector takes the 𝑘 highest-scored candidates. It maximizes exploitation of the current surrogate and is our de-fault. The stochastic selector instead samples 𝑘 candidates without replacement from softmax  𝑠 𝜃 (𝑃 )/ 𝑇  with temperature 𝑇 , so higher-scored candidates are more likely to be chosen but low-scored ones are not categorically excluded. Temperature is a knob on exploita-tion strength, not a new optimizer, and requires no reinforcement-learning machinery. The two rules differ only in how the same surrogate scores become selections. Hard selection can be unstable when the selected subset is also what updates a parametric generator, as it is in REINVENT: the selector’s bias returns through the policy and is amplified until generation collapses onto duplicates and the run stalls. We therefore use the stochastic selector for REINVENT and the deterministic one elsewhere. Appendix C gives the mechanism and the runs behind this choice. 
+
+## 4 Experimental Setup 4.1 Benchmark and evaluation protocol 
+
+We evaluate on the practical molecular optimization benchmark [ 2 ], a panel of property oracles that scores optimizers under an explicit query budget rather than by generation quality alone. The bench-mark evaluates top-𝑘 score and top-𝑘 AUC, and we use 𝑘 = 10 
+
+for both: final top-10 score as the measure of solution quality and top-10 AUC as the measure of climbing speed: how quickly high-scoring molecules are discovered as the budget is consumed. We use 𝐵 = 10 ,000 oracle calls, the benchmark default, and additionally report every result at 1,000 calls by reading each run’s trajectory at 
+
+> 3
+
+Table 1: Top-10 score and top-10 AUC for each generator with and without memory, at a tight ( 1,000 ) and a full ( 10 ,000 ) oracle budget. The 𝑝 -value is a one-sided Wilcoxon signed-rank test paired across the 22 oracles. Per-oracle results are in Appendix F. 
+
+Top-10 @ 1,000 Top-10 AUC @ 1,000 Top-10 @ 10 ,000 Top-10 AUC @ 10 ,000 
+
+Backbone Base +Mem 𝑝 Base +Mem 𝑝 Base +Mem 𝑝 Base +Mem 𝑝 
+
+GenMol 0.542 0.613 <0.001 0.537 0.606 <0.001 0.648 0.784 <0.001 0.603 0.712 <0.001 
+
+InVirtuoGen 0.532 0.569 0.002 0.450 0.474 0.049 0.687 0.730 0.002 0.621 0.668 0.002 
+
+REINVENT 0.531 0.571 <0.001 0.419 0.453 <0.001 0.780 0.762 0.558 0.686 0.696 0.015 
+
+Graph-GA 0.530 0.557 0.009 0.439 0.457 <0.001 0.753 0.733 0.410 0.652 0.653 0.099 that point. The tight budget is closer to what a real evaluation cam-paign can afford, so we treat both as primary rather than treating the tight budget as an ablation. The tight-budget results average three random seeds for every backbone, oracle, and condition; the full-budget results are a single run with a pinned seed. Appendix F reports the per-oracle standard deviations. We test whether memory exceeds base with a one-sided Wilcoxon signed-rank test over the oracles, together with the win/tie/loss count, which measures how consistently the sign of the improvement holds across tasks. We report aggregates on 22 of the 23 oracles, excluding the valsartan SMARTS task because its outcomes are near-binary and were highly sensitive to whether the target substructure was encountered in a given run. Appendix D gives the excluded results and a sensitivity analysis; including this oracle does not change the qualitative conclusions. 
+
+## 4.2 Backbones and experimental configuration 
+
+We instantiate the module on four backbones spanning distinct search families: GenMol [ 9], masked-diffusion fragment recombi-nation; InVirtuoGen [ 7], discrete-flow fragment generation; REIN-VENT [ 15 ], a SMILES recurrent-network policy gradient; and Graph-GA [ 6], a graph genetic algorithm. Full per-backbone configurations are in Appendix A. For the two fragment generators, memory ranks pools of 16 candidates and forwards one per round. For REINVENT and Graph-GA it filters half of each proposal batch. REINVENT uses stochastic selection at temperature 𝑇 =1, for the reason given in Section 3.3; the other three use deterministic selection. Base and memory runs use the same backbone and the same total oracle budget. Graph memory adds a pre-oracle selection step, while each backbone retains its native generation and update mechanism. For InVirtuoGen, REINVENT, and Graph-GA the base run draws the same pool and selects from it without the surrogate: at random for InVirtuoGen, and by evaluating the whole pool for REINVENT and Graph-GA. For GenMol the base run follows the original one-evaluation-per-round loop, so the memory run draws a larger pool than its base. The two runs always spend an identical number of oracle calls, which is what the budget counts; the memory run spends more unbudgeted generation and surrogate compute. For REINVENT and Graph-GA, forwarding only half of each batch also means the memory run completes roughly twice as many proposal and native-update rounds within the same budget. That is part of what reallocating the budget does, so these two backbones do not separate surrogate ranking from update frequency. Both GenMol runs start from the full unscored fragment pool, whereas the published configuration seeds recombination from an oracle-ranked top-100 pool. Starting unranked keeps all candidate ordering in the selector under study, which is what the comparison is about. It is also the harder starting point, and our GenMol results refer to it throughout. 
+
+## 5 Main Results 
+
+Figure 1 shows the effect on GenMol: memory reaches high-scoring molecules with far fewer oracle calls. Table 1 reports every genera-tor with and without memory at a tight and a full oracle budget, and Appendix F breaks every cell of it down by oracle. GenMol shows the largest effect in Table 1, at both budgets and on both metrics, and at no extra oracle cost. That average hides nothing: per oracle, memory is better than the base on almost all of them (Appendix F). The gain there concentrates on the hard single-target objectives, where the base proposes capable molecules but scores too many weak ones to surface them. At the tight budget memory improves the mean top-10 score of all four backbones, with positive paired differences across the oracle panel in each case. This is the regime the benchmark is built to stress, and the closer of the two to what an evaluation campaign can afford, so the effect is not confined to a single generator family. What changes with budget is how long the lead lasts. By ten thousand calls the two adaptive searchers have caught up on final score: REINVENT and Graph-GA each match or exceed their mem-ory run at the finish, while GenMol and InVirtuoGen keep their advantage. Climbing speed tells a different story from final score here. Top-10 AUC stays ahead for three of the four backbones at the full budget, and is comparable between the two runs on Graph-GA, so memory reaches good molecules sooner even where it does not end higher. These budget-dependent patterns suggest that memory interacts with both the breadth of a generator’s proposals and the way the generator already uses its own feedback. We analyze that next. 
+
+## 6 Generator–Memory Compatibility 
+
+Memory improved all four backbones at the tight budget; at the full budget only two kept a score advantage. We ask first what separates them, then what the gain costs. 
+
+## 6.1 Conditions for improvement 
+
+Memory adds value when its pre-oracle ranking provides informa-tion beyond the backbone’s native use of feedback. Table 2 orders the four backbones by how strongly that native use concentrates 
+
+> 40.25
+> 0.50
+> 0.75
+> 1.00
+> top-10 score
+> base overtakes
+
+REINVENT 
+
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+
+GenMol   
+
+> 05k 10k
+
+oracle calls    
+
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> top-100 diversity
+> 3k 05k 10k
+
+oracle calls  
+
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> +graph memory base
+
+Figure 3: REINVENT and GenMol on mestranol similarity. Top-10 score (top, blue) and top-100 diversity (bottom, red), with memory (solid) and without (dashed). The dotted line marks where base overtakes memory on REINVENT. Table 2: How each backbone natively uses oracle feedback. Per-backbone pool sizes and selector settings are in Table 5. 
+
+Backbone Proposes over Feedback re-enters via GenMol safe strings [14] seeds, drawn unweighted InVirtuoGen fragment smiles seeds, score-weighted Graph-GA molecular graphs seeds, fitness-weighted REINVENT smiles generator weights their future proposals. GenMol draws its seeds unweighted, so feed-back shapes what it proposes least; InVirtuoGen and Graph-GA weight the seeds by score, and REINVENT folds feedback into the generator’s own weights. At the tight budget memory helps all four, because the external surrogate supplies a signal the native search has not yet acquired, which is where the gain in Table 1 comes from. As the budget grows, the backbones that concentrate most strongly acquire that signal themselves and the marginal benefit of memory decreases; the advantage persists for GenMol and InVirtuoGen. 
+
+## 6.2 Exploitation and diversity 
+
+Memory is useful because it is selective: it repeatedly favors candi-dates that the surrogate associates with previously observed high scores. In our runs this selectivity shows up as concentration in chemical space. We quantify it as top-100 diversity, one minus the mean pairwise Tanimoto similarity over 2048-bit Morgan finger-prints of radius 2 [ 18 , 22 ]. This is the one place we depart from 
+
+𝑘 =10 , because ten molecules give only 45 pairs and are easily domi-nated by a single scaffold even when the wider search stays diverse. Table 3 shows the effect on GenMol. Where memory drives a large score gain, the discovered molecules concentrate on a few scaffolds; where the gain is modest, diversity is largely preserved. The score gain is bought with exploitation. 
+
+Table 3: Top-100 diversity on GenMol for three oracles. De-terministic memory reduces it most where the score gain is largest. 
+
+Oracle Base Memory (det.) Memory (stoch.) jnk3 0.807 0.296 0.572 gsk3b 0.815 0.252 0.620 amlodipine 0.784 0.668 0.760 Whether that exploitation keeps paying off appears to depend on how broadly the base generator searches. We use the top-100 diversity of the unguided base generator as an empirical proxy for search breadth. Averaged over the panel at the full budget it is 0.82 
+
+for GenMol, 0.58 for Graph-GA, and 0.42 for REINVENT, so the backbones differ substantially on this axis before any memory is added. Figure 3 contrasts the two ends of that range on one oracle. With REINVENT, memory climbs fast and leads for thousands of calls, but drives diversity below even the base generator’s, and after the search narrows the base overtakes it. With GenMol the base stays broadly diverse throughout; memory still concentrates the search, yet stays above base at every budget. These observations are consistent with search breadth moderat-ing the effect of memory-induced exploitation. We state this as a hypothesis rather than an established rule: it rests on one oracle in Figure 3 and three in Table 3, and breadth is measured only through a diversity proxy. Whatever moderates the effect, the pressure itself should be adjustable: if the gain is bought with exploitation, relaxing the selection rule should trade score back for diversity. The stochastic        
+
+> 50.60 0.65 0.70 0.75 0.80 0.85 0.90 0.95
+
+final top-10 score  
+
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> top-100 diversity (1 Tanimoto)
+> jnk3 gsk3b
+> amlodipine
+> Vanilla
+> Memory (det.)
+> Memory (stoch.)
+
+Figure 4: Score and diversity on GenMol. Points trace each oracle from the base generator (circle) to deterministic mem-ory (square) to stochastic memory (triangle). 
+
+selector of Section 3.3 tests this directly, since it changes only how the same surrogate scores become selections. The stochastic selector recovers much of the lost diversity, as Table 3 and Figure 4 show, though its best score is generally at or below deterministic filtering. This supports reading the score gain as exploitation pressure that can be relaxed in a controllable way. The stochastic selector complements deterministic memory when diversity is wanted, rather than replacing it. 
+
+## 7 Comparison with Augmented Memory 
+
+Short-term graph memory recycles oracle feedback into a selec-tor. An alternative is to recycle it into the generator. Augmented Memory [ 3 ] is the closest method of that kind: it buffers the highest-scoring molecules and replays them as randomized SMILES for extra policy-gradient updates, so the feedback reshapes what the genera-tor proposes. One approach edits the generator’s training loop, the other adds a selector in front of it. Appendix E gives the algorithm. We compare the two injection points on GenMol under the same 
+
+10 ,000 -call budget. Both improve over the base, so the gain is not unique to external re-ranking. Injecting it into the selector is the stronger of the two here, winning on 16 of the 22 oracles and re-taining more top-100 diversity. Repeatedly regenerating around the same buffered molecules pulls the population toward a few scaf-folds, whereas re-ranking leaves the proposal operator untouched. Appendix E details the GenMol adaptation. 
+
+## 8 Related Work 
+
+Search efficiency under a fixed budget. Oracle-budgeted molec-ular optimization has shifted from raw generation quality toward search efficiency under a limited evaluation budget, standardized by 
+
+Table 4: Augmented Memory [ 3 ], adapted to GenMol as de-scribed in Appendix E, vs. graph memory at a 10 ,000 -call budget. 
+
+GenMol Base 
+
++Augmented Memory 
+
++Graph memory (ours) Mean top-10 score 0.648 0.744 0.784 
+
+Mean top-100 diversity 0.821 0.611 0.637 
+
+Wins/ties/losses – – 16/4/2 the PMO benchmark [ 2 ], which shows that many nominal state-of-the-art generators lose their advantage once query efficiency is en-forced. Recent methods treat expensive evaluation as the bottleneck and design a learned search procedure around it: genetic-guided GFlowNets distill a genetic algorithm into a GFlowNet policy [ 8 ], NF-BO replaces variational-autoencoder latent Bayesian optimiza-tion with autoregressive normalizing flows [ 10 ], and LICO adapts a large language model as an in-context surrogate, especially in the low-budget regime [ 13 ]. These strengthen the generator or the search policy; short-term graph memory instead strengthens the se-lector between the generator and the oracle, leaving the generator’s architecture and update rule as they are. 
+
+Surrogate-assisted candidate selection. Fitting a predictor online on already-evaluated molecules and using it to pre-rank dynami-cally generated candidates is an established mechanism: GP-BO fits a Gaussian process within the run and uses an acquisition function to choose which of a genetic algorithm’s offspring to evaluate, and is among the strongest methods on the PMO benchmark [ 2 , 23 ]. Rather than build a stronger critic for one evolutionary frame-work, we ask whether a single external graph selector can augment optimizers whose native search dynamics differ. Our selector is cor-respondingly simple: a GraphGPS [ 17 ] predictor fine-tuned online, ranking by predicted score without uncertainty estimates or an acquisition function. 
+
+Generator-centric methods. Most recent progress changes the generative model class: GraphDF uses a discrete flow over molecular graphs [ 11 ], FREED an explorative reinforcement-learning policy over fragments [ 29 ], GenMol a fragment-based discrete diffusion model [ 9], and DiGress a discrete graph-diffusion process [ 25 ]. Our method introduces no generator parameters and adds a cheap ranking layer over the candidate pool, making it complementary to these advances, and in particular to GenMol, on which our largest gains appear. 
+
+Diversity and validity. The score gains come with an exploration-diversity trade-off. GFlowNets were introduced precisely to sample diverse high-reward candidates rather than collapse to a mode [ 1 ], and preference-conditioned GFlowNets treat diversity as a first-class objective in multi-objective molecular optimization [ 31 ]; our deterministic selector sits at the high-exploitation end of this spec-trum, while the stochastic selector of Section 3.3 moves back toward diversity. A parallel line of graph-generation work instead empha-sizes chemical validity and structural constraints, with hard con-straints enforced throughout sampling [ 12 ] and geometry-aware 
+
+> 6
+
+conditional generation [ 5]. This is complementary to our focus on oracle allocation. 
+
+## 9 Conclusion 
+
+We presented short-term graph memory, an oracle-budget-neutral plug-in that recycles oracle feedback into an online graph surrogate to pre-screen future candidates. It improves oracle-efficient molecu-lar optimization across four backbones at a tight budget, and keeps that advantage at the full budget for the two whose own search concentrates least. Our analysis points to a compatibility question rather than a universal gain. The exploitation bias that makes mem-ory useful helps most where the base generator searches broadly, and helps less once a generator’s own search has narrowed. The stochastic selector shows that this pressure is adjustable rather than fixed. Because every backbone improves at the tight budget, early performance alone does not indicate which will keep the advantage; the breadth of a generator’s unguided search is the more promising signal to test. 
+
+## 10 Limitations and Ethical Considerations 
+
+Limitations. Our evidence comes from an in-silico benchmark whose oracles are predictive models rather than laboratory mea-surements. A real campaign may afford far fewer evaluations than the thousand calls we treat as the tight budget, and a surrogate trained within the run needs some feedback before it can rank any-thing at all; how far down the budget scale this class of method stays useful is a question for validation against real assays rather than for this benchmark. Our account of generator–memory compatibility is supported by the observed score and diversity trajectories, although directly measuring surrogate ranking quality within each proposal pool would provide a stronger test of the proposed explanation. We hold the GraphGPS surrogate fixed across backbones to isolate generator–selector interactions; comparing alternative surrogate architectures and uncertainty-aware selectors remains future work. Finally, we study four backbone families, and broader generality remains to be tested. 
+
+Ethical considerations. This work studies oracle-efficient molec-ular optimization, a tool intended to accelerate scientific discov-ery such as drug and materials design. All experiments use public benchmark oracles and involve no human subjects, personal data, or private information, so no informed consent or institutional review is required. The objectives are the benchmark’s own: drug-likeness, activity against published targets, and similarity to approved drugs. Scope for misuse is bounded by what the method supplies, which is neither the objective a search pursues nor any means of making a molecule. Its outputs are 2D structures scored by computational proxies, with no synthesis route and no experimental validation, and are hypotheses for laboratory testing rather than results. We encourage responsible use consistent with community norms for AI-assisted molecular design. 
+
+## References 
+
+[1] Emmanuel Bengio, Moksh Jain, Maksym Korablyov, Doina Precup, and Yoshua Bengio. 2021. Flow network based generative models for non-iterative diverse candidate generation. Advances in neural information processing systems 34 (2021), 27381–27394. [2] Wenhao Gao, Tianfan Fu, Jimeng Sun, and Connor W. Coley. 2022. Sample Efficiency Matters: A Benchmark for Practical Molecular Optimization. In Thirty-sixth Conference on Neural Information Processing Systems Datasets and Bench-marks Track . https://openreview.net/forum?id=yCZRdI0Y7G [3] Jeff Guo and Philippe Schwaller. 2024. Augmented memory: sample-efficient generative molecular design with reinforcement learning. Jacs Au 4, 6 (2024), 2160–2172. [4] Weihua Hu, Bowen Liu, Joseph Gomes, Marinka Zitnik, Percy Liang, Vijay Pande, and Jure Leskovec. 2020. Strategies for Pre-training Graph Neural Networks. In 
+
+International Conference on Learning Representations . https://openreview.net/ forum?id=HJlWWJSFDH [5] Yinan Huang, Xingang Peng, Jianzhu Ma, and Muhan Zhang. 2022. 3DLinker: An E (3) Equivariant Variational Autoencoder for Molecular Linker Design. In 
+
+International Conference on Machine Learning . PMLR, 9280–9294. [6] Jan H Jensen. 2019. A graph-based genetic algorithm and generative model/Monte Carlo tree search for the exploration of chemical space. Chemical science 10, 12 (2019), 3567–3572. [7] Benno Kaech, Luis Wyss, Karsten Borgwardt, and Gianvito Grasso. 2025. Refine Drugs, Don’t Complete Them: Uniform-Source Discrete Flows for Fragment-Based Drug Discovery. In NeurIPS 2025 Workshop on AI Virtual Cells and Instru-ments: A New Era in Drug Discovery and Development . https://openreview.net/ forum?id=nYkOsqrZS2 [8] Hyeonah Kim, Minsu Kim, Sanghyeok Choi, and Jinkyoo Park. 2024. Genetic-guided GFlowNets for sample efficient molecular optimization. Advances in Neural Information Processing Systems 37 (2024), 42618–42648. [9] Seul Lee, Karsten Kreis, Srimukh Prasad Veccham, Meng Liu, Danny Reidenbach, Yuxing Peng, Saee Gopal Paliwal, Weili Nie, and Arash Vahdat. 2025. Gen-Mol: A Drug Discovery Generalist with Discrete Diffusion. In Forty-second In-ternational Conference on Machine Learning . https://openreview.net/forum?id= KM7pXWG1xj [10] Seunghun Lee, Jinyoung Park, Jaewon Chu, Minseo Yoon, and Hyunwoo J. Kim. 2025. Latent Bayesian Optimization via Autoregressive Normalizing Flows. In The Thirteenth International Conference on Learning Representations . https: //openreview.net/forum?id=ZCOwwRAaEl [11] Youzhi Luo, Keqiang Yan, and Shuiwang Ji. 2021. Graphdf: A discrete flow model for molecular graph generation. In International conference on machine learning .PMLR, 7192–7203. [12] Manuel Madeira, Clement Vignac, Dorina Thanou, and Pascal Frossard. 2024. Generative modelling of structurally constrained graphs. Advances in Neural Information Processing Systems 37 (2024), 137218–137262. [13] Tung Nguyen and Aditya Grover. 2025. Lico: Large language models for in-context molecular optimization. In International Conference on Learning Representations ,Vol. 2025. 53576–53597. [14] Emmanuel Noutahi, Cristian Gabellini, Michael Craig, Jonathan SC Lim, and Prudencio Tossou. 2024. Gotta be SAFE: a new framework for molecular design. 
+
+Digital Discovery 3, 4 (2024), 796–804. [15] Marcus Olivecrona, Thomas Blaschke, Ola Engkvist, and Hongming Chen. 2017. Molecular de-novo design through deep reinforcement learning. Journal of cheminformatics 9, 1 (2017), 48. [16] John W Pratt. 1959. Remarks on zeros and ties in the Wilcoxon signed rank procedures. J. Amer. Statist. Assoc. 54, 287 (1959), 655–667. [17] Ladislav Rampášek, Michael Galkin, Vijay Prakash Dwivedi, Anh Tuan Luu, Guy Wolf, and Dominique Beaini. 2022. Recipe for a general, powerful, scalable graph transformer. Advances in Neural Information Processing Systems 35 (2022), 14501–14515. [18] David Rogers and Mathew Hahn. 2010. Extended-connectivity fingerprints. 
+
+Journal of chemical information and modeling 50, 5 (2010), 742–754. [19] Gabriele Scalia, Steven T Rutherford, Ziqing Lu, Kerry R Buchholz, Nicholas Skelton, Kangway Chuang, Nathaniel Diamant, Jan-Christian Hütter, Jerome-Maxim Luescher, Anh Miu, et al . 2025. Deep-learning-based virtual screening of antibacterial compounds. Nature biotechnology (2025), 1–14. [20] Teague Sterling and John J Irwin. 2015. ZINC 15–ligand discovery for everyone. 
+
+Journal of chemical information and modeling 55, 11 (2015), 2324–2337. [21] Jonathan M Stokes, Kevin Yang, Kyle Swanson, Wengong Jin, Andres Cubillos-Ruiz, Nina M Donghia, Craig R MacNair, Shawn French, Lindsey A Carfrae, Zohar Bloom-Ackermann, et al . 2020. A deep learning approach to antibiotic discovery. 
+
+Cell 180, 4 (2020), 688–702. [22] Taffee T Tanimoto. 1958. An elementary mathematical theory of classification and prediction . Technical Report. International Business Machines Corporation. [23] Austin Tripp, Gregor NC Simm, and José Miguel Hernández-Lobato. 2021. A fresh look at de novo molecular design benchmarks. In NeurIPS 2021 AI for Science Workshop .[24] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. Advances in neural information processing systems 30 (2017). [25] Clement Vignac, Igor Krawczuk, Antoine Siraudin, Bohan Wang, Volkan Cevher, and Pascal Frossard. 2023. DiGress: Discrete Denoising diffusion for graph generation. In The Eleventh International Conference on Learning Representations .                    
+
+> 7https://openreview.net/forum?id=UaAD-Nu86WX [26] David Weininger. 1988. SMILES, a chemical language and information system. 1. Introduction to methodology and encoding rules. Journal of chemical information and computer sciences 28, 1 (1988), 31–36. [27] Keyulu Xu, Weihua Hu, Jure Leskovec, and Stefanie Jegelka. 2019. How Powerful are Graph Neural Networks?. In International Conference on Learning Representa-tions .https://openreview.net/forum?id=ryGs6iA5Km [28] Jiannan Yang, Veronika Thost, and Tengfei Ma. 2025. Self-Supervised Learning on Molecular Graphs: A Systematic Investigation of Masking Design. Transactions on Machine Learning Research (2025). [29] Soojung Yang, Doyeong Hwang, Seul Lee, Seongok Ryu, and Sung Ju Hwang. 2021. Hit and lead discovery with explorative rl and fragment-based molecule generation. Advances in Neural Information Processing Systems 34 (2021), 7924– 7936. [30] Alex Zhavoronkov, Yan A Ivanenkov, Alex Aliper, Mark S Veselov, Vladimir A Aladinskiy, Anastasiya V Aladinskaya, Victor A Terentiev, Daniil A Polykovskiy, Maksim D Kuznetsov, Arip Asadulaev, et al .2019. Deep learning enables rapid identification of potent DDR1 kinase inhibitors. Nature biotechnology 37, 9 (2019), 1038–1040. [31] Yiheng Zhu, Jialu Wu, Chaowen Hu, Jiahuan Yan, Tingjun Hou, Jian Wu, et al .2023. Sample-efficient multi-objective molecular optimization with gflownets.
+> Advances in Neural Information Processing Systems 36 (2023), 79667–79684.
+
+## A Implementation Details 
+
+The surrogate is a five-layer GraphGPS network [ 17 ]. Each layer combines GINE message passing [ 4, 27 ] with four-head attention [ 24 ]at hidden dimension 300 , using Laplacian and random-walk posi-tional encodings. Atoms carry atomic number, formal charge, chi-rality, hybridization, hydrogen count, valence, and degree; bonds carry type and direction. Node embeddings are mean-pooled and mapped to a scalar by a linear head. Online updates use Adam at learning rate 10 −3, one gradient step per update on a mini-batch of up to 256 molecules sampled from the buffer, minimizing mean-squared error against the recorded oracle scores. All network parameters are updated online, not just the head, and each mini-batch is drawn uniformly from the accumulated buffer. The buffer is unbounded within a run and is discarded when the budget is exhausted; nothing is carried across oracles. Table 5 gives the per-backbone configuration. The proposal pool size 𝑁 and forward count 𝑘 follow each backbone’s own genera-tion loop: the fragment generators produce a pool per round and evaluate one molecule from it, while REINVENT and Graph-GA produce a batch per round and evaluate half of it. Warm-up 𝑤 and update period 𝑢 are counted in oracle calls and were set once per generation loop rather than tuned per oracle. All runs used one NVIDIA RTX A6000 GPU each, on a host with two Intel Xeon Platinum 8352Y CPUs ( 64 cores). Each run was given between 8 and 24 CPU threads, and several ran concurrently on the same host. Oracle evaluation is CPU-bound, so throughput depends more on the thread allocation than on the GPU. 
+
+Table 5: Per-backbone configuration. 𝑁 is the candidate pool proposed each round, 𝑘 the number forwarded to the oracle. Warm-up 𝑤 and update period 𝑢 are in oracle calls. 
+
+Backbone 𝑁 𝑘 Selector 𝑤 𝑢 
+
+GenMol 16 1 deterministic 50 10 InVirtuoGen 16 1 deterministic 50 10 REINVENT 64 32 stochastic 100 50 Graph-GA 70 35 deterministic 100 50 
+
+## B Molecules Found With and Without Memory 
+
+Figure 5 shows what the score gap looks like structurally on al-buterol similarity, one of the oracles where GenMol improves most with graph memory. The base generator’s best molecules carry a 𝛽 -hydroxy-ethylamine motif but miss the target’s substitution pattern, and one of them is a quaternary ammonium the target does not have. With memory, all four best molecules pair that motif with the phenol and the bulky amine of albuterol, and three of them reach the maximum score. Graph memory does not modify the proposal operator; here it reallocates the budget toward generated candidates closer to the target. 
+
+## C Hard Selection and Policy-Gradient Collapse 
+
+In REINVENT the candidates that survive selection are also the batch on which the policy gradient is computed. A hard filter there-fore feeds the selector’s bias back through the generator’s param-eters, where it is recursively amplified. The policy concentrates on the modes the surrogate prefers and begins emitting duplicates. Duplicate molecules are served from the oracle’s cache and con-sume no budget, so the oracle counter stops advancing and the run stalls well before the budget is spent. Table 6 reports the oracle calls completed before termination; a run was stopped once its oracle count had stayed unchanged for 30 minutes on the hardware of Appendix A. The threshold has only to tell a frozen counter from a slow one: a stalled run draws every proposal from the cache, so its count does not advance at all rather than advancing slowly. Table 6 reports every oracle for which we attempted a hard-filter run. Three of the six stall, one as early as 600 calls. The same oracles with the stochastic selector all complete the full budget. Graph-GA filters the same fraction of its batch, 35 of 70 , and with a hard filter completes all 23 oracles without stalling. Its selector output also propagates forward, through the population that seeds the next generation, but fixed mutation, crossover, and stochastic mating keep injecting variation, and in our runs that was enough to prevent the same collapse. Under the tested configurations, hard selection stalled REINVENT but not Graph-GA. This is why the REINVENT runs in Table 1 use the stochastic selector, with 𝑇 =1 throughout. 
+
+Table 6: Oracle calls completed out of 10 ,000 by REINVENT, on every oracle we ran with a hard filter. 
+
+Oracle Hard filter Stochastic isomers c7h8n2o2 600 10,000 drd2 2,100 10,000 jnk3 9,800 10,000 deco hop 10,000 10,000 median1 10,000 10,000 scaffold hop 10,000 10,000 
+
+## D The valsartan SMARTS Oracle 
+
+The valsartan oracle rewards molecules that match a fixed SMARTS substructure subject to several physicochemical constraints. Its top score is near-binary in practice: a run either discovers the substructure and scores near 1, or never finds it and scores near 
+
+> 8Cc1ccc(C)c(C(O)CNC(O)C(C)C)c1
+> GenMol
+
+0.736 
+
+> CNCC(O)c1cccc(O)c1
+
+0.706 
+
+> CC[NH+](Cc1ccc(CO)c(O)c1)C(C)(CC)CO
+
+0.698 
+
+> CCC(NCC(O)c1ccccc1)C(O)C(C)C
+
+0.688 
+
+> CCc1ccc(O)c(C(O)CNC(C)(C)CO)c1
+> + graph memory
+
+1.000 
+
+> CCNCC(O)c1ccc(O)c(CO)c1
+
+1.000 
+
+> CCc1ccc(O)c(C(O)CNC(C)(C)C)c1
+
+1.000 
+
+> CC(C)(C)NCC(O)c1cccc(O)c1
+
+0.980 Figure 5: Four highest-scoring molecules found by GenMol on albuterol similarity, with and without graph memory, under the same 10 ,000 -call budget. Each panel gives the oracle score and the SMILES string. 
+
+0, with almost nothing in between. Table 7 shows the final top-10 score on each backbone. Two generators never find the pattern and score 0, GenMol finds it with memory but not without, and REINVENT finds it in some runs but not others, so on this oracle the recorded value reflects whether a run happened to encounter the substructure. The other oracles we examined did not show the same near-binary run-to-run behavior. Because this instability was identified after the initial runs, we report valsartan separately and examine its effect on the aggregate. Including it adds GenMol’s single largest per-oracle gain, from 0.05 
+
+at base to 0.90 with memory, while leaving the other backbones’ ag-gregates essentially unchanged. The numerical aggregates change, but the qualitative conclusions do not. 
+
+Table 7: Final top-10 score on the valsartan oracle. 
+
+Backbone Base +Graph Mem GenMol 0.051 0.902 
+
+InVirtuoGen 0.000 0.000 REINVENT 0.988 0.987 Graph-GA 0.000 0.000 
+
+## E Augmented Memory 
+
+Algorithm 2 sketches Augmented Memory [ 3] in the same notation as Algorithm 1, omitting the likelihood and training details specific to that method. Line 7 reuses buffered high scorers to shape further generation without spending oracle calls, which the original does by policy gradient. Because a frozen fragment generator has no policy to update, our adaptation replaces the replayed policy updates with remasking and regeneration around the buffered molecules. 
+
+Algorithm 2 Schematic of Augmented Memory [3] 
+
+Require: generator 𝐺 𝜃 , oracle 𝑓 , budget 𝐵 , replay buffer R, aug-mentation rounds 𝐴  
+
+> 1:
+
+M ← ∅ ; R ← ∅  
+
+> 2:
+
+while |M| < 𝐵 do  
+
+> 3:
+
+𝑋 ← 𝐺 𝜃 .sample ()  
+
+> 4:
+
+𝑦 ← 𝑓 (𝑋 ); M ← M ∪ {( 𝑋, 𝑦 )}  
+
+> 5:
+
+R ← keep-top (R ∪ {( 𝑋, 𝑦 )})  
+
+> 6:
+
+𝜃 ← policy-update (𝜃, 𝑋, 𝑦 ) 
+
+> 7:
+
+for 𝑎 = 1 . . . 𝐴 do  
+
+> 8:
+
+𝑋 ′ ← randomized-SMILES (R) ⊲ no oracle calls  
+
+> 9:
+
+𝜃 ← policy-update (𝜃, 𝑋 ′, R.scores ) 
+
+> 10:
+
+end for  
+
+> 11:
+
+end while  
+
+> 12:
+
+return top molecules in M
+
+The buffer keeps the top 100 unique molecules with a non-zero score. After warm-up, each round remasks a buffered molecule with probability 0.5, drawn in proportion to its score, and otherwise falls back to GenMol’s ordinary fragment recombination. Following the reference implementation, the buffer is cleared when its upper half collapses onto a single sub-optimal score; we apply this rule with the published threshold on every oracle. This run and the graph-memory run share the fragment pool, the candidate-pool size, the oracle budget, the oracle-cache accounting, and every other GenMol setting. The two differ in whether past feedback is reused through reseeding or through external ranking. 
+
+## F Per-Oracle Results 
+
+Tables 8 and 10 report final scores by oracle for all four backbones at the tight and full budgets; Tables 9 and 11 report climbing speed. 
+
+> 9
+
+The last rows give the wins/ties/losses and one-sided Wilcoxon 
+
+𝑝 -values for memory exceeding base across the 22 paired oracles. Entries are rounded to three decimals, and wins, ties, and losses are counted at that same precision, so a tie means the two values agree to three decimals. The Wilcoxon test uses the unrounded scores and resolves zero differences by the Pratt method [ 16 ], which ranks them with the rest and then drops their ranks from the statistic. 
+
+Table 8: Final top-10 score per oracle at a 1,000 -call budget, base generator vs. short-term graph memory. The value after ± is the standard deviation over three random seeds; it averages 0.02 and never exceeds 0.10 .
+
+GenMol InVirtuoGen REINVENT Graph-GA Oracle Base +Mem Base +Mem Base +Mem Base +Mem albuterol similarity 0.567 ±0.01 0.673 ±0.01 0.566 ±0.01 0.574 ±0.02 0.583 ±0.03 0.612 ±0.02 0.508 ±0.06 0.690 ±0.03 
+
+amlodipine mpo 0.571 ±0.01 0.599 ±0.01 0.536 ±0.01 0.537 ±0.01 0.496 ±0.01 0.508 ±0.01 0.539 ±0.01 0.531 ±0.01 
+
+celecoxib rediscovery 0.456 ±0.01 0.529 ±0.01 0.413 ±0.03 0.453 ±0.03 0.426 ±0.03 0.454 ±0.03 0.385 ±0.01 0.457 ±0.02 
+
+deco hop 0.641 ±0.03 0.648 ±0.10 0.612 ±0.00 0.612 ±0.01 0.591 ±0.01 0.589 ±0.01 0.607 ±0.01 0.582 ±0.00 
+
+drd2 0.984 ±0.00 0.999 ±0.00 0.993 ±0.01 1.000 ±0.00 0.975 ±0.01 0.999 ±0.00 0.999 ±0.01 0.999 ±0.01 
+
+fexofenadine mpo 0.731 ±0.01 0.750 ±0.00 0.702 ±0.02 0.698 ±0.01 0.695 ±0.01 0.679 ±0.00 0.699 ±0.00 0.739 ±0.03 
+
+gsk3b 0.673 ±0.01 0.820 ±0.02 0.572 ±0.09 0.932 ±0.06 0.773 ±0.08 0.681 ±0.05 0.590 ±0.03 0.569 ±0.02 
+
+isomers c7h8n2o2 0.485 ±0.05 0.865 ±0.02 0.597 ±0.05 0.629 ±0.02 0.879 ±0.04 0.983 ±0.04 0.846 ±0.02 0.840 ±0.07 
+
+isomers c9h10n2o2pf2cl 0.553 ±0.04 0.657 ±0.03 0.672 ±0.10 0.771 ±0.03 0.696 ±0.05 0.699 ±0.07 0.723 ±0.04 0.763 ±0.07 
+
+jnk3 0.492 ±0.01 0.673 ±0.01 0.484 ±0.08 0.575 ±0.07 0.205 ±0.02 0.561 ±0.10 0.244 ±0.03 0.219 ±0.06 
+
+median1 0.236 ±0.00 0.274 ±0.01 0.243 ±0.01 0.226 ±0.01 0.236 ±0.02 0.275 ±0.01 0.222 ±0.01 0.264 ±0.00 
+
+median2 0.244 ±0.00 0.272 ±0.01 0.187 ±0.02 0.221 ±0.01 0.194 ±0.00 0.209 ±0.01 0.211 ±0.01 0.224 ±0.02 
+
+mestranol similarity 0.438 ±0.01 0.516 ±0.00 0.408 ±0.02 0.412 ±0.02 0.354 ±0.04 0.475 ±0.02 0.399 ±0.03 0.462 ±0.05 
+
+osimertinib mpo 0.815 ±0.00 0.823 ±0.00 0.783 ±0.00 0.779 ±0.01 0.776 ±0.01 0.788 ±0.01 0.793 ±0.00 0.788 ±0.01 
+
+perindopril mpo 0.517 ±0.01 0.523 ±0.01 0.454 ±0.01 0.493 ±0.02 0.417 ±0.01 0.449 ±0.00 0.471 ±0.01 0.480 ±0.01 
+
+qed 0.931 ±0.01 0.944 ±0.00 0.936 ±0.00 0.937 ±0.00 0.940 ±0.00 0.941 ±0.00 0.939 ±0.00 0.942 ±0.00 
+
+ranolazine mpo 0.686 ±0.01 0.757 ±0.01 0.687 ±0.02 0.706 ±0.02 0.639 ±0.01 0.648 ±0.01 0.646 ±0.02 0.720 ±0.03 
+
+scaffold hop 0.506 ±0.00 0.512 ±0.01 0.486 ±0.01 0.487 ±0.00 0.467 ±0.00 0.473 ±0.00 0.473 ±0.01 0.471 ±0.01 
+
+sitagliptin mpo 0.228 ±0.02 0.369 ±0.01 0.338 ±0.04 0.315 ±0.02 0.310 ±0.00 0.379 ±0.04 0.332 ±0.02 0.436 ±0.06 
+
+thiothixene rediscovery 0.397 ±0.01 0.458 ±0.01 0.342 ±0.02 0.419 ±0.03 0.326 ±0.02 0.394 ±0.03 0.323 ±0.01 0.333 ±0.01 
+
+troglitazone rediscovery 0.317 ±0.01 0.362 ±0.03 0.266 ±0.01 0.298 ±0.01 0.260 ±0.00 0.301 ±0.02 0.287 ±0.01 0.315 ±0.01 
+
+zaleplon mpo 0.460 ±0.01 0.466 ±0.01 0.436 ±0.00 0.432 ±0.01 0.448 ±0.00 0.468 ±0.00 0.432 ±0.01 0.439 ±0.01 
+
+Mean 0.542 0.613 0.532 0.569 0.531 0.571 0.530 0.557 W/T/L 22/0/0 16/1/5 19/0/3 14/1/7 
+
+Wilcoxon 𝑝 2×10 −7 0.002 5×10 −4 0.009 
+
+> 10
+
+Table 9: Per-oracle top-10 AUC at a 1,000 -call budget, base generator vs. short-term graph memory. 
+
+GenMol InVirtuoGen REINVENT Graph-GA Oracle Base +Mem Base +Mem Base +Mem Base +Mem albuterol similarity 0.561 0.663 0.482 0.454 0.465 0.469 0.407 0.479 
+
+amlodipine mpo 0.566 0.593 0.475 0.483 0.452 0.460 0.480 0.468 celecoxib rediscovery 0.450 0.521 0.311 0.349 0.334 0.334 0.290 0.345 
+
+deco hop 0.635 0.642 0.559 0.560 0.552 0.548 0.558 0.547 drd2 0.976 0.992 0.921 0.923 0.543 0.732 0.751 0.765 
+
+fexofenadine mpo 0.727 0.744 0.641 0.632 0.626 0.613 0.625 0.648 
+
+gsk3b 0.665 0.806 0.451 0.722 0.450 0.423 0.442 0.452 
+
+isomers c7h8n2o2 0.478 0.844 0.418 0.342 0.476 0.666 0.681 0.697 
+
+isomers c9h10n2o2pf2cl 0.536 0.644 0.500 0.653 0.541 0.549 0.557 0.597 
+
+jnk3 0.485 0.662 0.318 0.344 0.147 0.297 0.171 0.162 median1 0.234 0.270 0.190 0.175 0.190 0.207 0.173 0.190 
+
+median2 0.242 0.269 0.160 0.185 0.160 0.173 0.173 0.180 
+
+mestranol similarity 0.433 0.509 0.337 0.348 0.302 0.371 0.316 0.339 
+
+osimertinib mpo 0.811 0.818 0.720 0.721 0.716 0.721 0.718 0.729 
+
+perindopril mpo 0.512 0.520 0.401 0.444 0.379 0.395 0.410 0.411 
+
+qed 0.924 0.938 0.875 0.879 0.884 0.883 0.887 0.888 
+
+ranolazine mpo 0.681 0.750 0.568 0.600 0.497 0.514 0.499 0.543 
+
+scaffold hop 0.503 0.509 0.445 0.438 0.430 0.430 0.434 0.436 
+
+sitagliptin mpo 0.219 0.358 0.248 0.243 0.192 0.264 0.221 0.272 
+
+thiothixene rediscovery 0.394 0.453 0.278 0.327 0.274 0.292 0.265 0.284 
+
+troglitazone rediscovery 0.314 0.358 0.219 0.241 0.219 0.234 0.229 0.240 
+
+zaleplon mpo 0.456 0.460 0.379 0.364 0.385 0.402 0.375 0.385 Mean 0.537 0.606 0.450 0.474 0.419 0.453 0.439 0.457 W/T/L 22/0/0 15/0/7 16/2/4 19/0/3 
+
+Wilcoxon 𝑝 2×10 −7 0.049 1×10 −3 3×10 −4
+
+Table 10: Final top-10 score per oracle at a 10 ,000 -call budget, base generator vs. short-term graph memory. 
+
+GenMol InVirtuoGen REINVENT Graph-GA Oracle Base +Mem Base +Mem Base +Mem Base +Mem albuterol similarity 0.686 0.996 0.896 1.000 0.997 1.000 1.000 1.000 amlodipine mpo 0.612 0.706 0.679 0.656 0.806 0.741 0.766 0.818 
+
+celecoxib rediscovery 0.531 0.785 0.733 0.892 0.882 0.882 0.558 0.832 
+
+deco hop 0.857 0.944 0.640 0.679 0.707 0.678 0.925 0.716 drd2 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 fexofenadine mpo 0.754 0.841 0.835 0.833 0.890 0.887 0.847 0.880 
+
+gsk3b 0.830 0.970 0.964 1.000 1.000 1.000 0.972 0.881 isomers c7h8n2o2 0.941 1.000 0.816 0.936 1.000 1.000 1.000 1.000 isomers c9h10n2o2pf2cl 0.816 0.877 0.801 0.874 0.911 0.916 0.888 0.882 jnk3 0.684 0.938 0.811 0.902 0.984 0.750 0.896 0.440 median1 0.322 0.399 0.332 0.328 0.450 0.450 0.324 0.322 median2 0.295 0.387 0.285 0.333 0.344 0.317 0.319 0.324 
+
+mestranol similarity 0.650 1.000 0.633 0.635 0.802 0.700 0.724 0.647 osimertinib mpo 0.828 0.864 0.838 0.849 0.912 0.926 0.862 0.854 perindopril mpo 0.546 0.643 0.603 0.582 0.609 0.626 0.578 0.579 
+
+qed 0.947 0.948 0.947 0.948 0.948 0.948 0.948 0.948 ranolazine mpo 0.719 0.799 0.822 0.826 0.862 0.878 0.814 0.832 
+
+scaffold hop 0.534 0.597 0.570 0.556 0.613 0.635 0.639 0.559 sitagliptin mpo 0.376 0.486 0.491 0.570 0.544 0.580 0.697 0.763 
+
+thiothixene rediscovery 0.468 0.771 0.514 0.570 0.694 0.581 0.640 0.651 
+
+troglitazone rediscovery 0.379 0.735 0.368 0.560 0.631 0.676 0.644 0.668 
+
+zaleplon mpo 0.489 0.564 0.532 0.536 0.578 0.585 0.523 0.540 Mean 0.648 0.784 0.687 0.730 0.780 0.762 0.753 0.733 
+
+W/T/L 21/1/0 16/1/5 9/6/7 10/4/8 
+
+Wilcoxon 𝑝 2×10 −7 0.002 0.56 0.41 
+
+> 11
+
+Table 11: Per-oracle top-10 AUC at a 10 ,000 -call budget, base generator vs. short-term graph memory. 
+
+GenMol InVirtuoGen REINVENT Graph-GA Oracle Base +Mem Base +Mem Base +Mem Base +Mem albuterol similarity 0.642 0.840 0.760 0.895 0.906 0.896 0.863 0.915 
+
+amlodipine mpo 0.589 0.657 0.612 0.607 0.674 0.659 0.682 0.684 
+
+celecoxib rediscovery 0.484 0.644 0.565 0.749 0.718 0.782 0.499 0.549 
+
+deco hop 0.749 0.877 0.628 0.643 0.641 0.641 0.759 0.626 drd2 0.987 0.993 0.992 0.992 0.954 0.958 0.975 0.976 
+
+fexofenadine mpo 0.739 0.796 0.784 0.773 0.788 0.796 0.784 0.826 
+
+gsk3b 0.757 0.921 0.823 0.966 0.925 0.929 0.813 0.774 isomers c7h8n2o2 0.812 0.950 0.707 0.802 0.944 0.960 0.938 0.932 isomers c9h10n2o2pf2cl 0.734 0.812 0.743 0.828 0.848 0.877 0.835 0.845 
+
+jnk3 0.591 0.840 0.692 0.793 0.738 0.662 0.540 0.363 median1 0.293 0.349 0.303 0.291 0.387 0.407 0.287 0.296 
+
+median2 0.275 0.343 0.251 0.283 0.280 0.282 0.283 0.290 
+
+mestranol similarity 0.547 0.886 0.540 0.538 0.628 0.643 0.543 0.555 
+
+osimertinib mpo 0.816 0.841 0.812 0.818 0.834 0.856 0.832 0.816 perindopril mpo 0.525 0.569 0.530 0.538 0.524 0.549 0.523 0.536 
+
+qed 0.938 0.942 0.938 0.939 0.941 0.941 0.941 0.941 ranolazine mpo 0.703 0.769 0.768 0.784 0.774 0.788 0.742 0.770 
+
+scaffold hop 0.518 0.559 0.523 0.521 0.556 0.560 0.561 0.524 sitagliptin mpo 0.320 0.433 0.412 0.467 0.455 0.505 0.509 0.626 
+
+thiothixene rediscovery 0.425 0.592 0.448 0.510 0.572 0.530 0.493 0.533 
+
+troglitazone rediscovery 0.345 0.540 0.337 0.464 0.483 0.541 0.457 0.487 
+
+zaleplon mpo 0.475 0.524 0.493 0.484 0.524 0.542 0.477 0.497 Mean 0.603 0.712 0.621 0.668 0.686 0.696 0.652 0.653 W/T/L 22/0/0 15/1/6 16/2/4 15/1/6 
+
+Wilcoxon 𝑝 2×10 −7 0.002 0.015 0.099
