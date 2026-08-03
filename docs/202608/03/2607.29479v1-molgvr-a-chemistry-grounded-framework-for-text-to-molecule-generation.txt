@@ -1,0 +1,589 @@
+Title: MolGVR: A Chemistry-Grounded Framework for Text-to-Molecule Generation
+
+URL Source: https://arxiv.org/pdf/2607.29479v1
+
+Published Time: Mon, 03 Aug 2026 01:00:44 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# MolGVR: A Chemistry-Grounded Framework for Text-to-Molecule Generation 
+
+# Qian Tan 1, Xuanyu Zhu 3, Lei Jiang 1, Zhonghang Yuan 1,Chen Zhang 2, Yuqiang Li 2, †,
+
+> 1
+
+University of Science and Technology of China 
+
+> 2
+
+Shanghai Artificial Intelligence Laboratory 
+
+> 3
+
+Shanghai Jiao Tong University 
+
+tanqian@mail.ustc.edu.cn,liyuqiang@pjlab.org.cn 
+
+Abstract 
+
+Text-to-molecule generation is typically formulated as a one-shot sequence generation problem, where a model directly maps target descriptions to molecular representations. How-ever, molecular descriptions often contain informative struc-tural constraints, and violating such constraints can change the molecular identity. This makes chemical verification and error correction important but underexplored. To fill this gap, we propose MolGVR, a chemistry-grounded Generator–Verifier– Refiner framework. The Generator infers structural evidence and generates candidate molecules. The Verifier addresses the lack of chemical validation by converting descriptions into chemical constraints and checking candidates against them. The Refiner addresses generation failures by revising can-didates rejected by the Verifier. Experiments on ChEBI-20 and PCDes show that MolGVR improves exact-match perfor-mance. These results suggest that coupling generation with executable verification and feedback-guided refinement is an effective way to improve text-to-molecule generation. 
+
+# Introduction 
+
+Translating natural language descriptions into molecular rep-resentations has emerged as a core problem in molecule-language modeling (Edwards, Zhai, and Ji 2021). This task requires a model to understand the structural semantics in chemical descriptions while producing a valid molecular rep-resentation that is aligned with the description. MolT5 (Ed-wards et al. 2022) formulated the molecule-caption transla-tion task, and a growing body of work has advanced text-to-molecule generation from multiple perspectives (Liu et al. 2023a; Pei et al. 2025; Li et al. 2024; Jang, Kim, and Ahn 2025; Wang et al. 2025). Sequence-to-sequence methods represented by MolT5 (Edwards et al. 2022) learn direct mappings between molecular strings and natural language; ICMA (Li et al. 2025a) improve generation with retrieved contexts, example reranking, and in-context molecule learn-ing; and MSR (Jang, Kim, and Ahn 2025) improves molecu-lar generation performance by introducing intermediate rea-soning steps. Together, these methods have substantially im-proved text-to-molecule generation performance. Despite this progress, current text-to-molecule methods are still dominated by a one-shot prediction paradigm: they improve generation performance by learning stronger map-pings between textual descriptions and molecular represen-tations (Edwards et al. 2022; Li et al. 2024, 2025a; Jang, Kim, and Ahn 2025). However, we observe a recurring fail-ure mode of this paradigm: generated outputs may appear plausible while being either invalid SMILES or inconsistent with explicit constraints in the target description. We refer to this limitation as the verification-and-correction gap. As illustrated in Figure 1, this recurring noncompliance pat-tern appears across representative models: GPT-4o (Hurst et al. 2024) as a general-purpose LLM, ChemDFM (Zhao et al. 2024) as a chemistry foundation model, and Intern-S1-mini (Bai et al. 2025) as a multidisciplinary scientific foundation model. For instance, in the ChemDFM-v1.5-8B example, the description explicitly requires an ether group, but the generated molecule lacks the corresponding substruc-ture. These errors indicate that one-shot generation does not fully exploit the chemistry-grounded information contained in the target description. As a result, even clear and checkable constraint violations may remain uncorrected, limiting the structural fidelity of text-to-molecule generation. This moti-vates a more process-oriented view of text-to-molecule gen-eration. In real-world molecular design, candidate molecules are rarely accepted in a single step; instead, they are proposed, evaluated against target requirements, and revised according to feedback (Plowright et al. 2012). Recent systems such as ChatMol also indicate a broader trend toward interactive and agentic molecular design (Zeng et al. 2024). These ob-servations suggest that text-to-molecule generation can also benefit from moving beyond one-shot prediction. To this end, we propose MolGVR, a chemistry-grounded Generator–Verifier–Refiner framework for text-to-molecule generation. The Generator infers chemistry-grounded evi-dence and produces candidate molecules. The Verifier ad-dresses the lack of chemical validation by converting de-scription constraints into executable chemical checks and val-idating candidate molecules against them. The Refiner uses verifier-provided failure reasons to perform targeted correc-tion on rejected candidates. Through this workflow, MolGVR turns text-to-molecule generation from one-shot prediction into a chemistry-grounded process in which specialized com-ponents collaborate to detect and refine constraint-level er-rors. This design is aligned with practical molecular design workflows and provides a step toward more application-oriented molecule generation systems. Our contributions can be summarized as follows: 
+
+• We propose MolGVR, a chemistry-grounded Generator– arXiv:2607.29479v1 [cs.LG] 31 Jul 2026 Figure 1: Motivation of MolGVR. Existing general-purpose, chemistry, and scientific LLMs can generate molecules that appear plausible, yet still violate explicit chemical constraints in the text. Red highlights indicate violated descriptions, while green highlights indicate satisfied constraints. Verifier–Refiner framework that mitigates the limitation of one-shot text-to-molecule generation. By integrating executable verification and targeted refinement, MolGVR makes text-to-molecule generation more faithful. 
+
+• We demonstrate strong performance on two text-to-molecule benchmarks (0.582 match score on ChEBI-20 and 0.500 on PCDes), showing advantages in exact molec-ular agreement over strong one-shot baselines. 
+
+• We show through ablation analyses that MolGVR’s gains arise from verification-guided refinement rather than re-peated generation, and Verifier–Refiner can be combined with multi-sample to further improve performance. 
+
+# Related Work 
+
+Text-to-molecule generation. Text2Mol (Edwards, Zhai, and Ji 2021), MolT5 (Edwards et al. 2022), and PCDes (Zeng et al. 2022) established molecule–text alignment and bench-marked generation from natural-language descriptions. Sub-sequent work improved generators through structural model-ing and chemistry-specific pretraining (Liu et al. 2023a; Pei et al. 2025; Yu et al. 2024; Zhang et al. 2024; Zhao et al. 2024; Deng, Ericksen, and Gitter 2025), diffusion or latent-space generation (Gong et al. 2024; Chang and Ye 2025), improved tokenization (Kim et al. 2025), and retrieval or fine-grained cross-modal alignment (Li et al. 2025a, 2026). These methods primarily focus on improving the generator itself. 
+
+Structural reasoning and training-time enhancement. 
+
+MSR (Jang, Kim, and Ahn 2025) introduces intermedi-ate structural reasoning, while Chem-R (Wang et al. 2025) and MolReasoner (Zhao et al. 2025) combine chemistry-aware reasoning supervision with reinforcement learning. Self-augmentation (Jiang et al. 2024) and large-scale in-struction tuning (Yu et al. 2024) further improve genera-tion through stronger supervision. These approaches enhance model training but do not explicitly verify and correct gen-erated molecules. 
+
+Multi-agent and agentic molecular design. Agentic methods apply iterative reasoning, tools, and role special-ization to molecular tasks. MotifAgent (Feng, Wang, and Wei 2026) learns motif-level assembly through multiple agents, while ChatMol (Zeng et al. 2024), DrugAssist (Ye et al. 2025), AgentDrug (Le, Hua, and Chawla 2025), MT-MOL (Kim, Jang, and Ahn 2025), and MADD (Solovev et al. 2025) target conversational design, molecular optimiza-tion, drug editing, or hit discovery. Their focus differs from verification-guided text-to-molecule generation. 
+
+# Method 
+
+Problem Formulation and Overview . Let D =
+
+{(xi, m ⋆i )}Ni=1 denote a dataset, where xi is a target de-scription and m⋆i is the corresponding molecule represented as a SMILES (Weininger 1988) 1. The goal is to generate a molecule ˆmi that is structurally faithful to xi, ideally match-ing m⋆i under molecule-level equivalence. Conventional methods typically learn a direct generator 
+
+ˆmi ∼ pθ (· | xi), (1) which maps the description to a molecular string in a one-shot manner. However, as discussed in the Introduction, such direct generation may produce molecules that appear plausible but invalid or violate explicit structural constraints in the description. MolGVR mitigates this verification-and-correction gap by decomposing the prediction process into three coordinated stages: generation, verification, and refine-ment, as illustrated in Figure 2. First, the Generator provides a chemistry-grounded initial prediction. Given a description xi, it produces intermediate structural evidence ci and generates one or more candidate molecules: 
+
+Ci = {(ci,j , ˆmi,j )}Kj=1 , (ci,j , ˆmi,j ) ∼ Gθ (· | xi), (2) 
+
+> 1A SMILES (Simplified Molecular Input Line Entry System) string is a compact, text-based representation of a molecule’s struc-ture that encodes its atomic composition and connectivity in a linear format.
+
+Figure 2: Overview of the MolGVR workflow. The MSR- and RL-trained Generator produces one or multiple candidate molecules from an input description. The Verifier extracts chemical rules, checks each candidate, and returns pass/fail decisions with failure reasons. Rejected candidates are refined using the description, molecule, and failure reason, then merged with accepted candidates to form the final output. where K is the number of sampled candidates. After that, the Verifier exploits description-derived constraints for explicit error detection. It extracts a set of checkable rules Ri from the description and executes them against candidate molecules: 
+
+Ri = E(xi), V(Ri, ˆmi,j ) → { pass , (fail , f i,j )}, (3) where E(·) denotes rule extraction, V(·) denotes tool-based verification, and fi,j denotes the failure reason. Candidates that pass are retained, while candidates that fail are passed to the Refiner together with their failure reasons. Finally, the Refiner performs correction on verifier-rejected candidates: 
+
+˜mi,j ∼ Fϕ(· | xi, ˆmi,j , f i,j ), if fail , (4) where Fϕ denotes the Refiner. The final candidate set is therefore 
+
+Mi = { ˆmi,j | pass } ∪ { ˜mi,j | fail }. (5) By integrating the three components, MolGVR utilizes tar-get information for post-generation error detection and cor-rection, thereby improving molecular fidelity and mitigating the verification-and-correction gap. 
+
+## MolGVR Generator 
+
+The MolGVR Generator is built on Intern-S1-mini (Bai et al. 2025) and post-trained on the training splits of ChEBI-20 (Edwards, Zhai, and Ji 2021; Edwards et al. 2022) and PCDes (Zeng et al. 2022). Its training consists of two stages: supervised fine-tuning (SFT) and reinforcement learning (RL). 
+
+Generator SFT Following MSR (Jang, Kim, and Ahn 2025), we use RDKit to extract six types of structural ev-idence from each gold SMILES: (1) molecular formula, (2) longest carbon chain length, (3) aromatic ring information, (4) ring information, (5) functional groups, and (6) chirality. As shown in Figure 5(a) in Appendix C.2, these attributes are organized into a tagged evidence sequence: 
+
+c⋆ = [ <mol_formula> · · · </mol_formula> ,. . . , 
+
+<chiral> · · · </chiral> ].
+
+(6) The supervised target is then formed by concatenating the evidence sequence with the gold molecule: 
+
+y⋆ = [ c⋆; m⋆]. (7) We fine-tune the generator with the standard SFT objec-tive. The loss is 
+
+Lgen SFT (θ) = −
+
+> N
+
+X 
+
+> i=1
+> |y⋆i|
+
+X
+
+> t=1
+
+log Gθ
+
+ y⋆i,t | xi, y ⋆i,<t 
+
+ , (8) where y⋆i,t is the t-th target token. 
+
+Generator RL Starting from the SFT checkpoint, we apply GRPO (Shao et al. 2024) with a format reward rfmt that encourages the six reasoning tags and boxed output, and a binary exact-match accuracy reward racc computed from the boxed answer. To avoid repeated RDKit canonicalization during rollouts, accuracy is evaluated by raw-string matching against the gold answer. The final reward is (1 − λ)racc +
+
+λr fmt with λ = 0 .1; detailed definitions are provided in Appendix A.1. 
+
+## MolGVR Verifier 
+
+The Verifier consists of two stages: structured rule extraction where an LLM extracts checkable chemical constraints and deterministic rule execution against each generated candidate using RDKit-based checkers. 
+
+Rule Extraction Given a target description, we prompt GPT-5.2 to produce a JSON object following a predefined schema. Across the two datasets, the description-derived rule categories include functional groups, core scaffolds or ring systems, element or atom types, element counts, group counts, stereochemistry, and salt or charge states. Each dataset uses six description-derived categories together with invalid SMILES as a built-in seventh category that does not require LLM extraction. Representative JSON rules for these constraint types are shown in Table 1. The detail schema and extraction prompt are provided in Appendix B.1. Constraint Example JSON Rule Deterministic Verification Constraint Example JSON Rule Deterministic Verification Invalid SMILES – Parse with Chem.MolFromSmiles; returning None indicates a violation. Core scaffold / ring {"text_span": "benzene", "normalized": "benzene"} Compile the benzene SMARTS c1ccccc1 and test its presence with mol.HasSubstructMatch. Functional group {"text_span": "haloacetic acid", "normalized": "carboxylic_acid"} Match the carboxylic-acid SMARTS [CX3] (=O)[OX2H1] using Chem.MolFromSmarts and mol.HasSubstructMatch. Salt / charge state {"text_span": "zwitterionic form", "normalized": "zwitterion"} Identify zwitterions by requiring both positive and negative atom charges via atom.GetFormalCharge. Element count {"text_span": "an iodine atom", "normalized": "iodine", "count": 1} Count iodine atoms with atom.GetSymbol and match the extracted count. Element / atom type {"text_span": "iodine atom", "normalized": "iodine"} Map iodine to the atomic symbol I. Count atom symbols using atom.GetSymbol and require at least one iodine atom. Group count {"text_span": "two carboxy groups", "normalized": "carboxylic_acid", "count": 2} Count unique matches of [CX3](=O)[OX2H1] and [CX3](=O)[O-] using mol. GetSubstructMatches(..., uniquify=True). Stereo chemistry {"text_span": "S configuration", "normalized": "s_center", "count": 1} Assign stereochemistry and count S centers with Chem.AssignStereochemistry and Chem.FindMolChiralCenters. 
+
+Table 1: Representative examples of the eight constraint types and their deterministic implementations. The invalid-SMILES rule is built into the Verifier, while the remaining rules are extracted from molecular descriptions. 
+
+Deterministic Rule Execution The extracted rules are translated by GPT-5.2 into RDKit-based checker code cov-ering molecular parsing, SMARTS substructure matching, molecular graph analysis, atom and group counting, stereo-chemistry assignment, and formal-charge inspection. The re-sulting checkers are then executed deterministically on each candidate molecule. Table 1 provides representative map-pings from the extracted JSON rules to their deterministic checker implementations. Each violation is recorded with its category and source text span. Additional implementation details are provided in Appendix B.2. To reduce false rejections caused by ambiguous or under-specified descriptions, the rule definitions and their corre-sponding checker logic are reviewed by chemistry experts for chemical validity and reliability. Only rules that pass this expert validation are allowed to affect the final pass–fail de-cision. 
+
+## MolGVR Refiner 
+
+Given a molecular description, a verifier-rejected candidate, and its corresponding failure reason, the Refiner is designed to revise the candidate into the correct structure through two SFT stages. In the first stage, the input consists of the de-scription and incorrect candidate, while the target is the gold molecule. This stage develops a general refinement capabil-ity. In the second stage, the Refiner is further trained with failure-aware inputs consisting of the description, rejected molecule, and corresponding failure reason. 
+
+Refiner SFT As illustrated in Figure 5(b) in Appendix C.2, we sample K = 20 candidates for each training input from the trained Generator, canonicalize each candidate and the gold molecule, and retain non-matching candidates. For the first stage, each retained candidate is paired with the original description and gold molecule to form an input– target instance. For the second stage, each retained candi-date is further examined by the Verifier, checks whether the candidate satisfies structural constraints from the descrip-tion. Candidates that fail the verification are paired with their corresponding failure reasons, forming refinement in-stances whose input consists of the description, rejected molecule, and failure reason, while the target remains the gold molecule. We optimize the autoregressive objective in Eq. (8), replacing Gθ and y⋆i with the Refiner Fϕ and gold molecule m⋆i . The input is zi = [ xi; mfail  
+
+> i
+
+] in stage one and 
+
+zi = [ xi; mfail  
+
+> i
+
+; fi] in stage two, where mfail  
+
+> i
+
+is the rejected molecule. 
+
+# Experiment 
+
+## Experimental Setup 
+
+We evaluate MolGVR against a broad range of autoregres-sive baselines, including sequence-to-sequence models such as T5 (Raffel et al. 2020), molecular language models such as MolT5 (Edwards et al. 2022), and general-purpose or chem-istry LLMs such as GPT-4o (Hurst et al. 2024) and Chem-R-8B (Wang et al. 2025). These models generate molecular strings in a one-shot manner and therefore serve as baselines for evaluating whether the proposed MolGVR framework improves molecule generation beyond standard one-pass de-coding. Molecular strings are canonicalized with RDKit be-fore metric computation. Outputs longer than 4,096 charac-ters are treated as invalid molecules and excluded from all metrics except Validity and Match, where they remain in the denominator and are counted as failures. Further details on the datasets, implementation, inference procedure, and eval-uation metrics are provided in Appendices C.1, C.3, and C.4, respectively. Dataset Model Validity ↑ BLEU ↑ Levenshtein ↓ MACCS FTS ↑ RDK FTS ↑ Morgan FTS ↑ Match ↑ FCD ↓                                                                                                                                                                                                  
+
+> ChEBI-20 Transformer (Vaswani et al. 2017) 0.906 0.499 57.660 0.480 0.320 0.217 0.000 11.32 GIT-Mol (Liu et al. 2024) 0.928 0.756 26.315 0.738 0.582 0.519 0.051 -T5 base (Raffel et al. 2020) 0.660 0.765 24.950 0.731 0.605 0.545 0.069 2.48 MolT5 base (Edwards et al. 2022) 0.772 0.769 24.458 0.721 0.588 0.529 0.081 2.18 T5 large 0.902 0.854 16.721 0.823 0.731 0.670 0.279 1.22 MolT5 large 0.905 0.854 16.071 0.834 0.746 0.684 0.311 1.20 MolXPT (Liu et al. 2023b) 0.983 --0.859 0.757 0.667 0.215 0.45 bioT5 (Pei et al. 2023) 1.000 0.867 15.097 0.886 0.801 0.734 0.413 0.43 bioT5+ (Pei et al. 2024) 1.000 0.872 12.776 0.907 0.835 0.779 0.522 0.35
+> MolReGPT (Li et al. 2024) 0.900 0.860 17.140 0.900 0.800 0.740 0.280 -Mol-Instructions (Fang et al. 2024) 1.000 0.300 39.420 0.440 0.290 0.250 0.040 -MolReasoner (Zhao et al. 2025) 0.970 0.780 26.930 0.680 0.440 0.360 0.080 -Mol-R1 (Li et al. 2025b) 0.850 0.640 32.940 0.820 0.680 0.610 0.230 -GPT-4o (Hurst et al. 2024) 0.770 0.450 48.380 0.790 0.580 0.500 0.070 -DeepSeek-R1 (Guo et al. 2025) 0.780 0.510 169.360 0.920 0.820 0.750 0.220 -ChemDFM-v1.5-8B (Zhao et al. 2024) 0.977 0.903 11.782 0.939 0.880 0.830 0.530 0.84 ether0-24B (Narayanan et al. 2026) 0.730 0.390 860.990 0.820 0.700 0.640 0.270 -Chem-R-8B (Wang et al. 2025) 0.935 0.824 19.830 0.917 0.830 0.777 0.414 8.41
+> MolGVR(ours) 0.992 0.886 11.894 0.946 0.887 0.844 0.582 4.00 PCDes MolT5 large 0.944 0.692 18.481 0.810 0.741 0.699 0.440 0.70 bioT5 1.000 0.754 15.658 0.797 0.726 0.677 0.455 0.69
+> bioT5+ 0.999 0.677 20.464 0.743 0.615 0.541 0.266 1.09 Chem-R-8B 0.941 0.649 24.721 0.808 0.716 0.654 0.411 0.74
+> MolGVR (ours) 0.996 0.743 15.873 0.845 0.769 0.710 0.500 0.97
+
+Table 2: Performance comparison on the ChEBI-20 and PCDes datasets. MolGVR is evaluated under the pass@1 setting: the generator produces one candidate per input, verifier-rejected candidates are refined once, and the resulting candidates are merged for evaluation. MolGVR achieves the best Match scores on both datasets, improving over the strongest listed baselines by 9.8% 
+
+on ChEBI-20 (0.530 →0.582) and 9.9% on PCDes (0.455 →0.500), while also improving structural similarity metrics. Best results are highlighted in bold and second-best results are underlined. 
+
+## Result on ChEBI-20 
+
+Table 2 shows that MolGVR achieves strong performance on ChEBI-20, particularly on exact matching and structure-level similarity metrics. MolGVR obtains the highest Match score of 0.582, outperforming the strongest autoregressive baselines in the table, including ChemDFM-v1.5-8B (0.530) and bioT5+ (0.522). It also achieves the best MACCS, RDK, and Morgan fingerprint similarities while maintaining a high validity of 0.992. These results suggest that, compared with one-shot autoregressive methods, MolGVR improves target-level molecular correctness and structural consistency with the input descriptions. Although MolGVR achieves the strongest performance on exact matching and fingerprint-based structural metrics, it does not dominate all evaluation dimensions. For validity, MolGVR is slightly below several baselines that achieve a 1.0 score. For BLEU and Levenshtein distance, MolGVR ranks second, only marginally behind ChemDFM-v1.5-8B. This discrepancy can be attributed to the fact that these met-rics operate on the surface form of SMILES strings and are sensitive to token-level variations, even when the molecular structures are highly similar. In addition, MolGVR under-performs bioT5+ in terms of FCD, which suggests that the current exact-match-oriented optimization improves more on instance-level molecular recovery. Figure 3(a) provides a qualitative example. The verifier ex-tracts two constraints: a ketone-related rule from the phrase acetone, and a stereochemical rule requiring one s_center from the phrase S configuration. The initial candidate pre-serves the ketone substructure but assigns the wrong chirality. The Verifier therefore returns a stereochemistry-requirement failure reason, which guides the Refiner to correct the chiral center and recover the target molecule. More examples can be found in Appendix F.1. 
+
+## Result on PCDes 
+
+The improvements are also evident on PCDes. MolGVR achieves the best Match score of 0.500, surpassing bioT5 (0.455) and MolT5 large (0.440). It further obtains the best MACCS, RDK, and Morgan fingerprint similarities among the compared methods. On PCDes, MolGVR also shows remaining gaps on valid-ity, BLEU, Levenshtein distance, and FCD. These gaps are consistent with the observations on ChEBI-20: validity is al-ready strong, BLEU and Levenshtein distance are sensitive to the SMILES strings, and FCD reflects distribution-level alignment rather than instance-level molecular correctness. A PCDes example is shown in Figure 3(b). The Veri-fier extracts a group-count constraint requiring two hydroxy groups, and a monocarboxylic-acid constraint. The initial candidate lacks the required side-chain hydroxyl group and therefore violates the dihydroxy constraint. Using this fail-ure feedback, the Refiner restores the missing hydroxyl group and produces the correct molecule. Additional examples are Dataset Method Validity ↑ BLEU ↑ Levenshtein ↓ MACCS FTS ↑ RDK FTS ↑ Morgan FTS ↑ Match ↑ FCD ↓                                                                                                
+
+> ChEBI-20 Generator (pass@1) 0.977 0.877 13.010 0.947 0.887 0.844 0.571 3.94 + Refiner (empty feedback) 0.953 0.822 20.271 0.899 0.791 0.728 0.218 0.46
+> + Full pipeline 0.992 0.886 11.894 0.946 0.887 0.844 0.582 4.00 Generator (pass@5) 0.991 0.893 11.563 0.952 0.898 0.856 0.593 2.44 + Refiner (empty feedback) 0.967 0.846 18.159 0.906 0.801 0.741 0.228 0.69 + Full pipeline 0.998 0.904 10.339 0.954 0.901 0.861 0.605 2.48 PCDes Generator (pass@1) 0.985 0.733 16.538 0.845 0.767 0.708 0.490 0.97 + Refiner (empty feedback) 0.958 0.566 33.763 0.788 0.665 0.591 0.213 53.83 + Full pipeline 0.996 0.743 15.873 0.845 0.769 0.710 0.500 0.97 Generator (pass@5) 0.996 0.756 15.104 0.858 0.781 0.725 0.503 0.97 + Refiner (empty feedback) 0.972 0.722 20.482 0.799 0.677 0.607 0.221 53.02 + Full pipeline 0.999 0.765 14.436 0.861 0.786 0.732 0.513 0.96
+
+Table 3: Component Ablation of the MolGVR Pipeline. Pass@1 and pass@5 indicate that the Generator produces one or five candidates for each input. For the full pipeline, each generated candidate is checked by the Verifier; rejected candidates are refined once by the Refiner, and then merged with the initially accepted ones for final evaluation. The full pipeline consistently improves Match under both pass@1 and pass@5, while also improving most similarity metrics. Best results are highlighted in bold and second-best results are underlined.                                                                                   
+
+> Dataset Method Validity ↑BLEU ↑Levenshtein ↓MACCS FTS ↑RDK FTS ↑Morgan FTS ↑Match ↑FCD ↓Violation ↓
+> ChEBI-20 Chem-R-8B (pass@1) 0.935 0.824 19.830 0.917 0.830 0.777 0.414 8.41 8.81% + V&R 0.979 0.850 17.089 0.914 0.824 0.768 0.419 4.06 3.81% + MSR + RL 0.967 0.861 14.072 0.945 0.889 0.845 0.583 5.27 5.03% + MSR + RL + V&R 0.988 0.872 13.303 0.942 0.884 0.839 0.586 5.32 2.24%
+> PCDes Chem-R-8B (pass@1) 0.941 0.649 24.721 0.808 0.716 0.654 0.411 0.74 5.73% + V&R 0.985 0.703 20.936 0.802 0.707 0.642 0.414 0.69 1.40% + MSR + RL 0.976 0.717 17.110 0.842 0.767 0.711 0.502 3.76 2.36% + MSR + RL + V&R 0.994 0.723 16.463 0.840 0.765 0.707 0.503 3.81 0.50%
+
+Table 4: Generalization across Other Models using Chem-R-8B as backbones. “MSR + RL” denotes the generator trained with our proposed strategy. “V&R” denotes applying the Verifier and Refiner. Violation denotes the percentage of test samples containing verifier-detected violation. Best results are highlighted in bold, and second-best results are underlined. provided in Appendix F.2. 
+
+## Ablation Study 
+
+Component Ablation of the MolGVR Pipeline To exam-ine the contributions of different components in MolGVR, Table 3 compares the standalone Generator, the Generator followed by indiscriminate Refiner, and the full verification-guided pipeline. The standalone Generator is already strong after MSR SFT&RL, and a detailed ablation of MSR SFT&RL is provided in Appendix Table 6. However, directly applying the Refiner to all generated candidate substantially degrades performance. This indicates that Refiner may al-ter candidates that already satisfy the description. In con-trast, the full pipeline uses the Verifier to selectively refine only rejected candidates, improving Match and most valid-ity and similarity metrics. These results demonstrate that the gains arise from verification-guided, targeted refinement rather than refinement alone. 
+
+Verification-Guided Refinement vs. Additional Sampling 
+
+We further examine whether the improvement of the full pipeline comes merely from additional generation. Under the pass@1 setting, the Verifier identifies 183/1414 rule-violating candidates on ChEBI-20 and 138/1526 on PCDes. A detailed analysis of the Verifier’s decision behavior is pro-vided in Appendix D. On these rejected candidates, Fig-ure 4 compares verification-guided correction with contin-ued sampling from the Generator under a pass@5 setting. On ChEBI-20, the Refiner corrects 36 out of 183 rejected candidates (19.7%), whereas additional Generator sampling recovers only 5 out of 183 cases (2.7%). On PCDes, the Refiner corrects 29 out of 138 rejected candidates (21.0%), while the Generator recovers only 5 out of 138 cases (3.6%). These results show that targeted correction addresses verifier-detected failure modes more effectively than ad-ditional sampling, thereby mitigating the verification-and-correction gap. Moreover, the additional gains under pass@5 indicate that refinement and multi-sample generation are complementary: sampling increases candidate diversity, while refinement corrects verifier-identified failures. We additionally report the inference time of MolGVR under pass@1 and pass@5 in E. 
+
+Generalization across Other Models Table 4 evaluates our method on Chem-R-8B, an chemistry foundation model backbone. MSR+RL consistently improves generation qual-ity, increasing Match from 0.414 to 0.583 on ChEBI-20 and from 0.411 to 0.502 on PCDes. Applying V&R to either Figure 3: Qualitative examples on the ChEBI-20 and PCDes datasets. (a) The ChEBI-20 example shows a stereochem-ical violation detected by the Verifier and corrected using the corresponding failure feedback. (b) The PCDes example shows a violated dihydroxy requirement caused by a missing side-chain hydroxyl group, which is identified by the Verifier and restored through feedback-guided refinement. 
+
+Figure 4: Correction rates of verification-guided refinement and five additional Generator samples on verifier-rejected candidates. the original or trained generator further reduces violation rates while improving validity and Match. Consequently, the full pipeline achieves the best validity, BLEU, Levenshtein, Match, and violation rate on both datasets. These results demonstrate that MSR+RL and V&R provide complemen-tary gains across generator backbones: MSR+RL improves the generator itself, while V&R further enhances perfor-mance by reducing the proportion of invalid or structurally noncompliant outputs. 
+
+Category-wise Analysis of Verification and Refinement 
+
+To assess MolGVR across error types, Table 5 reports the violations detected by the Verifier and the corresponding re-finement outcomes. The Refiner removes 61.2% and 58.9% of detected violations on ChEBI-20 and PCDes, respectively. It performs particularly well on functional-group constraints and invalid SMILES, achieving Repair Rates of 63.6–71.4% and 66.7–79.2%, respectively. Strong results are also ob-served for stereochemistry on ChEBI-20 and group-count                                               
+
+> Dataset Constraint Type G. Vio ↓+V&R. Vio ↓Repair Rate ↑
+> ChEBI-20 Functional group 35 10 71.4 Core scaffold&ring 15 940.0 Element&atom type 5260.0 Element count 13 930.8 Group count 15 753.3 Stereochemistry 30 11 63.3 Invalid SMILES 75 25 66.7 PCDes Functional group 44 16 63.6 Core scaffold&ring 14 657.1 Element&atom type 550.0 Element count 11 736.4 Group count 7271.4 Salt&charge state 17 14 17.6 Invalid SMILES 48 10 79.2
+
+Table 5: Category-wise breakdown of verifier-detected vio-lations and the corresponding refinement outcomes. Repair Rate measures the proportion of verifier-detected noncom-pliance cases corrected by the Refiner. constraints on PCDes. Although exact-molecule correction is more stringent, MolGVR still fixes approximately 20% of rejected candidates on both datasets. Core-scaffold and salt/charge-state errors remain more difficult, as they often require broader structural modifications. These results show that MolGVR improves generation by detecting and correct-ing outputs that fail verification. 
+
+# Conclusion 
+
+We presented MolGVR, a chemistry-grounded Generator– Verifier–Refiner framework for text-to-molecule generation. By moving beyond one-shot generation, MolGVR combines an evidence-driven Generator, an LLM-assisted and RDKit-based Verifier, and a Refiner that revises incorrect molecules based on failure feedback provided by the Verifier. Exper-iments on ChEBI-20 and PCDes show that MolGVR im-proves exact match and related similarity metrics. Quali-tative examples and ablation studies show that these gains arise from effective verification and feedback-guided correc-tion rather than repeated sampling alone. Our results suggest that explicit chemical verification and refinement mitigate the verification-and-correction gap and provide a promising direction for improving structural fidelity in text-to-molecule generation. 
+
+# References 
+
+Bai, L.; Cai, Z.; Cao, Y.; Cao, M.; Cao, W.; Chen, C.; Chen, H.; Chen, K.; Chen, P.; Chen, Y.; et al. 2025. Intern-s1: A scientific multimodal foundation model. arXiv preprint arXiv:2508.15763 .Chang, J.; and Ye, J. C. 2025. LDMol: A Text-to-Molecule Diffusion Model with Structurally Informative Latent Space Surpasses AR Models. In International Conference on Ma-chine Learning , 7374–7392. PMLR. Deng, Y.; Ericksen, S. S.; and Gitter, A. 2025. Chemical Language Model Linker: blending text and molecules with modular adapters. Journal of Chemical Information and Modeling , 65(17): 8944–8956. Edwards, C.; Lai, T.; Ros, K.; Honke, G.; Cho, K.; and Ji, H. 2022. Translation between molecules and natural lan-guage. In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing , 375–413. Edwards, C.; Zhai, C.; and Ji, H. 2021. Text2mol: Cross-modal molecule retrieval with natural language queries. In 
+
+Proceedings of the 2021 conference on empirical methods in natural language processing , 595–607. Fang, Y.; Liang, X.; Zhang, N.; Liu, K.; Huang, R.; Chen, Z.; Fan, X.; and Chen, H. 2024. Mol-instructions: A large-scale biomolecular instruction dataset for large language models. In International Conference on Learning Representations ,volume 2024, 48221–48251. Feng, J.; Wang, W.; and Wei, Z. 2026. MotifAgent: Learning Molecular Assembly through Multi-Agent Collaboration for Chemical Language Understanding. In Findings of the As-sociation for Computational Linguistics: ACL 2026 , 40700– 40739. Gong, H.; Liu, Q.; Wu, S.; and Wang, L. 2024. Text-guided molecule generation with diffusion language model. In Pro-ceedings of the AAAI Conference on Artificial Intelligence ,volume 38, 109–117. Guo, D.; Yang, D.; Zhang, H.; Song, J.; Wang, P.; Zhu, Q.; Xu, R.; Zhang, R.; Ma, S.; Bi, X.; et al. 2025. DeepSeek-R1 incentivizes reasoning in LLMs through reinforcement learning. Nature , 645(8081): 633–638. Hurst, A.; Lerer, A.; Goucher, A. P.; Perelman, A.; Ramesh, A.; Clark, A.; Ostrow, A.; Welihinda, A.; Hayes, A.; Radford, A.; Madry, A.; Baker-Whitcomb, A.; Beutel, A.; Borzunov, A.; Carney, A.; Chow, A.; Kirillov, A.; Nichol, A.; Paino, A.; Renzin, A.; Passos, A.; Kirillov, A.; Christakis, A.; Conneau, A.; Kamali, A.; Goh, G.; Ouyang, L.; et al. 2024. GPT-4o System Card. arXiv preprint arXiv:2410.21276 .Jang, Y.; Kim, J.; and Ahn, S. 2025. Structural reasoning im-proves molecular understanding of llm. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 21016–21036. Jiang, Y.; Zhuang, X.; Ding, K.; Zhang, Q.; and Chen, H. 2024. Enhancing Cross Text-Molecule Learning by Self-Augmentation. In Findings of the Association for Computa-tional Linguistics: ACL 2024 , 9551–9565. Kim, H.; Jang, Y.; and Ahn, S. 2025. MT-Mol: Multi Agent System with Tool-based Reasoning for Molecular Optimiza-tion. In Christodoulopoulos, C.; Chakraborty, T.; Rose, C.; and Peng, V., eds., Findings of the Association for Compu-tational Linguistics: EMNLP 2025 , 11544–11573. Suzhou, China: Association for Computational Linguistics. ISBN 979-8-89176-335-7. Kim, S.; Song, H.; Nam, J.; and Shin, J. 2025. Training Text-to-Molecule Models with Context-Aware Tokenization. In Christodoulopoulos, C.; Chakraborty, T.; Rose, C.; and Peng, V., eds., Findings of the Association for Computational Linguistics: EMNLP 2025 , 22442–22460. Suzhou, China: Association for Computational Linguistics. ISBN 979-8-89176-335-7. Le, K.; Hua, T.; and Chawla, N. V. 2025. AgentDrug: Uti-lizing Large Language Models in an Agentic Workflow for Zero-Shot Molecular Editing. In Christodoulopoulos, C.; Chakraborty, T.; Rose, C.; and Peng, V., eds., Findings of the Association for Computational Linguistics: EMNLP 2025 ,24448–24458. Suzhou, China: Association for Computa-tional Linguistics. ISBN 979-8-89176-335-7. Li, J.; Liu, W.; Ding, Z.; Fan, W.; Li, Y.; and Li, Q. 2025a. Large language models are in-context molecule learners. 
+
+IEEE Transactions on Knowledge and Data Engineering .Li, J.; Liu, Y.; Fan, W.; Wei, X.-Y.; Liu, H.; Tang, J.; and Li, Q. 2024. Empowering molecule discovery for molecule-caption translation with large language models: A chatgpt perspec-tive. IEEE transactions on knowledge and data engineering ,36(11): 6071–6083. Li, J.; Liu, Y.; Liu, W.; Lei, J.; Zhang, D.; Fan, W.; Zhou, D.; Li, Y.; and Li, Q. 2026. Molreflect: Towards in-context fine-grained alignments between molecules and texts. IEEE Transactions on Knowledge and Data Engineering .Li, J.; Wang, W.; Zhang, Q.; Li, J.; Zhang, D.; Zheng, C.; Zhang, S.; Wei, X.; and Li, Q. 2025b. Mol-r1: Towards explicit long-cot reasoning in molecule discovery. arXiv preprint arXiv:2508.08401 .Liu, P.; Ren, Y.; Tao, J.; and Ren, Z. 2024. Git-mol: A multi-modal large language model for molecular science with graph, image, and text. Computers in biology and medicine ,171: 108073. Liu, Z.; Li, S.; Luo, Y.; Fei, H.; Cao, Y.; Kawaguchi, K.; Wang, X.; and Chua, T.-S. 2023a. Molca: Molecular graph-language modeling with cross-modal projector and uni-modal adapter. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , 15623– 15638. Liu, Z.; Zhang, W.; Xia, Y.; Wu, L.; Xie, S.; Qin, T.; Zhang, M.; and Liu, T.-Y. 2023b. Molxpt: Wrapping molecules with text for generative pre-training. In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 2: Short Papers) , 1606–1616. Loshchilov, I.; and Hutter, F. 2019. Decoupled Weight Decay Regularization. In 7th International Conference on Learning Representations, ICLR 2019, New Orleans, LA, USA, May 6-9, 2019 . OpenReview.net. Narayanan, S.; Braza, J.; Griffiths, R.-R.; Bou, A.; Wellawatte, G.; Caldas Ramos, M.; Mitchener, L.; Pieler, M.; Rodriques, S.; and White, A. 2026. Training a scientific reasoning model for chemistry. Advances in Neural Informa-tion Processing Systems , 38: 157671–157710. Pei, Q.; Wu, L.; Gao, K.; Liang, X.; Fang, Y.; Zhu, J.; Xie, S.; Qin, T.; and Yan, R. 2024. Biot5+: Towards generalized biological understanding with iupac integration and multi-task tuning. In Findings of the Association for Computational Linguistics: ACL 2024 , 1216–1240. Pei, Q.; Yan, R.; Gao, K.; Zhu, J.; and Wu, L. 2025. 3D-MolT5: Leveraging Discrete Structural Information for Molecule-Text Modeling. In The Thirteenth International Conference on Learning Representations .Pei, Q.; Zhang, W.; Zhu, J.; Wu, K.; Gao, K.; Wu, L.; Xia, Y.; and Yan, R. 2023. Biot5: Enriching cross-modal integration in biology with chemical knowledge and natural language associations. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , 1102– 1123. Plowright, A. T.; Johnstone, C.; Kihlberg, J.; Pettersson, J.; Robb, G.; and Thompson, R. A. 2012. Hypothesis driven drug design: improving quality and effectiveness of the design-make-test-analyse cycle. Drug discovery today , 17(1-2): 56–62. Raffel, C.; Shazeer, N.; Roberts, A.; Lee, K.; Narang, S.; Matena, M.; Zhou, Y.; Li, W.; and Liu, P. J. 2020. Explor-ing the limits of transfer learning with a unified text-to-text transformer. Journal of machine learning research , 21(140): 1–67. Shao, Z.; Wang, P.; Zhu, Q.; Xu, R.; Song, J.; Bi, X.; Zhang, H.; Zhang, M.; Li, Y.; Wu, Y.; et al. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open lan-guage models. arXiv preprint arXiv:2402.03300 .Solovev, G. V.; Zhidkovskaya, A. B.; Orlova, A.; Gubina, N.; Vepreva, A.; Golovinskii, R.; Tonkii, I.; Dubrovsky, I.; Gurev, I.; Gilemkhanov, D.; et al. 2025. MADD: Multi-Agent Drug Discovery Orchestra. In Findings of the Association for Computational Linguistics: EMNLP 2025 , 6956–6998. Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones, L.; Gomez, A. N.; Kaiser, Ł.; and Polosukhin, I. 2017. Attention is all you need. Advances in neural information processing systems , 30. Wang, W.; Chen, B.; Zhang, D.; Liu, W.; Pu, S.; Gao, B.; Zeng, J.; Wei, X.; Yu, T.; Sun, S.; et al. 2025. Chem-r: Learn-ing to reason as a chemist. arXiv preprint arXiv:2510.16880 .Weininger, D. 1988. SMILES, a chemical language and information system. 1. Introduction to methodology and en-coding rules. Journal of chemical information and computer sciences , 28(1): 31–36. Ye, G.; Cai, X.; Lai, H.; Wang, X.; Huang, J.; Wang, L.; Liu, W.; and Zeng, X. 2025. Drugassist: A large language model for molecule optimization. Briefings in Bioinformat-ics , 26(1): bbae693. Yu, B.; Baker, F. N.; Chen, Z.; Ning, X.; and Sun, H. 2024. LlaSMol: Advancing Large Language Models for Chemistry with a Large-Scale, Comprehensive, High-Quality Instruc-tion Tuning Dataset. arXiv preprint arXiv:2402.09391 .Zeng, Z.; Yao, Y.; Liu, Z.; and Sun, M. 2022. A deep-learning system bridging molecule structure and biomedical text with comprehension comparable to human professionals. Nature communications , 13(1): 862. Zeng, Z.; Yin, B.; Wang, S.; Liu, J.; Yang, C.; Yao, H.; Sun, X.; Sun, M.; Xie, G.; and Liu, Z. 2024. ChatMol: interactive molecular discovery with natural language. Bioinformatics ,40(9): btae534. Zhang, D.; Liu, W.; Tan, Q.; Chen, J.; Yan, H.; Yan, Y.; Li, J.; Huang, W.; Yue, X.; Ouyang, W.; et al. 2024. Chem-llm: A chemical large language model. arXiv preprint arXiv:2402.06852 .Zhao, G.; Lu, Z.; Ge, Y.; Li, S.; Cheng, Z.; Lin, H.; Wu, L.; Xia, H.; Cai, H.; Guo, W.; et al. 2025. Molreasoner: Toward effective and interpretable reasoning for molecular llms. arXiv preprint arXiv:2508.02066 .Zhao, Z.; Ma, D.; Chen, L.; Sun, L.; Li, Z.; Xia, Y.; Xu, H.; Zhu, Z.; Zhu, S.; Fan, S.; et al. 2024. Chemdfm: A large language foundation model for chemistry. In Neurips 2024 Workshop Foundation Models for Science: Progress, Opportunities, and Challenges .Zheng, Y.; Lu, J.; Wang, S.; Feng, Z.; Kuang, D.; Xiong, Y.; and Zhang, R. 2025. EasyR1: An Efficient, Scalable, Multi-Modality RL Training Framework. https://github.com/ hiyouga/EasyR1. Zheng, Y.; Zhang, R.; Zhang, J.; Ye, Y.; Luo, Z.; Feng, Z.; and Ma, Y. 2024. LlamaFactory: Unified Efficient Fine-Tuning of 100+ Language Models. In Proceedings of the 62nd An-nual Meeting of the Association for Computational Linguis-tics (Volume 3: System Demonstrations) , 400–410. Bangkok, Thailand: Association for Computational Linguistics. A More details about MolGVR Generator 
+
+## A.1 Reward Design 
+
+Our RL reward is composed of a format reward and an ac-curacy reward . The overall reward is defined as 
+
+r(o) = (1 − λ) racc (o) + λ r fmt (o), (9) where λ = 0 .1 in our implementation. 
+
+Format reward. Let Ffull denote the set of responses that contain all six evidence tags in the prescribed order, followed by </think> and a final boxed answer, and let Fpartial 
+
+denote the set of responses that contain </think> and a final boxed answer but do not satisfy the full tagged format. We define the format reward as 
+
+rfmt (o) = 
+
+
+
+1, if o ∈ F full ,
+
+0.2, if o ∈ F partial ,
+
+0, otherwise. (10) This shaped reward encourages the model to preserve a parsable reasoning structure even when the final answer is incorrect. 
+
+Accuracy reward. The accuracy reward is a binary exact-match reward over the extracted final boxed answer: 
+
+racc (o) = 
+
+1.0, if ans( o) = ans( y⋆),
+
+0.0, otherwise, (11) where ans( ·) extracts the content inside the final \boxed{} 
+
+span. Our RL stage optimizes a string-level exact-match re-ward between the extracted prediction and the gold answer. This raw-string reward is used for computational efficiency, since GRPO requires evaluating rewards over many sampled rollouts and repeated RDKit-based canonicalization would be costly. 
+
+## A.2 Ablation of Generator Training Components 
+
+Table 6 evaluates the individual and combined effects of MSR and RL on Generator training. Both components generally improve molecular generation, while their com-bination achieves the strongest overall performance under both pass@1 and pass@5 on the two datasets. In particu-lar, MSR+RL improves Match from 0.448 to 0.571 under pass@1 and from 0.524 to 0.593 under pass@5 on ChEBI-20. Similar improvements are observed on PCDes, where Match increases from 0.385 to 0.490 and from 0.450 to 0.503, respectively. The combined setting also achieves the best results on most string-similarity and fingerprint-similarity metrics, string-similarity, and fingerprint-similarity metrics, demonstrating that MSR supervision and RL provide com-plementary benefits for Generator training. 
+
+# B More details about MolGVR Verifier 
+
+## B.1 Rule Extraction 
+
+Dataset-specific verification schemas. The Verifier sup-ports seven noncompliance categories for each dataset. Six categories are derived from molecular descriptions, while in-valid SMILES is included as a built-in category determined directly through RDKit parsing. For ChEBI-20, the verification categories are: 
+
+RChEBI = {Rfg , R scaffold , R elem ,Relem-count , R group-count , R stereo , R invalid }, (12) corresponding to functional groups , core scaffolds or ring systems , elements or atom types , element count require-ments , group count requirements , stereochemistry require-ments , and invalid SMILES .For PCDes, the verification categories are: 
+
+RPCDes = {Rfg , R scaffold , R elem ,Relem-count , R group-count , R salt/charge , R invalid }, (13) where salt or charge state replaces stereochemistry. The first six categories are extracted from the molecular description. The invalid-SMILES category does not require extraction and is triggered when a candidate cannot be parsed by RDKit. 
+
+Conservative normalization. The extractor is only al-lowed to output normalized labels from a closed vocabulary. This reduces variation in surface forms and makes down-stream verification executable. At the same time, the prompt explicitly discourages over-normalization: if a phrase cannot be mapped reliably to one of the allowed normalized labels, it is omitted. This conservative design is important for two reasons. First, the verifier is intended to produce actionable 
+
+constraints rather than broad semantic summaries. Second, a more permissive extractor would increase false-positive verification failures by introducing unverifiable or weakly grounded rules. 
+
+Rule Extraction Prompt. 
+
+The prompts below extract only the six description-derived categories for each dataset. Invalid SMILES is handled sepa-rately as a built-in seventh category during candidate parsing and therefore does not appear in the extraction schema. 
+
+ChEBI-20: 
+
+You are an information extraction model for molecule-description verification. Your task is to extract ONLY explicit, directly stated, structure-related information about the TARGET molecule from a molecule description. Be conservative: - Do NOT infer. - Do NOT guess. - Do NOT use chemistry background knowledge to fill in missing facts. - Do NOT convert biological roles, uses, sources, properties, salts, acid/base context, or references to other molecules into structural constraints. - Extract ONLY properties that are explicitly asserted about the target molecule itself. - If something is not explicitly stated about the target molecule, do not extract it. - When uncertain, omit rather than guess. Target molecule only: Dataset Setting MSR RL Validity ↑ BLEU ↑ Lev. ↓ MACCS ↑ RDK ↑ Morgan ↑ Match ↑ FCD ↓                                                                                                                                                                
+
+> ChEBI-20 Raw Generator (pass@1) ××0.966 0.832 17.952 0.922 0.842 0.787 0.448 2.54 + RL ×✓0.972 0.605 47.673 0.938 0.873 0.829 0.547 56.78 + MSR ✓×0.958 0.854 16.369 0.931 0.851 0.802 0.464 3.05 + MSR + RL ✓✓0.977 0.877 13.010 0.947 0.887 0.844 0.571 3.94 Raw Generator (pass@5) ××0.993 0.878 13.310 0.941 0.878 0.831 0.524 1.45
+> + RL ×✓0.984 0.876 13.165 0.943 0.884 0.841 0.567 1.67 + MSR ✓×0.992 0.891 12.001 0.946 0.885 0.845 0.552 2.19 + MSR + RL ✓✓0.991 0.893 11.563 0.952 0.898 0.856 0.593 2.44 PCDes Raw Generator (pass@1) ××0.974 0.687 20.623 0.819 0.721 0.656 0.385 1.24 + RL ×✓0.982 0.709 17.862 0.835 0.757 0.699 0.474 1.13 + MSR ✓×0.967 0.698 19.367 0.824 0.721 0.656 0.392 0.77
+> + MSR + RL ✓✓0.985 0.733 16.538 0.845 0.767 0.708 0.490 0.97 Raw Generator (pass@5) ××0.996 0.736 16.463 0.850 0.767 0.711 0.450 1.11 + RL ×✓0.993 0.733 16.350 0.846 0.769 0.714 0.488 1.09 + MSR ✓×0.997 0.749 16.045 0.853 0.765 0.711 0.452 1.03 + MSR + RL ✓✓0.996 0.756 15.104 0.858 0.781 0.725 0.503 0.97
+
+Table 6: Ablation of MSR and RL for standalone Generator training under pass@1 and pass@5. All rows report Generator-only results without applying the Verifier or Refiner. MSR denotes supervised training with intermediate molecular structural reasoning targets, while RL denotes GRPO training with accuracy and format rewards. Combining MSR and RL achieves the strongest overall Generator performance on both datasets. Best results are highlighted in bold and second-best results are underlined. - The description may mention source molecules, parent molecules, precursor molecules, constituent molecules, residues, moieties, substituent donors, metabolites, conjugate acids/bases, salts, hydrates, or compounds from which the target molecule is derived. - Do NOT transfer any property from those referenced molecules/components onto the target molecule unless the text explicitly states that the target molecule itself has that property. - In particular, do NOT treat descriptions of source or component molecules as descriptions of the whole target molecule. - If the text says the molecule is derived from, formed from, resulting from condensation of, esterified from, amidated from, conjugated to, substituted by, metabolite of, salt of, hydrate of, or related to another molecule, do NOT extract structural properties that belong only to that other molecule unless they are explicitly re-stated as properties of the target molecule. - You may extract a feature only if the target molecule itself is explicitly named as having that feature in the allowed categories. - Example: if the text says "derived from dodecanoic acid", do NOT extract carboxylic_acid for the target molecule from that phrase alone. - Example: if the text says "an ester resulting from condensation of two molecules of dodecanoic acid", you may extract ester if explicitly stated, but do NOT transfer "carboxylic acid" from dodecanoic acid to the target molecule. - Example: if the text says "X substituted by a quinoline group", do NOT automatically extract quinoline unless the target molecule itself is explicitly described using an allowed scaffold term in a way that directly applies to the whole structure and is reliably checkable. Extract ONLY information that can be checked reliably using RDKit or simple rule-based matching. Extract these categories: 1. functional_groups Allowed normalized values: ester, amide, carboxylic_acid, carboxylate, ketone, aldehyde, alcohol, phenol, amine, sulfonamide, carbamate, phosphate, phosphonate, sulfate, nitrile, ether, thiol, sulfone, thioester, hydroxamate, imide, amidine, amidinium, carboxamidinium, sulfonic_acid, sulfonate, phosphodiester, phosphocholine, phenoxide, alkoxide, gem_diol, alpha_halocarbonyl 2. core_scaffolds_or_ring_systems Allowed normalized values: benzene, pyridine, quinoline, isoquinoline, triazole, tetrazole, piperidine, benzofuran, chromene, pyrimidine, oxazolidinone, phenothiazine, indole, naphthalene, purine, uracil, benzoxazole, benzothiazole, oxazole, thiazole, thiazolium, imidazole, steroid, pregnane 3. elements_or_atom_types Allowed normalized values: fluorine, chlorine, bromine, iodine, phosphorus, sulfur, selenium, sodium, potassium, calcium, iron, cobalt, zinc, platinum, arsenic, nitrogen, oxygen 4. element_count_requirements Extract only explicit counts of elements or atom types. Allowed normalized values: fluorine, chlorine, bromine, iodine, phosphorus, sulfur, selenium, sodium, potassium, calcium, iron, cobalt, zinc, platinum, arsenic, nitrogen, oxygen Examples: one phosphorus atom, two nitrogen atoms, three chlorine atoms, dichloro 5. group_count_requirements Extract only explicit counts of functional groups or directly checkable subunits. Allowed normalized values: oxo_group, hydroxy_group, amino_group, carboxylic_acid, carboxylate, amide, ester, thioester, phosphate, phosphonate, sulfate, sulfonamide, nitrile, ether, double_bond, c_c_double_bond Examples: two oxo groups, one double bond, two hydroxy groups Do NOT extract counts that require uncertain residue decomposition, such as trisaccharide, tetrasaccharide, polymer length, PEG length, or other complex subunit counting. 6. stereochemistry_requirements Extract ONLY stereochemical information that can be checked without parent-structure numbering. Allowed normalized values: r_center, s_center, e_double_bond, z_double_bond, cis_double_bond, trans_double_bond Allowed examples: one R center, two S centers, one E double bond Do NOT extract: - position-dependent stereochemistry, such as: "S at position 1", "R at C-4" - molecule-level labels that are not reliably verifiable from a single SMILES, such as: racemate, meso, enantiomer - alpha/beta descriptors that require attachment/numbering context Return valid JSON only, with exactly this schema: {{ "functional_groups": [ {{ "text_span": "", "normalized": "" }} ], "core_scaffolds_or_ring_systems": [ {{ "text_span": "", "normalized": "" }} ], "elements_or_atom_types": [ {{ "text_span": "", "normalized": "" }} ], "element_count_requirements": [ {{ "text_span": "", "normalized": "", "count": 0 }} ], "group_count_requirements": [ {{ "text_span": "", "normalized": "", "count": 0 }} ], "stereochemistry_requirements": [ {{ "text_span": "", "normalized": "", "count": 0 }} ]}} Rules: - "text_span" must be a short exact phrase copied from the description. - "normalized" must be chosen ONLY from the allowed values listed above for that category. - Do NOT invent new normalized labels. - If no allowed normalized value fits exactly, omit the item. - Do not over-normalize. - If a category is not mentioned, return an empty list for that category. - For element_count_requirements, group_count_requirements, and stereochemistry_requirements, use a positive integer in "count". - If the count is not explicit, do not extract it. - If a phrase refers to another molecule, precursor, source, residue, substituent donor, parent compound, or component rather than the target molecule itself, do not extract it. Do NOT extract: - biological role - pharmacological activity - therapeutic use - source organism - biomarker claims - odor, taste, solubility, melting point, flash point - location or clinical statements - salts, hydrates, acid/base context, protonation state - conjugate acid / conjugate base - major species at pH - family/class labels - parent-compound context - source-molecule descriptors - component-molecule descriptors - precursor or constituent descriptors - residue/moiety descriptions unless explicitly asserted as an allowed, target-molecule-level feature - "used as ..." - "derived from ..." - "formed from ..." - "resulting from condensation of ..." - "ester of ..." - "amide of ..." - "salt of ..." - "hydrate of ..." - "metabolite of ..." - "replaced by ..." - position-dependent attachment or numbering information - position-dependent stereochemistry If nothing clearly belongs to these categories, return all lists as empty lists. Description: {des} 
+
+PCDes: 
+
+You are an information extraction model for molecule-description verification on the PCDes dataset. Your task is to extract ONLY explicit, directly stated, structure-relevant information about the TARGET molecule that can be USED DIRECTLY in downstream verification. Core rule: - Extract a fact ONLY if it is: 1) explicitly stated about the target molecule, and 2) directly verifiable from the molecule structure / charge / disconnected components. - If a fact would likely be discarded later because it is too ambiguous, too ontology-like, too position-dependent, too context-dependent, or too hard to verify reliably, DO NOT extract it. - When uncertain, omit rather than guess. Target molecule only: - The description may mention source molecules, parent molecules, precursor molecules, conjugate acids/bases, metabolites, salts, or compounds from which the target molecule is derived. - Extract a feature only if the TARGET molecule itself is explicitly described as having that feature. - Do NOT transfer structural features from parent/source/reference molecules to the target molecule. - Example: "derived from alanine" does NOT justify extracting alanine-like structure. - Example: "hydrochloride salt form of X" DOES justify extracting hydrochloride_salt because that directly describes the target molecule. - Example: "it is a member of triazoles" DOES justify extracting triazole because that directly describes the target molecule. Do NOT infer: - Do NOT use chemistry background knowledge to fill in missing facts. - Do NOT infer hidden substructures from broad biological or ontology language. - Do NOT infer charge state from pKa, "acidic/basic", or physiological statements unless the description explicitly states an anion/cation/zwitterion/salt form. - Do NOT infer position-specific substituents into general rules unless the resulting feature itself is explicitly named in an allowed category. Extract ONLY the following categories. 1. functional_groups Allowed normalized values: carboxylic_acid, carboxylate, amide, ester, carbamate, ketone, aldehyde, alcohol, phenol, amine, ether, nitrile, nitroso, sulfonic_acid, sulfonamide, phosphate, phosphodiester, isourea Extract only if the functional group is directly and reliably checkable as a concrete substructure. 2. core_scaffolds_or_ring_systems Allowed normalized values: benzene, pyridine, pyrimidine, imidazole, triazole, quinoline, benzodiazepinone, naphthalene, steroid Extract only if the scaffold/ring system is explicitly stated for the target molecule. Do NOT map an unknown class name to the closest allowed label. 3. elements_or_atom_types Allowed normalized values: fluorine, chlorine, iodine, phosphorus, sulfur, sodium, calcium, strontium, mercury, molybdenum, nitrogen, oxygen Extract only if the target molecule is explicitly described as containing that element or atom type. 4. element_count_requirements Allowed normalized values: fluorine, chlorine, iodine, phosphorus, sulfur, sodium, calcium, strontium, mercury, molybdenum, nitrogen, oxygen Extract only if an explicit count is directly stated and directly usable. Examples: - one phosphorus atom - two chlorine atoms - 1:1 ratio of calcium and oxygen If the count is not explicit, do not extract it. 5. group_count_requirements Allowed normalized values: carboxylic_acid, carboxylate, hydroxy_group Extract only if the count is explicit and directly usable. Examples: - monocarboxylic acid -> carboxylic_acid count = 1 - dicarboxylic acid -> carboxylic_acid count = 2 - tricarboxylic acid -> carboxylic_acid count = 3 - dihydroxy -> hydroxy_group count = 2 - monohydroxy -> hydroxy_group count = 1 Do NOT infer counts from class names unless the count is explicit in the wording. 6. salt_or_charge_state Allowed normalized values: hydrochloride_salt, mesylate_salt, sodium_salt, zwitterion, monoanion, dianion, trianion Extract only if the target molecule is explicitly described in that form. Examples: - hydrochloride salt form - mesylate salt form - sodium salt - zwitterionic form - monocarboxylic acid anion - dicarboxylate anion - trianion Do NOT extract: - vague acid/base language - conjugate acid/conjugate base statements unless the target molecule itself is explicitly described using one of the allowed charge-state labels above Return valid JSON only, with exactly this schema: {{ "functional_groups": [ {{ "text_span": "", "normalized": "" }} ], "core_scaffolds_or_ring_systems": [ {{ "text_span": "", "normalized": "" }} ], "elements_or_atom_types": [ {{ "text_span": "", "normalized": "" }} ], "element_count_requirements": [ {{ "text_span": "", "normalized": "", "count": 0 }} ], "group_count_requirements": [ {{ "text_span": "", "normalized": "", "count": 0 }} ], "salt_or_charge_state": [ {{ "text_span": "", "normalized": "" }} ]}} Global rules: - "text_span" must be a short exact phrase copied verbatim from the description. - "normalized" must be chosen ONLY from the allowed values for that category. - Do NOT invent new normalized labels. - If no allowed label fits exactly, omit the item. - Do NOT over-normalize. - If a category is absent, return an empty list for that category. - For count fields, "count" must be a positive integer. - If the count is not explicit, do not extract it. - If the same fact appears multiple times, keep only one copy. - If the phrase refers to another molecule rather than the target molecule, do not extract it. Do NOT extract: - biological role - pharmacological activity - therapeutic use - assay mechanism - source organism - biomarker claims - subcellular location - odor, taste, solubility, melting point, boiling point, density, flash point - clinical or formulation-only statements that do not encode a concrete structural fact - "used as ..." - "has a role as ..." - "detected in ..." - "located in ..." - "derived from ..." - "metabolite of ..." - "analogue of ..." - "related to ..." - parent/source/precursor context - family labels not present in the allowed lists - residue decomposition - sugar-unit identity - chain length - position-specific substitution statements - position-numbered attachment information - ALL stereochemistry information, including: - R/S labels - E/Z labels - cis/trans labels - alpha/beta descriptors - enantiomer / diastereomer / optically active - anomeric configuration If nothing clearly belongs to the allowed directly usable categories, return all lists as empty lists. Description: {des} 
+
+## B.2 Tool-based Verification 
+
+Rule categories and checker design. Across the two datasets, the Verifier supports eight distinct noncompliance categories. Each dataset uses seven categories: six shared categories and one dataset-specific category, namely stereo-chemistry for ChEBI-20 or salt and charge state for PCDes. 
+
+• Invalid SMILES. Each candidate is first parsed using 
+
+Chem.MolFromSmiles . A candidate is assigned to the invalid-SMILES category when parsing fails. This built-in check is shared by ChEBI-20 and PCDes and does not require a description-derived rule. 
+
+• Functional groups. Functional groups are checked by SMARTS-based substructure matching, including car-boxylic acids, carboxylates, amides, esters, aldehydes, ketones, nitriles, sulfonamides, phosphates, phosphodi-esters, and others. For broader categories such as alco-hol, amine, or ether, we additionally use custom counting heuristics. 
+
+• Core scaffolds and ring systems. Ring systems such as benzene, pyridine, pyrimidine, imidazole, triazole, quino-line, and naphthalene are verified by SMARTS patterns. For more complex structural families, such as steroid-like fused ring systems or benzodiazepinone-like cores, we use dedicated topology-based heuristics instead of rely-ing on a single SMARTS rule. 
+
+• Element or atom type. Element-presence constraints are verified by mapping each normalized element label to its atomic symbol and counting atoms with that symbol in the RDKit molecular graph. A presence requirement is satisfied when at least one corresponding atom is found.             
+
+> Dataset Train Validation Test Total ChEBI-20 26,407 3,301 3,300 33,008 PCDes 8,983 –2,998 11,981
+
+Table 7: Statistics of the datasets used in our experiments. For PCDes, we follow the LDMol-preprocessed split. 
+
+• Element count. Explicit element-count constraints are verified using the same atom-symbol counts. The number of atoms whose symbols match the normalized element must equal the extracted count ; only expert-validated count checks are allowed to trigger rejection. 
+
+• Group counts. Explicit counts of groups such as hy-droxy groups, amino groups, carboxylates, oxo groups, or carbon–carbon double bonds are verified using RDKit-based counting functions tailored to each group type. 
+
+• Stereochemistry (ChEBI-20). For ChEBI-20, stereo-chemical constraints such as the number of R or S centers and the number of E/Z double bonds are verified after RDKit stereochemistry assignment. 
+
+• Salt and charge state (PCDes). For PCDes, rules such as hydrochloride_salt , sodium_salt ,
+
+mesylate_salt , monoanion , dianion , or 
+
+zwitterion are verified by combining RDKit-based disconnected-component analysis with atom- and component-level formal-charge checks. 
+
+# C Experimental Setup 
+
+## C.1 Dataset and Split 
+
+We conduct experiments on two text-to-molecule gener-ation benchmarks, ChEBI-20 (Edwards et al. 2022) and PCDes (Zeng et al. 2022). For ChEBI-20, we follow the stan-dard train/validation/test split used in prior text-to-molecule generation studies. For PCDes, we follow the preprocessed split adopted by LDMol (Chang and Ye 2025), resulting in 8,983 training pairs and 2,998 test pairs. Models are trained on the corresponding training split and evaluated on the test split of each dataset. 
+
+## C.2 Data Synthesis Details 
+
+Generator SFT data synthesis. As shown in Figure 5(a), we construct the Generator SFT targets by augmenting each gold molecule with explicit structural evidence. For each training example, we take the gold SMILES and use RD-Kit to compute six types of molecular attributes: molecular formula, longest carbon chain length, aromatic ring informa-tion, ring information, functional groups, and chirality. These attributes are then converted into a tagged MSR-style (Jang, Kim, and Ahn 2025) reasoning sequence, where each at-tribute is enclosed by its corresponding tag. The final su-pervised target is formed by concatenating this evidence se-quence with the correct molecular answer in the required output format. In this way, the Generator is trained not only to output the target molecule, but also to first produce in-termediate structural evidence that grounds the generation process. Parameter Value Model GPT-5.2 Temperature 0.5 Maximum output tokens 1,000 Request timeout 1,800 s Maximum retries 3Concurrent workers 64 Table 8: Configuration for LLM-based rule extraction. 
+
+Refiner SFT data synthesis. Figure 5(b) illustrates the first-stage construction of Refiner SFT data from generator-induced errors. After training the Generator, we sample 20 candidate molecules for each training description, and canon-icalize the candidates and gold molecule for exact-match comparison. Non-matching candidates are treated as error cases, while their original, pre-canonicalization forms are retained as Refiner inputs. Each first-stage instance consists of the molecular description and an incorrect Generator can-didate as input, with the corresponding gold molecule as the correction target. This process yields 38,891 first-stage train-ing instances, including 23,062 from ChEBI-20 and 15,829 from PCDes. For the second stage, we apply the Verifier to the non-matching candidates and retain those rejected by validated hard checks. Each rejected candidate is paired with its cor-responding failure reason, forming an input that consists of the molecular description, rejected candidate, and verifier feedback, while the gold molecule remains the target. This process produces an additional 6,725 second-stage training instances, including 5,570 from ChEBI-20 and 1,155 from PCDes. The first stage provides broad supervision over real-istic Generator errors, whereas the second stage specializes the Refiner for verification-guided correction. 
+
+## C.3 Implementation Details 
+
+Computing Infrastructure All experiments were con-ducted on a server equipped with four NVIDIA H200 GPUs, each with 140.4 GiB of memory, an Intel Xeon Platinum 8558 processor with 32 logical CPU cores, and 488 GiB of system memory. The server ran Ubuntu 22.04 LTS. 
+
+LLM-Based Rule Extraction Configuration Table 8summarizes the configuration used for LLM-based rule ex-traction. We use GPT-5.2 with a temperature of 0.5 and a maximum output length of 1,000 tokens. Each molecular de-scription is processed once using the chemistry-expert sys-tem prompt and the dataset-specific rule-extraction prompt. To support large-scale extraction, requests are executed with 64 concurrent workers, a timeout of 1,800 seconds, and at most three retries. Other decoding parameters are left at API defaults. 
+
+Training Details We use Intern-S1-mini (Bai et al. 2025) as the backbone language model for molecule genera-tion. The generator is first fine-tuned with supervised fine-tuning (SFT) on the training split of each dataset. Af-ter SFT, we further optimize the generator with reinforce-ment learning, where the policy model is initialized from the SFT checkpoint. We implement the SFT stage with LLaMA-Factory (Zheng et al. 2024) and the RL stage with EasyR1 (Zheng et al. 2025). The final SMILES string is ex-tracted from the content inside \boxed{} , and the reward is computed based on the extracted answer. The main train-ing hyperparameters are summarized in Table 9. We select checkpoints based on model performance on the ChEBI-20 validation set. 
+
+Inference and Evaluation Details During inference, pass@1 denotes the setting in which the Generator produces one candidate for each input description. The Verifier checks the candidate and returns a failure reason when a validated constraint is violated; the rejected candidate is then refined once using the description, candidate molecule, and verifier feedback. Under pass@5, the Generator produces five candi-dates, which are independently verified and, when rejected, refined using their corresponding failure reasons. The re-fined candidates are then merged with the initially accepted candidates. From the resulting five final candidates, we se-lect a single prediction for each input using a fixed priority order—Match, validity, Morgan FTS, RDK FTS, MACCS FTS, BLEU, and Levenshtein distance—and then compute all evaluation metrics based on these selected predictions. In the main experimental results in Table 2, the results for all models are reported as pass@1. Each generated molecule is standardized and canonicalized using RDKit before eval-uation. To avoid excessive RDKit parsing time caused by degenerate repetitive generations, outputs longer than 4,096 characters are not passed to RDKit-based molecular compu-tations. They remain in the evaluation set and are counted as failures for both Validity and Match. The main inference settings are summarized in Table 10. 
+
+## C.4 Evaluation Metrics 
+
+Following MSR (Jang, Kim, and Ahn 2025), we evaluate generation performance using Validity, BLEU, Levenshtein distance, MACCS FTS, RDK FTS, Morgan FTS, Match, and FCD. Let D = {(gi, p i)}Ni=1 denote the evaluation set, where 
+
+gi and pi are the canonicalized gold and predicted SMILES for the i-th sample, respectively. Let mol( ·) denote RDKit parsing from SMILES to a molecular graph, and let I[·] be the indicator function. 
+
+• Validity ( ↑). Validity measures the fraction of predictions that can be successfully parsed by RDKit: 
+
+Validity = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+I[mol( pi)̸ = ∅] . (14) A higher value indicates that more predicted strings cor-respond to chemically valid molecules. 
+
+• BLEU ( ↑). BLEU measures token-overlap between pre-dictions and references. In our implementation, BLEU is computed at the character level using corpus BLEU over the whole evaluation set: 
+
+BLEU = BP · exp 
+
+> 4
+
+X
+
+> n=1
+
+wn log pn
+
+!
+
+, (15) Figure 5: Data synthesis process. (a) Generator SFT data are constructed by using RDKit to extract six types of structural evidence from the gold SMILES and converting them into a tagged MSR-style chain of thought followed by the correct molecular answer. (b) The first-stage Refiner SFT data are constructed from generator-induced errors: sampled candidates that do not exactly match the gold molecule are paired with the original description, while the correct molecule serves as the supervised correction target. where pn is the clipped precision of character n-grams, 
+
+wn = 14 , and BP is the brevity penalty. A higher value in-dicates better string-level overlap with the gold SMILES. 
+
+• Levenshtein ( ↓). Levenshtein distance measures the av-erage string edit distance between predictions and gold answers: 
+
+Levenshtein = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+Lev( pi, g i), (16) where Lev( ·, ·) denotes the minimum number of inser-tions, deletions, and substitutions needed to transform one string into the other. Lower is better. 
+
+• MACCS FTS ( ↑). MACCS fingerprint similarity is the mean Tanimoto similarity between MACCS fingerprints of valid prediction–reference molecule pairs: 
+
+MACCS -FTS = 1
+
+|V| 
+
+X
+
+> i∈V
+
+Tan (ϕMACCS (mol( gi)) , ϕ MACCS (mol( pi))) , (17) where V = {i | mol( gi)̸ = ∅, mol( pi)̸ = ∅},
+
+ϕMACCS (·) is the MACCS fingerprint, and Tan( ·, ·) is Tanimoto similarity. Higher is better. 
+
+• RDK FTS ( ↑). RDK fingerprint similarity is defined anal-ogously using RDKit topological fingerprints: 
+
+RDK -FTS = 1
+
+|V| 
+
+X
+
+> i∈V
+
+Tan (ϕRDK (mol( gi)) , ϕ RDK (mol( pi))) . (18) Higher values indicate greater structural similarity. 
+
+• Morgan FTS ( ↑). Morgan fingerprint similarity is com-puted as the mean Tanimoto similarity between Morgan fingerprints of radius r = 2 :
+
+Morgan -FTS = 1
+
+|V| 
+
+X
+
+> i∈V
+
+Tan (ϕMor ,r =2 (mol( gi)) , ϕ Mor ,r =2 (mol( pi))) . (19) Higher is better. 
+
+• Match ( ↑). Match is an exact molecular-identity metric based on InChI equality rather than raw SMILES string equality. Specifically, 
+
+Match = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+I[InChI(mol( pi)) = InChI(mol( gi))] . (20) Invalid predictions are counted as mismatches. A higher value indicates that more predictions correspond to ex-actly the same molecule as the gold target. Setting Generator SFT Generator RL Refiner SFT (Stage 1 / Stage 2) Backbone model Intern-S1-mini (Bai et al. 2025) model after SFT Intern-S1-mini Training epochs / steps 2 epochs 850 steps 2.5 / 3 epochs Learning rate 1.0e-5 1.0e-6 1.0e-5 Batch size 8 512 8Optimizer AdamW (Loshchilov and Hutter 2019) AdamW AdamW Weight decay 0.0 1.0e-2 0.0 Warmup ratio 0.1 0.0 0.1 Max length 2048 2048+512 2048 Samples per input – 8 –Precision bf16 AMP bf16 GPUs 4 × H200 (140G) 4 × H200 (140G) 4 × H200 (140G) 
+
+Table 9: Main training hyperparameters for supervised fine-tuning and reinforcement learning.       
+
+> Setting Generator / Refiner Temperature 0.7 Top-p0.8 Top-k 20 SMILES canonicalization RDKit repetition_penalty 1.05
+
+Table 10: Main inference and evaluation settings. 
+
+• FCD ( ↓). Fréchet ChemNet Distance (FCD) is a dataset-level distributional metric computed on canonicalized SMILES. Let μg , Σg and μp, Σp be the empirical mean and covariance of ChemNet features extracted from the gold and predicted molecule sets, respectively. Then 
+
+FCD = ∥μg − μp∥22+Tr 
+
+
+
+Σg + Σ p − 2(Σ g Σp)1/2
+
+. (21) Lower values indicate that the predicted molecule distri-bution is closer to the gold distribution. 
+
+Multi-sample evaluation. For multi-sample settings, we first obtain multiple candidates for each input and then select a single final candidate per sample for table-ready evaluation. In the provided implementation, this selection follows a fixed priority: 
+
+Match > Validity > Morgan > RDK 
+
+> MACCS > BLEU > −Levenshtein . (22) That is, among all candidates for a sample, we keep the one with the highest tuple under this lexicographic ordering, and then compute the dataset-level metrics on the resulting set of selected predictions. 
+
+# D Evaluation of the Rule-based Verifier 
+
+Figure 6 shows the decision behavior of the rule-based Mol-GVR Verifier under the single-generation setting, where the Generator produces one candidate for each input and the Verifier then makes a pass/fail decision. The Verifier is con-servative: it produces no false rejections on either dataset, indicating that correct molecules are not mistakenly filtered out by the current rules. At the same time, it rejects 183/1414 incorrect candidates on ChEBI-20 and 138/1526 on PCDes, indicating that the current set of checkable constraints covers only a subset of molecule-level errors. This behavior reflects a precision-oriented trade-off: since description-derived con-straints can be difficult to verify reliably with current rule-based RDKit checks, we only use expert-validated hard-check rules for rejection. This conservative strategy reduces the risk of sending correct molecules to the Refiner while providing reliable failure feedback for targeted correction. 
+
+# E Inference time of MolGVR 
+
+To further evaluate the computational overhead introduced by the proposed generate–verify–refine pipeline, we report the wall-clock inference time on the ChEBI-20 test set. Both MolGVR and ChemDFM-v1.5-8B are deployed with vLLM on a single NVIDIA H200 GPU with 140GB mem-ory. For both models, we use the same main decoding con-figuration: batch size 64, tensor parallel size 1, temperature 0.7, top-p 0.8, top-k 20, and repetition penalty 1.05. For the @1 setting, we sample one candidate per input, while for the @5 setting, we sample five candidates per input. The rule extraction results are precomputed and cached, and we report the online inference cost after rule extrac-tion. As shown in Table 11, MolGVR introduces moderate additional inference cost compared with ChemDFM-v1.5-8B. Specifically, MolGVR@1 takes 39.22 seconds longer than ChemDFM@1. Under the @5 setting, MolGVR takes 79.33 seconds longer than ChemDFM@5. This overhead mainly comes from the additional verifier and refiner stages. Nevertheless, the runtime increase remains relatively small, while MolGVR achieves a stronger exact-match performance and better description-level molecular correctness. These re-sults suggest that the verification-and-refinement mechanism improves generation quality with a modest and practical inference-time overhead. 
+
+# F More Examples 
+
+## F.1 ChEBI-20 
+
+System prompt for generator: You are an expert in gen-erating molecules from text descriptions. You will re-ceive a text description as input, and you should first rea-Figure 6: Confusion matrices of the rule-based MolGVR Verifier on ChEBI-20 and PCDes. Under the expert-validated hard-check rules, the Verifier produces no false rejections on either dataset while identifying 183 and 138 rule-violating candidates on ChEBI-20 and PCDes, respectively, demonstrating conservative rejection behavior.       
+
+> Setting ChemDFM-v1.5-8B MolGVR @1 248.51 287.73 (221.60 + 1.86 + 64.27) @5 473.35 552.68 (350.17 + 7.93 + 194.58)
+
+Table 11: Inference-time comparison on the ChEBI-20 test set. All times are reported in seconds. For MolGVR, the three addends in parentheses denote the time of generator inference, verifier execution, and refiner inference, respec-tively. son about six molecular properties within <think> tags— namely the molecular formula, the longest carbon chain length, the number of aromatic rings, ring compounds, func-tional groups, and chirality—and then predict the molecule’s SMILES in \\ boxed{} format. The output must follow this format: "<think> <mol_formula> ... </mol_formula> <longest_carbon_chain> ... </longest_carbon_chain> <aro-matic_ring> ... </aromatic_ring> <ring> ... rings of size ... </ring> <fun_group> ... </fun_group> <chiral> ... with S; ... with R </chiral> </think> \\ boxed{final smiles}" format. System prompt for Refiner: You are a molecular SMILES refinement model. Your task is to correct an incorrect can-didate SMILES using the molecule description and verifier feedback. The molecule description is the primary source of truth. The verifier feedback identifies the types of structural constraints violated by the candidate and the exact text re-quirements from the description that are not satisfied. Correct all reported constraint violations. The incorrect candidate SMILES is only a noisy hint and may be partially wrong or entirely wrong. Preserve candidate substructures only when they are consistent with both the description and the veri-fier feedback. Return only the final answer in the following format: The refined SMILES is \\ boxed correct smiles . 
+
+Case 1 Generator input: 
+
+<tbdd> \n The molecule is a polyazaalkane consisting of a 13-membered straight chain alkane with aza-groups at the 1-, 5-, 9- and 13-positions. It is a polyazaalkane and a tetramine. It is a conjugate base of a 3,3,3-tetraminium(4+). 
+
+Generator output: 
+
+<mol_formula> C9H24N4 </mol_formula>\t<longest_carbon_chain> 3 </longest_carbon_chain>\t<aromatic_ring> 0 </aromatic_ring>\t<ring> 0 </ring>\t<fun\_group> amine, organic, primary, secondary </fun_group>\t<chiral> 0: 0 with S; 0 with R </chiral> </think> \nBased on the reasoning above, I suppose the final SMILES is \\boxed{C(CN)CNCCCN} 
+
+Verify rule: 
+
+[{"category": "functional_groups", "text_span": "tetramine", "normalized": "amine"}, {"category": "elements_or_atom_types", "text_span": "aza-groups", "normalized": "nitrogen"}, {"category": "element_count_requirements", "text_span": "aza-groups at the 1-, 5-, 9- and 13-positions", "normalized": "nitrogen", "count": 4}, {"category": "group_count_requirements", "text_span": "tetramine", "normalized": "amino_group", "count": 4} ]
+
+Refiner input: 
+
+Task: Refine the incorrect candidate SMILES into the correct target molecule. Molecule description: The molecule is a polyazaalkane consisting of a 13-membered straight chain alkane with aza-groups at the 1-, 5-, 9- and 13-positions. It is a polyazaalkane and a tetramine. It is a conjugate base of a 3,3,3-tetraminium(4+). Incorrect candidate SMILES: C(CN)CNCCCN Verifier feedback: 1. Error category: element_count_requirements Unmet text requirement: "aza-groups at the 1-, 5-, 9- and 13-positions" 2. Error category: group_count_requirements Unmet text requirement: "tetramine" Correct all listed violations and return the target molecule. Output format: The refined SMILES is \\boxed{ correct smiles } 
+
+Refiner output: 
+
+</think> \n\nThe refined SMILES is \\boxed{C(CN)CNCCCNCCCN} 
+
+Case 2 Generator input: 
+
+<tbdd> \n The molecule is a hydroxy fatty acid anion that is the conjugate base of omega-hydroxy-15-methyl-palmitic acid, obtained by deprotonation of the carboxy group; ma-jor species at pH 7.3. It is a branched-chain saturated fatty acid anion, a long-chain fatty acid anion, a methyl-branched fatty acid anion and an omega-hydroxy fatty acid anion. It derives from an isoheptadecanoate. It is a conjugate base of an omega-hydroxy-15-methylpalmitic acid. 
+
+Generator output: 
+
+<mol_formula> C17H33O3-</mol_formula>\t<longest_carbon_chain> 16 </longest_carbon_chain>\t<aromatic_ring> 0 </aromatic_ring>\t<ring> 0 </ring>\t<fun_group> alcohol, carboxylate, organic </fun_group>\t<chiral> 0: 0 with S; 0 with R </chiral> </think> \nBased on the reasoning above, I suppose the final SMILES is \\boxed{CC(C)CCCCCCCCCCCCCC(=O)[O-]} 
+
+Verify rule: 
+
+[{"category": "functional_groups", "text_span": "hydroxy fatty acid anion", "normalized": "carboxylate"}, {"category": "functional_groups", "text_span": "omega-hydroxy fatty acid anion", "normalized": "alcohol"}, {"category": "functional_groups", "text_span": "deprotonation of the carboxy group", "normalized": "carboxylate"} ]
+
+Refiner input: 
+
+Task: Refine the incorrect candidate SMILES into the correct target molecule. Molecule description: The molecule is a hydroxy fatty acid anion that is the conjugate base of omega-hydroxy-15-methyl-palmitic acid, obtained by deprotonation of the carboxy group; major species at pH 7.3. It is a branched-chain saturated fatty acid anion, a long-chain fatty acid anion, a methyl-branched fatty acid anion and an omega-hydroxy fatty acid anion. It derives from an isoheptadecanoate. It is a conjugate base of an omega-hydroxy-15-methylpalmitic acid. Incorrect candidate SMILES: CC(C)CCCCCCCCCCCCCC(=O)[O-] Verifier feedback: 1. Error category: functional_groups Unmet text requirement: "omega-hydroxy fatty acid anion" Correct all listed violations and return the target molecule. Output format: The refined SMILES is \\boxed{ correct smiles } 
+
+Refiner output: 
+
+</think> \n\nThe refined SMILES is \\boxed{CC(CCCCCCCCCCCCCC(=O)[O-])CO} 
+
+Case 3 Generator input: 
+
+<tbdd> \n The molecule is a 2,3-dihydro-3-hydroxyanthranilic acid in which both stereocentres have S-configuration. It is an enantiomer of a (2R,3R)-2,3-dihydro-3-hydroxyanthranilic acid. It is a tautomer of a (2S,3S)-2,3-dihydro-3-hydroxyanthranilic acid zwitterion. 
+
+Generator output: 
+
+\\boxed{C1=C[C@@H]([C@@H](C(=C1)C(=O)O)N)O} 
+
+Verify rule: 
+
+[{"category": "functional_groups", "text_span": "hydroxyanthranilic acid", "normalized": "carboxylic_acid"}, {"category": "functional_groups", "text_span": "hydroxyanthranilic acid", "normalized": "alcohol"}, {"category": "stereochemistry_requirements", "text_span": "both stereocentres have S-configuration", "normalized": "s_center", "count": 2} ]
+
+Refiner input: 
+
+Task: Refine the incorrect candidate SMILES into the correct target molecule. Molecule description: The molecule is a 2,3-dihydro-3-hydroxyanthranilic acid in which both stereocentres have S-configuration. It is an enantiomer of a (2R,3R)-2,3-dihydro-3-hydroxyanthranilic acid. It is a tautomer of a (2S,3S)-2,3-dihydro-3-hydroxyanthranilic acid zwitterion. Incorrect candidate SMILES: C1=C[C@@H]([C@@H](C(=C1)C(=O)O)N)O Verifier feedback: 1. Error category: stereochemistry_requirements Unmet text requirement: "both stereocentres have S-configuration" Correct all listed violations and return the target molecule. Output format: The refined SMILES is \\boxed{ correct smiles } 
+
+Refiner output: 
+
+</think> \n\nThe refined SMILES is \\boxed{C1=C[C@@H]([C@H](C(=C1)C(=O)O)N)O} 
+
+## F.2 PCDes 
+
+Case 1 Generator input: 
+
+<tbdd> \n it is an aminoalkylpyridine that is pyridine substi-tuted by a ethanamino group at position 2. It has a role as a metabolite and a histamine agonist. It is a primary amine and an aminoalkylpyridine. It derives from a pyridine. 
+
+Generator output: 
+
+\\boxed{CCNC1=CC=CC=N1} 
+
+Verify rule: 
+
+[{"category": "functional_groups", "text_span": "primary amine", "normalized": "amine"}, {"category": "core_scaffolds_or_ring_systems", "text_span": "aminoalkylpyridine", "normalized": "pyridine"}, {"category": "elements_or_atom_types", "text_span": "primary amine", "normalized": "nitrogen"} ]
+
+Refiner input: 
+
+Task: Refine the incorrect candidate SMILES into the correct target molecule. Molecule description: it is an aminoalkylpyridine that is pyridine substituted by a ethanamino group at position 2. It has a role as a metabolite and a histamine agonist. It is a primary amine and an aminoalkylpyridine. It derives from a pyridine. Incorrect candidate SMILES: CCNC1=CC=CC=N1 Verifier feedback: 1. Error category: functional_groups Unmet text requirement: "primary amine" Correct all listed violations and return the target molecule. Output format: The refined SMILES is \\boxed{ correct smiles } 
+
+Refiner output: 
+
+</think> \n\nThe refined SMILES is \\boxed{C1=CC=NC(=C1)CCN} 
+
+Case 2 Generator input: 
+
+<tbdd> \n it is the prodrug of fluphenazine, an antipsychotic drug used for the symptomatic management of psychosis in patients with schizophrenia. It has a role as a phenothiazine antipsychotic drug, a prodrug and a dopaminergic antago-nist. It is a member of phenothiazines, a decanoate ester, an organofluorine compound and a N-alkylpiperazine. It de-rives from a fluphenazine. it is the decanoate salt form of fluphenazine, a phenothiazine with antipsychotic activity. it exerts its actions by blocking postsynaptic dopamine D2 re-ceptors in the limbic, cortical system and basal ganglia. This prevents the actions of dopamine, thereby reducing the hallu-cinations and delusions that are associated with schizophre-nia. 
+
+Generator output: 
+
+<mol_formula> C30H41F3N2O2S </mol_formula>\t<longest_carbon_chain> 10 </longest_carbon_chain>\t<aromatic_ring> 2 </aromatic_ring>\t<ring> 3 rings of size 6 </ring>\t<fun_group> amine, aromatic, ester, ether, fluoroalkane, haloalkane, organic, sulfide, tertiary </fun_group>\t<chiral> 0: 0 with S; 0 with R </chiral> </think> \n Based on the reasoning above, I suppose the final SMILES is \\boxed{CCCCCCCCCC(=O)N1CCN(CC 1)CCCN2C3=CC=CC=C3SC4=C2C=C(C=C4)C(F)(F)F} 
+
+Verify rule: 
+
+[{"category": "functional_groups", "text_span": "a decanoate ester", "normalized": "ester"}, {"category": "elements_or_atom_types", "text_span": "an organofluorine compound", "normalized": "fluorine"} ]
+
+Refiner input: 
+
+Task: Refine the incorrect candidate SMILES into the correct target molecule. Molecule description: it is the prodrug of fluphenazine, an antipsychotic drug used for the symptomatic management of psychosis in patients with schizophrenia. It has a role as a phenothiazine antipsychotic drug, a prodrug and a dopaminergic antagonist. It is a member of phenothiazines, a decanoate ester, an organofluorine compound and a N-alkylpiperazine. It derives from a fluphenazine. it is the decanoate salt form of fluphenazine, a phenothiazine with antipsychotic activity. it exerts its actions by blocking postsynaptic dopamine D2 receptors in the limbic, cortical system and basal ganglia. This prevents the actions of dopamine, thereby reducing the hallucinations and delusions that are associated with schizophrenia. Incorrect candidate SMILES: CCCCCCCCCC(=O)N1CCN(CC1)CCCN2C3=CC=CC=C 3SC4=C2C=C(C=C4)C(F)(F)F Verifier feedback: 1. Error category: functional_groups Unmet text requirement: "a decanoate ester" Correct all listed violations and return the target molecule. Output format: The refined SMILES is \\boxed{ correct smiles } 
+
+Refiner output: 
+
+</think> \n\nThe refined SMILES is \\boxed{CCCCCCCCCC(=O)OCCN1CCN(CC1)CCCN2C 3=CC=CC=C3SC4=C2C=C(C=C4)C(F)(F)F} 
+
+Case 3 Generator input: 
+
+<tbdd> \n it appears as white to off-white crystals or powder with a fishy odor. Initial pH (2% aqueous solution) 3.0-4.0. (NTP, 1992) it is the hydrochloride salt of mechlorethamine. It has a role as an antineoplastic agent. It contains a mechlorethamine. Mechlorethamine Hydrochloride is the hydrochloride salt of mechlorethamine, a nitrogen mustard and an analogue of sulfur mustard, with antineoplastic and immunosuppressive activities. Mechlorethamine is metabo-lized to an unstable, highly reactive ethyleniminium inter-mediate that alkylates DNA, particularly the 7 nitrogen of guanine residues, resulting in DNA base pair mismatching, DNA interstrand crosslinking, the inhibition of DNA repair and synthesis, cell-cycle arrest, and apoptosis. This agent also exhibits lympholytic properties. 
+
+Generator output: 
+
+\\boxed{CN(CCCl)CCCl} 
+
+Verify rule: 
+
+[{"category": "elements_or_atom_types", "text_span": "a nitrogen mustard", "normalized": "nitrogen"}, {"category": "salt_or_charge_state", "text_span": "the hydrochloride salt of mechlorethamine", "normalized": "hydrochloride_salt"} ]
+
+Refiner input: 
+
+Task: Refine the incorrect candidate SMILES into the correct target molecule. Molecule description: it appears as white to off-white crystals or powder with a fishy odor. Initial pH (2\% aqueous solution) 3.0-4.0. (NTP, 1992) it is the hydrochloride salt of mechlorethamine. It has a role as an antineoplastic agent. It contains a mechlorethamine. Mechlorethamine Hydrochloride is the hydrochloride salt of mechlorethamine, a nitrogen mustard and an analogue of sulfur mustard, with antineoplastic and immunosuppressive activities. Mechlorethamine is metabolized to an unstable, highly reactive ethyleniminium intermediate that alkylates DNA, particularly the 7 nitrogen of guanine residues, resulting in DNA base pair mismatching, DNA interstrand crosslinking, the inhibition of DNA repair and synthesis, cell-cycle arrest, and apoptosis. This agent also exhibits lympholytic properties. Incorrect candidate SMILES: CN(CCCl)CCCl Verifier feedback: 1. Error category: salt_or_charge_state Unmet text requirement: "the hydrochloride salt of mechlorethamine" Correct all listed violations and return the target molecule. Output format: The refined SMILES is \\boxed{ correct smiles } 
+
+Refiner output: 
+
+</think> \n\nThe refined SMILES is \\boxed{CN(CCCl)CCCl.Cl}

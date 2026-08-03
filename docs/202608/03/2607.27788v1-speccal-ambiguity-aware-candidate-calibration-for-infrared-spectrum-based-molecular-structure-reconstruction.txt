@@ -1,0 +1,610 @@
+Title: SpecCal: Ambiguity-Aware Candidate Calibration for Infrared Spectrum-Based Molecular Structure Reconstruction
+
+URL Source: https://arxiv.org/pdf/2607.27788v1
+
+Published Time: Fri, 31 Jul 2026 00:36:43 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# SpecCal: Ambiguity-Aware Candidate Calibration for Infrared Spectrum-Based Molecular Structure Reconstruction 
+
+## Yixuan Chen ∗
+
+chenyx2123@mails.jlu.edu.cn College of Computer Science and Technology, Jilin University Changchun, China 
+
+## Bo Liu ∗
+
+liubo4936@gmail.com School of Mathematics, Jilin University Changchun, China 
+
+## Yusen Tan 
+
+ytan277@connect.hkust-gz.edu.cn Information Hub, HKUST(GZ) Guangzhou, China 
+
+## Guokun Yang 
+
+guokun.yang@ntu.edu.sg School of Chemistry, Chemical Engineering and Biotechnology (CCEB), Nanyang Technological University Singapore, Singapore 
+
+## Wenjie Du 
+
+duwenjie@mail.ustc.edu.cn School of Software Engineering, University of Science and Technology of China Hefei, China 
+
+## Jun Xia ✉
+
+junxia@hkust-gz.edu.cn Information Hub, HKUST(GZ) Guangzhou, China HKUST Hong Kong SAR, China 
+
+## Abstract 
+
+Inferring molecular structures from infrared (IR) spectra is a funda-mental yet challenging problem. A key difficulty is that an IR spec-trum provides limited structural information: different molecules may share similar functional groups and local vibrational patterns, leading to highly similar spectral responses. Thus, even when an ob-served spectrum has a unique underlying structure, reconstructing it from the spectrum remains ambiguous. Existing IR-to-molecule models usually generate a ranked set of candidate molecules, but this set is largely determined by the model’s learned generation pref-erence and may not fully capture the structures that best satisfy the observed spectral constraints. To address this limitation, we propose 
+
+SpecCal , a training-free candidate calibration framework for IR-to-molecule prediction. SpecCal operates on the candidate outputs of existing base models and improves the prediction set by re-ranking current candidates while introducing additional structurally plausi-ble alternatives guided by spectral consistency. The framework is plug-and-play and model-agnostic, requiring no parameter updates for integration with diverse base models. Experiments on multiple benchmarks show that SpecCal consistently improves top-𝑘 recon-struction at both SMILES and scaffold levels across different base models. Further analyses demonstrate that calibrating candidate sets under spectral ambiguity provides a practical way to improve molecular reconstruction from IR spectra. The code is available at: https://anonymous.4open.science/r/SpecCal-B18A.  
+
+> ∗These authors contributed equally to this work. Permission to make digital or hard copies of all or part of this work for personal or classroom use is granted without fee provided that copies are not made or distributed for profit or commercial advantage and that copies bear this notice and the full citation on the first page. Copyrights for components of this work owned by others than the author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or republish, to post on servers or to redistribute to lists, requires prior specific permission and/or a fee. Request permissions from permissions@acm.org.
+> Conference acronym ’XX, Woodstock, NY
+> ©2018 Copyright held by the owner/author(s). Publication rights licensed to ACM. ACM ISBN 978-1-4503-XXXX-X/2018/06 https://doi.org/XXXXXXX.XXXXXXX
+
+## CCS Concepts 
+
+• Do Not Use This Code → Generate the Correct Terms for Your Paper ; Generate the Correct Terms for Your Paper ; Generate the Correct Terms for Your Paper; Generate the Correct Terms for Your Paper. 
+
+## Keywords 
+
+Infrared spectroscopy, molecular structure reconstruction, IR-to-molecule prediction, candidate calibration, spectral ambiguity 
+
+ACM Reference Format: 
+
+Yixuan Chen, Bo Liu, Yusen Tan, Guokun Yang, Wenjie Du, and Jun Xia. 2018. SpecCal: Ambiguity-Aware Candidate Calibration for Infrared Spectrum-Based Molecular Structure Reconstruction. In Proceedings of Make sure to enter the correct conference title from your rights confirmation email (Conference acronym ’XX). ACM, New York, NY, USA, 10 pages. https: //doi.org/XXXXXXX.XXXXXXX 
+
+## 1 Introduction 
+
+Infrared (IR) spectroscopy is a widely used analytical technique for molecular characterization, offering advantages such as being non-destructive, rapid, and low-cost compared to methods like nuclear magnetic resonance (NMR) and mass spectrometry (MS) [ 2, 19 , 31 ]. These properties make IR an appealing modality for large-scale and automated molecular structure identification, motivating interest in data-driven molecular structure reconstruction from IR spectra, known as IR-to-molecule prediction [1, 10, 11, 20, 29, 38]. Existing solutions to the IR-to-molecule task can be broadly categorized into two paradigms. The first paradigm is database search [ 22 , 33 ], which identifies candidate structures by compar-ing a query spectrum against a reference spectral library. While this approach typically achieves high accuracy, it is inherently limited by the coverage of the database. The second paradigm lever-ages an encoder-decoder framework, framing IR-to-molecule as a conditional sequence-to-sequence translation task, where the IR spectrum is represented as a sequence of intensity values and the molecular structure is expressed as a SMILES sequence [ 37 ]. In contrast, this approach does not rely on predefined libraries and arXiv:2607.27788v1 [cs.AI] 30 Jul 2026 Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Chen and Liu et al. 
+
+can generalize to unseen molecules. Recent approaches employ Transformer-based sequence-to-sequence models [ 34 ] to learn the mapping from IR spectra to molecular structures [ 1, 29 , 38 , 41 ]. These methods have achieved strong reconstruction performance, highlighting the promise of Transformer-based models for this task. However, existing approaches do not explicitly address the spec-tral ambiguity of the IR-to-molecule problem: distinct molecular structures may produce highly similar IR spectra, making struc-ture reconstruction from a single observed spectrum difficult. To improve prediction performance, existing models typically rely on likelihood-based decoding strategies, such as beam search [ 12 , 15 ,35 , 39 ], to construct a ranked set of candidate structures during inference. Under spectral ambiguity, however, this likelihood-based ranking may not reliably reflect spectral consistency: high-ranked candidates can still be poorly aligned with the observed spectrum, while lower-ranked candidates may better satisfy spectral con-straints. To address this limitation, it is desirable to explore a broader set of candidate structures during inference while using spectral consistency as an explicit calibration signal for test-time candidate refinement of the prediction set. To this end, we propose SpecCal , a training-free candidate cali-bration framework for IR-to-molecule prediction. SpecCal operates on the candidate set produced by an existing base model and refines it by jointly considering model preference and spectral consistency. Rather than relying only on the original generated candidates, Spec-Cal improves the candidate set from two complementary aspects: it re-ranks existing candidates according to spectral consistency and explores additional structurally plausible candidates that may be missed by the initial base model. Specifically, we implement this cal-ibration process with Monte Carlo Tree Search (MCTS) [ 5, 9 ], which naturally balances exploration of new molecular candidates and exploitation of candidates with high spectral consistency. At each iteration, MCTS performs selection, expansion, evaluation, and backpropagation under spectral-consistency guidance. Through this process, MCTS jointly re-ranks existing candidates and ex-plores new structurally plausible candidates, producing a calibrated prediction set guided by model preference and spectral consis-tency. Importantly, SpecCal is plug-and-play and model-agnostic, requiring no parameter updates for integration with diverse IR-to-molecule models as the base model. By allocating additional computation during inference, it improves the quality of the fi-nal candidate set without retraining the underlying base model or changing its architecture. Empirically, we evaluate SpecCal on two benchmark datasets with multiple IR-to-molecule base models. We report top-𝑘 hit rates under both SMILES match and scaffold match to assess molecu-lar reconstruction at different structural levels. The results show that SpecCal consistently improves candidate-set quality across evaluated datasets and base models. Further analyses examine how search scale and hyperparameter choices affect reconstruction ac-curacy and structural diversity. In summary, our contributions are as follows: 
+
+• Candidate calibration for IR-to-molecule reconstruction. 
+
+We propose SpecCal, a training-free and plug-and-play frame-work that calibrates the candidate set produced by an existing IR-to-molecule base model. Instead of relying only on the original generated candidates, SpecCal promotes spectrum-consistent structures within the initial set and explores additional plausible alternatives during inference. 
+
+• Spectral-consistency-guided search. We implement Spec-Cal with Monte Carlo Tree Search (MCTS), adapting selection, expansion, evaluation, and backpropagation to molecular can-didate calibration. The resulting search process uses spectral consistency as an explicit calibration signal to guide both re-ranking and structural exploration. 
+
+• Improved reconstruction across datasets and base mod-els. We demonstrate that SpecCal consistently improves top-𝑘 
+
+reconstruction at both SMILES and scaffold levels on multiple benchmark datasets and base models. Ablation studies and case analyses further examine how candidate coverage, search scale, and structural diversity affect the final prediction set. 
+
+## 2 Related Works 2.1 IR to Molecule 
+
+Existing approaches to IR-to-molecule prediction can be broadly categorized into the following two paradigms: database search and encoder-decoder framework. Database search methods match a query spectrum against ref-erence spectral libraries to retrieve candidate molecules, and have been widely used in analytical chemistry with resources such as the NIST Chemistry WebBook [ 24 ]. Recent efforts extend this par-adigm by constructing large-scale in silico IR spectral libraries and performing similarity-based retrieval [ 18 , 20 ]. However, these approaches are fundamentally limited by database coverage and cannot identify molecules absent from the library [ 1 , 22 ], restricting their applicability to known chemical space. Encoder-decoder frameworks formulate IR-to-molecule predic-tion as a sequence-to-sequence task, where the spectrum is repre-sented as a sequence of intensities and the molecular structure is generated as a SMILES string [ 37 ]. IR2Mol [ 1 ] first demonstrated the effectiveness of Transformer-based models trained on simu-lated spectra. Subsequent work improves spectral representation and modeling capacity, including patch-based Transformers [ 38 ]and molecular foundation models that jointly model spectroscopy and molecular structure [ 29 ]. Zhang and Ha [ 41 ] further propose a CoCa-based framework for joint spectrum–molecule alignment and sequence generation. Despite these advances, encoder-decoder methods primarily fo-cus on improving model performance during training, with limited attention to test-time strategies. In contrast, SpecCal is a training-free calibration framework that operates at test time, refining and expanding candidate structures to enable more comprehensive can-didate discovery while promoting higher spectral consistency with the observed spectrum. 
+
+## 2.2 IR Spectrum Prediction 
+
+Complementary to IR-to-molecule generation, the forward task aims to predict IR spectra from molecular structures, which serves as a key component for evaluating spectral consistency. Traditional approaches rely on quantum chemistry methods such as density SpecCal: Ambiguity-Aware Candidate Calibration for Infrared Spectrum-Based Molecular Structure Reconstruction Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Selection  Expansion  Evaluation  Backpropagation 
+
+> WN
+> SMILES
+> CCCCP(CC)CCC
+> CCCC(CC)PCCC
+> CCCC(P)C(CC)CC
+> Transformer Backbone
+
+Expansion ：
+
+= C C C C P ( S C C ) C C C 
+
+> (Prefix)
+> (Prefix)
+
++
+
+Evaluation ：
+
+= 
+
+> WN
+> CCCCP(SCC)CCC
+> CCCCP(CC)CCC
+> CCCC(CC)PC(CC)CC
+> WN
+> v.s
+> Predicted
+> Spectra
+> Observed
+> Spectra
+> Reward
+> IR Predictor
+> Encoder
+> Decoder
+> Transformer Backbone
+
++     
+
+> C
+> Reward
+> CCCC(CC)PC(CC)CC
+> New SMILES
+> [ 0.2, 0.4, 0.1, …, 0.7 ]
+> Intensity Value
+> Generated
+> Suffix A
+> Generated
+> Suffix B
+> [
+> CCCC(CC)PC(CC)CC
+> CCC[C]P(CC)C(CC)CP
+> SMILES ×Ne
+> SMILES A ：
+> SMILES B ：
+> New Node ×Ne
+> Observed Spectra
+
+MCTS ： (× Max Iter) 
+
+> Spectra
+> Encoder
+> SMILES
+> Decoder
+
+Figure 1: Overview of SpecCal. An input IR spectrum is first translated into a set of candidate SMILES sequences by a pretrained Transformer-based base model, and these initial predictions are then calibrated by SpecCal, a training-free and plug-and-play candidate calibration framework. 
+
+functional theory (DFT) [ 3, 16 , 21 ], which are accurate but compu-tationally expensive and difficult to scale. Recent advances in ma-chine learning enable efficient IR spectrum prediction directly from molecular representations [ 13 , 25 , 27 ]. In particular, Chemprop-IR models molecules using a directed message passing neural network (D-MPNN) [ 25 ], learning latent representations tailored for spectral prediction. Benefiting from pretraining on quantum chemistry data and model ensembling, it achieves strong generalization and high-quality spectral predictions. In this work, we adopt a pretrained Chemprop-IR model as a forward spectral predictor to measure the consistency between candidate molecular structures and the observed IR spectrum. 
+
+## 3 Preliminaries 
+
+Problem Definition. The IR-to-molecule problem aims to infer the molecular structure corresponding to a given IR spectrum. Let 
+
+𝑠 ∈ R𝑁 denote the input IR spectrum represented as a sequence of absorbance values over 𝑁 wavenumbers, and let 𝑦 = [𝑦 1, 𝑦 2, . . . , 𝑦 𝐿 ]
+
+denote the target molecular representation in the form of a SMILES sequence of length 𝐿 , where each token 𝑦 𝑖 belongs to a predefined vocabulary V. The task can be formulated as learning a conditional mapping from spectra to molecular sequences: 
+
+𝑓 𝜃 : 𝑠 → 𝑦, (1) where 𝜃 denotes the model parameters. In practice, this mapping is highly ambiguous due to the limited structural information en-coded in IR spectra. As a result, learning an accurate mapping 𝑓 𝜃 
+
+is fundamentally challenging, and the predicted structure may not correspond to the ground truth. 
+
+Transformer-based Generation. Recent approaches model IR-to-molecule prediction as a sequence-to-sequence translation task using Transformer-based architectures. Given an input spectrum 𝑠 ,the model generates a SMILES sequence autoregressively: 
+
+𝑝 𝜃 (𝑦 | 𝑠 ) =
+
+> 𝐿
+
+Ö
+
+> 𝑡 =1
+
+𝑝 𝜃 (𝑦 𝑡 | 𝑦 <𝑡 , 𝑠 ), (2) where 𝑦 <𝑡 denotes the previously generated tokens. At inference time, decoding strategies such as beam search are typically em-ployed to approximate the most likely sequences. However, these likelihood-driven methods tend to focus on a narrow set of high-probability candidates, which may fail to cover the true underlying structure under the inherent ambiguity of the task. 
+
+## 4 Method 
+
+In this section, we present SpecCal, a training-free and plug-and-play candidate calibration framework for IR-to-molecule prediction. Figure 1 provides an overview of the proposed calibration pipeline. Given the candidate set produced by a base model, SpecCal aims Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Chen and Liu et al. Structure Space  Structure Space  Structure Space  Structure Space    
+
+> Ground Truth
+> Spectral
+> Divergence
+> (a) (b) (c) (d)
+
+Fig3 ：
+
+Figure 2: (a) low diversity and low spectral consistency, (b) low diversity and high spectral consistency, (c) high diversity and low spectral consistency, and (d) high diversity and high spectral consistency. Our target is the setting in (d), where the final structural candidate set maintains high consistency with the observed spectrum while preserving high structural diversity. 
+
+to improve the final prediction set by re-ranking existing candi-dates and exploring additional structurally plausible alternatives under spectral-consistency guidance. We implement this calibration process with Monte Carlo Tree Search (MCTS), where selection, expansion, evaluation, and backpropagation are adapted to search over SMILES sequences and refine molecular candidates during inference. Algorithm 1 summarizes the overall procedure, and Fig-ure 2 illustrates the calibration objective of obtaining a candidate set that better balances model preference, spectral consistency, and structural diversity under ambiguous IR spectra. 
+
+## 4.1 Search Space Formulation 
+
+We formulate molecular refinement as a search over the space of SMILES sequences. Let 𝑦 = (𝑦 1, . . . , 𝑦 𝐿 ) denote a sequence of length 
+
+𝐿 . Instead of generating 𝑦 from scratch, we define a local editing process that iteratively refines an initial sequence 𝑦 (0) :
+
+𝑦 (𝑡 +1) = E  𝑦 (𝑡 ) , 𝛿 (𝑡 ) , (3) where 𝛿 (𝑡 ) denotes a local edit and E (·) applies the edit followed by autoregressive completion. Our objective is to identify a sequence that maximizes spectral consistency with the observed spectrum: 
+
+𝑦 ∗ = arg max  
+
+> 𝑦
+
+S( 𝑦, 𝑠 ), (4) where S(· , ·) denotes a spectral consistency score between a can-didate structure and the observed IR spectrum, which serves as a guidance signal for the search process. 
+
+## 4.2 Tree Search Procedure 
+
+SpecCal employs Monte Carlo Tree Search to explore the space of candidate SMILES sequences in a structured and iterative manner. The initial candidate molecules generated by the Transformer serve as the root-level nodes of the search tree. Each node corresponds to a complete sequence, and edges represent stochastic refinement steps. The search iteratively performs four stages: selection, expansion, evaluation, and backpropagation. 
+
+Selection. The selection process starts from the root node and recursively selects child nodes until reaching a leaf node 𝑧 (𝑡 ) . At each step, the child node 𝑧 with the highest upper confidence bound (UCB) [ 23 ] score is selected, which balances exploration and ex-ploitation during tree traversal: 
+
+UCB (𝑧 ) = 𝑄 (𝑧 ) + 𝐶 √︄ ln 𝑁 (𝑝 (𝑧 )) 
+
+𝑁 (𝑧 ) , (5) where 𝑄 (𝑧 ) denotes the value of node 𝑧 , 𝑁 (𝑧 ) is its visit count, 
+
+𝑝 (𝑧 ) denotes its parent, and 𝐶 is a hyperparameter that controls the trade-off between exploitation and exploration. 
+
+Expansion. Given a selected node 𝑧 (𝑡 ) with associated SMILES sequence 𝑦 (𝑧 (𝑡 ) ), we sample 𝑁 𝑒 candidate sequences: 
+
+𝑦 (𝑡 +1) 
+
+> 𝑘
+
+∼ 𝑝 𝜃 (· | 𝑦 (𝑧 (𝑡 ) ), 𝑠 ), 𝑘 = 1, . . . , 𝑁 𝑒 , (6) where 𝑝 𝜃 denotes the conditional distribution predicted by the base Transformer model with parameters 𝜃 . Each sampled sequence 
+
+𝑦 (𝑡 +1) 
+
+> 𝑘
+
+forms a new child node 𝑧 (𝑡 +1) 
+
+> 𝑘
+
+of 𝑧 (𝑡 ) , where 𝑦 (𝑧 (𝑡 +1) 
+
+> 𝑘
+
+) =
+
+𝑦 (𝑡 +1) 
+
+> 𝑘
+
+. The detailed expansion strategy is described in Section 4.3. 
+
+Evaluation. Each newly expanded node 𝑧 (𝑡 +1) 
+
+> 𝑘
+
+corresponds to a SMILES sequence 𝑦 (𝑡 +1) 
+
+> 𝑘
+
+, for which we assign a reward: 
+
+𝑟 (𝑦 (𝑡 +1) 
+
+> 𝑘
+
+) = S( 𝑦 (𝑡 +1) 
+
+> 𝑘
+
+, 𝑠 ), (7) where S(· , ·) measures the consistency between the candidate struc-ture and the input spectrum. Details are provided in Section 4.4. 
+
+Backpropagation. The reward obtained at the expanded node 
+
+𝑧 (𝑡 +1) 
+
+> 𝑘
+
+is propagated along the selected path. For each node 𝑢 on the path from the root to 𝑧 (𝑡 +1) 
+
+> 𝑘
+
+, the statistics are updated as: 
+
+𝑁 (𝑢 ) ← 𝑁 (𝑢 ) + 1, 𝑄 (𝑢 ) ← 𝑄 (𝑢 ) + 𝑟 (𝑦 (𝑡 +1) 
+
+> 𝑘
+
+) − 𝑄 (𝑢 )
+
+𝑁 (𝑢 ) , (8) where 𝑟 (𝑦 (𝑡 +1) 
+
+> 𝑘
+
+) is the reward of the expanded sequence. 
+
+Termination and Candidate Selection. The search terminates when a maximum number of iterations is reached or a high-reward node is found. Instead of simply selecting the top-𝐾 highest-reward SMILES sequences corresponding to the explored nodes, we adopt a diversity-aware selection strategy based on Maximal Marginal Rel-evance (MMR) [ 6 ]. Specifically, given a pool of candidate sequences, we iteratively select sequences that balance reward and diversity: 
+
+MMR (𝑦 ) = 𝜆 · ˆ𝑟 (𝑦 ) + ( 1 − 𝜆 ) ·  1 − max   
+
+> 𝑦 ′∈ Y
+
+sim (𝑦, 𝑦 ′), (9) where ˆ𝑟 (𝑦 ) is the normalized reward, Y is the set of already selected candidates, and sim (· , ·) is the Tanimoto similarity between molec-ular fingerprints. At each step, the candidate with the highest MMR score is added to Y. The process continues until 𝐾 sequences are selected. This strategy ensures that the final predictions are both high-quality and structurally diverse, which is critical for capturing the inherent ambiguity of IR-to-molecule prediction, and improving robustness across multiple plausible molecular candidates. SpecCal: Ambiguity-Aware Candidate Calibration for Infrared Spectrum-Based Molecular Structure Reconstruction Conference acronym ’XX, June 03–05, 2018, Woodstock, NY 
+
+Algorithm 1: SpecCal Candidate Calibration at Test Time                                                                                                                  
+
+> Input: IR spectrum 𝑠 , pretrained model 𝑝 𝜃 , initial candidate set Y0, target candidate size 𝐾 , maximum iterations 𝑇 , expansion size 𝑁 𝑒 ,exploration constant 𝐶 , trade-off parameter 𝜆
+> Output: Refined set of molecular structures Y
+> Initialize root nodes Z0using Y0;Initialize search tree Twith Z0;
+> for 𝑡 =1to 𝑇 do Selection: Select a node 𝑧 from Tusing UCB:
+> 𝑧 ←arg max
+> 𝑧 ′𝑄 (𝑧 ′) + 𝐶 √︄ ln 𝑁 (𝑝 (𝑧 ′) )
+> 𝑁 (𝑧 ′)
+> !
+> Expansion: Generate 𝑁 𝑒 molecular structure candidates from 𝑧 :
+> 𝑦 𝑘 ∼𝑝 𝜃 (· | 𝑦 (𝑧 ), 𝑠 ),𝑘 =1, . . . , 𝑁 𝑒
+> Create child nodes {𝑧 𝑘 }with 𝑦 (𝑧 𝑘 )=𝑦 𝑘 and add them to T;
+> Evaluation: Compute reward for each new node:
+> 𝑟 𝑘 =S ( 𝑦 𝑘 , 𝑠 )
+> Backpropagation: Update 𝑄 (·) and 𝑁 (·) along the path from {𝑧 𝑘 }to the root;
+> Candidate Selection: Initialize Y=∅;
+> while | Y | <𝐾 do
+> Select
+> 𝑧 ∗=arg max
+> 𝑧 ∈T
+> 
+> 𝜆 ·ˆ𝑟 (𝑦 (𝑧 ) ) + ( 1−𝜆 )
+> 
+> 1−max
+> 𝑦 ′ ∈Y sim (𝑦 (𝑧 ), 𝑦 ′)
+> 
+> Add 𝑦 (𝑧 ∗)to Y;
+> Return: Y;
+
+## 4.3 Candidate Expansion Strategy 
+
+We adopt an uncertainty-aware expansion strategy that refines uncertain regions of the current SMILES sequence during iterative search. Given 𝑦 (𝑡 ) = (𝑦 1, . . . , 𝑦 𝐿 ), we estimate token-level uncer-tainty using Shannon entropy [ 28 ] over the model’s predictive distribution at each sequence position: 
+
+𝐻 𝑖 = −∑︁  
+
+> 𝑣 ∈ V
+
+𝑝 𝜃 (𝑣 | 𝑦 <𝑖 , 𝑠 ) log 𝑝 𝜃 (𝑣 | 𝑦 <𝑖 , 𝑠 ), (10) and select the most uncertain position 𝑖 ∗ = arg max 𝑖 𝐻 𝑖 . At the se-lected position, we sample 𝑁 𝑐 candidate tokens from the predictive distribution to form expansion candidates: 
+
+˜𝑦 𝑖 ∗,𝑘 ∼ 𝑝 𝜃 (· | 𝑦 <𝑖 ∗ , 𝑠 ), 𝑘 = 1, . . . , 𝑁 𝑐 . (11) For each sampled token, we construct a partial sequence by pre-serving the prefix 𝑦 <𝑖 ∗ and replacing the token at position 𝑖 ∗ with 
+
+˜𝑦 𝑖 ∗,𝑘 . Each partial sequence is then completed autoregressively: 
+
+𝑦 (𝑡 +1) 
+
+> 𝑘
+
+∼ 𝑝 𝜃 (· | 𝑦 <𝑖 ∗ , ˜𝑦 𝑖 ∗,𝑘 , 𝑠 ), 𝑘 = 1, . . . , 𝑁 𝑐 . (12) This produces 𝑁 𝑐 expanded SMILES candidates from the current sequence, focusing exploration on low-confidence regions while preserving high-confidence substructures. 
+
+## 4.4 Spectral Evaluation and Reward 
+
+To guide the search process, we design a reward function based on spectral consistency between the observed IR spectrum and that predicted from a candidate molecular structure. Given a candidate molecule 𝑦 , we first obtain its corresponding predicted IR spectrum: 
+
+ˆ𝑠 = 𝑓 IR (𝑦 ), (13) where 𝑓 IR denotes an IR predictor that maps a molecular structure to its corresponding IR spectrum. In our implementation, we adopt a pretrained Chemprop-IR model [ 25 ]. We then quantify the simi-larity between the predicted spectrum ˆ𝑠 and the observed spectrum 
+
+𝑠 using Spectral Information Similarity (SIS) [ 25 ]. The similarity is computed based on spectral information divergence (SID) [7]: 
+
+SID ( ˆ𝑠, 𝑠 ) =∑︁ 
+
+> 𝑖
+
+ˆ𝑠 𝑖 log ˆ𝑠 𝑖 
+
+𝑠 𝑖 
+
++ 𝑠 𝑖 log 𝑠 𝑖 
+
+ˆ𝑠 𝑖 
+
+. (14) Finally, we convert this divergence into a bounded reward [ 25 ]: 
+
+S( 𝑦, 𝑠 ) = 11 + SID ( ˆ𝑠, 𝑠 ) , (15) which lies in (0, 1], with higher values indicating better spectral agreement. This reward formulation provides a smooth and infor-mative signal for guiding search, encouraging candidate molecules whose predicted spectra are highly consistent with the observed IR measurements. We analyze the associated computational overhead, including runtime and inference-time trade-offs, in Section 5.3. 
+
+## 5 Experiments 5.1 Experimental Setup 
+
+Dataset. We conduct experiments on two datasets: (1) a real-world dataset of experimentally measured gas-phase IR spectra from the NIST Chemistry WebBook [ 24 ], and (2) a large-scale synthetic dataset generated via molecular dynamics simulations [ 1 ]. In both datasets, each IR spectrum is represented as a discretized vector, paired with its ground-truth SMILES and molecular formula. The molecules contain atoms from {H, C, N, O, S, P, and halogens}, excluding charged species and stereoisomers, with 6–13 heavy atoms. The synthetic dataset contains 456,899/50,767/126,917 sam-ples for training/validation/test, while the NIST dataset contains 4,150/518/520 samples, respectively. 
+
+Evaluation Metrics. We evaluate performance using both ac-curacy and diversity metrics. For accuracy, we report top-𝑘 hit rates ( 𝑘 ∈ { 1, 5, 10 }) at the SMILES and scaffold levels [ 4 ], where a hit indicates that at least one of the top-𝑘 predictions matches the ground-truth SMILES or scaffold. For diversity, we measure Tanimoto similarity [ 26 ] and scaffold diversity, capturing pairwise structural similarity and the diversity of chemical backbones within each predicted set. Details of all metrics are provided in the Appen-dix A for completeness and reproducibility. These metrics jointly assess quality and coverage. 
+
+Baselines. We apply SpecCal as a calibration strategy on top of existing transformer-based models for IR-to-molecule predic-tion. We adopt IR2Mol [ 1], Patch Transformer [ 38 ], and a CoCa-based model [ 41 ] as base models. IR2Mol formulates the task as a sequence-to-sequence translation from IR spectra to SMILES. Patch Transformer employs a patch-based self-attention embedding with peak-aware data augmentation, enabling robust extraction of struc-tural information from complex spectra. The CoCa-based model integrates a contrastive captioning objective with autoregressive SMILES generation, aligning spectral and molecular representa-tions in a shared latent space. These baselines cover different mod-eling choices, including standard sequence-to-sequence generation, patch-based spectral encoding, and contrastive spectrum–molecule alignment. This diversity allows us to evaluate whether SpecCal provides consistent gains as a model-agnostic calibration strategy rather than being tailored to a specific architecture. Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Chen and Liu et al. 
+
+Table 1: Top-𝑘 molecular reconstruction accuracy (%). For each base model and dataset, SpecCal denotes calibrated predictions, and blue/red values show the absolute percentage-point gain/loss over the corresponding base prediction. 
+
+Base Model Dataset Method SMILES Level Scaffold Level 
+
+Top-1 Top-5 Top-10 Top-1 Top-5 Top-10 
+
+IR2Mol 
+
+NIST Base 37.115 58.654 62.500 81.538 88.077 89.231 
+
+SpecCal 54.423 (+17.308) 62.885 (+4.231) 63.846 (+1.346) 85.192 (+3.654) 90.000 (+1.923) 90.385 (+1.154) 
+
+SynSet Base 63.507 88.152 91.943 87.204 95.261 96.209 
+
+SpecCal 74.882 (+11.375) 88.626 (+0.474) 92.417 (+0.474) 92.891 (+5.687) 95.735 (+0.474) 96.209 (+0.000) 
+
+Patch Transformer 
+
+NIST Base 47.399 73.410 78.805 86.898 92.871 94.220 
+
+SpecCal 63.654 (+16.255) 76.154 (+2.744) 78.462 (-0.343) 88.077 (+1.179) 93.654 (+0.783) 94.231 (+0.011) 
+
+SynSet Base 68.720 90.995 94.787 90.995 95.735 97.630 
+
+SpecCal 77.725 (+9.005) 90.521 (-0.474) 94.787 (+0.000) 93.839 (+2.844) 97.156 (+1.421) 97.630 (+0.000) 
+
+CoCa 
+
+NIST Base 11.538 17.692 22.692 68.462 77.115 78.846 
+
+SpecCal 26.731 (+15.193) 30.769 (+13.077) 30.769 (+8.077) 77.500 (+9.038) 84.231 (+7.116) 84.423 (+5.577) 
+
+SynSet Base 21.327 29.384 36.019 72.512 81.517 83.886 
+
+SpecCal 47.867 (+26.540) 49.289 (+19.905) 49.289 (+13.270) 83.412 (+10.900) 90.047 (+8.530) 90.521 (+6.635) 
+
+Implementation Details. All experiments are conducted on a single NVIDIA-A40 GPU (48GB). Spectra are resampled to 400–4000 cm −1 and normalized, with model-specific resolutions. IR2Mol and Patch Transformer are pretrained on synthetic data and fine-tuned on NIST, while the CoCa-based model is trained on synthetic data and then trained from scratch on NIST. SpecCal is applied during inference for all models. For SpecCal, we use 𝐶 = 1.5 throughout. IR2Mol uses 50 iterations with 𝑁 𝑒 = 1, Patch Transformer uses 30 iterations with 𝑁 𝑒 = 2, and CoCa uses 50 iterations with 𝑁 𝑒 = 2.For synthetic data evaluation, we select 211 samples overlapping with NIST to obtain experimentally measured spectra. 
+
+## 5.2 Main Results 
+
+Top-𝑘 Accuracy. We evaluate SMILES and scaffold top-𝑘 (𝑘 ∈{1, 5, 10 }) hit rates on both the synthetic (SynSet) and NIST datasets, as summarized in Table 1. Applying SpecCal on different base mod-els consistently improves performance, with the strongest gains concentrated at top-1 and top-5. For IR2Mol, SMILES top-1 accuracy increases from 37.1% to 54.4% on NIST and from 63.5% to 74.8% on SynSet. For Patch Transformer, SpecCal improves top-1 accuracy from 47.4% to 63.7% on NIST and from 68.7% to 77.7% on SynSet. CoCa shows the same reranking effect, with top-1 accuracy rising from 11.5% to 26.7% on NIST and from 21.3% to 47.9% on SynSet. These improvements suggest that SpecCal is not merely expanding the candidate pool, but is effectively reranking spectrum-consistent structures toward the top of the list. For top-10, the gains are more modest for IR2Mol and Patch Transformer because the base models already retrieve a large frac-tion of plausible candidates within the broader beam. CoCa shows a more visible top-10 improvement, with SMILES accuracy rising from 36.0% to 49.3% on SynSet and from 22.7% to 30.8% on NIST. This suggests that SpecCal can do more than rerank existing high-confidence predictions: it can surface better structures that were not originally prioritized by the base model. The gains are also reflected 4 5 6 7 8 9 10 11            
+
+> Maximum Tree Depth
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> 0.40
+> Metric Value
+> Avg Tanimoto Similarity
+> Avg Scaffold Diversity
+> <=4 5-10 11-16 17-22 23-28 29-34 35-40 41-46 47-52 53-58 59-64 65-70
+> Valid Node Count (avg_reward > 0)
+> Metric Value
+> Avg Tanimoto Similarity
+> Avg Scaffold Diversity
+> Tanimoto Linear Fit
+> Scaffold Linear Fit
+
+Figure 3: Bucket-wise analysis of Tanimoto similarity and scaffold diversity. The left figure shows the relationship be-tween maximum tree depth and the diversity metrics, while the right figure illustrates the effect of the number of valid nodes ( reward > 0 ). Dashed lines indicate linear trend fits, and each point represents the bucket-average over all sam-ples within each bucket. 
+
+at the scaffold level, showing that SpecCal improves molecular-backbone reconstruction beyond exact SMILES matching. 
+
+Diversity Evaluation of Predicted Molecules. We evaluate the predicted molecules of various baselines on both the synthetic SynSet and the real NIST datasets by computing the average Tani-moto similarity and scaffold diversity, as shown in Table 2. A more diverse set of predictions is expected to exhibit lower Tanimoto sim-ilarity and higher scaffold diversity. The results show that, across different base models, integrating SpecCal significantly reduces Tanimoto similarity while increasing scaffold diversity, indicating enhanced structural diversity. Figure 3 further illustrates the rela-tionship between search tree scale (i.e., maximum depth and the number of valid nodes) and diversity. Increasing the tree depth from 4 to 5 leads to a substantial improvement, after which the metrics stabilize. In addition, the number of valid nodes is posi-tively correlated with diversity, highlighting the role of search scale in promoting diverse candidate generation. This observation fur-ther suggests that calibration expands the candidate set beyond near-duplicate structures. SpecCal: Ambiguity-Aware Candidate Calibration for Infrared Spectrum-Based Molecular Structure Reconstruction Conference acronym ’XX, June 03–05, 2018, Woodstock, NY 
+
+Table 2: Structural diversity analysis of the top-10 predicted molecular set. Lower Tanimoto similarity and higher scaffold diversity indicate more diverse predictions.                               
+
+> Model Method NIST SynSet Tanimoto Similarity ↓
+> Scaffold Diversity ↑
+> Tanimoto Similarity ↓
+> Scaffold Diversity ↑
+> IR2Mol Base 0.3876 0.1929 0.3967 0.2460 SpecCal 0.3192 0.2871 0.3297 0.3322
+> PatchTrans. Base 0.5946 0.1806 0.5253 0.2081 SpecCal 0.1677 0.4119 0.1953 0.4592
+> CoCa Base 0.5914 0.1565 0.6665 0.1943 SpecCal 0.3026 0.2833 0.3495 0.3573
+
+## 5.3 SpecCal Analysis 
+
+Ablation Analysis. We conduct ablation experiments on the NIST dataset using IR2Mol and CoCa as base models. The evaluated component is the Chemprop-IR model used for node scoring in SpecCal. In the ablated version, Chemprop-IR is replaced with a sim-ple chemical formula matching score; detailed reward computation is provided in the Appendix B. We report top-1, top-5, and top-10 hit rates at both SMILES and scaffold levels (Figure 4). The results show that the pretrained Chemprop-IR model plays a critical role in the overall performance of SpecCal, while SpecCal still yields no-ticeable improvements even without a dedicated IR predictor. The formula-based reward still provides a coarse chemical constraint by favoring candidates with compatible elemental composition, which explains why the ablated variant remains better than the base model. However, Chemprop-IR provides a finer spectral con-straint and can better distinguish candidates with similar formulas but different structures, leading to stronger calibrated predictions. 
+
+Figure 4: Ablation study on the NIST dataset. Each plot shows the top-𝑘 hit rates ( 𝑘 = 1, 5, 10 ) for three settings: the base model, the base model with SpecCal, and the base model with SpecCal without Chemprop-IR. The top row corresponds to IR2Mol and the bottom row to CoCa, with SMILES match (left) and scaffold match (right). Sensitivity Analysis. We analyze the sensitivity of SpecCal on the NIST dataset using IR2Mol as the base model, focusing on 𝜆 and temperature (Figure 5). The parameter 𝜆 controls node selection af-ter MCTS, while temperature governs resampling during expansion. 0.4 0.6 0.8 1.0      
+
+> λ
+> 0.20
+> 0.25
+> 0.30
+> Tanimoto similarity
+> Tanimoto similarity Scaffold diversity
+> 1234
+> temperature
+> 0.26
+> 0.28
+> 0.30
+> 0.32
+> Tanimoto similarity
+> Tanimoto similarity Scaffold diversity
+> 0.30
+> 0.35
+> 0.40
+> 0.45
+> Scaffold diversity
+> 0.26
+> 0.28
+> 0.30
+> Scaffold diversity
+
+Figure 5: Sensitivity analysis of SpecCal with respect to key hyperparameters. The left panel shows the effect of 𝜆 on diversity metrics, while the right panel illustrates the impact of temperature during the expansion stage. 
+
+As 𝜆 increases, diversity decreases, reflected by higher Tanimoto similarity and lower scaffold diversity. This is consistent with 𝜆 
+
+controlling the balance between reward maximization and diver-sity promotion: smaller values favor broader exploration, whereas larger values prioritize spectrum-consistent candidates. Tempera-ture shows a non-monotonic effect on diversity. As temperature increases, Tanimoto similarity first decreases and then increases when the temperature exceeds 2.5; scaffold diversity first improves and then declines when the temperature exceeds 1.5. These trends indicate that moderate temperature encourages exploration and produces more diverse valid candidates, whereas overly high tem-perature increases the probability of generating invalid structures during expansion. Since these invalid candidates are filtered out, the effective candidate set becomes less diverse. In practice, the results indicate that SpecCal is reasonably robust over a range of settings, while intermediate values of 𝜆 and temperature offer a better balance between accuracy and diversity. 
+
+Computational Overhead. SpecCal incurs additional compu-tational cost at test time due to the iterative tree search process, including candidate expansion and spectral evaluation. Compared with standard single-pass decoding, this leads to increased inference time. However, SpecCal is training-free and requires no parameter updates, so the additional cost is incurred only during inference and avoids the substantial overhead associated with training or fine-tuning a new model. In practice, this provides a favorable trade-off, as improved reconstruction accuracy and structural diversity can be obtained without retraining. The computational cost can also be flexibly controlled by adjusting the search scale, such as the Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Chen and Liu et al. 
+
+number of iterations and expansion size, allowing users to balance efficiency and performance. 
+
+Case Study. We analyze a sample from the NIST dataset with ground-truth SMILES CCCCCC=CCCC=O . This case illustrates the sec-ond role of SpecCal discussed in Section 1: beyond re-ranking the existing candidate set, SpecCal can introduce additional structurally plausible molecules that are missed by the initial base model. As shown in Figure 6, the base model with beam search does not recon-struct the correct molecular structure within its top-10 predictions. The ground-truth structure is therefore absent from the original candidate set, meaning that re-ranking alone would be insufficient for correcting this prediction. (a) GT 
+
+> Ground Truth
+> CCCCCC=CCCC=O
+> (b) Top-1
+> Prediction 1
+> COc1cccc(CCN)c1OC
+> (c) Top-2
+> Prediction 2
+> COc1cccc(CCN)c1C
+> (d) Top-3
+> Prediction 3
+> COc1cccc(OC)c1CCN
+
+Figure 6: Top-3 predictions from the base model. The ground-truth structure is not included in the top-10 predictions, illus-trating that the initial beam fails to reconstruct the correct molecule under this challenging spectrum. ROOT     
+
+> C9H16O
+> C10H18O C11H20O
+> C10H17O C10H18O
+> C10H18O C10H18O
+> Invalid
+> Invalid Invalid
+> C10H17O
+
+Figure 7: Partial visualization of the SpecCal calibration pro-cess for the case study. The ground-truth structure is incor-porated into the calibrated candidate set and ranked among the top-10 predictions. 
+
+After applying SpecCal, the ground-truth structure is incorpo-rated into the calibrated top-10 candidate set through test-time calibration (Figure 7). The corresponding node obtains a reward of 
+
+0.29 and is ranked 5th in the refined set, indicating that spectral-consistency-guided calibration can introduce a valid structure that was not initially generated by the base model. Meanwhile, the av-erage Tanimoto similarity decreases from 0.53 to 0.38 , suggesting that SpecCal does not simply generate minor variants of the origi-nal beam candidates, but expands the candidate set toward more diverse molecular structures. This example highlights how can-didate calibration can improve IR-to-molecule reconstruction by expanding the calibrated candidate set under spectral constraints. 
+
+## 6 Conclusion 
+
+We propose SpecCal, a training-free, plug-and-play, reward-guided calibration framework for IR-based molecular structure reconstruc-tion. Built on Monte Carlo Tree Search, it refines Transformer-based model predictions at test time by balancing exploration of diverse candidate structures and exploitation of structures with high spectral consistency, without requiring any modification of model parameters. Experiments on multiple datasets show that SpecCal achieves state-of-the-art accuracy while improving the diversity of predicted structures, uncovering plausible molecular structures beyond the ground truth that remain highly consistent with the observed spectrum, and demonstrating the effectiveness of test-time calibration for ambiguity-aware molecular reconstruction. 
+
+## 7 Limitations and Ethical Considerations 
+
+Despite its effectiveness, SpecCal introduces additional computa-tional overhead during inference because the search procedure is performed on a per-sample basis and requires iterative expansion. Future work will focus on improving search efficiency through adaptive budget allocation and on extending SpecCal to related spectroscopy tasks for molecular reconstruction. This work uses public or synthetic molecular spectroscopy datasets and does not involve human subjects, personally identifiable information, or pri-vate data. Potential risks mainly concern misuse for unsafe chemical design, so practical deployment should follow applicable laboratory safety, chemical compliance, and responsible use guidelines. 
+
+## 8 Generative AI Usage 
+
+Generative AI tools were used only to assist with language pol-ishing, formatting, and clarity checking during manuscript prepa-ration. All technical claims, experimental results, tables, figures, citations, and scientific interpretations were reviewed and verified by the authors. No generative AI system was used to produce exper-imental measurements, alter reported results, or make autonomous scientific decisions. 
+
+## 9 Data Availability 
+
+The datasets used in this work are publicly available. The NIST Chemistry WebBook can be accessed at https://webbook.nist.gov/ chemistry/. For the synthetic dataset (SynSet), we use the dataset introduced in prior work [ 1 ]. The dataset is publicly available at https://zenodo.org/records/7928396. SpecCal: Ambiguity-Aware Candidate Calibration for Infrared Spectrum-Based Molecular Structure Reconstruction Conference acronym ’XX, June 03–05, 2018, Woodstock, NY 
+
+## References 
+
+[1] Marvin Alberts, Teodoro Laino, and Alain C Vaucher. 2024. Leveraging infrared spectroscopy for automated structure elucidation. Communications Chemistry 7, 1 (2024), 268. [2] Matthew J Baker, Júlio Trevisan, Paul Bassan, Rohit Bhargava, Holly J Butler, Konrad M Dorling, Peter R Fielden, Simon W Fogarty, Nigel J Fullwood, Kelly A Heys, et al . 2014. Using Fourier transform IR spectroscopy to analyze biological materials. Nature protocols 9, 8 (2014), 1771–1791. [3] Axel D Becke. 1993. Density-functional thermochemistry. III. The role of exact exchange. The Journal of chemical physics 98, 7 (1993), 5648–5652. [4] Guy W Bemis and Mark A Murcko. 1996. The properties of known drugs. 1. Molecular frameworks. Journal of medicinal chemistry 39, 15 (1996), 2887–2893. [5] Cameron B Browne, Edward Powley, Daniel Whitehouse, Simon M Lucas, Peter I Cowling, Philipp Rohlfshagen, Stephen Tavener, Diego Perez, Spyridon Samoth-rakis, and Simon Colton. 2012. A survey of monte carlo tree search methods. 
+
+IEEE Transactions on Computational Intelligence and AI in games 4, 1 (2012), 1–43. [6] Jaime Carbonell and Jade Goldstein. 1998. The use of MMR, diversity-based reranking for reordering documents and producing summaries. In Proceedings of the 21st annual international ACM SIGIR conference on Research and development in information retrieval . 335–336. [7] Chein-I Chang. 1999. Spectral information divergence for hyperspectral image analysis. In IEEE 1999 International Geoscience and Remote Sensing Symposium. IGARSS’99 (Cat. No. 99CH36293) , Vol. 1. IEEE, 509–511. [8] Zhe Chen, Weiyun Wang, Yue Cao, Yangzhou Liu, Zhangwei Gao, Erfei Cui, Jinguo Zhu, Shenglong Ye, Hao Tian, Zhaoyang Liu, et al . 2024. Expanding performance boundaries of open-source multimodal models with model, data, and test-time scaling. arXiv preprint arXiv:2412.05271 (2024). [9] Rémi Coulom. 2006. Efficient selectivity and backup operators in Monte-Carlo tree search. In International conference on computers and games . Springer, 72–83. [10] Sriram Devata, Bhuvanesh Sridharan, Sarvesh Mehta, Yashaswi Pathak, Sid-dhartha Laghuvarapu, Girish Varma, and U Deva Priyakumar. 2024. DeepSPInN– deep reinforcement learning for molecular structure prediction from infrared and 13 C NMR spectra. Digital Discovery 3, 4 (2024), 818–829. [11] Shuo Feng, Meng Huang, Yanbo Li, Aoran Cai, Xiaoyu Yue, Song Wang, Linjiang Chen, Jun Jiang, and Yi Luo. 2025. Intelligent understanding of spectra: from structural elucidation to property design. Chemical Society Reviews 54, 18 (2025), 8243–8286. [12] Markus Freitag and Yaser Al-Onaizan. 2017. Beam search strategies for neural machine translation. In Proceedings of the First Workshop on Neural Machine Translation . 56–60. [13] Michael Gastegger, Jörg Behler, and Philipp Marquetand. 2017. Machine learning molecular dynamics for the simulation of infrared spectra. Chemical science 8, 10 (2017), 6924–6935. [14] Shibo Hao, Yi Gu, Haodi Ma, Joshua Hong, Zhen Wang, Daisy Wang, and Zhiting Hu. 2023. Reasoning with language model is planning with world model. In 
+
+Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing . 8154–8173. [15] Di He, Hanqing Lu, Yingce Xia, Tao Qin, Liwei Wang, and Tie-Yan Liu. 2017. Decoding with value networks for neural machine translation. Advances in Neural information processing systems 30 (2017). [16] Henning Henschel, Alfred T Andersson, Willem Jespers, Mohammad Mehdi Ghahremanpour, and David Van der Spoel. 2020. Theoretical infrared spectra: quantitative similarity measures and force fields. Journal of chemical theory and computation 16, 5 (2020), 3307–3315. [17] Coleman Hooper, Sehoon Kim, Suhong Moon, Kerem Dilmen, Monishwaran Maheswaran, Nicholas Lee, Michael W Mahoney, Sophia Shao, Kurt Keutzer, and Amir Gholami. 2025. Ets: Efficient tree search for inference-time scaling. arXiv preprint arXiv:2502.13575 (2025). [18] Kas J Houthuijs, Giel Berden, Udo FH Engelke, Vasuk Gautam, David S Wishart, Ron A Wevers, Jonathan Martens, and Jos Oomens. 2023. An in silico infrared spectral library of molecular ions for metabolite identification. Analytical chem-istry 95, 23 (2023), 8998–9005. [19] Neena Jaggi and DR Vij. 2006. Fourier transform infrared spectroscopy. In 
+
+Handbook of Applied Solid State Spectroscopy . Springer, 411–450. [20] Ganesh Chandan Kanakala, Bhuvanesh Sridharan, and U Deva Priyakumar. 2024. Spectra to structure: contrastive learning framework for library ranking and generating molecular structures for infrared spectra. Digital Discovery 3, 12 (2024), 2417–2423. [21] Madanakrishna Katari, Edith Nicol, Vincent Steinmetz, Guillaume van der Rest, Duncan Carmichael, and Gilles Frison. 2017. Improved infrared spectra prediction by DFT from a new experimental database. Chemistry–A European Journal 23, 35 (2017), 8414–8423. [22] Tobias Kind and Oliver Fiehn. 2010. Advances in structure elucidation of small molecules using mass spectrometry. Bioanalytical reviews 2, 1 (2010), 23–60. [23] Levente Kocsis and Csaba Szepesvári. 2006. Bandit based monte-carlo planning. In European conference on machine learning . Springer, 282–293. [24] Peter J Linstrom and William G Mallard. 2001. The NIST Chemistry WebBook: A chemical data resource on the internet. Journal of Chemical & Engineering Data 
+
+46, 5 (2001), 1059–1063. [25] Charles McGill, Michael Forsuelo, Yanfei Guan, and William H Green. 2021. Predicting infrared spectra with message passing neural networks. Journal of chemical information and modeling 61, 6 (2021), 2594–2609. [26] David Rogers and Mathew Hahn. 2010. Extended-connectivity fingerprints. 
+
+Journal of chemical information and modeling 50, 5 (2010), 742–754. [27] Naseem Saquer, Razib Iqbal, Joshua D Ellis, and Keiichi Yoshimatsu. 2024. Infrared spectra prediction using attention-based graph neural networks. Digital Discovery 
+
+3, 3 (2024), 602–609. [28] Claude Elwood Shannon. 1948. A mathematical theory of communication. The Bell system technical journal 27, 3 (1948), 379–423. [29] Shuaike Shen, Jiaqing Xie, Zhuo Yang, Antong Zhang, Shuzhou Sun, Ben Gao, Tianfan Fu, Biqing Qi, and Yuqiang Li. 2025. MolSpectLLM: A Molecular Foun-dation Model Bridging Spectroscopy, Molecule Elucidation, and 3D Structure Generation. arXiv preprint arXiv:2509.21861 (2025). [30] David Silver, Aja Huang, Chris J Maddison, Arthur Guez, Laurent Sifre, George Van Den Driessche, Julian Schrittwieser, Ioannis Antonoglou, Veda Panneershel-vam, Marc Lanctot, et al . 2016. Mastering the game of Go with deep neural networks and tree search. nature 529, 7587 (2016), 484–489. [31] Brian C Smith. 2011. Fundamentals of Fourier transform infrared spectroscopy .CRC press. [32] Charlie Snell, Jaehoon Lee, Kelvin Xu, and Aviral Kumar. 2024. Scaling llm test-time compute optimally can be more effective than scaling model parameters. 
+
+arXiv preprint arXiv:2408.03314 (2024). [33] Stephen E Stein and Donald R Scott. 1994. Optimization and testing of mass spectral library search algorithms for compound identification. Journal of the American Society for Mass Spectrometry 5, 9 (1994), 859–866. [34] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. Advances in neural information processing systems 30 (2017). [35] Ashwin K Vijayakumar, Michael Cogswell, Ramprasath R Selvaraju, Qing Sun, Ste-fan Lee, David Crandall, and Dhruv Batra. 2016. Diverse beam search: Decoding diverse solutions from neural sequence models. arXiv preprint arXiv:1610.02424 
+
+(2016). [36] Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed Chi, Sharan Narang, Aakanksha Chowdhery, and Denny Zhou. 2022. Self-consistency improves chain of thought reasoning in language models. arXiv preprint arXiv:2203.11171 (2022). [37] David Weininger. 1988. SMILES, a chemical language and information system. 1. Introduction to methodology and encoding rules. Journal of chemical information and computer sciences 28, 1 (1988), 31–36. [38] Wenjin Wu, Ales Leonardis, Jianbo Jiao, Jun Jiang, and Linjiang Chen. 2025. Transformer-based models for predicting molecular structures from infrared spectra using patch-based self-attention. The Journal of Physical Chemistry A 
+
+129, 8 (2025), 2077–2085. [39] Yilin Yang, Liang Huang, and Mingbo Ma. 2018. Breaking the beam search curse: A study of (re-) scoring methods and stopping criteria for neural machine translation. In Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing . 3054–3059. [40] Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Tom Griffiths, Yuan Cao, and Karthik Narasimhan. 2023. Tree of thoughts: Deliberate problem solving with large language models. Advances in neural information processing systems 36 (2023), 11809–11822. [41] Colin Zhang and Yang Ha. 2025. Toward Complete Molecular Structure Prediction from Infrared Spectroscopy Using Deep Learning. Journal of Chemical Information and Modeling 66, 1 (2025), 100–109. [42] Qiyuan Zhang, Fuyuan Lyu, Zexu Sun, Lei Wang, Weixu Zhang, Wenyue Hua, Haolun Wu, Zhihan Guo, Yufei Wang, Niklas Muennighoff, et al . 2025. A survey on test-time scaling in large language models: What, how, where, and how well? 
+
+arXiv preprint arXiv:2503.24235 (2025). 
+
+## A Evaluation Metrics 
+
+To evaluate the structural diversity of the predicted molecular sets, we adopt two complementary metrics: Tanimoto similarity and scaffold diversity. 
+
+Tanimoto Similarity. Given a set of predicted molecules Y =
+
+{𝑦 1, . . . , 𝑦 𝑛 }, we compute the average pairwise Tanimoto similarity based on molecular fingerprints: 
+
+Sim (Y) = 2
+
+𝑛 (𝑛 − 1)∑︁ 𝑖 < 𝑗 
+
+Tanimoto (𝑦 𝑖 , 𝑦 𝑗 ), (16) Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Chen and Liu et al. 
+
+where Tanimoto (𝑦 𝑖 , 𝑦 𝑗 ) denotes the Tanimoto similarity between the fingerprints of molecules 𝑦 𝑖 and 𝑦 𝑗 . A lower value indicates higher structural diversity within the set. 
+
+Scaffold Diversity. We further measure diversity at the scaffold level using Bemis–Murcko scaffolds. Given the same set Y, scaffold diversity is defined as: 
+
+Div scaffold (Y) = |S(Y)| |Y| , (17) where S(Y) denotes the set of unique scaffolds extracted from Y.A higher value indicates a more diverse set of molecular backbones. 
+
+Group-wise Aggregation. In practice, predicted molecules are organized into groups (e.g., top-𝑘 candidates for each sample). The above metrics are first computed within each group and then aver-aged across all groups to obtain the final reported values. 
+
+## B Reward Computation Details 
+
+In the ablated setting, where Chemprop-IR is not used, we adopt a simple chemical formula matching score as the reward function. Given a target molecular formula, we extract the count of each element 𝑡 𝑒 , and for a candidate molecule (parsed from SMILES), we obtain the corresponding element count 𝑐 𝑒 . Let E denote the set of all elements. We first compute the 𝐿 1 mismatch between the candidate and target formulas: 
+
+mismatch 𝐿 1 =∑︁  
+
+> 𝑒 ∈ E
+
+|𝑐 𝑒 − 𝑡 𝑒 | . (18) To normalize this value, we define: 
+
+𝑇 =∑︁  
+
+> 𝑒 ∈ E
+
+𝑡 𝑒 , mismatch norm = mismatch 𝐿 1
+
+max (1,𝑇 ) . (19) The final reward is computed as: 
+
+𝑟 nochem = max (0, 1 − mismatch norm ) . (20) This formulation assigns a reward of 1 when the elemental com-position exactly matches the target, and gradually decreases as the mismatch increases, with a lower bound of 0.
+
+## C Test-Time Scaling 
+
+Test-Time Scaling (TTS) improves the performance of pretrained models by allocating additional computation during inference, with-out modifying model parameters or retraining [ 8, 32 , 42 ]. It is widely used in large language models (LLMs) to explore alternative outputs or reasoning trajectories, and is particularly effective for tasks with intrinsic uncertainty or multiple plausible solutions. TTS encompasses a range of inference-time strategies, includ-ing random sampling [ 36 ], self-consistency, and tree-search-based methods [ 14 , 17 , 40 ], all of which aim to better explore the space of candidate solutions beyond single-pass generation. Among these, tree-search methods provide a structured way to balance explo-ration and exploitation during inference. A representative approach is Monte Carlo Tree Search [ 5, 9, 30 ], which incrementally builds a search tree over candidate solutions and uses a reward signal to guide the search toward promising regions. By enabling sys-tematic exploration of the solution space, TTS methods, especially tree-search-based approaches, can improve prediction reliability and robustness. SpecCal can be viewed as a TTS strategy for IR-to-molecule reconstruction, since it allocates additional inference-time computation to calibrate the candidate set without updating the base model.
