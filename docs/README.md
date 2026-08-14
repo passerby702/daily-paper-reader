@@ -6,79 +6,77 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-09
-- 运行时间：2026-08-09 21:09:48 UTC
+- 最新运行日期：2026-08-14
+- 运行时间：2026-08-14 21:07:58 UTC
 - 运行状态：成功
 - 本次总论文数：19
 - 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-今日聚焦AI生成模型：19篇论文中，7篇精读、12篇速读，核心覆盖分子设计与视觉生成。  
-最值得精读的是《Fused Bayesian Flow Networks for Dual-Target Molecular Design》（9.0分）与《MolecularCanvas》（8.0分），均瞄准AI辅助药物发现与结构约束分子生成。  
-建议普通读者优先关注双靶点分子设计与多模态生成模型的新框架，后续可跟进这些方法在跨领域生成任务中的迁移。
-- 详情：[/202608/09/README](/202608/09/README)
+今日聚焦视频插帧方向，19篇论文中精读2篇高分（均9.0）且全为该主题。最值得关注的是多假设流估计与事件流引导的DiT插帧方法，显著优于常规方案；速读中文生图、3D生成等也有亮点。建议普通读者重点追踪视频插帧领域进展，并可顺带浏览生成式AI的可控性与主体一致性研究。
+- 详情：[/202608/14/README](/202608/14/README)
 
 ### 精读区论文标签
-1. [Fused Bayesian Flow Networks for Dual-Target Molecular Design](/202608/09/2608.01007v1-fused-bayesian-flow-networks-for-dual-target-molecular-design)  
-   标签：评分：9.0/10、query:pocket-lig
-   evidence：基于蛋白靶点条件的3D分子生成模型
-2. [MolecularCanvas: LLM-assisted Small-Molecule Drug Discovery via Structure-Guided Constraints](/202608/09/2608.00393v1-molecularcanvas-llm-assisted-small-molecule-drug-discovery-via-structure-guided-constraints)  
+1. [Multiple Hypothesis Flow Estimation for Video Frame Interpolation under Matching Ambiguity](/202608/14/2608.07120v1-multiple-hypothesis-flow-estimation-for-video-frame-interpolation-under-matching-ambiguity)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：论文直接处理视频帧插值问题，提出多假设光流估计方法
+2. [Bridging Event Streams and DiT: Event-Guided Video Frame Interpolation](/202608/14/2608.10479v1-bridging-event-streams-and-dit-event-guided-video-frame-interpolation)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：基于潜在扩散模型的事件引导视频帧插值方法
+3. [Bridging Event Streams and DiT: Event-Guided Video Frame Interpolation](/202608/14/2608.10479v2-bridging-event-streams-and-dit-event-guided-video-frame-interpolation)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：基于潜在扩散模型与DiT的事件引导视频帧插值，直接匹配视频插值方法需求
+4. [Beyond Pixels: From Video Priors to 4D Worlds](/202608/14/2608.10744v1-beyond-pixels-from-video-priors-to-4d-worlds)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：利用视频扩散模型潜变量直接进行4D场景生成，提供了可复用的接口
+5. [SNM-VFI: Symmetric Nonlinear Motion-Guided Generative Video Frame Interpolation](/202608/14/2608.13460v1-snm-vfi-symmetric-nonlinear-motion-guided-generative-video-frame-interpolation)  
+   标签：评分：9.0/10、query:diff-gen
+   evidence：基于扩散模型的生成式视频帧插值
+6. [Hierarchical Flow Matching for 3D Point Cloud Generation](/202608/14/2608.05557v1-hierarchical-flow-matching-for-3d-point-cloud-generation)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：面向药物发现的小分子生成与优化，支持结构级修改意图
-3. [UDT: Reconciling U-Nets and Diffusion Transformers with Data-Adaptive Token Reduction](/202608/09/2608.01298v1-udt-reconciling-u-nets-and-diffusion-transformers-with-data-adaptive-token-reduction)  
+   evidence：流匹配用于3D点云生成
+7. [Staying True to the Origin: Continuous Image Stylization with Smooth Transitions](/202608/14/2608.08125v1-staying-true-to-the-origin-continuous-image-stylization-with-smooth-transitions)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：面向多模态生成任务的扩散Transformer架构与数据自适应令牌缩减
-4. [Fourier-Latent Diffusion for Constrained Generation of Triply Periodic Minimal Surfaces](/202608/09/2608.02151v1-fourier-latent-diffusion-for-constrained-generation-of-triply-periodic-minimal-surfaces)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：基于扩散的3D TPMS结构可控生成
-5. [Fourier-Latent Diffusion for Constrained Generation of Triply Periodic Minimal Surfaces](/202608/09/2608.02151v2-fourier-latent-diffusion-for-constrained-generation-of-triply-periodic-minimal-surfaces)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：用于三维曲面生成的扩散模型
-6. [Rectify Then Diffuse: Disentangling Concepts Before Denoising Trajectory Unfolds](/202608/09/2608.03135v1-rectify-then-diffuse-disentangling-concepts-before-denoising-trajectory-unfolds)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：用于组合式文生图扩散模型的免训练框架，处理多模态文本-图像生成。
-7. [ED-DiT: Physics-Guided Diffusion Pretraining for Transferable Molecular Representations from Electron Density](/202608/09/2608.03260v1-ed-dit-physics-guided-diffusion-pretraining-for-transferable-molecular-representations-from-electron-density)  
-   标签：评分：8.0/10、query:diff-gen
-   evidence：基于电子密度的扩散Transformer预训练，用于分子表示学习，与分子深度学习生成任务高度相关
+   evidence：基于Diffusion Transformer的多模态图像风格化与连续控制，符合多模态扩散生成需求
 
 ### 速读区论文标签
-1. [CSGen: A Multi-Domain Curvilinear Structure Generation Model via Hierarchical Multimodal Diffusion](/202608/09/2608.04655v1-csgen-a-multi-domain-curvilinear-structure-generation-model-via-hierarchical-multimodal-diffusion)  
+1. [In-Loop Model Adaptation with Coupled Latent-Noise Guidance for High-Fidelity Subject-Driven Text-to-Image Generation](/202608/14/2608.09244v1-in-loop-model-adaptation-with-coupled-latent-noise-guidance-for-high-fidelity-subject-driven-text-to-image-generation)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：层次化多模态扩散模型用于可控曲线结构图像生成，直接匹配多模态扩散生成。
-2. [UniWorld-View: Large-Baseline View Synthesis via Video Diffusion Models](/202608/09/2608.04701v1-uniworld-view-large-baseline-view-synthesis-via-video-diffusion-models)  
+   evidence：基于扩散模型的文本到图像生成，面向主体驱动的定制化生成
+2. [TGRHuman: Text-Guided Realistic 3D Human Generation via Diffusion Renderer](/202608/14/2608.12175v1-tgrhuman-text-guided-realistic-3d-human-generation-via-diffusion-renderer)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：基于视频扩散模型的3D场景新视角合成
-3. [Intrinsic-Hybrid Latent Diffusion Models for Generative Modeling on Unknown Manifolds](/202608/09/2608.04827v1-intrinsic-hybrid-latent-diffusion-models-for-generative-modeling-on-unknown-manifolds)  
+   evidence：基于扩散渲染器的文本引导真实3D人体生成
+3. [Semantic Steering for Controllable Generation: Tuning-Free Concept Erasure in Multimodal Diffusion Transformers](/202608/14/2608.12829v1-semantic-steering-for-controllable-generation-tuning-free-concept-erasure-in-multimodal-diffusion-transformers)  
    标签：评分：8.0/10、query:diff-gen
-   evidence：流形上生成建模的扩散模型
-4. [Round-Trip Consistency: Bidirectional Diffusion Models Can Predict Their Own Rollout Errors](/202608/09/2608.00675v1-round-trip-consistency-bidirectional-diffusion-models-can-predict-their-own-rollout-errors)  
+   evidence：多模态扩散Transformer中的免调参概念擦除，符合多模态扩散模型需求
+4. [Spatially-Grounded Text-to-Video Generation via Inference-Time Gradient-Free Optimization](/202608/14/2608.13037v1-spatially-grounded-text-to-video-generation-via-inference-time-gradient-free-optimization)  
+   标签：评分：8.0/10、query:diff-gen
+   evidence：扩散Transformer文生视频空间控制方法，直接匹配多模态扩散生成主题
+5. [Energy-Guided Flow Matching](/202608/14/2608.05811v2-energy-guided-flow-matching)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：双向扩散模型用于自监督展开误差预测
-5. [Token Radius Attention for Efficient Video Generation](/202608/09/2608.02504v1-token-radius-attention-for-efficient-video-generation)  
+   evidence：能量引导的流匹配实现由粗到细的图像生成
+6. [How Molecular Generative Models Organize Molecular Identity](/202608/14/2608.06956v1-how-molecular-generative-models-organize-molecular-identity)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：视频扩散模型的高效注意力机制
-6. [DiverseDiT++: Quantifying, Analyzing, and Promoting Representation Diversity in Diffusion Transformers](/202608/09/2608.03082v1-diversedit-quantifying-analyzing-and-promoting-representation-diversity-in-diffusion-transformers)  
+   evidence：分子生成模型
+7. [DynaCrys: Crystal Generation with Dynamic Space-Group Diffusion](/202608/14/2608.07401v1-dynacrys-crystal-generation-with-dynamic-space-group-diffusion)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：扩散Transformer表示多样性度量与促进方法，用于视觉生成
-7. [Test-Time Scaling for Safe Text-Guided Image Generation via Intermediate Clean Estimates](/202608/09/2608.03284v1-test-time-scaling-for-safe-text-guided-image-generation-via-intermediate-clean-estimates)  
+   evidence：基于扩散模型的晶体结构生成，与分子生成相关
+8. [SC-Diff: Semantically Calibrated Diffusion for Visible-to-Infrared Image Translation](/202608/14/2608.08555v1-sc-diff-semantically-calibrated-diffusion-for-visible-to-infrared-image-translation)  
    标签：评分：7.0/10、query:diff-gen
-   evidence：面向文本生成图像的扩散模型测试时安全方法
-8. [SPADE: An Input-Adaptive Sparse Attention Engine for Fast Video Diffusion Models Inference](/202608/09/2608.03335v1-spade-an-input-adaptive-sparse-attention-engine-for-fast-video-diffusion-models-inference)  
-   标签：评分：7.0/10、query:diff-gen
-   evidence：面向视频扩散模型推理加速的输入自适应稀疏注意力引擎
-9. [One-Sided Quantile Coupling for Flow Matching](/202608/09/2608.00978v1-one-sided-quantile-coupling-for-flow-matching)  
+   evidence：论文将扩散模型用于可见光到红外的跨模态图像翻译，匹配多模态学习与生成主题
+9. [Sample-Adaptive Latent Rewards for Uncertainty-Guided Diffusion Post-Training](/202608/14/2608.06125v1-sample-adaptive-latent-rewards-for-uncertainty-guided-diffusion-post-training)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：面向流匹配生成模型的轻量级分位数耦合方法
-10. [SPAE: Spectrally Guided Autoencoder for Pretrained Visual Latents](/202608/09/2608.01306v1-spae-spectrally-guided-autoencoder-for-pretrained-visual-latents)  
+   evidence：面向图像与视频扩散模型的统一潜在奖励框架，与多模态扩散生成相关
+10. [Explore or Converge? Stage-Guided Per-Step Optimization for Diffusion Models](/202608/14/2608.06768v1-explore-or-converge-stage-guided-per-step-optimization-for-diffusion-models)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：面向扩散Transformer生成的潜在适应
-11. [SPARE: Structural Parameter-Free Affinity Regularization for Flow Matching](/202608/09/2608.01990v1-spare-structural-parameter-free-affinity-regularization-for-flow-matching)  
+   evidence：面向扩散模型偏好对齐的分阶段逐步优化方法
+11. [PAST: Prompt-Adaptive Sampling Termination for Efficient Diffusion Model](/202608/14/2608.06794v1-past-prompt-adaptive-sampling-termination-for-efficient-diffusion-model)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：扩散/流模型训练加速，对各类扩散生成任务具有通用性
-12. [Beyond Global Latents: Chunk-Based Sparse Grid VAE for Scalable 3D Modeling](/202608/09/2608.02016v1-beyond-global-latents-chunk-based-sparse-grid-vae-for-scalable-3d-modeling)  
+   evidence：文本到图像扩散模型的强化学习优化
+12. [Flow-Corrected Shape Optimization: Taming Manifold Drift in High-Dimensional 3D Models](/202608/14/2608.07199v1-flow-corrected-shape-optimization-taming-manifold-drift-in-high-dimensional-3d-models)  
    标签：评分：6.0/10、query:diff-gen
-   evidence：用于可扩展3D建模的稀疏网格VAE，可作为扩散3D生成的迁移表示。
+   evidence：在深度生成模型潜空间中进行3D形状优化与流校正
 
 
 <div class="dpr-home-promo-card">
